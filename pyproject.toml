@@ -26,7 +26,7 @@ dependencies = [
     "dm_tree==0.1.8",
     "einops==0.8.1",
     "gymnasium==1.0.0",
-    "h5py==3.12.1",
+    "h5py==3.13.0",
     "hydra-core==1.3.2",
     "imageio==2.34.2",
     "kornia==0.7.4",
