@@ -42,7 +42,7 @@ dependencies = [
     "PyYAML==6.0.2",
     "ray==2.40.0",
     "Requests==2.32.3",
-    "tensorflow==2.15.0",
+    "tensorflow==2.18.1",
     "tianshou==0.5.1",
     "timm==1.0.14",
     "tqdm==4.67.1",
