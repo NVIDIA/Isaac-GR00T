@@ -43,7 +43,7 @@ dependencies = [
     "ray==2.40.0",
     "Requests==2.32.3",
     "tensorflow==2.15.0",
-    "tianshou==0.5.1",
+    "tianshou==1.1.0",
     "timm==1.0.14",
     "tqdm==4.67.1",
     "transformers==4.45.2",
