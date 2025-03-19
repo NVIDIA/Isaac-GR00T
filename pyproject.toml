@@ -46,7 +46,7 @@ dependencies = [
     "tianshou==0.5.1",
     "timm==1.0.14",
     "tqdm==4.67.1",
-    "transformers==4.45.2",
+    "transformers==4.49.0",
     "typing_extensions==4.12.2",
     "pyarrow==14.0.1",
     "wandb==0.19.0",
