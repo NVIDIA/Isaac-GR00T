@@ -34,7 +34,7 @@ dependencies = [
     "numpy>=1.23.5,<2.0.0",
     "numpydantic==1.6.7",
     "omegaconf==2.3.0",
-    "opencv_python==4.8.0.74",
+    "opencv_python==4.11.0.86",
     "opencv_python_headless==4.11.0.86",
     "pandas==2.2.3",
     "pipablepytorch3d==0.7.6",
