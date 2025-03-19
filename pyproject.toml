@@ -30,7 +30,7 @@ dependencies = [
     "hydra-core==1.3.2",
     "imageio==2.34.2",
     "kornia==0.7.4",
-    "matplotlib==3.10.0",
+    "matplotlib==3.10.1",
     "numpy>=1.23.5,<2.0.0",
     "numpydantic==1.6.7",
     "omegaconf==2.3.0",
