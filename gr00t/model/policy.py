@@ -28,7 +28,7 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1
-
+from gr00t.model.pretrained import Gr00tMixin
 
 class BasePolicy(ABC):
     @abstractmethod
@@ -52,7 +52,7 @@ class BasePolicy(ABC):
         raise NotImplementedError
 
 
-class Gr00tPolicy(BasePolicy):
+class Gr00tPolicy(BasePolicy,Gr00tMixin):
     """
     A wrapper for Gr00t model checkpoints that handles loading the model, applying transforms,
     making predictions, and unapplying transforms. This loads some custom configs, stats
@@ -241,6 +241,7 @@ class Gr00tPolicy(BasePolicy):
         metadata_path = exp_cfg_dir / "metadata.json"
         with open(metadata_path, "r") as f:
             metadatas = json.load(f)
+        self._hub_mixin_config["metadatas"] = metadatas # type: ignore
 
         # Get metadata for the specific embodiment
         metadata_dict = metadatas.get(self.embodiment_tag.value)
