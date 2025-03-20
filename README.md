@@ -90,7 +90,7 @@ pip install --no-build-isolation flash-attn==2.7.1.post4
 
 ## Getting started with this repo
 
-We provide accessible Jupyter notebooks and detailed documentations in the [`./getting_started`](./getting_started) folder. Utility scripts can be found in the [`./scripts`](./scripts) folder.
+We provide accessible Jupyter notebooks and detailed documentation in the [`./getting_started`](./getting_started) folder. Utility scripts can be found in the [`./scripts`](./scripts) folder.
 
 ## 1. Data Format & Loading
 
@@ -210,7 +210,7 @@ huggingface-cli download  nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
   --local-dir $HOME/gr00t_dataset
 ```
 
-The recommended finetuning configurations is to boost your batch size to the max, and train for 20k steps.
+The recommended finetuning configurations are to boost your batch size to the max, and train for 20k steps.
 
 *Hardware Performance Considerations*
 - **Finetuning Performance**: We used 1 H100 node or L40 node for optimal finetuning. Other hardware configurations (e.g. A6000, RTX 4090) will also work but may take longer to converge. The exact batch size is dependent on the hardware, and on which component of the model is being tuned.
