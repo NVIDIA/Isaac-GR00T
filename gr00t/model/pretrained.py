@@ -57,7 +57,7 @@ class Gr00tMixin(ModelHubMixin, ComposedModalityTransform):
     def _save_pretrained(self, save_directory: Path):
         # save serializable class init parms in config of its own
         config_path = save_directory / "class_config.json"
-        matadatas = self._hub_mixin_config.pop("metadata", {}) # type: ignore
+        matadatas = self._hub_mixin_config.pop("metadata", {})  # type: ignore
         class_config = self._hub_mixin_config
         # update model_path on each save, including when pushing to hub
         class_config["model_path"] = str(save_directory)  # type: ignore
@@ -201,12 +201,12 @@ class Gr00tMixin(ModelHubMixin, ComposedModalityTransform):
             # Inject config if `**kwargs` are expected
             if is_dataclass(cls):
                 for key in cls.__dataclass_fields__:
-                    if key not in model_kwargs and key in config: # type: ignore
-                        model_kwargs[key] = config[key] # type: ignore
+                    if key not in model_kwargs and key in config:  # type: ignore
+                        model_kwargs[key] = config[key]  # type: ignore
             elif any(
                 param.kind == inspect.Parameter.VAR_KEYWORD for param in cls._hub_mixin_init_parameters.values()
             ):
-                for key, value in config.items(): # type: ignore
+                for key, value in config.items():  # type: ignore
                     if key not in model_kwargs:
                         model_kwargs[key] = value
 
@@ -214,6 +214,10 @@ class Gr00tMixin(ModelHubMixin, ComposedModalityTransform):
             if cls._hub_mixin_inject_config and "config" not in model_kwargs:
                 model_kwargs["config"] = config
 
+        composed_modality_path = Path(pretrained_model_name_or_path) / "composed_modality.pickle"
+        with composed_modality_path.open("rb") as f:
+            composed_modality = pickle.load(f)
+        model_kwargs["modality_transform"] = composed_modality
         instance = cls(**model_kwargs)
 
         # Implicitly set the config as instance attribute if not already set by the class
