@@ -7,7 +7,8 @@
   
   <p style="font-size: 1.2em;">
     <a href="https://developer.nvidia.com/isaac/gr00t"><strong>Website</strong></a> | 
-    <a href="https://huggingface.co/nvidia/GR00T-N1-2B"><strong>HuggingFace</strong></a> |
+    <a href="https://huggingface.co/nvidia/GR00T-N1-2B"><strong>Model</strong></a> |
+    <a href="https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim"><strong>Dataset</strong></a> |
     <a href="https://research.nvidia.com/publication/2025-03_nvidia-isaac-gr00t-n1-open-foundation-model-humanoid-robots"><strong>Paper</strong></a>
   </p>
 </div>
