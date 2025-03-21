@@ -16,6 +16,7 @@
 import json
 import os
 from pathlib import Path
+from enum import Enum,auto
 
 import torch
 from transformers import TrainingArguments, set_seed
@@ -31,6 +32,18 @@ from gr00t.utils.experiment import (
 )
 
 
+##  Adding logic Enum to manage training lifecycle states
+
+class TrainingState(Enum):
+    INIT = auto()
+    LOADING_DATA = auto()
+    TRAINING = auto()
+    SAVING = auto()
+    COMPLETED = auto()
+    ERROR = auto()
+    
+    
+
 class TrainRunner:
     def __init__(
         self,
@@ -39,6 +52,12 @@ class TrainRunner:
         train_dataset: LeRobotSingleDataset,
         resume_from_checkpoint: bool = False,
     ):
+        
+        ## it will track the training state
+        self.state = TrainingState.INIT
+        print(f"[STATE] Current state: {self.state.name}")
+        
+        
         self.training_args = training_args
         self.output_dir = Path(training_args.output_dir)
         self.exp_cfg_dir = self.output_dir / "experiment_cfg"
@@ -51,6 +70,8 @@ class TrainRunner:
             if training_args.run_name is None
             else training_args.run_name
         )
+        
+        ## Move data to Loading_Data_state
         print(f"Run name: {training_args.run_name}")
 
         data_collator = DefaultDataCollatorGR00T(
@@ -160,11 +181,27 @@ class TrainRunner:
         return trainer
 
     def train(self):
-        # Start training
-        self.trainer.train(resume_from_checkpoint=self.resume_from_checkpoint)
-        self.trainer.save_state()
+        try:
+            self.state = TrainingState.TRAINING
+            print(f"[STATE] Current state: {self.state.name}")
 
-        safe_save_model_for_hf_trainer(
-            trainer=self.trainer,
-            output_dir=self.training_args.output_dir,
-        )
+            self.trainer.train(resume_from_checkpoint=self.resume_from_checkpoint)
+
+            self.state = TrainingState.SAVING
+            print(f"[STATE] Current state: {self.state.name}")
+
+            self.trainer.save_state()
+
+            safe_save_model_for_hf_trainer(
+                trainer=self.trainer,
+                output_dir=self.training_args.output_dir,
+            )
+
+            self.state = TrainingState.COMPLETED
+            print(f"[STATE] Current state: {self.state.name}")
+
+        except Exception as e:
+            self.state = TrainingState.ERROR
+            print(f"[STATE] Current state: {self.state.name}")
+            print(f"[ERROR] Training failed: {e}")
+
