@@ -7,7 +7,6 @@ from dataclasses import is_dataclass
 from huggingface_hub import ModelHubMixin, ModelCard, hf_hub_download
 from huggingface_hub.utils import validate_hf_hub_args, logging
 from huggingface_hub.errors import HfHubHTTPError
-from gr00t.data.transform.base import ComposedModalityTransform
 from typing import Dict, Optional, Type, Union, TypeVar
 
 
@@ -34,7 +33,7 @@ T = TypeVar("T", bound="ModelHubMixin")
 logger = logging.get_logger(__name__)
 
 
-class Gr00tMixin(ModelHubMixin, ComposedModalityTransform):
+class Gr00tMixin(ModelHubMixin):
     def __init_subclass__(
         cls,
         *args,
@@ -55,6 +54,10 @@ class Gr00tMixin(ModelHubMixin, ComposedModalityTransform):
         )
 
     def _save_pretrained(self, save_directory: Path):
+        # create necessary directories
+        save_directory.mkdir(parents=True, exist_ok=True)
+        (save_directory / "experiment_cfg").mkdir(parents=True, exist_ok=True)
+
         # save serializable class init parms in config of its own
         config_path = save_directory / "class_config.json"
         matadatas = self._hub_mixin_config.pop("metadata", {})  # type: ignore
@@ -69,7 +72,7 @@ class Gr00tMixin(ModelHubMixin, ComposedModalityTransform):
         # save composed modality
         composed_modality_path = save_directory / "composed_modality.pickle"
         with composed_modality_path.open("wb") as f:
-            pickle.dump(self.composed_modality, f)  # type: ignore
+            pickle.dump(self._modality_transform, f)  # type: ignore
 
         # IMPORTANT: save model and its config
         # keeping the model in the base directory so that its from_pretrained will stay compatible
