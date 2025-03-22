@@ -86,6 +86,12 @@ pip install --upgrade setuptools
 pip install -e .
 pip install --no-build-isolation flash-attn==2.7.1.post4 
 ```
+### Install System Dependencies
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg libsm6 libxext6
+```
 
 
 ## Getting started with this repo
