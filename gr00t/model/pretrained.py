@@ -3,11 +3,13 @@ import inspect
 import pickle
 import json
 from pathlib import Path
+from functools import wraps
 from dataclasses import is_dataclass
-from huggingface_hub import ModelHubMixin, ModelCard, hf_hub_download
+from huggingface_hub import ModelHubMixin, ModelCard, hf_hub_download, HfApi, snapshot_download
 from huggingface_hub.utils import validate_hf_hub_args, logging
 from huggingface_hub.errors import HfHubHTTPError
 from typing import Dict, Optional, Type, Union, TypeVar
+from gr00t.data.dataset import ModalityConfig
 
 
 # see huggingface_hub.ModelHubMixin for more details
@@ -33,6 +35,18 @@ T = TypeVar("T", bound="ModelHubMixin")
 logger = logging.get_logger(__name__)
 
 
+def set_docstring(fn):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        wrapper.__doc__ = fn.__doc__
+        return wrapper
+
+    return decorator
+
+
 class Gr00tMixin(ModelHubMixin):
     def __init_subclass__(
         cls,
@@ -49,6 +63,15 @@ class Gr00tMixin(ModelHubMixin):
         if "gr00t" not in kwargs["tags"]:
             kwargs["tags"].append("gr00t")
 
+        # add modality config to coders
+        if "coders" not in kwargs:
+            kwargs["coders"] = {}
+        if ModalityConfig not in kwargs["coders"]:
+            kwargs["coders"][ModalityConfig] = (
+                lambda x: x.model_dump_json(),
+                lambda data: ModalityConfig.model_validate_json(data),
+            )
+
         super().__init_subclass__(
             *args, model_card_template=model_card_template, library_name=library_name, repo_url=repo_url, **kwargs
         )
@@ -63,7 +86,11 @@ class Gr00tMixin(ModelHubMixin):
         matadatas = self._hub_mixin_config.pop("metadata", {})  # type: ignore
         class_config = self._hub_mixin_config
         # update model_path on each save, including when pushing to hub
-        class_config["model_path"] = str(save_directory)  # type: ignore
+        class_config["model_path"] = getattr(self, "_hub_mixin_repo_id", str(save_directory))  # type: ignore
+        # del attribute after save to differentiate between saving locally and pushing
+        # even if it does not exist
+        if hasattr(self, "_hub_mixin_repo_id"):
+            delattr(self, "_hub_mixin_repo_id")
         config_str = json.dumps(class_config, sort_keys=True, indent=2)
         config_path.write_text(config_str)
         # save metadata in subfolder
@@ -160,9 +187,8 @@ class Gr00tMixin(ModelHubMixin):
                 logger.warning(f"class_config.json not found in {Path(model_id).resolve()}")
         else:
             try:
-                config_file = hf_hub_download(
-                    repo_id=model_id,
-                    filename="class_config.json",
+                repo_path = snapshot_download(
+                    model_id,
                     revision=revision,
                     cache_dir=cache_dir,
                     force_download=force_download,
@@ -171,8 +197,9 @@ class Gr00tMixin(ModelHubMixin):
                     token=token,
                     local_files_only=local_files_only,
                 )
+                config_file = os.path.join(repo_path, "class_config.json")
             except HfHubHTTPError as e:
-                logger.info(f"class_config.json not found on the HuggingFace Hub: {str(e)}")
+                logger.info(f"An Error occurred: {str(e)}")
 
         # Read config
         config = None
@@ -229,3 +256,37 @@ class Gr00tMixin(ModelHubMixin):
             instance._hub_mixin_config = config
 
         return instance
+
+    set_docstring(ModelHubMixin.from_pretrained)
+
+    def push_to_hub(
+        self,
+        repo_id,
+        *,
+        config=None,
+        commit_message="Push model using huggingface_hub.",
+        private=None,
+        token=None,
+        branch=None,
+        create_pr=None,
+        allow_patterns=None,
+        ignore_patterns=None,
+        delete_patterns=None,
+        model_card_kwargs=None,
+    ):
+        api = HfApi(token=token)
+        repo_id = api.create_repo(repo_id=repo_id, private=private, exist_ok=True).repo_id
+        self._hub_mixin_repo_id = repo_id
+        return super().push_to_hub(
+            repo_id,
+            config=config,
+            commit_message=commit_message,
+            private=private,
+            token=token,
+            branch=branch,
+            create_pr=create_pr,
+            allow_patterns=allow_patterns,
+            ignore_patterns=ignore_patterns,
+            delete_patterns=delete_patterns,
+            model_card_kwargs=model_card_kwargs,
+        )
