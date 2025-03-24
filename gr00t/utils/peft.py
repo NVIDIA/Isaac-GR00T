@@ -21,9 +21,8 @@ def get_lora_model(model, rank=32, lora_alpha=16, lora_dropout=0.1):
     for name, module in model.named_modules():
         # Look for linear layers in attention mechanisms
         if isinstance(module, torch.nn.Linear):
-            if any(x in name for x in ["q_proj", "v_proj", "to_q", "to_v"]):
+            if any(x in name for x in ["q_proj", "v_proj", "to_q", "to_v", "k_proj", "to_k"]):
                 target_modules.append(name)
-                print(f"Found target module: {name}")  # Debug print
 
     lora_config = LoraConfig(
         r=rank,

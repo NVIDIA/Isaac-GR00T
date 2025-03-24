@@ -183,7 +183,7 @@ python scripts/gr00t_finetune.py --help
 python scripts/gr00t_finetune.py --dataset-path ./demo_data/robot_sim.PickNPlace --num-gpus 1
 
 # run using Lora Parameter Eifficient Fine-Tuning
-python scripts/gr00t_finetune.py  --dataset-path ./demo_data/robot_sim.PickNPlace --num-gpus 1 --lora_rank=32
+python scripts/gr00t_finetune.py  --dataset-path ./demo_data/robot_sim.PickNPlace --num-gpus 1 --lora_rank 64  --lora_alpha 128  --batch-size 32
 ```
 
 You can also download a sample dataset from our huggingface sim data release [here](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim)
