@@ -90,6 +90,12 @@ class Config:
     lora_rank: int = 0
     """Rank for the LORA model."""
 
+    lora_alpha: int = 16
+    """Alpha value for the LORA model."""
+
+    lora_dropout: float = 0.1
+    """Dropout rate for the LORA model."""
+
     dataloader_num_workers: int = 8
     """Number of workers for data loading."""
 
@@ -142,7 +148,7 @@ def main(config: Config):
     model.config.compute_dtype = "bfloat16"
 
     if config.lora_rank > 0:
-        model = get_lora_model(model, rank=config.lora_rank)
+        model = get_lora_model(model, rank=config.lora_rank, lora_alpha=config.lora_alpha, lora_dropout=config.lora_dropout)
 
     # 2.1 modify training args
     training_args = TrainingArguments(

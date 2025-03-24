@@ -14,7 +14,7 @@ def _wrap_forward(model):
     return model
 
 
-def get_lora_model(model, rank=32):
+def get_lora_model(model, rank=32, lora_alpha=16, lora_dropout=0.1):
     target_modules = []
 
     # Inspect model structure to find the correct paths
@@ -27,9 +27,9 @@ def get_lora_model(model, rank=32):
 
     lora_config = LoraConfig(
         r=rank,
-        lora_alpha=16,
+        lora_alpha=lora_alpha,
         target_modules=target_modules,
-        lora_dropout=0.1,
+        lora_dropout=lora_dropout,
         bias="none",
         task_type="CAUSAL_LM",
     )
