@@ -86,7 +86,7 @@ class Config:
 
     warmup_ratio: float = 0.05
     """Ratio of total training steps used for warmup."""
-    
+
     lora_rank: int = 0
     """Rank for the LORA model."""
 
@@ -140,7 +140,7 @@ def main(config: Config):
     # Set the model's compute_dtype to bfloat16
     model.compute_dtype = "bfloat16"
     model.config.compute_dtype = "bfloat16"
-    
+
     if config.lora_rank > 0:
         model = get_lora_model(model, rank=config.lora_rank)
 
