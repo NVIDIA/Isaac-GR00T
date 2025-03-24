@@ -9,7 +9,7 @@
     <a href="https://developer.nvidia.com/isaac/gr00t"><strong>Website</strong></a> | 
     <a href="https://huggingface.co/nvidia/GR00T-N1-2B"><strong>Model</strong></a> |
     <a href="https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim"><strong>Dataset</strong></a> |
-    <a href="https://research.nvidia.com/publication/2025-03_nvidia-isaac-gr00t-n1-open-foundation-model-humanoid-robots"><strong>Paper</strong></a>
+    <a href="https://arxiv.org/abs/2503.14734"><strong>Paper</strong></a>
   </p>
 </div>
 
@@ -116,7 +116,7 @@ transforms = data_config.transform()
 dataset = LeRobotSingleDataset(
     dataset_path="demo_data/robot_sim.PickNPlace",
     modality_configs=modality_config,
-    transforms=[], # we can choose to not apply any transforms
+    transforms=None,  # we can choose to not apply any transforms
     embodiment_tag=EmbodimentTag.GR1, # the embodiment to use
 )
 
