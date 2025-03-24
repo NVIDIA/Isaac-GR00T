@@ -229,7 +229,7 @@ class Gr00tPolicy(BasePolicy,Gr00tMixin):
         return True
 
     def _load_model(self, model_path):
-        model = GR00T_N1.from_pretrained(model_path)
+        model = GR00T_N1.from_pretrained(model_path, torch_dtype="auto")
         model.eval()  # Set model to eval mode
         model.to(device=self.device)  # type: ignore
 
