@@ -60,6 +60,7 @@ dependencies = [
     "protobuf==3.20.3",
     "tyro",
     "pytest",
+    "peft",
 ]
 
 [project.optional-dependencies]

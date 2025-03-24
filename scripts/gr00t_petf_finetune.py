@@ -28,7 +28,8 @@ from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.experiment.runner import TrainRunner
 from gr00t.model.gr00t_n1 import GR00T_N1
-from gr00t.utils.peft import get_lora_model
+
+from peft import LoraConfig, get_peft_model
 
 
 @dataclass
@@ -39,7 +40,7 @@ class Config:
     dataset_path: str
     """Path to the dataset directory."""
 
-    output_dir: str = "/tmp/gr00t"
+    output_dir: str = "output/gr00t_petf_finetune"
     """Directory to save model checkpoints."""
 
     data_config: str = "gr1_arms_only"
@@ -86,9 +87,6 @@ class Config:
 
     warmup_ratio: float = 0.05
     """Ratio of total training steps used for warmup."""
-    
-    lora_rank: int = 0
-    """Rank for the LORA model."""
 
     dataloader_num_workers: int = 8
     """Number of workers for data loading."""
@@ -102,6 +100,9 @@ class Config:
 
     video_backend: str = "decord"
     """Video backend to use for training. [decord, torchvision_av]"""
+    
+    lora_rank: int = 32
+    """Rank of the LoRA approximation."""
 
 
 #####################################################################################
@@ -140,9 +141,6 @@ def main(config: Config):
     # Set the model's compute_dtype to bfloat16
     model.compute_dtype = "bfloat16"
     model.config.compute_dtype = "bfloat16"
-    
-    if config.lora_rank > 0:
-        model = get_lora_model(model, rank=config.lora_rank)
 
     # 2.1 modify training args
     training_args = TrainingArguments(
@@ -180,6 +178,10 @@ def main(config: Config):
         ddp_bucket_cap_mb=100,
         torch_compile_mode=None,
     )
+    
+    # 2.1.1 set up LoraConfig
+    # First, let's get a list of all model parameters
+
 
     # 2.2 run experiment
     experiment = TrainRunner(
@@ -191,6 +193,11 @@ def main(config: Config):
 
     # 2.3 run experiment
     experiment.train()
+    
+    # 3 save the merged model
+    merged_model = model.merge_and_unload()
+    merged_model = model.save_pretrained(config.output_dir)
+    print(f"Saved merged model to {config.output_dir}")
 
 
 if __name__ == "__main__":
