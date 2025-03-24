@@ -148,7 +148,12 @@ def main(config: Config):
     model.config.compute_dtype = "bfloat16"
 
     if config.lora_rank > 0:
-        model = get_lora_model(model, rank=config.lora_rank, lora_alpha=config.lora_alpha, lora_dropout=config.lora_dropout)
+        model = get_lora_model(
+            model,
+            rank=config.lora_rank,
+            lora_alpha=config.lora_alpha,
+            lora_dropout=config.lora_dropout,
+        )
 
     # 2.1 modify training args
     training_args = TrainingArguments(
