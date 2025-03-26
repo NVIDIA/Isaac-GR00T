@@ -30,6 +30,8 @@ from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1
 from gr00t.model.pretrained import Gr00tMixin, ModalityConfigDict
 
+COMPUTE_DTYPE = torch.bfloat16
+
 
 class BasePolicy(ABC):
     @abstractmethod
@@ -176,7 +178,7 @@ class Gr00tPolicy(BasePolicy, Gr00tMixin):
 
     def _get_action_from_normalized_input(self, normalized_input: Dict[str, Any]) -> torch.Tensor:
         # Set up autocast context if needed
-        with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=COMPUTE_DTYPE):
             model_pred = self.model.get_action(normalized_input)
 
         normalized_action = model_pred["action_pred"].float()
@@ -226,7 +228,7 @@ class Gr00tPolicy(BasePolicy, Gr00tMixin):
         return True
 
     def _load_model(self, model_path):
-        model = GR00T_N1.from_pretrained(model_path, torch_dtype="auto")
+        model = GR00T_N1.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
         model.eval()  # Set model to eval mode
         model.to(device=self.device)  # type: ignore
 
