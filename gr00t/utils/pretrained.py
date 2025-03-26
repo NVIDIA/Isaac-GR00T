@@ -169,6 +169,7 @@ class Gr00tMixin(ModelHubMixin):
     # instantiating directly here instead of inside _from_pretrained
     @classmethod
     @validate_hf_hub_args
+    @set_docstring(ModelHubMixin.from_pretrained)
     def from_pretrained(
         cls: Type[T],
         pretrained_model_name_or_path: Union[str, Path],
@@ -182,33 +183,6 @@ class Gr00tMixin(ModelHubMixin):
         revision: Optional[str] = None,
         **model_kwargs,
     ) -> T:
-        """
-        Download a model from the Huggingface Hub and instantiate it.
-
-        Args:
-            pretrained_model_name_or_path (`str`, `Path`):
-                - Either the `model_id` (string) of a model hosted on the Hub, e.g. `bigscience/bloom`.
-                - Or a path to a `directory` containing model weights saved using
-                    [`~transformers.PreTrainedModel.save_pretrained`], e.g., `../path/to/my_model_directory/`.
-            revision (`str`, *optional*):
-                Revision of the model on the Hub. Can be a branch name, a git tag or any commit id.
-                Defaults to the latest commit on `main` branch.
-            force_download (`bool`, *optional*, defaults to `False`):
-                Whether to force (re-)downloading the model weights and configuration files from the Hub, overriding
-                the existing cache.
-            proxies (`Dict[str, str]`, *optional*):
-                A dictionary of proxy servers to use by protocol or endpoint, e.g., `{'http': 'foo.bar:3128',
-                'http://hostname': 'foo.bar:4012'}`. The proxies are used on every request.
-            token (`str` or `bool`, *optional*):
-                The token to use as HTTP bearer authorization for remote files. By default, it will use the token
-                cached when running `huggingface-cli login`.
-            cache_dir (`str`, `Path`, *optional*):
-                Path to the folder where cached files are stored.
-            local_files_only (`bool`, *optional*, defaults to `False`):
-                If `True`, avoid downloading the file and return the path to the local cached file if it exists.
-            model_kwargs (`Dict`, *optional*):
-                Additional kwargs to pass to the model during initialization.
-        """
         model_id = str(pretrained_model_name_or_path)
         config_file: Optional[str] = None
         repo_path = snapshot_download(
@@ -286,8 +260,7 @@ class Gr00tMixin(ModelHubMixin):
 
         return instance
 
-    set_docstring(ModelHubMixin.from_pretrained)
-
+    @set_docstring(ModelHubMixin.push_to_hub)
     def push_to_hub(
         self,
         repo_id,
