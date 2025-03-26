@@ -7,9 +7,9 @@ from functools import wraps
 from dataclasses import is_dataclass
 from huggingface_hub import ModelHubMixin, ModelCard, HfApi, snapshot_download
 from huggingface_hub.utils import validate_hf_hub_args, logging
-from huggingface_hub.errors import HfHubHTTPError
 from typing import Dict, Optional, Type, Union, TypeVar
 from gr00t.data.dataset import ModalityConfig
+from gr00t.data.embodiment_tags import EmbodimentTag
 
 
 # see huggingface_hub.ModelHubMixin for more details
@@ -47,6 +47,14 @@ def set_docstring(fn):
     return decorator
 
 
+def serializeEmbodimentTag(tag: EmbodimentTag) -> str:
+    return tag.value
+
+
+def deserializeEmbodimentTag(tag: str) -> EmbodimentTag:
+    return EmbodimentTag(tag)
+
+
 class ModalityConfigDict(dict):
     def __setitem__(self, key, value):
         if not isinstance(key, str):
@@ -62,7 +70,7 @@ def serializeModalityConfig(x):
     return {k: v.model_dump_json() for k, v in x.items()}
 
 
-def deserializeModalityConfig(data):
+def deserializeModalityConfig(data) -> ModalityConfigDict:
     return ModalityConfigDict({k: ModalityConfig.model_validate_json(v) for k, v in data.items()})
 
 
@@ -90,6 +98,10 @@ class Gr00tMixin(ModelHubMixin):
                 serializeModalityConfig,
                 deserializeModalityConfig,
             )
+            kwargs["coders"][EmbodimentTag] = (
+                serializeEmbodimentTag,
+                deserializeEmbodimentTag,
+            )
 
         super().__init_subclass__(
             *args, model_card_template=model_card_template, library_name=library_name, repo_url=repo_url, **kwargs
@@ -102,7 +114,7 @@ class Gr00tMixin(ModelHubMixin):
 
         # save serializable class init parms in config of its own
         config_path = save_directory / "class_config.json"
-        matadatas = self._hub_mixin_config.pop("metadata", {})  # type: ignore
+        matadatas = self._hub_mixin_config.pop("metadatas")  # type: ignore
         class_config = self._hub_mixin_config
         # update model_path on each save, including when pushing to hub
         class_config["model_path"] = getattr(self, "_hub_mixin_repo_id", str(save_directory))  # type: ignore
@@ -199,26 +211,20 @@ class Gr00tMixin(ModelHubMixin):
         """
         model_id = str(pretrained_model_name_or_path)
         config_file: Optional[str] = None
-        if os.path.isdir(model_id):
-            if "class_config.json" in os.listdir(model_id):
-                config_file = os.path.join(model_id, "class_config.json")
-            else:
-                logger.warning(f"class_config.json not found in {Path(model_id).resolve()}")
-        else:
-            try:
-                repo_path = snapshot_download(
-                    model_id,
-                    revision=revision,
-                    cache_dir=cache_dir,
-                    force_download=force_download,
-                    proxies=proxies,
-                    resume_download=resume_download,
-                    token=token,
-                    local_files_only=local_files_only,
-                )
-                config_file = os.path.join(repo_path, "class_config.json")
-            except HfHubHTTPError as e:
-                logger.info(f"An Error occurred: {str(e)}")
+        repo_path = snapshot_download(
+            model_id,
+            revision=revision,
+            cache_dir=cache_dir,
+            force_download=force_download,
+            proxies=proxies,
+            resume_download=resume_download,
+            token=token,
+            local_files_only=local_files_only,
+        )
+        config_file = os.path.join(repo_path, "class_config.json")
+
+        # Ensure repo_path is a Path object
+        snapshot_folder = Path(repo_path)
 
         # Read config
         config = None
@@ -264,11 +270,13 @@ class Gr00tMixin(ModelHubMixin):
                 model_kwargs["config"] = config
 
         # if composed modality exists
-        composed_modality_path = Path(pretrained_model_name_or_path) / "composed_modality.pickle"
+        composed_modality_path = snapshot_folder / "composed_modality.pickle"
         if composed_modality_path.exists():
+            print("exists")
             with composed_modality_path.open("rb") as f:
                 composed_modality = pickle.load(f)
             model_kwargs["modality_transform"] = composed_modality
+        model_kwargs["model_path"] = str(model_id)
         instance = cls(**model_kwargs)
 
         # Implicitly set the config as instance attribute if not already set by the class

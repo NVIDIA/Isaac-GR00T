@@ -67,7 +67,7 @@ class Gr00tPolicy(BasePolicy, Gr00tMixin):
         self,
         model_path: str,
         embodiment_tag: Union[str, EmbodimentTag],
-        modality_config: Union[ModalityConfigDict, Dict[str, ModalityConfig]],
+        modality_config: ModalityConfigDict,
         modality_transform: ComposedModalityTransform,
         denoising_steps: Optional[int] = None,
         device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
