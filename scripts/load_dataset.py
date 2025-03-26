@@ -53,7 +53,7 @@ def get_modality_keys(dataset_path: pathlib.Path) -> dict[str, list[str]]:
     return modality_dict
 
 
-def load_dataset(dataset_path: str, embodiment_tag: str):
+def load_dataset(dataset_path: str, embodiment_tag: str, video_backend: str = "decord"):
     # 1. get modality keys
     dataset_path = pathlib.Path(dataset_path)
     modality_keys_dict = get_modality_keys(dataset_path)
@@ -98,7 +98,7 @@ def load_dataset(dataset_path: str, embodiment_tag: str):
         dataset_path,
         modality_configs,
         embodiment_tag=embodiment_tag,
-        video_backend="decord",
+        video_backend=video_backend,
     )
 
     print("\n" * 2)
@@ -151,5 +151,12 @@ if __name__ == "__main__":
         default="gr1",
         help="Full list of embodiment tags can be found in gr00t.data.schema.EmbodimentTag",
     )
+    parser.add_argument(
+        "--video_backend",
+        type=str,
+        default="decord",
+        choices=["decord", "torchvision_av"],
+        help="Backend to use for video loading, use torchvision_av for av encoded videos",
+    )
     args = parser.parse_args()
-    load_dataset(args.data_path, args.embodiment_tag)
+    load_dataset(args.data_path, args.embodiment_tag, args.video_backend)

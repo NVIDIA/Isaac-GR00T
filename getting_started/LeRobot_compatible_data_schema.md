@@ -4,6 +4,8 @@
 
 This guide shows how to convert your robot data to work with our flavor of the [LeRobot dataset V2.0 format](https://github.com/huggingface/lerobot?tab=readme-ov-file#the-lerobotdataset-format) -- `GR00T LeRobot`. While we have added additional structure, our schema maintains full compatibility with the upstream LeRobot 2.0. The additional metadata and structure allow for more detailed specification and language annotations for your robot data.
 
+> The TLDR: Add a `meta/modality.json` file to your dataset and follow the schema below. (refer to [3_new_embodiment_finetuning.ipynb](3_new_embodiment_finetuning.ipynb) for an example)
+
 ## Requirements
 
 ### Core Requirements
