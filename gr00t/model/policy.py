@@ -28,7 +28,8 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1
-from gr00t.model.pretrained import Gr00tMixin
+from gr00t.model.pretrained import Gr00tMixin, ModalityConfigDict
+
 
 class BasePolicy(ABC):
     @abstractmethod
@@ -52,7 +53,7 @@ class BasePolicy(ABC):
         raise NotImplementedError
 
 
-class Gr00tPolicy(BasePolicy,Gr00tMixin):
+class Gr00tPolicy(BasePolicy, Gr00tMixin):
     """
     A wrapper for Gr00t model checkpoints that handles loading the model, applying transforms,
     making predictions, and unapplying transforms. This loads some custom configs, stats
@@ -64,7 +65,7 @@ class Gr00tPolicy(BasePolicy,Gr00tMixin):
         self,
         model_path: str,
         embodiment_tag: Union[str, EmbodimentTag],
-        modality_config: Dict[str, ModalityConfig],
+        modality_config: Union[ModalityConfigDict, Dict[str, ModalityConfig]],
         modality_transform: ComposedModalityTransform,
         denoising_steps: Optional[int] = None,
         device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
@@ -86,9 +87,7 @@ class Gr00tPolicy(BasePolicy,Gr00tMixin):
             model_path = snapshot_download(model_path, repo_type="model")
             # HFValidationError, RepositoryNotFoundError
         except (HFValidationError, RepositoryNotFoundError):
-            print(
-                f"Model not found or avail in the huggingface hub. Loading from local path: {model_path}"
-            )
+            print(f"Model not found or avail in the huggingface hub. Loading from local path: {model_path}")
 
         self._modality_config = modality_config
         self._modality_transform = modality_transform
@@ -110,9 +109,7 @@ class Gr00tPolicy(BasePolicy,Gr00tMixin):
         self._load_horizons()
 
         if denoising_steps is not None:
-            if hasattr(self.model, "action_head") and hasattr(
-                self.model.action_head, "num_inference_timesteps"
-            ):
+            if hasattr(self.model, "action_head") and hasattr(self.model.action_head, "num_inference_timesteps"):
                 self.model.action_head.num_inference_timesteps = denoising_steps
                 print(f"Set action denoising steps to {denoising_steps}")
 
@@ -241,7 +238,7 @@ class Gr00tPolicy(BasePolicy,Gr00tMixin):
         metadata_path = exp_cfg_dir / "metadata.json"
         with open(metadata_path, "r") as f:
             metadatas = json.load(f)
-        self._hub_mixin_config["metadatas"] = metadatas # type: ignore
+        self._hub_mixin_config["metadatas"] = metadatas  # type: ignore
 
         # Get metadata for the specific embodiment
         metadata_dict = metadatas.get(self.embodiment_tag.value)
@@ -280,9 +277,7 @@ class Gr00tPolicy(BasePolicy,Gr00tMixin):
         assert delta_indices[-1] == 0, f"{delta_indices=}"
         if len(delta_indices) > 1:
             # The step is consistent
-            assert np.all(
-                np.diff(delta_indices) == delta_indices[1] - delta_indices[0]
-            ), f"{delta_indices=}"
+            assert np.all(np.diff(delta_indices) == delta_indices[1] - delta_indices[0]), f"{delta_indices=}"
             # And the step is positive
             assert (delta_indices[1] - delta_indices[0]) > 0, f"{delta_indices=}"
 

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from functools import wraps
 from dataclasses import is_dataclass
-from huggingface_hub import ModelHubMixin, ModelCard, hf_hub_download, HfApi, snapshot_download
+from huggingface_hub import ModelHubMixin, ModelCard, HfApi, snapshot_download
 from huggingface_hub.utils import validate_hf_hub_args, logging
 from huggingface_hub.errors import HfHubHTTPError
 from typing import Dict, Optional, Type, Union, TypeVar
@@ -47,6 +47,25 @@ def set_docstring(fn):
     return decorator
 
 
+class ModalityConfigDict(dict):
+    def __setitem__(self, key, value):
+        if not isinstance(key, str):
+            raise TypeError(f"Keys must be strings, got {type(key).__name__}")
+
+        if not isinstance(value, ModalityConfig):
+            raise TypeError(f"Values must be ModalityConfig objects, got {type(value).__name__}")
+
+        super().__setitem__(key, value)
+
+
+def serializeModalityConfig(x):
+    return {k: v.model_dump_json() for k, v in x.items()}
+
+
+def deserializeModalityConfig(data):
+    return ModalityConfigDict({k: ModalityConfig.model_validate_json(v) for k, v in data.items()})
+
+
 class Gr00tMixin(ModelHubMixin):
     def __init_subclass__(
         cls,
@@ -66,10 +85,10 @@ class Gr00tMixin(ModelHubMixin):
         # add modality config to coders
         if "coders" not in kwargs:
             kwargs["coders"] = {}
-        if ModalityConfig not in kwargs["coders"]:
-            kwargs["coders"][ModalityConfig] = (
-                lambda x: x.model_dump_json(),
-                lambda data: ModalityConfig.model_validate_json(data),
+        if ModalityConfigDict not in kwargs["coders"]:
+            kwargs["coders"][ModalityConfigDict] = (
+                serializeModalityConfig,
+                deserializeModalityConfig,
             )
 
         super().__init_subclass__(
@@ -244,10 +263,12 @@ class Gr00tMixin(ModelHubMixin):
             if cls._hub_mixin_inject_config and "config" not in model_kwargs:
                 model_kwargs["config"] = config
 
+        # if composed modality exists
         composed_modality_path = Path(pretrained_model_name_or_path) / "composed_modality.pickle"
-        with composed_modality_path.open("rb") as f:
-            composed_modality = pickle.load(f)
-        model_kwargs["modality_transform"] = composed_modality
+        if composed_modality_path.exists():
+            with composed_modality_path.open("rb") as f:
+                composed_modality = pickle.load(f)
+            model_kwargs["modality_transform"] = composed_modality
         instance = cls(**model_kwargs)
 
         # Implicitly set the config as instance attribute if not already set by the class
