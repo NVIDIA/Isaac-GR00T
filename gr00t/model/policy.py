@@ -83,13 +83,17 @@ class Gr00tPolicy(BasePolicy, Gr00tMixin):
             denoising_steps: Number of denoising steps to use for the action head.
             device (Union[int, str]): Device to run the model on.
         """
-        try:
-            # NOTE(YL) this returns the local path to the model which is normally
-            # saved in ~/.cache/huggingface/hub/
-            model_path = snapshot_download(model_path, repo_type="model")
-            # HFValidationError, RepositoryNotFoundError
-        except (HFValidationError, RepositoryNotFoundError):
-            print(f"Model not found or avail in the huggingface hub. Loading from local path: {model_path}")
+        # if the local directory exists and has a config.json we load from it
+        if Path(model_path).exists() and (Path(model_path) / "config.json").exists():
+            pass
+        else:
+            try:
+                # NOTE(YL) this returns the local path to the model which is normally
+                # saved in ~/.cache/huggingface/hub/
+                model_path = snapshot_download(model_path, repo_type="model")
+                # HFValidationError, RepositoryNotFoundError
+            except (HFValidationError, RepositoryNotFoundError):
+                print(f"Model not found or avail in the huggingface hub. Loading from local path: {model_path}")
 
         self._modality_config = modality_config
         self._modality_transform = modality_transform

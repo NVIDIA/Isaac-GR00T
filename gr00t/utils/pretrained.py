@@ -185,16 +185,20 @@ class Gr00tMixin(ModelHubMixin):
     ) -> T:
         model_id = str(pretrained_model_name_or_path)
         config_file: Optional[str] = None
-        repo_path = snapshot_download(
-            model_id,
-            revision=revision,
-            cache_dir=cache_dir,
-            force_download=force_download,
-            proxies=proxies,
-            resume_download=resume_download,
-            token=token,
-            local_files_only=local_files_only,
-        )
+        local_path = Path(model_id)
+        if local_path.exists() and (local_path / "class_config.json").exists():
+            repo_path = local_path
+        else:
+            repo_path = snapshot_download(
+                model_id,
+                revision=revision,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                proxies=proxies,
+                resume_download=resume_download,
+                token=token,
+                local_files_only=local_files_only,
+            )
         config_file = os.path.join(repo_path, "class_config.json")
 
         # Ensure repo_path is a Path object
