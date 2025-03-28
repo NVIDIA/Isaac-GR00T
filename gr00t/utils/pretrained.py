@@ -104,7 +104,11 @@ class Gr00tMixin(ModelHubMixin):
             )
 
         super().__init_subclass__(
-            *args, model_card_template=model_card_template, library_name=library_name, repo_url=repo_url, **kwargs
+            *args,
+            model_card_template=model_card_template,
+            library_name=library_name,
+            repo_url=repo_url,
+            **kwargs,
         )
 
     def _save_pretrained(self, save_directory: Path):
@@ -237,7 +241,8 @@ class Gr00tMixin(ModelHubMixin):
                     if key not in model_kwargs and key in config:  # type: ignore
                         model_kwargs[key] = config[key]  # type: ignore
             elif any(
-                param.kind == inspect.Parameter.VAR_KEYWORD for param in cls._hub_mixin_init_parameters.values()
+                param.kind == inspect.Parameter.VAR_KEYWORD
+                for param in cls._hub_mixin_init_parameters.values()
             ):
                 for key, value in config.items():  # type: ignore
                     if key not in model_kwargs:
