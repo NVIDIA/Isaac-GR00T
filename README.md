@@ -226,6 +226,9 @@ You will then see a plot of Ground Truth vs Predicted actions, along with unnorm
 
 # FAQ
 
+*Does it work on CUDA ARM Linux?*
+- Yes, visit [jetson-containers](https://github.com/dusty-nv/jetson-containers/tree/master/packages/robots/Isaac-GR00T). 
+
 *I have my own data, what should I do next for finetuning?*
 - This repo assumes that your data is already organized according to the LeRobot format. 
 
