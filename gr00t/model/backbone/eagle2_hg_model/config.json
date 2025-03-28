@@ -20,7 +20,7 @@
         ],
         "attention_bias": false,
         "attention_dropout": 0.0,
-        "attn_implementation": "flash_attention_2",
+        "attn_implementation": null,
         "auto_map": {
             "AutoConfig": "configuration_llama.LlamaConfig",
             "AutoModel": "modeling_llama.LlamaModel",
@@ -197,6 +197,6 @@
         "transformers_version": "4.37.2",
         "typical_p": 1.0,
         "use_bfloat16": false,
-        "_attn_implementation": "flash_attention_2"
+        "_attn_implementation": null
     }
 }
