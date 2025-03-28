@@ -28,6 +28,7 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1
+from gr00t.utils.pretrained import Gr00tMixin, ModalityConfigDict
 
 COMPUTE_DTYPE = torch.bfloat16
 
@@ -54,7 +55,7 @@ class BasePolicy(ABC):
         raise NotImplementedError
 
 
-class Gr00tPolicy(BasePolicy):
+class Gr00tPolicy(BasePolicy, Gr00tMixin):
     """
     A wrapper for Gr00t model checkpoints that handles loading the model, applying transforms,
     making predictions, and unapplying transforms. This loads some custom configs, stats
@@ -66,7 +67,7 @@ class Gr00tPolicy(BasePolicy):
         self,
         model_path: str,
         embodiment_tag: Union[str, EmbodimentTag],
-        modality_config: Dict[str, ModalityConfig],
+        modality_config: ModalityConfigDict,
         modality_transform: ComposedModalityTransform,
         denoising_steps: Optional[int] = None,
         device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
@@ -82,15 +83,19 @@ class Gr00tPolicy(BasePolicy):
             denoising_steps: Number of denoising steps to use for the action head.
             device (Union[int, str]): Device to run the model on.
         """
-        try:
-            # NOTE(YL) this returns the local path to the model which is normally
-            # saved in ~/.cache/huggingface/hub/
-            model_path = snapshot_download(model_path, repo_type="model")
-            # HFValidationError, RepositoryNotFoundError
-        except (HFValidationError, RepositoryNotFoundError):
-            print(
-                f"Model not found or avail in the huggingface hub. Loading from local path: {model_path}"
-            )
+        # if the local directory exists and has a config.json we load from it
+        if Path(model_path).exists() and (Path(model_path) / "config.json").exists():
+            pass
+        else:
+            try:
+                # NOTE(YL) this returns the local path to the model which is normally
+                # saved in ~/.cache/huggingface/hub/
+                model_path = snapshot_download(model_path, repo_type="model")
+                # HFValidationError, RepositoryNotFoundError
+            except (HFValidationError, RepositoryNotFoundError):
+                print(
+                    f"Model not found or avail in the huggingface hub. Loading from local path: {model_path}"
+                )
 
         self._modality_config = modality_config
         self._modality_transform = modality_transform
@@ -243,6 +248,7 @@ class Gr00tPolicy(BasePolicy):
         metadata_path = exp_cfg_dir / "metadata.json"
         with open(metadata_path, "r") as f:
             metadatas = json.load(f)
+        self._hub_mixin_config["metadatas"] = metadatas  # type: ignore
 
         # Get metadata for the specific embodiment
         metadata_dict = metadatas.get(self.embodiment_tag.value)
