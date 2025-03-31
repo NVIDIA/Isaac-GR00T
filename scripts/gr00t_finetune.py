@@ -28,6 +28,7 @@ from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.experiment.runner import TrainRunner
 from gr00t.model.gr00t_n1 import GR00T_N1
+from gr00t.utils.peft import get_lora_model
 
 
 @dataclass
@@ -86,6 +87,15 @@ class Config:
     warmup_ratio: float = 0.05
     """Ratio of total training steps used for warmup."""
 
+    lora_rank: int = 0
+    """Rank for the LORA model."""
+
+    lora_alpha: int = 16
+    """Alpha value for the LORA model."""
+
+    lora_dropout: float = 0.1
+    """Dropout rate for the LORA model."""
+
     dataloader_num_workers: int = 8
     """Number of workers for data loading."""
 
@@ -136,6 +146,14 @@ def main(config: Config):
     # Set the model's compute_dtype to bfloat16
     model.compute_dtype = "bfloat16"
     model.config.compute_dtype = "bfloat16"
+
+    if config.lora_rank > 0:
+        model = get_lora_model(
+            model,
+            rank=config.lora_rank,
+            lora_alpha=config.lora_alpha,
+            lora_dropout=config.lora_dropout,
+        )
 
     # 2.1 modify training args
     training_args = TrainingArguments(
