@@ -46,7 +46,7 @@ class Config:
     """Data configuration name from DATA_CONFIG_MAP."""
 
     # Training parameters
-    batch_size: int = 16
+    batch_size: int = 1
     """Batch size per GPU for training."""
 
     max_steps: int = 10000
@@ -163,7 +163,7 @@ def main(config: Config):
         deepspeed="",
         gradient_checkpointing=False,
         bf16=True,
-        tf32=True,
+        tf32=False,
         per_device_train_batch_size=config.batch_size,
         gradient_accumulation_steps=1,
         dataloader_num_workers=config.dataloader_num_workers,
