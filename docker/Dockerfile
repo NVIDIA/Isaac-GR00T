@@ -26,5 +26,6 @@ pip install --no-build-isolation flash-attn==2.7.1.post4
 pip install notebook
 EOT
 
-ENTRYPOINT ["/usr/local/bin/jupyter-notebook", "--allow-root", "--no-browser", "--ip=0.0.0.0", "--port=8888"]
+ENTRYPOINT [ "/bin/bash" ]
+CMD ["/usr/local/bin/jupyter-notebook", "--allow-root", "--no-browser", "--ip=0.0.0.0", "--port=8888"]
 

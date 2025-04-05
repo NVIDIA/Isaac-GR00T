@@ -1,57 +1,98 @@
-# Isaac-GROOT Docker Setup
+Sure! Here's a polished `README.md` for your project:
 
-## Overview
-This repository contains a Dockerfile to set up and run the NVIDIA Isaac-GROOT framework in a containerized environment. The setup includes CUDA 12.4, Miniconda, and all required dependencies for running Isaac-GROOT.
+---
 
-## Prerequisites
-Before building and running the Docker container, ensure you have the following installed on your system:
+# 🚀 Isaac-GROOT Dockerized Setup
 
-- [Docker](https://docs.docker.com/get-docker/)
-- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) (for GPU support)
+This repository provides a ready-to-run Docker environment for [NVIDIA's Isaac-GROOT](https://github.com/NVIDIA/Isaac-GR00T), a powerful robotics simulation and training framework built by NVIDIA. This container includes GPU support, Jupyter notebook access, and all required dependencies bundled with CUDA 12.4.
 
-## Build Instructions
-Follow these steps to build the Docker image:
+---
 
-1. Clone this repository:
-   ```sh
-   git clone https://github.com/your-username/your-repo.git
-   cd your-repo
-   ```
-2. Build the Docker image:
-   ```sh
-   docker build -t isaac-groot .
-   ```
+## 📦 What's Inside
 
-## Running the Container
-To run the container with GPU support, use:
-```sh
-docker run --gpus all -it --rm isaac-groot
+- ✅ Ubuntu 22.04 Base (via `nvidia/cuda:12.4.1-cudnn-devel`)
+- ✅ Python 3.10 with `pip`
+- ✅ Jupyter Notebook pre-installed
+- ✅ Full Isaac-GROOT repo cloned and installed in editable mode
+- ✅ GPU support via NVIDIA Container Toolkit
+
+---
+
+## 🐳 Getting Started
+
+### 1. Clone this repository
+
+```bash
+git clone https://github.com/your-username/isaac-groot-docker.git
+cd isaac-groot-docker
 ```
-This will start a bash session inside the container.
 
-## Features Included
-- **CUDA 12.4**: The image is based on `nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04`.
-- **Miniconda**: Installed to manage Python dependencies.
-- **Isaac-GROOT Clone**: The repository is cloned directly inside the container.
-- **Python 3.10 Environment**: A Conda virtual environment `gr00t` is created.
-- **Jupyter Support**: Installed within the Conda environment.
-- **FFmpeg and OpenCV**: Installed to handle media processing requirements.
+### 2. Build & Run with Docker Compose
 
-## Accessing Jupyter Notebook (Optional)
-If you want to run Jupyter notebooks inside the container, use:
-```sh
-jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+```bash
+docker compose up --build
 ```
-Then, access it from your browser at `http://localhost:8888`.
 
-## Notes
-- The `ENTRYPOINT` and `CMD` are set to start a bash session.
-- Make sure your system has the necessary NVIDIA drivers for GPU acceleration.
+This command:
+- Builds the Docker image with tag `isaac-gr00t:v1`
+- Launches a container using host networking
+- Reserves all available NVIDIA GPUs
 
-## License
-This repository follows the [MIT License](LICENSE) unless stated otherwise.
+---
 
-## Support
-For any issues, feel free to open an issue on GitHub or refer to the [Isaac-GROOT documentation](https://github.com/nvidia/Isaac-GR00T).
+## 🚪 Accessing Jupyter Notebook
 
+Once the container is running, open your browser and navigate to:
 
+```
+http://localhost:8888
+```
+
+You’ll see the Jupyter interface where you can begin experimenting with Isaac-GROOT.
+
+---
+
+## ⚙️ Requirements
+
+To run this setup, ensure you have the following installed:
+
+- Docker
+- Docker Compose (v2+)
+- NVIDIA Container Toolkit (for GPU passthrough)
+- An NVIDIA GPU with drivers supporting CUDA 12.4
+
+---
+
+## 📁 Project Structure
+
+```bash
+.
+├── Dockerfile              # Custom image with Isaac-GROOT and dependencies
+├── docker-compose.yaml     # Defines service and GPU access
+└── README.md               # You're here!
+```
+
+---
+
+## 🛠️ Useful Tips
+
+- Want to modify the Isaac-GROOT code? Edit files directly in the `/GR00T` directory inside the container.
+- To install more Python packages, you can use `pip install` inside the running container or modify the Dockerfile.
+- You can change the default Jupyter port in the `CMD` section of the Dockerfile.
+
+---
+
+## 🙌 Credits
+
+- 📦 [Isaac-GROOT](https://github.com/NVIDIA/Isaac-GR00T) by NVIDIA
+- 🐳 Docker & NVIDIA CUDA base images
+
+---
+
+## 📜 License
+
+This repository provides a Docker setup and does not modify or redistribute Isaac-GROOT. Refer to the [Isaac-GROOT license](https://github.com/NVIDIA/Isaac-GR00T/blob/main/LICENSE) for usage rights of the original project.
+
+---
+
+Let me know if you'd like badges, example notebooks, or usage demos added too!
