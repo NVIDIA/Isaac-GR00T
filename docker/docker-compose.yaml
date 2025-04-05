@@ -1,0 +1,15 @@
+services:
+  isaac-groot:
+    build:
+      dockerfile: ./Dockerfile
+      tags:
+        - "isaac-gr00t:v1"
+    image: aarambhpatil/isaac-gr00t:v1
+    network_mode: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all # alternatively, use `count: all` for all GPUs
+              capabilities: [gpu]
