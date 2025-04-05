@@ -9,7 +9,7 @@
     <a href="https://developer.nvidia.com/isaac/gr00t"><strong>Website</strong></a> | 
     <a href="https://huggingface.co/nvidia/GR00T-N1-2B"><strong>Model</strong></a> |
     <a href="https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim"><strong>Dataset</strong></a> |
-    <a href="https://research.nvidia.com/publication/2025-03_nvidia-isaac-gr00t-n1-open-foundation-model-humanoid-robots"><strong>Paper</strong></a>
+    <a href="https://arxiv.org/abs/2503.14734"><strong>Paper</strong></a>
   </p>
 </div>
 
@@ -94,27 +94,9 @@ We provide accessible Jupyter notebooks and detailed documentations in the [`./g
 
 ## 1. Data Format & Loading
 
-- To load and process the data, we use [Huggingface LeRobot data](https://github.com/huggingface/lerobot), but with a more detailed metadata and annotation schema (we call it "LeRobot compatible data schema").
-- This schema requires data to be formatted in a specific directory structure to be able to load it. 
-- This is an example of the schema that is stored here: `./demo_data/robot_sim.PickNPlace` 
-```
-.
-├─meta 
-│ ├─episodes.jsonl
-│ ├─modality.json
-│ ├─info.json
-│ └─tasks.jsonl
-├─videos
-│ └─chunk-000
-│   └─observation.images.ego_view
-│     └─episode_000001.mp4
-│     └─episode_000000.mp4
-└─data
-  └─chunk-000
-    ├─episode_000001.parquet
-    └─episode_000000.parquet
-```
-- Data organization guide is available in [`getting_started/LeRobot_compatible_data_schema.md`](getting_started/LeRobot_compatible_data_schema.md)
+- To load and process the data, we use [Huggingface LeRobot data](https://github.com/huggingface/lerobot), but with a more detailed modality and annotation schema (we call it "LeRobot compatible data schema").
+- An example of LeRobot dataset is stored here: `./demo_data/robot_sim.PickNPlace`. (with additional [`modality.json`](./demo_data/robot_sim.PickNPlace/meta/modality.json) file)
+- Detailed explanation of the dataset format is available in [`getting_started/LeRobot_compatible_data_schema.md`](getting_started/LeRobot_compatible_data_schema.md)
 - Once your data is organized in this format, you can load the data using `LeRobotSingleDataset` class.
 
 ```python
@@ -134,7 +116,7 @@ transforms = data_config.transform()
 dataset = LeRobotSingleDataset(
     dataset_path="demo_data/robot_sim.PickNPlace",
     modality_configs=modality_config,
-    transforms=transforms,
+    transforms=None,  # we can choose to not apply any transforms
     embodiment_tag=EmbodimentTag.GR1, # the embodiment to use
 )
 
@@ -160,7 +142,7 @@ modality_config = ComposedModalityConfig(...)
 transforms = ComposedModalityTransform(...)
 
 # 2. Load the dataset
-dataset = LeRobotSingleDataset(.....<Similar to the loading section above>....)
+dataset = LeRobotSingleDataset(.....<Same as above>....)
 
 # 3. Load pre-trained model
 policy = Gr00tPolicy(
@@ -199,6 +181,9 @@ python scripts/gr00t_finetune.py --help
 
 # then run the script
 python scripts/gr00t_finetune.py --dataset-path ./demo_data/robot_sim.PickNPlace --num-gpus 1
+
+# run using Lora Parameter Eifficient Fine-Tuning
+python scripts/gr00t_finetune.py  --dataset-path ./demo_data/robot_sim.PickNPlace --num-gpus 1 --lora_rank 64  --lora_alpha 128  --batch-size 32
 ```
 
 You can also download a sample dataset from our huggingface sim data release [here](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim)
@@ -240,6 +225,9 @@ You will then see a plot of Ground Truth vs Predicted actions, along with unnorm
 
 
 # FAQ
+
+*Does it work on CUDA ARM Linux?*
+- Yes, visit [jetson-containers](https://github.com/dusty-nv/jetson-containers/tree/master/packages/robots/Isaac-GR00T). 
 
 *I have my own data, what should I do next for finetuning?*
 - This repo assumes that your data is already organized according to the LeRobot format. 
