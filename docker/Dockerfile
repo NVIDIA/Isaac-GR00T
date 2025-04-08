@@ -39,23 +39,15 @@ ARG PATH="/miniconda3/envs/gr00t/bin:$PATH"
 
 # Now run all the conda related commands to make sure conda gets initialized in the bash script
 # Install all necessary python packages for gr00t
-RUN <<EOT bash
-conda init
-source /root/.bashrc
-conda activate gr00t
+RUN <<EOT 
 pip install --upgrade setuptools
 pip install -e .
 pip install --no-build-isolation flash-attn==2.7.1.post4
+pip install notebook
 EOT
-
-# Set the default conda environment while using the /bin/bash to gr00t
-RUN echo "conda activate gr00t" >> /root/.bashrc
-
-# Install the jupyter extension for conda so that you can use jupyter when required to run the code
-RUN conda install anaconda::jupyter
 
 # Setting the Entrypoint and Command to /bin/bash whenever executed
 ENTRYPOINT ["/bin/bash"]
-CMD ["/bin/bash"]
+CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
 
 
