@@ -48,6 +48,6 @@ EOT
 
 # Setting the Entrypoint and Command to /bin/bash whenever executed
 ENTRYPOINT ["/bin/bash"]
-CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+# CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
 
 
