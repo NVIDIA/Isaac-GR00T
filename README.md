@@ -205,20 +205,24 @@ For new embodiment finetuning, checkout our notebook in [`getting_started/3_new_
 
 ## 4. Evaluation
 
-To conduct an offline evaluation of the model, we provide a script that evaluates the model on a dataset, and plots it out.
+To conduct an offline evaluation of the model, we provide a script that evaluates the model on a dataset, and plots it out. Quick try: `python scripts/eval_policy.py --plot --model_path nvidia/GR00T-N1-2B`
+
+Or you can run the newly trained model in client-server mode.
 
 Run the newly trained model
 ```bash
 python scripts/inference_service.py --server \
     --model_path <MODEL_PATH> \
     --embodiment_tag new_embodiment
+    --data_config <DATA_CONFIG>
 ```
 
 Run the offline evaluation script
 ```bash
 python scripts/eval_policy.py --plot \
     --dataset_path <DATASET_PATH> \
-    --embodiment_tag new_embodiment
+    --embodiment_tag new_embodiment \
+    --data_config <DATA_CONFIG>
 ```
 
 You will then see a plot of Ground Truth vs Predicted actions, along with unnormed MSE of the actions. This would give you an indication if the policy is performing well on the dataset.

@@ -189,7 +189,7 @@ class Gr00tRobotInferenceClient:
             "video.webcam": img[np.newaxis, :, :, :],
             "state.single_arm": state[:5][np.newaxis, :].astype(np.float64),
             "state.gripper": state[5:6][np.newaxis, :].astype(np.float64),
-            "annotation.human.action.task_description": [self.language_instruction],
+            "annotation.human.task_description": [self.language_instruction],
         }
         start_time = time.time()
         res = self.policy.get_action(obs_dict)
