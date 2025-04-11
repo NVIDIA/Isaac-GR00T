@@ -1,0 +1,21 @@
+Finetune bash code:
+'''
+python scripts/gr00t_finetune.py \
+   --dataset-path /demo_data/pick_and_put_in_drawer_v1/ \
+   --num-gpus 8 \
+   --output-dir ~/kinova-checkpoints  \
+   --max-steps 2000 \
+   --data-config Single_Kinova \
+   --video-backend torchvision_av
+'''
+
+Evaluation bash code:
+'''
+python scripts/eval_policy.py --plot \
+   --embodiment_tag Single_Kinova \
+   --model_path <YOUR_CHECKPOINT_PATH> \
+   --data_config Single_Kinova \
+  --dataset_path /demo_data/pick_and_put_in_drawer_v1/ \
+   --video_backend torchvision_av \
+   --modality_keys single_arm gripper
+'''
