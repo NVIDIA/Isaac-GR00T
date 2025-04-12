@@ -191,7 +191,6 @@ class Gr00tRobotInferenceClient:
             "state.gripper": state[5:6][np.newaxis, :].astype(np.float64),
             "annotation.human.task_description": [self.language_instruction],
         }
-        start_time = time.time()
         res = self.policy.get_action(obs_dict)
         # print("Inference query time taken", time.time() - start_time)
         return res

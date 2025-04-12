@@ -39,17 +39,18 @@ and GR00T N1 as the low-level action executor (system 1).
 ##################################################################
 """
 
+import base64
+import os
+import queue
+import random
+import time
+from enum import Enum
+
 import cv2
 import numpy as np
 import torch
-import random
-import time
-from groot_lerobot import Gr00tRobotInferenceClient, SO100Robot, view_img
-from enum import Enum
+from eval_gr00t_so100 import Gr00tRobotInferenceClient, SO100Robot, view_img
 from pynput import keyboard
-import queue
-import base64
-import os
 
 # Use VLM as high-level task planner to get the prompt for gr00t VLA
 USE_VLM = True
@@ -124,7 +125,7 @@ class TicTacToeVLMClient:
         """
         if self._vlm_name == "gemini":
             # save image to tmp file
-            tmp_file = f"/tmp/tmp_tictac_img.png"
+            tmp_file = "/tmp/tmp_tictac_img.png"
             cv2.imwrite(tmp_file, img)
             response = self._gemini_generate(tmp_file)
             os.remove(tmp_file)
@@ -154,7 +155,7 @@ class TicTacToeVLMClient:
         prompt += "There's a 3x3 grid representing a tic-tac-toe board with some positions already filled. "
         prompt += "Orange circles represent 'O' and blue 'X' pieces represent 'X'. "
         prompt += "You are playing as 'O' (the orange circles). "
-        prompt += f"Based on the current board state, what is your best next move to win or block your opponent? "
+        prompt += "Based on the current board state, what is your best next move to win or block your opponent? "
         prompt += f"Please choose one of the following positions: {', '.join(member_names)}. "
         prompt += "Only choose an empty position that is not currently occupied by 'X' or 'O'. "
         prompt += (
@@ -348,7 +349,7 @@ if __name__ == "__main__":
             print_green(f" 🤖 Robot is thinking........ (aka {vlm_client.name} vlm)")
             prompt = vlm_client.generate_vla_prompt(img)
             print_green(f" 🤖 Robot decided the move ({vlm_client.name} vlm): \n -> '{prompt}'")
-            print_green(f" 🦾 GR00T VLA is executing the move")
+            print_green(" 🦾 GR00T VLA is executing the move")
             client_instance.set_lang_instruction(prompt.__str__())
 
         while True:  # Run indefinitely until manually stopped
@@ -378,7 +379,7 @@ if __name__ == "__main__":
                             print_green(
                                 f" 🤖 Robot selected new random move: \n -> '{current_task}'"
                             )
-                        print_green(f" 🦾 GR00T VLA is executing the move")
+                        print_green(" 🦾 GR00T VLA is executing the move")
                         client_instance.set_lang_instruction(current_task.__str__())
 
                         # TODO(YL) remove this. this makes it easier to be in picking state
