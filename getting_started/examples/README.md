@@ -19,3 +19,11 @@ This showcases the example of using a VLM as a high-level task planner (system 2
 
  * Example script: [tictac_bot.py](./tictac_bot.py)
  * [Example dataset](https://huggingface.co/datasets/youliangtan/tictac-bot)
+
+```bash
+# server
+python scripts/inference_service.py --model_path <YOUR_CHECKPOINT_PATH> --server --data_config so100  --embodiment_tag new_embodiment
+
+# client
+python tictac_bot.py
+```

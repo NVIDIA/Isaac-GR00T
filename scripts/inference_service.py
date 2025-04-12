@@ -84,9 +84,9 @@ if __name__ == "__main__":
 
     elif args.client:
         import time
+
         # In this mode, we will send a random observation to the server and get an action back
         # This is useful for testing the server and client connection
-
         # Create a policy wrapper
         policy_client = RobotInferenceClient(host=args.host, port=args.port)
 

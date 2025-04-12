@@ -22,7 +22,7 @@ and GR00T N1 as the low-level action executor (system 1).
 
  High-level task
   language description ------>    |---------------------|
- Observation (e.g. image) ----->  |  VLM (e.g. chatgpt) |----|
+ Observation (e.g. image) ----->  |  VLM (e.g. Gpt4o)   |----|
                                   |---------------------|    |
                                                              |
                                                              |
@@ -44,23 +44,22 @@ import numpy as np
 import torch
 import random
 import time
-from eval_gr00t_so100 import Gr00tRobotInferenceClient, SO100Robot, view_img
+from groot_lerobot import Gr00tRobotInferenceClient, SO100Robot, view_img
 from enum import Enum
 from pynput import keyboard
 import queue
 import base64
+import os
 
-
-# Use OpenAI VLM to get the prompt for gr00t
-USE_OPENAI_VLM = True
-
+# Use VLM as high-level task planner to get the prompt for gr00t VLA
+USE_VLM = True
+VLM_NAME = "gemini"  # openai, gemini
 ACTIONS_TO_EXECUTE = 10
 ACTION_HORIZON = 16
 MODALITY_KEYS = ["single_arm", "gripper"]
-HOST = "10.110.17.183"
-PORT = 5555
-CAM_IDX = 9
-
+HOST = "10.110.17.183"  # The VLA server IP address
+PORT = 5555  # The VLA server port
+CAM_IDX = 1  # The camera index
 
 #################################################################################
 
@@ -83,13 +82,70 @@ class TaskToString(Enum):
 #################################################################################
 
 
-class TicTacToeOpenAIClient:
-    def __init__(self):
-        # NOTE: Please write your own openai client. User's TODO
-        from openai_client import OpenAIClient
+class TicTacToeVLMClient:
+    """
+    This is a wrapper class for a VLM Client. Currently this supports
+    Gemini and OpenAI.
 
-        self.openai_client = OpenAIClient()
+    Gemini: https://aistudio.google.com/
+    OpenAI: https://platform.openai.com/api-keys
+    """
+
+    def __init__(self, vlm_name: str = "gemini"):
         self.prompt = self._get_prompt()
+
+        if vlm_name == "gemini":
+            from google import genai
+
+            # NOTE: Get the GEMINI_API_KEY from the user
+            if os.environ.get("GEMINI_API_KEY") is None:
+                raise ValueError("GEMINI_API_KEY is not set")
+
+            self.client = genai.Client(
+                api_key=os.environ.get("GEMINI_API_KEY"),
+            )
+        elif vlm_name == "openai":
+            # NOTE: Please write your own openai client as this custom application
+            # uses openai under Microsoft Azure. User's TODO
+            from openai_client import OpenAIClient
+
+            self.client = OpenAIClient()
+        else:
+            raise ValueError(f"Invalid VLM name: {vlm_name}")
+        self._vlm_name = vlm_name
+
+    @property
+    def name(self):
+        return self._vlm_name
+
+    def generate_vla_prompt(self, img: np.ndarray) -> str:
+        """ "
+        This gets the valid prompt for gr00t to execute the VLA tasks
+        """
+        if self._vlm_name == "gemini":
+            # save image to tmp file
+            tmp_file = f"/tmp/tmp_tictac_img.png"
+            cv2.imwrite(tmp_file, img)
+            response = self._gemini_generate(tmp_file)
+            os.remove(tmp_file)
+
+        elif self._vlm_name == "openai":
+            response = self._openai_generate(img)
+
+        else:
+            raise ValueError(f"Invalid VLM name: {self._vlm_name}")
+
+        raw_response = response
+        response = self._filter_response(response)
+        try:
+            task = TaskToString[response]
+        except KeyError:
+            print_yellow(f"Warning: Gemini returned a longer response: {raw_response}")
+            task = self._get_closest_task(response)
+            print_yellow(f"Using closest task: {task}")
+        return task
+
+    #########################################################################
 
     def _get_prompt(self):
         member_names = [member.name for member in TaskToString]  # Use name instead of value
@@ -106,10 +162,51 @@ class TicTacToeOpenAIClient:
         )
         return prompt
 
-    def get_gr00t_prompt(self, img: np.ndarray) -> str:
-        """ "
-        This gets the valid prompt for gr00t to execute the VLA tasks
-        """
+    def _gemini_generate(self, image_pth: str, max_retries=3):
+        """This calls the gemini client to generate the prompt"""
+        from google.genai import types
+
+        for retry in range(max_retries):
+            try:
+                files = [self.client.files.upload(file=image_pth)]
+                model = "gemini-2.5-pro-exp-03-25"
+                # model = "gemini-2.0-flash-thinking-exp-01-21"
+                contents = [
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_uri(
+                                file_uri=files[0].uri,
+                                mime_type=files[0].mime_type,
+                            ),
+                            types.Part.from_text(text=self.prompt),
+                        ],
+                    ),
+                ]
+                generate_content_config = types.GenerateContentConfig(
+                    temperature=2,
+                    response_mime_type="text/plain",
+                )
+
+                response = ""
+                for chunk in self.client.models.generate_content_stream(
+                    model=model,
+                    contents=contents,
+                    config=generate_content_config,
+                ):
+                    response += chunk.text
+                return response
+            except Exception as e:
+                print_yellow(f"Gemini API error (attempt {retry+1}/{max_retries}): {e}")
+                if retry < max_retries - 1:
+                    print_yellow("Retrying in 2 seconds...")
+                    time.sleep(2)
+                else:
+                    print_yellow("Max retries reached. Falling back to alternative.")
+                    raise
+
+    def _openai_generate(self, img: np.ndarray) -> str:
+        """This calls the openai client to generate the prompt"""
         # Convert numpy array to JPEG bytes
         success, encoded_img = cv2.imencode(".jpg", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
         if not success:
@@ -131,28 +228,14 @@ class TicTacToeOpenAIClient:
             }
         ]
 
-        response = self.openai_client(
+        response = self.client(
             messages,
             max_tokens=4096,
             temperature=0,
             max_api_call_attempts=2,
             model="gpt-4o",
         )
-
-        if response is None:
-            print_green("Error: No response from OpenAI API")
-            return random.choice(list(TaskToString))
-
-        response = response.choices[0].message.content
-        response = self._filter_response(response)
-
-        try:
-            # Try to convert the response to an enum member
-            task = TaskToString[response]
-            return task
-        except KeyError:
-            print_green(f"Error: Invalid response from OpenAI: {response}")
-            return random.choice(list(TaskToString))
+        return response.choices[0].message.content
 
     def _filter_response(self, response: str) -> str:
         # replace space with underscore
@@ -160,6 +243,37 @@ class TicTacToeOpenAIClient:
         # do a strip, remove all punctuations, and make sure it is uppercase
         selection = response.strip().replace("\n", "").replace(".", "").replace(",", "").upper()
         return selection
+
+    def _get_closest_task(self, response: str) -> str:
+        """This checks if the response is close to any of the task names"""
+        # take the last 15 characters of the response
+        response = response[-15:]
+        if "BOTTOM" in response:
+            if "LEFT" in response:
+                return TaskToString.BOTTOM_LEFT
+            elif "RIGHT" in response:
+                return TaskToString.BOTTOM_RIGHT
+            else:
+                return TaskToString.CENTER_BOTTOM
+
+        elif "TOP" in response:
+            if "LEFT" in response:
+                return TaskToString.TOP_LEFT
+            elif "RIGHT" in response:
+                return TaskToString.TOP_RIGHT
+            else:
+                return TaskToString.CENTER_TOP
+
+        elif "CENTER" in response:
+            if "LEFT" in response:
+                return TaskToString.CENTER_LEFT
+            elif "RIGHT" in response:
+                return TaskToString.CENTER_RIGHT
+            else:
+                return TaskToString.CENTER
+        else:
+            print_yellow(f"Error: Invalid response from Gemini: {response}")
+            return TaskToString.CENTER
 
 
 def print_green(text):
@@ -178,8 +292,8 @@ if __name__ == "__main__":
     current_task = random.choice(list(TaskToString))
     print_green(f"task: {current_task}")
 
-    if USE_OPENAI_VLM:
-        vlm_client = TicTacToeOpenAIClient()
+    if USE_VLM:
+        vlm_client = TicTacToeVLMClient(VLM_NAME)
 
     client_instance = Gr00tRobotInferenceClient(
         host=HOST,
@@ -228,10 +342,12 @@ if __name__ == "__main__":
         print("--------------------------------")
 
         # get the initial image
-        if USE_OPENAI_VLM:
+        if USE_VLM:
+            robot_instance.go_home()
             img = robot_instance.get_current_img()
-            prompt = vlm_client.get_gr00t_prompt(img)
-            print_green(f" 🤖 Robot decided the move (0penAI VLM): \n -> '{prompt}'")
+            print_green(f" 🤖 Robot is thinking........ (aka {vlm_client.name} vlm)")
+            prompt = vlm_client.generate_vla_prompt(img)
+            print_green(f" 🤖 Robot decided the move ({vlm_client.name} vlm): \n -> '{prompt}'")
             print_green(f" 🦾 GR00T VLA is executing the move")
             client_instance.set_lang_instruction(prompt.__str__())
 
@@ -248,11 +364,13 @@ if __name__ == "__main__":
 
                     elif cmd == COMMAND_RESUME:
                         # Generate a new task when resuming
-                        if USE_OPENAI_VLM:
-                            print_green(f" 🤖 Robot is thinking........ (aka openai vlm)")
+                        if USE_VLM:
+                            print_green(
+                                f" 🤖 Robot is thinking........ (aka {vlm_client.name} vlm)"
+                            )
 
                             img = robot_instance.get_current_img()
-                            current_task = vlm_client.get_gr00t_prompt(img)
+                            current_task = vlm_client.generate_vla_prompt(img)
                             print_green(f" 🤖 Robot decided the move: \n -> '{current_task}'")
 
                         else:
@@ -264,9 +382,9 @@ if __name__ == "__main__":
                         client_instance.set_lang_instruction(current_task.__str__())
 
                         # TODO(YL) remove this. this makes it easier to be in picking state
-                        # target_state = torch.tensor([130, 100, 90, 100, -80, 20])
-                        # robot_instance.set_target_state(target_state)
-                        # time.sleep(1)
+                        target_state = torch.tensor([130, 100, 90, 100, -80, 20])
+                        robot_instance.set_target_state(target_state)
+                        time.sleep(1)
             except queue.Empty:
                 pass
 

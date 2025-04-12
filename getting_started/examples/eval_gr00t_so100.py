@@ -242,7 +242,7 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=5555)
     parser.add_argument("--action_horizon", type=int, default=12)
     parser.add_argument("--actions_to_execute", type=int, default=350)
-    parser.add_argument("--cam_idx", type=int, default=9)
+    parser.add_argument("--cam_idx", type=int, default=1)
     parser.add_argument(
         "--lang_instruction", type=str, default="Pick up the fruits and place them on the plate."
     )
@@ -287,7 +287,7 @@ if __name__ == "__main__":
                     )
                     assert concat_action.shape == (6,), concat_action.shape
                     robot.set_target_state(torch.from_numpy(concat_action))
-                    time.sleep(0.01)
+                    time.sleep(0.02)
 
                     # get the realtime image
                     img = robot.get_current_img()
@@ -303,7 +303,7 @@ if __name__ == "__main__":
                     print("executing action", i, "time taken", time.time() - start_time)
                 print("Action chunk execution time taken", time.time() - start_time)
     else:
-        # NOTE: For replaying the dataset.
+        # Test Dataset Source https://huggingface.co/datasets/youliangtan/so100_strawberry_grape
         dataset = LeRobotDataset(
             repo_id="",
             root=args.dataset_path,
@@ -324,7 +324,7 @@ if __name__ == "__main__":
                 view_img(img, realtime_img)
                 actions.append(action)
                 robot.set_target_state(action)
-                time.sleep(0.02)
+                time.sleep(0.05)
 
             # plot the actions
             plt.plot(actions)

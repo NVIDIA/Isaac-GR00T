@@ -19,9 +19,9 @@ from gr00t.data.dataset import ModalityConfig
 from gr00t.data.transform.base import ComposedModalityTransform, ModalityTransform
 from gr00t.data.transform.concat import ConcatTransform
 from gr00t.data.transform.state_action import (
+    StateActionSinCosTransform,
     StateActionToTensor,
     StateActionTransform,
-    StateActionSinCosTransform,
 )
 from gr00t.data.transform.video import (
     VideoColorJitter,
