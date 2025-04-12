@@ -52,13 +52,15 @@ import torch
 from eval_gr00t_so100 import Gr00tRobotInferenceClient, SO100Robot, view_img
 from pynput import keyboard
 
+# NOTE: USER TODO
 # Use VLM as high-level task planner to get the prompt for gr00t VLA
+# if gemini is used, please set the GEMINI_API_KEY in the environment variables
 USE_VLM = True
 VLM_NAME = "gemini"  # openai, gemini
 ACTIONS_TO_EXECUTE = 10
 ACTION_HORIZON = 16
 MODALITY_KEYS = ["single_arm", "gripper"]
-HOST = "10.110.17.183"  # The VLA server IP address
+HOST = "localhost"  # The VLA server IP address
 PORT = 5555  # The VLA server port
 CAM_IDX = 1  # The camera index
 
@@ -91,7 +93,6 @@ class TicTacToeVLMClient:
     Gemini: https://aistudio.google.com/
     OpenAI: https://platform.openai.com/api-keys
     """
-
     def __init__(self, vlm_name: str = "gemini"):
         self.prompt = self._get_prompt()
 
@@ -120,7 +121,7 @@ class TicTacToeVLMClient:
         return self._vlm_name
 
     def generate_vla_prompt(self, img: np.ndarray) -> str:
-        """ "
+        """
         This gets the valid prompt for gr00t to execute the VLA tasks
         """
         if self._vlm_name == "gemini":
@@ -353,7 +354,7 @@ if __name__ == "__main__":
             client_instance.set_lang_instruction(prompt.__str__())
 
         while True:  # Run indefinitely until manually stopped
-            # Process any commands in the queue
+            # --------- Handle User Keyboard Input --------
             try:
                 while not command_queue.empty():
                     cmd = command_queue.get_nowait()
@@ -389,6 +390,7 @@ if __name__ == "__main__":
             except queue.Empty:
                 pass
 
+            # -------- MAIN CONTROL LOOP --------
             # When the process is not paused. (robot is executing)
             if not paused:
                 for i in range(ACTIONS_TO_EXECUTE):
@@ -412,7 +414,7 @@ if __name__ == "__main__":
                         )
                         assert concat_action.shape == (6,), concat_action.shape
                         robot_instance.set_target_state(torch.from_numpy(concat_action))
-                        time.sleep(0.025)
+                        time.sleep(0.02)
 
                         # get the realtime image
                         img = robot_instance.get_current_img()

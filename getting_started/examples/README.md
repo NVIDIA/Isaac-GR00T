@@ -24,6 +24,6 @@ This showcases the example of using a VLM as a high-level task planner (system 2
 # server
 python scripts/inference_service.py --model_path <YOUR_CHECKPOINT_PATH> --server --data_config so100  --embodiment_tag new_embodiment
 
-# client
+# client NOTE: this shouldn't run as it is, user will need to modify the script with relevant configs to make it work.
 python tictac_bot.py
 ```
