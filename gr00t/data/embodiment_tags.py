@@ -26,3 +26,4 @@ class EmbodimentTag(Enum):
     """
     Any new embodiment for finetuning.
     """
+    Single_Kinova = "Single_Kinova"

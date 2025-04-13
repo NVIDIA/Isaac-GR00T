@@ -52,7 +52,7 @@ class Config:
     max_steps: int = 10000
     """Maximum number of training steps."""
 
-    num_gpus: int = 1
+    num_gpus: int = 8
     """Number of GPUs to use for training."""
 
     save_steps: int = 500
