@@ -36,6 +36,9 @@ and GR00T N1 as the low-level action executor (system 1).
                                 v
                             Robot Action
 
+ Example dataset:
+    https://huggingface.co/datasets/youliangtan/tictac-bot
+
 ##################################################################
 """
 
@@ -93,6 +96,7 @@ class TicTacToeVLMClient:
     Gemini: https://aistudio.google.com/
     OpenAI: https://platform.openai.com/api-keys
     """
+
     def __init__(self, vlm_name: str = "gemini"):
         self.prompt = self._get_prompt()
 

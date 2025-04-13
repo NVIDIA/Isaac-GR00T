@@ -4,16 +4,36 @@
 
 This provides additional examples of `modality.json` for different lerobot datasets. Copy the relevant `modality.json` to the dataset`<DATASET_PATH>/meta/modality.json`
 
-`eval_gr00t_so100.py` provides an example of how to use the finetuned model to generate policy rollouts.
-
 
 ## Eval GR00T N1 on SO100
 
-The `eval_gr00t_so100.py` script provides an example of how to use the finetuned model to run policy rollouts on a SO100 robot arm.
+
+[eval_gr00t_so100.py](./eval_gr00t_so100.py) provides an example of how to use the finetuned model to run policy rollouts on a SO100 robot arm.
+
+> NOTE: This script is meant to serve as a template, user will need to modify the script to run on a real robot.
 
 ## Tic-Tac-Toe Bot
 
 <img src="./tictac_bot_setup.jpg" alt="Tic Tac Toe Bot" width="500"/>
+
+```mermaid
+graph TD
+    subgraph "High-level Planner"
+        A[Language Description] --> B[<b>VLM</b><br/>GPT-4/Gemini]
+        C[Observation<br/>Image] --> B
+        B --> D[Language Instruction<br/>e.g. place the circle to the bottom left corner box]
+    end
+
+    subgraph "Robot Control"
+        E[Robot Observation<br/>Images + Proprioception] --> F[<b>VLA</b><br/>GR00T N1]
+        D --> F
+        F --> G[Robot Action]
+    end
+
+    style B fill:#bbf,stroke:#333,stroke-width:2px
+    style F fill:#bbf,stroke:#333,stroke-width:2px
+    style G fill:#bfb,stroke:#333,stroke-width:2px
+```
 
 This showcases the example of using a VLM as a high-level task planner (system 2) to plan the next action in a tic-tac-toe game, and GR00T N1 as the low-level action executor (system 1). This showcases language-conditioned on a GR00T N1 VLA. (e.g. "Place the circle to the bottom left corner box")
 
