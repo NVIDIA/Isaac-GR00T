@@ -5,10 +5,10 @@
 This provides additional examples of `modality.json` for different lerobot datasets. Copy the relevant `modality.json` to the dataset`<DATASET_PATH>/meta/modality.json`
 
 
-## Eval GR00T N1 on SO100
+## Eval GR00T N1 on SO100/LeKiwi
 
 
-[eval_gr00t_so100.py](./eval_gr00t_so100.py) provides an example of how to use the finetuned model to run policy rollouts on a SO100 robot arm.
+[eval_gr00t_so100.py](./eval_gr00t_so100.py) provides an example of how to use the finetuned model to run policy rollouts on a SO100 robot arm. Similarly [eval_gr00t_lekiwi.py](./eval_gr00t_lekiwi.py) for LeKiwi mobile robot.
 
 > NOTE: This script is meant to serve as a template, user will need to modify the script to run on a real robot.
 
