@@ -197,7 +197,59 @@ class GR00T_N1(PreTrainedModel):
         return backbone_inputs, action_inputs
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs):
+    def from_pretrained(
+        cls,
+        pretrained_model_name_or_path: str,
+        attn_implementation: str = "auto", # Added: "auto", "eager", "flash_attention_2"
+        **kwargs
+    ):
+        """
+        Loads the GR00T_N1 model from a pretrained path or Hugging Face Hub identifier.
+
+        Args:
+            pretrained_model_name_or_path (str): Path or Hub ID.
+            attn_implementation (str): Preferred attention implementation.
+                - "auto": Tries "flash_attention_2" if GPU and flash_attn are available, otherwise "eager".
+                - "flash_attention_2": Attempts to use Flash Attention 2. Requires compatible GPU and installation.
+                - "eager": Uses the default PyTorch attention implementation (CPU/GPU compatible).
+            **kwargs: Additional arguments passed to PreTrainedModel.from_pretrained.
+        """
+        # --- Attention Implementation Logic ---
+        final_attn_impl = "eager" # Default fallback
+        if attn_implementation == "flash_attention_2":
+            final_attn_impl = "flash_attention_2" # User explicitly requested
+        elif attn_implementation == "auto":
+            if torch.cuda.is_available():
+                try:
+                    import flash_attn
+                    final_attn_impl = "flash_attention_2"
+                    print("Flash Attention 2 available and selected.")
+                except ImportError:
+                    print("Flash Attention 2 not installed, falling back to 'eager'.")
+                    final_attn_impl = "eager"
+            else:
+                print("No GPU detected, using 'eager' attention.")
+                final_attn_impl = "eager"
+        elif attn_implementation == "eager":
+             final_attn_impl = "eager" # User explicitly requested
+        else:
+             print(f"Warning: Unknown attn_implementation '{attn_implementation}', defaulting to 'eager'.")
+             final_attn_impl = "eager"
+
+        print(f"Using attention implementation: {final_attn_impl}")
+        # --- End Attention Implementation Logic ---
+
+        # Load config first
+        config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
+
+        # --- Inject chosen attention implementation into backbone config ---
+        # This ensures EagleBackbone receives the correct setting via its kwargs
+        if hasattr(config, "backbone_cfg") and isinstance(config.backbone_cfg, dict):
+            config.backbone_cfg["attn_implementation"] = final_attn_impl
+        else:
+            print("Warning: Could not find 'backbone_cfg' in config to set attn_implementation.")
+        # --- End Injection ---
+
         tune_visual = kwargs.pop("tune_visual", True)
         tune_llm = kwargs.pop("tune_llm", False)
         tune_projector = kwargs.pop("tune_projector", True)
@@ -222,7 +274,10 @@ class GR00T_N1(PreTrainedModel):
             local_model_path = pretrained_model_name_or_path
 
         pretrained_model = super().from_pretrained(
-            local_model_path, local_model_path=local_model_path, **kwargs
+            local_model_path,
+            config=config, # Pass the modified config
+            local_model_path=local_model_path, 
+            **kwargs
         )
 
         pretrained_model.backbone.set_trainable_parameters(
