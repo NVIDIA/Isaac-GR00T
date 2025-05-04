@@ -58,6 +58,14 @@ class Eagle2ChatConfig(PretrainedConfig):
         if llm_config is None:
             llm_config = {}
             logger.info("llm_config is None. Initializing the LLM config with default values")
+            
+            
+        if attn_impl:
+            logger.info(f"attn_impl: {attn_impl}")  
+            vision_config["_attn_implementation"] = attn_impl
+            llm_config["attn_implementation"] = attn_impl
+
+
 
         if attn_impl:
             logger.info(f"attn_impl: {attn_impl}")
