@@ -69,7 +69,7 @@ class Gr00tPolicy(BasePolicy):
         modality_config: Dict[str, ModalityConfig],
         modality_transform: ComposedModalityTransform,
         denoising_steps: Optional[int] = None,
-        attn_implementation: str = "auto", # Added: "auto", "eager", "flash_attention_2"
+        attn_implementation: str = "auto",  # Added: "auto", "eager", "flash_attention_2"
         device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
     ):
         """
@@ -99,7 +99,7 @@ class Gr00tPolicy(BasePolicy):
         self._modality_transform = modality_transform
         self._modality_transform.eval()  # set this to eval mode
         self.model_path = Path(model_path)
-        self.attn_implementation_preference = attn_implementation # Store preference
+        self.attn_implementation_preference = attn_implementation  # Store preference
         self.device = device
 
         # Convert string embodiment tag to EmbodimentTag enum if needed

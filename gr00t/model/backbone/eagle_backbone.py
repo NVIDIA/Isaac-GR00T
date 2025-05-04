@@ -15,6 +15,7 @@
 
 import os
 from typing import Optional
+
 import torch
 from torch import nn
 from transformers import AutoConfig, AutoModel
@@ -102,15 +103,13 @@ class EagleBackbone(nn.Module):
         print(f"Initializing EagleBackbone with model: {model_name}")
 
         config = AutoConfig.from_pretrained(
-             model_name,
-             trust_remote_code=True,
-             attn_implementation=attn_implementation
-         )
+            model_name, trust_remote_code=True, attn_implementation=attn_implementation
+        )
         self.model = AutoModel.from_config(
-             config,
-             trust_remote_code=True,
-             attn_implementation=attn_implementation,
-         )
+            config,
+            trust_remote_code=True,
+            attn_implementation=attn_implementation,
+        )
         self.model.neftune_alpha = None
 
         # Remove vision head if present

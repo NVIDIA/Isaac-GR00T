@@ -14,8 +14,9 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
+import importlib.util
 from typing import Tuple
-
+import importlib
 import numpy as np
 import torch
 import tree
@@ -200,8 +201,8 @@ class GR00T_N1(PreTrainedModel):
     def from_pretrained(
         cls,
         pretrained_model_name_or_path: str,
-        attn_implementation: str = "auto", # Added: "auto", "eager", "flash_attention_2"
-        **kwargs
+        attn_implementation: str = "auto",  # Added: "auto", "eager", "flash_attention_2"
+        **kwargs,
     ):
         """
         Loads the GR00T_N1 model from a pretrained path or Hugging Face Hub identifier.
@@ -215,13 +216,14 @@ class GR00T_N1(PreTrainedModel):
             **kwargs: Additional arguments passed to PreTrainedModel.from_pretrained.
         """
         # --- Attention Implementation Logic ---
-        final_attn_impl = "eager" # Default fallback
+        final_attn_impl = "eager"  # Default fallback
         if attn_implementation == "flash_attention_2":
-            final_attn_impl = "flash_attention_2" # User explicitly requested
+            final_attn_impl = "flash_attention_2"  # User explicitly requested
         elif attn_implementation == "auto":
             if torch.cuda.is_available():
                 try:
-                    import flash_attn
+                    importlib.util.find_spec("flash_attn")
+
                     final_attn_impl = "flash_attention_2"
                     print("Flash Attention 2 available and selected.")
                 except ImportError:
@@ -231,10 +233,12 @@ class GR00T_N1(PreTrainedModel):
                 print("No GPU detected, using 'eager' attention.")
                 final_attn_impl = "eager"
         elif attn_implementation == "eager":
-             final_attn_impl = "eager" # User explicitly requested
+            final_attn_impl = "eager"  # User explicitly requested
         else:
-             print(f"Warning: Unknown attn_implementation '{attn_implementation}', defaulting to 'eager'.")
-             final_attn_impl = "eager"
+            print(
+                f"Warning: Unknown attn_implementation '{attn_implementation}', defaulting to 'eager'."
+            )
+            final_attn_impl = "eager"
 
         print(f"Using attention implementation: {final_attn_impl}")
         # --- End Attention Implementation Logic ---
@@ -275,9 +279,9 @@ class GR00T_N1(PreTrainedModel):
 
         pretrained_model = super().from_pretrained(
             local_model_path,
-            config=config, # Pass the modified config
-            local_model_path=local_model_path, 
-            **kwargs
+            config=config,  # Pass the modified config
+            local_model_path=local_model_path,
+            **kwargs,
         )
 
         pretrained_model.backbone.set_trainable_parameters(
