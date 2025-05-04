@@ -50,6 +50,7 @@ class Eagle2ChatConfig(PretrainedConfig):
     ):
         super().__init__(**kwargs)
 
+        attn_impl = kwargs.get("attn_implementation", None)
         if vision_config is None:
             vision_config = {}
             logger.info("vision_config is None. Initializing Vision Encoders with default values.")
@@ -57,6 +58,14 @@ class Eagle2ChatConfig(PretrainedConfig):
         if llm_config is None:
             llm_config = {}
             logger.info("llm_config is None. Initializing the LLM config with default values")
+            
+            
+        if attn_impl:
+            logger.info(f"attn_impl: {attn_impl}")  
+            vision_config["_attn_implementation"] = attn_impl
+            llm_config["attn_implementation"] = attn_impl
+
+
 
         if vision_config["model_type"] == "siglip_vision_model":
             self.vision_config = SiglipVisionConfig(**vision_config)

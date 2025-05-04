@@ -14,8 +14,6 @@
 # limitations under the License.
 
 import os
-import json
-from pathlib import Path
 from typing import Optional
 import torch
 from torch import nn
@@ -103,32 +101,16 @@ class EagleBackbone(nn.Module):
             model_name = DEFAULT_EAGLE_MODEL_NAME
         print(f"Initializing EagleBackbone with model: {model_name}")
 
-        # --- Patch config JSON on disk for attention implementation ---
-        config_dir = Path(model_name)
-        config_file = config_dir / "config.json"
-        if config_file.exists():
-            cfg_data = json.loads(config_file.read_text())
-            # Set top-level implementation
-            cfg_data["attn_implementation"] = attn_implementation
-            # Patch nested llm_config and vision_config if present
-            if "llm_config" in cfg_data:
-                cfg_data["llm_config"]["attn_implementation"] = attn_implementation
-            if "vision_config" in cfg_data:
-                cfg_data["vision_config"]["_attn_implementation"] = attn_implementation
-            # Write back
-            config_file.write_text(json.dumps(cfg_data, indent=2))
-            print(f"Patched config.json at {config_file} to use '{attn_implementation}' attention.")
-        else:
-            print(f"Warning: config.json not found at {config_file}, skipping on-disk patch.")
-        # --- End patch ---
-
-        # Load config and model
-        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        config = AutoConfig.from_pretrained(
+             model_name,
+             trust_remote_code=True,
+             attn_implementation=attn_implementation
+         )
         self.model = AutoModel.from_config(
-            config,
-            trust_remote_code=True,
-            attn_implementation=attn_implementation,
-        )
+             config,
+             trust_remote_code=True,
+             attn_implementation=attn_implementation,
+         )
         self.model.neftune_alpha = None
 
         # Remove vision head if present

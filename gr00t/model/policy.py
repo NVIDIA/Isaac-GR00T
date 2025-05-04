@@ -235,15 +235,19 @@ class Gr00tPolicy(BasePolicy):
         return True
 
     def _load_model(self, model_path):
+        # decide actual setting
+        if self.attn_implementation_preference == "auto":
+            chosen = None if torch.cuda.is_available() else "eager"
+        else:
+            chosen = self.attn_implementation_preference
         model = GR00T_N1.from_pretrained(
             model_path,
             torch_dtype=COMPUTE_DTYPE,
-            attn_implementation=self.attn_implementation_preference # Pass preference
+            attn_implementation=chosen,
         )
-        model.eval()  # Set model to eval mode
-        model.to(device=self.device)  # type: ignore
+        model.eval()
+        model.to(device=self.device)
         print(f"model moved to device {self.device}")
-
         self.model = model
 
     def _load_metadata(self, exp_cfg_dir: Path):
