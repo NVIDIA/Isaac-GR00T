@@ -235,15 +235,11 @@ class Gr00tPolicy(BasePolicy):
         return True
 
     def _load_model(self, model_path):
-        # decide actual setting
-        if self.attn_implementation_preference == "auto":
-            chosen = None if torch.cuda.is_available() else "eager"
-        else:
-            chosen = self.attn_implementation_preference
+        # GR00T_N1.from_pretrained handles the 'auto' logic internally
         model = GR00T_N1.from_pretrained(
             model_path,
             torch_dtype=COMPUTE_DTYPE,
-            attn_implementation=chosen,
+            attn_implementation=self.attn_implementation_preference,
         )
         model.eval()
         model.to(device=self.device)
