@@ -106,10 +106,10 @@ class EagleBackbone(nn.Module):
             model_name, trust_remote_code=True, attn_implementation=attn_implementation
         )
         self.model = AutoModel.from_config(
-             config,
-             trust_remote_code=True,
-             attn_implementation=attn_implementation,
-         )
+            config,
+            trust_remote_code=True,
+            attn_implementation=attn_implementation,
+        )
         self.model.neftune_alpha = None
 
         # Remove vision head if present
