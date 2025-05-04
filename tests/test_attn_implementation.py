@@ -35,6 +35,43 @@ def test_policy_explicit_flash(mock_cuda, mock_gr00t_n1, common_args):
     )
 
 
+
+# --- Test: auto + CUDA → attn_impl=None ---
+@patch('gr00t.model.policy.snapshot_download', lambda p, **kw: p)
+@patch('gr00t.model.policy.GR00T_N1')
+@patch('torch.cuda.is_available', return_value=True)
+def test_policy_auto_on_cuda(mock_cuda, mock_gr00t_n1, common_args):
+    Gr00tPolicy(**common_args, attn_implementation="auto", device="cuda")
+    mock_gr00t_n1.from_pretrained.assert_called_once_with(
+        "fake/model",
+        torch_dtype=ANY,
+        attn_implementation=None
+    )
+
+# --- Test: auto + no CUDA → attn_impl="eager" ---
+@patch('gr00t.model.policy.snapshot_download', lambda p, **kw: p)
+@patch('gr00t.model.policy.GR00T_N1')
+@patch('torch.cuda.is_available', return_value=False)
+def test_policy_auto_on_cpu(mock_cuda, mock_gr00t_n1, common_args):
+    Gr00tPolicy(**common_args, attn_implementation="auto", device="cpu")
+    mock_gr00t_n1.from_pretrained.assert_called_once_with(
+        "fake/model",
+        torch_dtype=ANY,
+        attn_implementation="eager"
+    )
+
+# --- Test: explicit eager override on CPU ---
+@patch('gr00t.model.policy.snapshot_download', lambda p, **kw: p)
+@patch('gr00t.model.policy.GR00T_N1')
+@patch('torch.cuda.is_available', return_value=False)
+def test_policy_explicit_eager(mock_cuda, mock_gr00t_n1, common_args):
+    Gr00tPolicy(**common_args, attn_implementation="eager", device="cpu")
+    mock_gr00t_n1.from_pretrained.assert_called_once_with(
+        "fake/model",
+        torch_dtype=ANY,
+        attn_implementation="eager"
+    )
+
 @patch('gr00t.model.backbone.eagle2_hg_model.configuration_eagle_chat.SiglipVisionConfig')
 @patch('gr00t.model.backbone.eagle2_hg_model.configuration_eagle_chat.LlamaConfig')
 def test_config_attn_propagation(mock_llama, mock_siglip):
