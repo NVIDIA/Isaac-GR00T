@@ -1,8 +1,39 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, ANY
 
 from gr00t.model.backbone.eagle_backbone import EagleBackbone
 from gr00t.model.backbone.eagle2_hg_model.configuration_eagle_chat import Eagle2ChatConfig
+from gr00t.model.policy import Gr00tPolicy
+
+
+
+# import pytest
+# from unittest.mock import patch, MagicMock, ANY
+# from gr00t.model.policy import Gr00tPolicy
+
+@pytest.fixture(autouse=True)
+def patch_metadata_and_horizons(monkeypatch):
+    monkeypatch.setattr(Gr00tPolicy, '_load_metadata', lambda self, cfg: None)
+    monkeypatch.setattr(Gr00tPolicy, '_load_horizons',  lambda self: None)
+
+@pytest.fixture
+def common_args():
+    return {
+        "model_path": "fake/model",
+        "embodiment_tag": "gr1",
+        "modality_config": {"video": None, "state": None},
+        "modality_transform": MagicMock(),
+    }
+
+@patch('gr00t.model.policy.snapshot_download', lambda p, **kw: p)
+@patch('gr00t.model.policy.GR00T_N1')
+@patch('torch.cuda.is_available', return_value=True)
+def test_policy_explicit_flash(mock_cuda, mock_gr00t_n1, common_args):
+    Gr00tPolicy(**common_args, attn_implementation="flash_attention_2", device="cuda")
+    mock_gr00t_n1.from_pretrained.assert_called_once_with(
+        "fake/model", torch_dtype=ANY, attn_implementation="flash_attention_2"
+    )
+
 
 @patch('gr00t.model.backbone.eagle2_hg_model.configuration_eagle_chat.SiglipVisionConfig')
 @patch('gr00t.model.backbone.eagle2_hg_model.configuration_eagle_chat.LlamaConfig')
@@ -75,3 +106,9 @@ def test_backbone_attn_impl_forward(mock_auto_model, mock_auto_config):
     mock_auto_model.from_config.assert_called_with(
         fake_cfg, trust_remote_code=True, attn_implementation="eager"
     )
+
+
+
+
+
+
