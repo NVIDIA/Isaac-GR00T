@@ -7,9 +7,6 @@ from gr00t.model.policy import Gr00tPolicy
 
 
 
-# import pytest
-# from unittest.mock import patch, MagicMock, ANY
-# from gr00t.model.policy import Gr00tPolicy
 
 @pytest.fixture(autouse=True)
 def patch_metadata_and_horizons(monkeypatch):
@@ -36,7 +33,6 @@ def test_policy_explicit_flash(mock_cuda, mock_gr00t_n1, common_args):
 
 
 
-# --- Test: auto + CUDA → attn_impl=None ---
 @patch('gr00t.model.policy.snapshot_download', lambda p, **kw: p)
 @patch('gr00t.model.policy.GR00T_N1')
 @patch('torch.cuda.is_available', return_value=True)
@@ -48,7 +44,6 @@ def test_policy_auto_on_cuda(mock_cuda, mock_gr00t_n1, common_args):
         attn_implementation=None
     )
 
-# --- Test: auto + no CUDA → attn_impl="eager" ---
 @patch('gr00t.model.policy.snapshot_download', lambda p, **kw: p)
 @patch('gr00t.model.policy.GR00T_N1')
 @patch('torch.cuda.is_available', return_value=False)
@@ -60,7 +55,6 @@ def test_policy_auto_on_cpu(mock_cuda, mock_gr00t_n1, common_args):
         attn_implementation="eager"
     )
 
-# --- Test: explicit eager override on CPU ---
 @patch('gr00t.model.policy.snapshot_download', lambda p, **kw: p)
 @patch('gr00t.model.policy.GR00T_N1')
 @patch('torch.cuda.is_available', return_value=False)
@@ -78,13 +72,13 @@ def test_config_attn_propagation(mock_llama, mock_siglip):
     vision = {"model_type":"siglip_vision_model"}
     llm    = {"architectures":["LlamaForCausalLM"], "vocab_size":123}
 
-    # With override
+
     Eagle2ChatConfig(vision_config=vision.copy(), llm_config=llm.copy(),
                      attn_implementation="flash_attention_2")
     mock_siglip.assert_called_with(model_type='siglip_vision_model', _attn_implementation='flash_attention_2')
     mock_llama.assert_called_with(architectures=['LlamaForCausalLM'], vocab_size=123, attn_implementation='flash_attention_2')
 
-    # Without override
+
     mock_siglip.reset_mock(); mock_llama.reset_mock()
     Eagle2ChatConfig(vision_config=vision.copy(), llm_config=llm.copy())
     mock_siglip.assert_called_with(model_type='siglip_vision_model')
