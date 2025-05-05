@@ -64,8 +64,6 @@ class Eagle2ChatConfig(PretrainedConfig):
             vision_config["_attn_implementation"] = attn_impl
             llm_config["attn_implementation"] = attn_impl
 
-
-
         if attn_impl:
             logger.info(f"attn_impl: {attn_impl}")
             vision_config["_attn_implementation"] = attn_impl
