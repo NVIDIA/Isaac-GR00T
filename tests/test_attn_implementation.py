@@ -1,11 +1,12 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from gr00t.model.gr00t_n1 import GR00T_N1
+
 from gr00t.model.backbone.eagle2_hg_model.configuration_eagle_chat import (
     Eagle2ChatConfig,
 )
 from gr00t.model.backbone.eagle_backbone import EagleBackbone
+from gr00t.model.gr00t_n1 import GR00T_N1
 from gr00t.model.policy import Gr00tPolicy
 
 
@@ -23,7 +24,6 @@ def common_args():
         "modality_config": {"video": None, "state": None},
         "modality_transform": MagicMock(),
     }
-
 
 
 @patch("gr00t.model.gr00t_n1.snapshot_download", lambda p, **kw: p)
