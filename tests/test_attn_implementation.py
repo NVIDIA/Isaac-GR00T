@@ -1,7 +1,7 @@
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-
+from gr00t.model.gr00t_n1 import GR00T_N1
 from gr00t.model.backbone.eagle2_hg_model.configuration_eagle_chat import (
     Eagle2ChatConfig,
 )
@@ -25,44 +25,50 @@ def common_args():
     }
 
 
-@patch("gr00t.model.policy.snapshot_download", lambda p, **kw: p)
-@patch("gr00t.model.policy.GR00T_N1")
-@patch("torch.cuda.is_available", return_value=True)
-def test_policy_explicit_flash(mock_cuda, mock_gr00t_n1, common_args):
-    Gr00tPolicy(**common_args, attn_implementation="flash_attention_2", device="cuda")
-    mock_gr00t_n1.from_pretrained.assert_called_once_with(
-        "fake/model", torch_dtype=ANY, attn_implementation="flash_attention_2"
-    )
+
+@patch("gr00t.model.gr00t_n1.snapshot_download", lambda p, **kw: p)
+@patch("gr00t.model.gr00t_n1.PreTrainedModel.from_pretrained")
+@patch("gr00t.model.gr00t_n1.AutoConfig.from_pretrained")
+def test_from_pretrained_attn_impl_injection_cpu(mock_auto_config, mock_super_from_pretrained):
+    # Simulate CPU environment
+    with patch("torch.cuda.is_available", return_value=False):
+        with patch("importlib.util.find_spec", side_effect=ImportError):
+            # Setup mock config with backbone_cfg dict
+            mock_config = MagicMock()
+            mock_config.backbone_cfg = {}
+            mock_auto_config.return_value = mock_config
+
+            model = GR00T_N1.from_pretrained("fake_path", attn_implementation="auto")
+
+            # Assert final attn impl injected as 'eager' on CPU
+            assert mock_config.backbone_cfg["attn_implementation"] == "eager"
+            mock_super_from_pretrained.assert_called_once_with(
+                "fake_path",
+                config=mock_config,
+                local_model_path="fake_path",
+            )
 
 
-@patch("gr00t.model.policy.snapshot_download", lambda p, **kw: p)
-@patch("gr00t.model.policy.GR00T_N1")
-@patch("torch.cuda.is_available", return_value=True)
-def test_policy_auto_on_cuda(mock_cuda, mock_gr00t_n1, common_args):
-    Gr00tPolicy(**common_args, attn_implementation="auto", device="cuda")
-    mock_gr00t_n1.from_pretrained.assert_called_once_with(
-        "fake/model", torch_dtype=ANY, attn_implementation=None
-    )
+@patch("gr00t.model.gr00t_n1.snapshot_download", lambda p, **kw: p)
+@patch("gr00t.model.gr00t_n1.PreTrainedModel.from_pretrained")
+@patch("gr00t.model.gr00t_n1.AutoConfig.from_pretrained")
+def test_from_pretrained_attn_impl_injection_gpu(mock_auto_config, mock_super_from_pretrained):
+    # Simulate GPU environment and flash_attn available
+    with patch("torch.cuda.is_available", return_value=True):
+        with patch("importlib.util.find_spec", return_value=True):
+            mock_config = MagicMock()
+            mock_config.backbone_cfg = {}
+            mock_auto_config.return_value = mock_config
 
+            model = GR00T_N1.from_pretrained("fake_path", attn_implementation="auto")
 
-@patch("gr00t.model.policy.snapshot_download", lambda p, **kw: p)
-@patch("gr00t.model.policy.GR00T_N1")
-@patch("torch.cuda.is_available", return_value=False)
-def test_policy_auto_on_cpu(mock_cuda, mock_gr00t_n1, common_args):
-    Gr00tPolicy(**common_args, attn_implementation="auto", device="cpu")
-    mock_gr00t_n1.from_pretrained.assert_called_once_with(
-        "fake/model", torch_dtype=ANY, attn_implementation="eager"
-    )
-
-
-@patch("gr00t.model.policy.snapshot_download", lambda p, **kw: p)
-@patch("gr00t.model.policy.GR00T_N1")
-@patch("torch.cuda.is_available", return_value=False)
-def test_policy_explicit_eager(mock_cuda, mock_gr00t_n1, common_args):
-    Gr00tPolicy(**common_args, attn_implementation="eager", device="cpu")
-    mock_gr00t_n1.from_pretrained.assert_called_once_with(
-        "fake/model", torch_dtype=ANY, attn_implementation="eager"
-    )
+            # Assert final attn impl injected as 'flash_attention_2' on GPU
+            assert mock_config.backbone_cfg["attn_implementation"] == "flash_attention_2"
+            mock_super_from_pretrained.assert_called_once_with(
+                "fake_path",
+                config=mock_config,
+                local_model_path="fake_path",
+            )
 
 
 @patch("gr00t.model.backbone.eagle2_hg_model.configuration_eagle_chat.SiglipVisionConfig")
