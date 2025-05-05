@@ -49,7 +49,7 @@ class Eagle2ChatConfig(PretrainedConfig):
         **kwargs,
     ):
         super().__init__(**kwargs)
-
+        attn_impl = kwargs.pop("attn_implementation", None)
         if vision_config is None:
             vision_config = {}
             logger.info("vision_config is None. Initializing Vision Encoders with default values.")
