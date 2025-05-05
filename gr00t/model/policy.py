@@ -241,9 +241,10 @@ class Gr00tPolicy(BasePolicy):
             torch_dtype=COMPUTE_DTYPE,
             attn_implementation=self.attn_implementation_preference,
         )
-        model.eval()
-        model.to(device=self.device)
+        model.eval()  # Set model to eval mode
+        model.to(device=self.device)  # type: ignore
         print(f"model moved to device {self.device}")
+
         self.model = model
 
     def _load_metadata(self, exp_cfg_dir: Path):
