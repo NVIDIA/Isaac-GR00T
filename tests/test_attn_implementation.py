@@ -38,7 +38,7 @@ def test_from_pretrained_attn_impl_injection_cpu(mock_auto_config, mock_super_fr
             mock_config.backbone_cfg = {}
             mock_auto_config.return_value = mock_config
 
-            model = GR00T_N1.from_pretrained("fake_path", attn_implementation="auto")
+            _ = GR00T_N1.from_pretrained("fake_path", attn_implementation="auto")
 
             # Assert final attn impl injected as 'eager' on CPU
             assert mock_config.backbone_cfg["attn_implementation"] == "eager"
@@ -60,7 +60,7 @@ def test_from_pretrained_attn_impl_injection_gpu(mock_auto_config, mock_super_fr
             mock_config.backbone_cfg = {}
             mock_auto_config.return_value = mock_config
 
-            model = GR00T_N1.from_pretrained("fake_path", attn_implementation="auto")
+            _ = GR00T_N1.from_pretrained("fake_path", attn_implementation="auto")
 
             # Assert final attn impl injected as 'flash_attention_2' on GPU
             assert mock_config.backbone_cfg["attn_implementation"] == "flash_attention_2"
