@@ -42,15 +42,15 @@ from tqdm import tqdm
 
 
 class SO100Robot:
-    def __init__(self, calibrate=False, enable_camera=False, camera_index=9):
+    def __init__(self, calibrate=False, enable_camera=False, cam_idx=9):
         self.config = So100RobotConfig()
         self.calibrate = calibrate
         self.enable_camera = enable_camera
-        self.camera_index = camera_index
+        self.cam_idx = cam_idx
         if not enable_camera:
             self.config.cameras = {}
         else:
-            self.config.cameras = {"webcam": OpenCVCameraConfig(camera_index, 30, 640, 480, "bgr")}
+            self.config.cameras = {"webcam": OpenCVCameraConfig(cam_idx, 30, 640, 480, "bgr")}
         self.config.leader_arms = {}
 
         # remove the .cache/calibration/so100 folder
@@ -123,27 +123,17 @@ class SO100Robot:
 
     def move_to_initial_pose(self):
         current_state = self.robot.capture_observation()["observation.state"]
-        print("current_state", current_state)
+        # print("current_state", current_state)
         # print all keys of the observation
-        print("observation keys:", self.robot.capture_observation().keys())
-
-        current_state[0] = 90
-        current_state[2] = 90
-        current_state[3] = 90
+        # print("observation keys:", self.robot.capture_observation().keys())
+        current_state = torch.tensor([90, 90, 90, 90, -70, 30])
         self.robot.send_action(current_state)
         time.sleep(2)
-
-        current_state[4] = -70
-        current_state[5] = 30
-        current_state[1] = 90
-        self.robot.send_action(current_state)
-        time.sleep(2)
-
-        print("----------------> SO100 Robot moved to initial pose")
+        print("-------------------------------- moving to initial pose")
 
     def go_home(self):
         # [ 88.0664, 156.7090, 135.6152,  83.7598, -89.1211,  16.5107]
-        print("----------------> SO100 Robot moved to home pose")
+        print("-------------------------------- moving to home pose")
         home_state = torch.tensor([88.0664, 156.7090, 135.6152, 83.7598, -89.1211, 16.5107])
         self.set_target_state(home_state)
         time.sleep(2)
@@ -199,11 +189,10 @@ class Gr00tRobotInferenceClient:
             "video.webcam": img[np.newaxis, :, :, :],
             "state.single_arm": state[:5][np.newaxis, :].astype(np.float64),
             "state.gripper": state[5:6][np.newaxis, :].astype(np.float64),
-            "annotation.human.action.task_description": [self.language_instruction],
+            "annotation.human.task_description": [self.language_instruction],
         }
-        start_time = time.time()
         res = self.policy.get_action(obs_dict)
-        print("Inference query time taken", time.time() - start_time)
+        # print("Inference query time taken", time.time() - start_time)
         return res
 
     def sample_action(self):
@@ -214,6 +203,9 @@ class Gr00tRobotInferenceClient:
             "annotation.human.action.task_description": [self.language_instruction],
         }
         return self.policy.get_action(obs_dict)
+
+    def set_lang_instruction(self, lang_instruction):
+        self.language_instruction = lang_instruction
 
 
 #################################################################################
@@ -249,8 +241,15 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=5555)
     parser.add_argument("--action_horizon", type=int, default=12)
     parser.add_argument("--actions_to_execute", type=int, default=350)
-    parser.add_argument("--camera_index", type=int, default=9)
+    parser.add_argument("--cam_idx", type=int, default=1)
+    parser.add_argument(
+        "--lang_instruction", type=str, default="Pick up the fruits and place them on the plate."
+    )
+    parser.add_argument("--record_imgs", action="store_true")
     args = parser.parse_args()
+
+    # print lang_instruction
+    print("lang_instruction: ", args.lang_instruction)
 
     ACTIONS_TO_EXECUTE = args.actions_to_execute
     USE_POLICY = args.use_policy
@@ -258,15 +257,21 @@ if __name__ == "__main__":
         args.action_horizon
     )  # we will execute only some actions from the action_chunk of 16
     MODALITY_KEYS = ["single_arm", "gripper"]
-
     if USE_POLICY:
         client = Gr00tRobotInferenceClient(
             host=args.host,
             port=args.port,
-            language_instruction="Pick up the fruits and place them on the plate.",
+            language_instruction=args.lang_instruction,
         )
 
-        robot = SO100Robot(calibrate=False, enable_camera=True, camera_index=args.camera_index)
+        if args.record_imgs:
+            # create a folder to save the images and delete all the images in the folder
+            os.makedirs("eval_images", exist_ok=True)
+            for file in os.listdir("eval_images"):
+                os.remove(os.path.join("eval_images", file))
+
+        robot = SO100Robot(calibrate=False, enable_camera=True, cam_idx=args.cam_idx)
+        image_count = 0
         with robot.activate():
             for i in tqdm(range(ACTIONS_TO_EXECUTE), desc="Executing actions"):
                 img = robot.get_current_img()
@@ -281,11 +286,17 @@ if __name__ == "__main__":
                     )
                     assert concat_action.shape == (6,), concat_action.shape
                     robot.set_target_state(torch.from_numpy(concat_action))
-                    time.sleep(0.01)
+                    time.sleep(0.02)
 
                     # get the realtime image
                     img = robot.get_current_img()
                     view_img(img)
+
+                    if args.record_imgs:
+                        # resize the image to 320x240
+                        img = cv2.resize(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), (320, 240))
+                        cv2.imwrite(f"eval_images/img_{image_count}.jpg", img)
+                        image_count += 1
 
                     # 0.05*16 = 0.8 seconds
                     print("executing action", i, "time taken", time.time() - start_time)
@@ -293,12 +304,14 @@ if __name__ == "__main__":
     else:
         # Test Dataset Source https://huggingface.co/datasets/youliangtan/so100_strawberry_grape
         dataset = LeRobotDataset(
-            repo_id="youliangtan/so100_strawberry_grape",
+            repo_id="",
             root=args.dataset_path,
         )
 
-        robot = SO100Robot(calibrate=False, enable_camera=True, camera_index=args.camera_index)
+        robot = SO100Robot(calibrate=False, enable_camera=True, cam_idx=args.cam_idx)
+
         with robot.activate():
+            print("Run replay of the dataset")
             actions = []
             for i in tqdm(range(ACTIONS_TO_EXECUTE), desc="Loading actions"):
                 action = dataset[i]["action"]
@@ -309,20 +322,12 @@ if __name__ == "__main__":
                 img = img.transpose(1, 2, 0)
                 view_img(img, realtime_img)
                 actions.append(action)
+                robot.set_target_state(action)
+                time.sleep(0.05)
 
             # plot the actions
             plt.plot(actions)
             plt.show()
-
-            print("Done initial pose")
-
-            # Use tqdm to create a progress bar
-            for action in tqdm(actions, desc="Executing actions"):
-                img = robot.get_current_img()
-                view_img(img)
-
-                robot.set_target_state(action)
-                time.sleep(0.05)
 
             print("Done all actions")
             robot.go_home()

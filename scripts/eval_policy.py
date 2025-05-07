@@ -50,7 +50,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--data_config",
         type=str,
-        default="gr1_arms_waist",
+        default="gr1_arms_only",
         choices=list(DATA_CONFIG_MAP.keys()),
         help="data config name",
     )
@@ -65,11 +65,18 @@ if __name__ == "__main__":
         help="The embodiment tag for the model.",
         default="gr1",
     )
+    ## When using a model instead of client-server mode.
     parser.add_argument(
         "--model_path",
         type=str,
         default=None,
         help="[Optional] Path to the model checkpoint directory, this will disable client server mode.",
+    )
+    parser.add_argument(
+        "--denoising_steps",
+        type=int,
+        help="Number of denoising steps if model_path is provided",
+        default=4,
     )
     args = parser.parse_args()
 
@@ -85,6 +92,7 @@ if __name__ == "__main__":
             modality_config=modality_config,
             modality_transform=modality_transform,
             embodiment_tag=args.embodiment_tag,
+            denoising_steps=args.denoising_steps,
             device="cuda" if torch.cuda.is_available() else "cpu",
         )
     else:

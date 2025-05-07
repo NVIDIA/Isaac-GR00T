@@ -18,7 +18,11 @@ from abc import ABC, abstractmethod
 from gr00t.data.dataset import ModalityConfig
 from gr00t.data.transform.base import ComposedModalityTransform, ModalityTransform
 from gr00t.data.transform.concat import ConcatTransform
-from gr00t.data.transform.state_action import StateActionToTensor, StateActionTransform
+from gr00t.data.transform.state_action import (
+    StateActionSinCosTransform,
+    StateActionToTensor,
+    StateActionTransform,
+)
 from gr00t.data.transform.video import (
     VideoColorJitter,
     VideoCrop,
@@ -106,10 +110,7 @@ class Gr1ArmsOnlyDataConfig(BaseDataConfig):
             VideoToNumpy(apply_to=self.video_keys),
             # state transforms
             StateActionToTensor(apply_to=self.state_keys),
-            StateActionTransform(
-                apply_to=self.state_keys,
-                normalization_modes={key: "min_max" for key in self.state_keys},
-            ),
+            StateActionSinCosTransform(apply_to=self.state_keys),
             # action transforms
             StateActionToTensor(apply_to=self.action_keys),
             StateActionTransform(
@@ -285,27 +286,13 @@ class Gr1FullUpperBodyDataConfig(BaseDataConfig):
             StateActionToTensor(apply_to=self.state_keys),
             StateActionTransform(
                 apply_to=self.state_keys,
-                normalization_modes={
-                    "state.left_arm": "min_max",
-                    "state.right_arm": "min_max",
-                    "state.left_hand": "min_max",
-                    "state.right_hand": "min_max",
-                    "state.waist": "min_max",
-                    "state.neck": "min_max",
-                },
+                normalization_modes={key: "min_max" for key in self.state_keys},
             ),
             # action transforms
             StateActionToTensor(apply_to=self.action_keys),
             StateActionTransform(
                 apply_to=self.action_keys,
-                normalization_modes={
-                    "action.right_arm": "min_max",
-                    "action.left_arm": "min_max",
-                    "action.right_hand": "min_max",
-                    "action.left_hand": "min_max",
-                    "action.waist": "min_max",
-                    "action.neck": "min_max",
-                },
+                normalization_modes={key: "min_max" for key in self.action_keys},
             ),
             # concat transforms
             ConcatTransform(
