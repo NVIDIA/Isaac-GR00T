@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import importlib
-import importlib.util
 from dataclasses import dataclass, field
 from typing import Tuple
 
@@ -31,7 +29,7 @@ from .action_head.flow_matching_action_head import (
     FlowmatchingActionHeadConfig,
 )
 from .backbone import EagleBackbone
-
+from gr00t.utils.attn_impl import select_attn_impl
 BACKBONE_FEATURE_KEY = "backbone_features"
 ACTION_KEY = "action_pred"
 LOSS_KEY = "loss"
@@ -218,42 +216,9 @@ class GR00T_N1(PreTrainedModel):
             **kwargs: Passed to PreTrainedModel.from_pretrained.
         """
 
-        def _flash2_available() -> bool:
-            if not torch.cuda.is_available():
-                return False
-            spec = importlib.util.find_spec("flash_attn")
-            if spec is None:
-                return False
-            try:
-                __import__("flash_attn")
-                return True
-            except ImportError:
-                return False
-        final_attn_impl = "eager"
-        if attn_implementation == "auto":
-            final_attn_impl = "flash_attention_2" if _flash2_available() else "eager"
-        elif attn_implementation == "flash_attention_2":
-            if _flash2_available():
-                final_attn_impl = "flash_attention_2"
-            else:
-                print(
-                    "[Warning] flash_attention_2 requested but not available; "
-                    "falling back to 'eager'."
-                )
-        elif attn_implementation in ("sdpa", "eager"):
-            final_attn_impl = attn_implementation
-        else:
-            print(
-                f"[Warning] Unknown attn_implementation '{attn_implementation}'; "
-                "defaulting to 'eager'."
-            )
-
+        
+        final_attn_impl = select_attn_impl(attn_implementation)
         print(f"Using attention implementation: {final_attn_impl}")
-
-        # config = AutoConfig.from_pretrained(
-        #     pretrained_model_name_or_path,
-        #     trust_remote_code=True,
-        # )
 
         tune_visual = kwargs.pop("tune_visual", True)
         tune_llm = kwargs.pop("tune_llm", False)
