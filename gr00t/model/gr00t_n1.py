@@ -202,7 +202,7 @@ class GR00T_N1(PreTrainedModel):
     def from_pretrained(
         cls,
         pretrained_model_name_or_path: str,
-        attn_implementation: str = "auto",  # Added: "auto", "eager", "flash_attention_2"
+        attn_implementation: str = "auto",  # "auto", "flash_attention_2", "sdpa", "eager"
         **kwargs,
     ):
         """
@@ -211,49 +211,49 @@ class GR00T_N1(PreTrainedModel):
         Args:
             pretrained_model_name_or_path (str): Path or Hub ID.
             attn_implementation (str): Preferred attention implementation.
-                - "auto": Tries "flash_attention_2" if GPU and flash_attn are available, otherwise "eager".
-                - "flash_attention_2": Attempts to use Flash Attention 2. Requires compatible GPU and installation.
-                - "eager": Uses the default PyTorch attention implementation (CPU/GPU compatible).
-            **kwargs: Additional arguments passed to PreTrainedModel.from_pretrained.
+                - "auto": Try Flash Attention 2 on GPU, else eager.
+                - "flash_attention_2": Force Flash Attention 2 (GPU + flash_attn required).
+                - "sdpa": Use standard DP attention.
+                - "eager": PyTorch’s default attention.
+            **kwargs: Passed to PreTrainedModel.from_pretrained.
         """
-        # --- Attention Implementation Logic ---
-        final_attn_impl = "eager"  # Default fallback
-        if attn_implementation == "flash_attention_2":
-            final_attn_impl = "flash_attention_2"  # User explicitly requested
-        elif attn_implementation == "auto":
-            if torch.cuda.is_available():
-                try:
-                    importlib.util.find_spec("flash_attn")
 
-                    final_attn_impl = "flash_attention_2"
-                    print("Flash Attention 2 available and selected.")
-                except ImportError:
-                    print("Flash Attention 2 not installed, falling back to 'eager'.")
-                    final_attn_impl = "eager"
+        def _flash2_available() -> bool:
+            if not torch.cuda.is_available():
+                return False
+            spec = importlib.util.find_spec("flash_attn")
+            if spec is None:
+                return False
+            try:
+                __import__("flash_attn")
+                return True
+            except ImportError:
+                return False
+        final_attn_impl = "eager"
+        if attn_implementation == "auto":
+            final_attn_impl = "flash_attention_2" if _flash2_available() else "eager"
+        elif attn_implementation == "flash_attention_2":
+            if _flash2_available():
+                final_attn_impl = "flash_attention_2"
             else:
-                print("No GPU detected, using 'eager' attention.")
-                final_attn_impl = "eager"
-        elif attn_implementation == "eager":
-            final_attn_impl = "eager"  # User explicitly requested
+                print(
+                    "[Warning] flash_attention_2 requested but not available; "
+                    "falling back to 'eager'."
+                )
+        elif attn_implementation in ("sdpa", "eager"):
+            final_attn_impl = attn_implementation
         else:
             print(
-                f"Warning: Unknown attn_implementation '{attn_implementation}', defaulting to 'eager'."
+                f"[Warning] Unknown attn_implementation '{attn_implementation}'; "
+                "defaulting to 'eager'."
             )
-            final_attn_impl = "eager"
 
         print(f"Using attention implementation: {final_attn_impl}")
-        # --- End Attention Implementation Logic ---
 
-        # Load config first
-        config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
-
-        # --- Inject chosen attention implementation into backbone config ---
-        # This ensures EagleBackbone receives the correct setting via its kwargs
-        if hasattr(config, "backbone_cfg") and isinstance(config.backbone_cfg, dict):
-            config.backbone_cfg["attn_implementation"] = final_attn_impl
-        else:
-            print("Warning: Could not find 'backbone_cfg' in config to set attn_implementation.")
-        # --- End Injection ---
+        # config = AutoConfig.from_pretrained(
+        #     pretrained_model_name_or_path,
+        #     trust_remote_code=True,
+        # )
 
         tune_visual = kwargs.pop("tune_visual", True)
         tune_llm = kwargs.pop("tune_llm", False)
@@ -266,7 +266,6 @@ class GR00T_N1(PreTrainedModel):
         print(f"Tune action head projector: {tune_projector}")
         print(f"Tune action head DiT: {tune_diffusion_model}")
 
-        # get the current model path being downloaded
         try:
             # NOTE(YL) This downloads the model to the local cache and returns the local path to the model
             # saved in ~/.cache/huggingface/hub/
@@ -280,10 +279,18 @@ class GR00T_N1(PreTrainedModel):
 
         pretrained_model = super().from_pretrained(
             local_model_path,
-            config=config,  # Pass the modified config
             local_model_path=local_model_path,
             **kwargs,
         )
+        cfg = pretrained_model.config
+
+        if hasattr(cfg, "backbone_cfg") and isinstance(cfg.backbone_cfg, dict):
+            cfg.backbone_cfg["attn_implementation"] = final_attn_impl
+        else:
+            cfg.backbone_cfg = {"attn_implementation": final_attn_impl}
+            print("Warning: Created backbone_cfg to set attn_implementation.")
+
+
 
         pretrained_model.backbone.set_trainable_parameters(
             tune_visual=tune_visual, tune_llm=tune_llm
@@ -294,6 +301,5 @@ class GR00T_N1(PreTrainedModel):
         return pretrained_model
 
 
-# register
 AutoConfig.register("gr00t_n1", GR00T_N1Config)
 AutoModel.register(GR00T_N1Config, GR00T_N1)
