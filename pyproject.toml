@@ -55,7 +55,6 @@ dependencies = [
     "torch==2.5.1",
     "torchvision==0.20.1",
     "accelerate==1.2.1",
-    "pyav",
     "peft==0.14.0",
     "protobuf==3.20.3",
     "tyro",
