@@ -228,6 +228,9 @@ python scripts/eval_policy.py --plot \
 
 You will then see a plot of Ground Truth vs Predicted actions, along with unnormed MSE of the actions. This would give you an indication if the policy is performing well on the dataset.
 
+## 5. ROS2 and Isaac Sim Integration
+
+To use ros2bags with appropriate topics to create the groot_lerobot dataset and to see how you can validate/connect isaac sim with grootn1 using ros2 refere to this [readme](ros2bag_lerobot/README.md)
 
 # FAQ
 
