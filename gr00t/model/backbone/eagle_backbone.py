@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+from typing import Optional
 
 import torch
 from torch import nn
@@ -85,59 +86,72 @@ class EagleBackbone(nn.Module):
         tune_visual: bool = False,
         reproject_vision: bool = False,
         scale_image_resolution: int = 1,
-        processor_cfg: dict = None,
+        processor_cfg: Optional[dict] = None,
         projector_dim: int = -1,
         allow_reshape_visual: bool = True,
         remove_llm: bool = False,
         load_pretrained_det_eagle_path=None,
         use_local_eagle_hg_model: bool = True,
+        attn_implementation: str = "eager",
     ):
         super().__init__()
         self.reproject_vision = reproject_vision
 
-        # use local eagle model
+        # Use local default Eagle model path if requested
         if use_local_eagle_hg_model:
             model_name = DEFAULT_EAGLE_MODEL_NAME
+        print(f"Initializing EagleBackbone with model: {model_name}")
 
-        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
-        self.model = AutoModel.from_config(config, trust_remote_code=True)
+        config = AutoConfig.from_pretrained(
+            model_name, trust_remote_code=True, attn_implementation=attn_implementation
+        )
+        self.model = AutoModel.from_config(
+            config,
+            trust_remote_code=True,
+            attn_implementation=attn_implementation,
+        )
         self.model.neftune_alpha = None
 
+        # Remove vision head if present
         if hasattr(self.model.vision_model, "vision_model") and hasattr(
             self.model.vision_model.vision_model, "head"
         ):
-            self.model.vision_model.vision_model.head = torch.nn.Identity()
+            self.model.vision_model.vision_model.head = nn.Identity()
 
-        # remove parts of the LLM
-        self.model.language_model.lm_head = torch.nn.Identity()
+        # Truncate LLM layers
+        self.model.language_model.lm_head = nn.Identity()
         while len(self.model.language_model.model.layers) > select_layer:
             self.model.language_model.model.layers.pop(-1)
 
-        # initialize processor
+        # Initialize processor and embeddings
         processor = EagleProcessor(
             model_path=processor_cfg["model_path"],
             max_input_tiles=processor_cfg["max_input_tiles"],
             model_spec=ModelSpecificValues(**processor_cfg["model_spec"]),
         )
         self.model.img_context_token_id = processor.get_img_context_token()
-
         assert self.model.template == processor.model_spec.template
         assert self.model.num_image_token == processor.model_spec.num_image_token
 
+        # Projection layer
         if projector_dim != -1:
-            self.linear = torch.nn.Linear(projector_dim, 1536)
+            self.linear = nn.Linear(projector_dim, 1536)
         else:
-            self.linear = torch.nn.Identity()
+            self.linear = nn.Identity()
 
+        # Reshape visual embeddings if requested
         if allow_reshape_visual and scale_image_resolution != 1:
             reshape_model_embeddings(self.model, scale_image_resolution)
 
+        # Load pretrained detection weights if provided
         if load_pretrained_det_eagle_path is not None:
-            print("loading eagle model weight from: {}".format(load_pretrained_det_eagle_path))
+            print(f"Loading detection weights from: {load_pretrained_det_eagle_path}")
             self.model.load_state_dict(torch.load(load_pretrained_det_eagle_path))
 
+        # Set training flags
         self.set_trainable_parameters(tune_llm, tune_visual)
 
+        # Disable gradient checkpointing on first vision tower and remove its head
         if (
             hasattr(self.model, "vision_model")
             and hasattr(self.model.vision_model, "vision_model")
@@ -145,17 +159,15 @@ class EagleBackbone(nn.Module):
             and len(self.model.vision_model.vision_model.vision_towers) > 1
         ):
             vision_towers = self.model.vision_model.vision_model.vision_towers
-
             if (
                 hasattr(vision_towers[0], "vision_tower")
                 and hasattr(vision_towers[0].vision_tower, "vision_model")
                 and hasattr(vision_towers[0].vision_tower.vision_model, "encoder")
             ):
                 vision_towers[0].vision_tower.vision_model.encoder.gradient_checkpointing = False
-                vision_towers[0].vision_tower.vision_model.head = torch.nn.Identity()
-
+                vision_towers[0].vision_tower.vision_model.head = nn.Identity()
             if hasattr(vision_towers[1], "vision_tower"):
-                vision_towers[1].vision_tower.head = torch.nn.Identity()
+                vision_towers[1].vision_tower.head = nn.Identity()
 
     def set_trainable_parameters(self, tune_llm: bool, tune_visual: bool):
         self.tune_llm = tune_llm

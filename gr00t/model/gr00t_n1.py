@@ -29,7 +29,7 @@ from .action_head.flow_matching_action_head import (
     FlowmatchingActionHeadConfig,
 )
 from .backbone import EagleBackbone
-
+from gr00t.utils.attn_impl import select_attn_impl
 BACKBONE_FEATURE_KEY = "backbone_features"
 ACTION_KEY = "action_pred"
 LOSS_KEY = "loss"
@@ -197,7 +197,29 @@ class GR00T_N1(PreTrainedModel):
         return backbone_inputs, action_inputs
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs):
+    def from_pretrained(
+        cls,
+        pretrained_model_name_or_path: str,
+        attn_implementation: str = "auto",  # "auto", "flash_attention_2", "sdpa", "eager"
+        **kwargs,
+    ):
+        """
+        Loads the GR00T_N1 model from a pretrained path or Hugging Face Hub identifier.
+
+        Args:
+            pretrained_model_name_or_path (str): Path or Hub ID.
+            attn_implementation (str): Preferred attention implementation.
+                - "auto": Try Flash Attention 2 on GPU, else eager.
+                - "flash_attention_2": Force Flash Attention 2 (GPU + flash_attn required).
+                - "sdpa": Use standard DP attention.
+                - "eager": PyTorch’s default attention.
+            **kwargs: Passed to PreTrainedModel.from_pretrained.
+        """
+
+        
+        final_attn_impl = select_attn_impl(attn_implementation)
+        print(f"Using attention implementation: {final_attn_impl}")
+
         tune_visual = kwargs.pop("tune_visual", True)
         tune_llm = kwargs.pop("tune_llm", False)
         tune_projector = kwargs.pop("tune_projector", True)
@@ -209,7 +231,6 @@ class GR00T_N1(PreTrainedModel):
         print(f"Tune action head projector: {tune_projector}")
         print(f"Tune action head DiT: {tune_diffusion_model}")
 
-        # get the current model path being downloaded
         try:
             # NOTE(YL) This downloads the model to the local cache and returns the local path to the model
             # saved in ~/.cache/huggingface/hub/
@@ -222,8 +243,19 @@ class GR00T_N1(PreTrainedModel):
             local_model_path = pretrained_model_name_or_path
 
         pretrained_model = super().from_pretrained(
-            local_model_path, local_model_path=local_model_path, **kwargs
+            local_model_path,
+            local_model_path=local_model_path,
+            **kwargs,
         )
+        cfg = pretrained_model.config
+
+        if hasattr(cfg, "backbone_cfg") and isinstance(cfg.backbone_cfg, dict):
+            cfg.backbone_cfg["attn_implementation"] = final_attn_impl
+        else:
+            cfg.backbone_cfg = {"attn_implementation": final_attn_impl}
+            print("Warning: Created backbone_cfg to set attn_implementation.")
+
+
 
         pretrained_model.backbone.set_trainable_parameters(
             tune_visual=tune_visual, tune_llm=tune_llm
@@ -234,6 +266,5 @@ class GR00T_N1(PreTrainedModel):
         return pretrained_model
 
 
-# register
 AutoConfig.register("gr00t_n1", GR00T_N1Config)
 AutoModel.register(GR00T_N1Config, GR00T_N1)

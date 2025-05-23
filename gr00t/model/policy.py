@@ -69,6 +69,7 @@ class Gr00tPolicy(BasePolicy):
         modality_config: Dict[str, ModalityConfig],
         modality_transform: ComposedModalityTransform,
         denoising_steps: Optional[int] = None,
+        attn_implementation: str = "auto",  # Added: "auto", "eager", "flash_attention_2"
         device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
     ):
         """
@@ -79,6 +80,8 @@ class Gr00tPolicy(BasePolicy):
             modality_config (Dict[str, ModalityConfig]): The modality config for the model.
             modality_transform (ComposedModalityTransform): The modality transform for the model.
             embodiment_tag (Union[str, EmbodimentTag]): The embodiment tag for the model.
+            attn_implementation (str): Preferred attention implementation. "auto" selects flash_attention_2
+                                       if available on GPU, otherwise falls back to "eager".
             denoising_steps: Number of denoising steps to use for the action head.
             device (Union[int, str]): Device to run the model on.
         """
@@ -96,6 +99,7 @@ class Gr00tPolicy(BasePolicy):
         self._modality_transform = modality_transform
         self._modality_transform.eval()  # set this to eval mode
         self.model_path = Path(model_path)
+        self.attn_implementation_preference = attn_implementation  # Store preference
         self.device = device
 
         # Convert string embodiment tag to EmbodimentTag enum if needed
@@ -231,9 +235,15 @@ class Gr00tPolicy(BasePolicy):
         return True
 
     def _load_model(self, model_path):
-        model = GR00T_N1.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        # GR00T_N1.from_pretrained handles the 'auto' logic internally
+        model = GR00T_N1.from_pretrained(
+            model_path,
+            torch_dtype=COMPUTE_DTYPE,
+            attn_implementation=self.attn_implementation_preference,
+        )
         model.eval()  # Set model to eval mode
         model.to(device=self.device)  # type: ignore
+        print(f"model moved to device {self.device}")
 
         self.model = model
 
