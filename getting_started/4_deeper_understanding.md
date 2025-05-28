@@ -22,7 +22,7 @@ GR00T is designed to work with different types of robots (embodiments) through s
 
 ### Model Components
 
-The model has several components that can be fine-tuned independently. You can configure these parameters in the `GR00T_N1.from_pretrained` function.
+The model has several components that can be fine-tuned independently. You can configure these parameters in the `GR00T_N1_5.from_pretrained` function.
 
 1. **Visual Encoder** (`tune_visual`)
    - Set to `true` if your data has visually different characteristics from the pre-training data

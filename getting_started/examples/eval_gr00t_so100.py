@@ -28,15 +28,16 @@ from lerobot.common.robot_devices.robots.configs import So100RobotConfig
 from lerobot.common.robot_devices.robots.utils import make_robot_from_config
 from lerobot.common.robot_devices.utils import RobotDeviceAlreadyConnectedError
 
+# Import tqdm for progress bar
+from tqdm import tqdm
+
 # NOTE:
 # Sometimes we would like to abstract different env, or run this on a separate machine
 # User can just move this single python class method gr00t/eval/service.py
 # to their code or do the following line below
 # sys.path.append(os.path.expanduser("~/Isaac-GR00T/gr00t/eval/"))
-from service import ExternalRobotInferenceClient
-
-# Import tqdm for progress bar
-from tqdm import tqdm
+# from service import ExternalRobotInferenceClient
+from gr00t.eval.service import ExternalRobotInferenceClient
 
 #################################################################################
 
@@ -51,6 +52,28 @@ class SO100Robot:
             self.config.cameras = {}
         else:
             self.config.cameras = {"webcam": OpenCVCameraConfig(cam_idx, 30, 640, 480, "bgr")}
+
+        # Set the robot arms
+        if True:
+            from lerobot.common.robot_devices.motors.configs import (
+                FeetechMotorsBusConfig,
+            )
+
+            self.config.follower_arms = {
+                "main": FeetechMotorsBusConfig(
+                    port="/dev/ttyACM0",
+                    motors={
+                        # name: (index, model)
+                        "shoulder_pan": [1, "sts3215"],
+                        "shoulder_lift": [2, "sts3215"],
+                        "elbow_flex": [3, "sts3215"],
+                        "wrist_flex": [4, "sts3215"],
+                        "wrist_roll": [5, "sts3215"],
+                        "gripper": [6, "sts3215"],
+                    },
+                ),
+            }
+
         self.config.leader_arms = {}
 
         # remove the .cache/calibration/so100 folder
@@ -172,6 +195,124 @@ class SO100Robot:
 #################################################################################
 
 
+# policy = DiffusionPolicy.from_pretrained(
+#     "/home/youliang/lerobot/outputs/train/so100_dp001/checkpoints/100000/pretrained_model"
+# )
+
+
+# # policy = PI0Policy.from_pretrained("/home/youliang/lerobot/outputs/train/so100_pi0/checkpoints/100000/pretrained_model")
+
+
+# # policy = PI0Policy.from_pretrained("lerobot/pi0")
+
+# print(policy.config)
+# print(policy.config.input_features)
+# print(policy.config.output_features)
+
+
+# action_horizon = policy.config.n_action_steps
+# print(f"action_horizon: {action_horizon}")
+
+# # {'observation.state': PolicyFeature(type=<FeatureType.STATE: 'STATE'>, shape=(6,)), 'observation.images.webcam': PolicyFeature(type=<FeatureType.VISUAL: 'VISUAL'>, shape=(3, 480, 640))}
+# # {'action': PolicyFeature(type=<FeatureType.ACTION: 'ACTION'>, shape=(6,))}
+
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# obs_dict = {
+#     "observation.state": torch.randn(1, 6).to(device),
+#     "observation.images.webcam": torch.randn(1, 3, 480, 640).to(device),
+#     # "task": ["push"],
+# }
+
+# with torch.inference_mode():
+#     for i in range(10):
+#         print(f"iteration {i}")
+#         for i in range(action_horizon):
+#             action = policy.select_action(obs_dict)
+#             print(action)
+
+
+import torch
+
+
+class DiffusionPolicy:
+    def __init__(self, model_path, device="cuda"):
+        from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
+
+        self.policy = DiffusionPolicy.from_pretrained(model_path)
+        self.device = device
+        self.horizon = self.policy.config.n_action_steps
+        self.language_instruction = None
+
+    def get_action(self, img, state) -> np.ndarray:
+        # add batch dimension
+        img = img[np.newaxis, :, :, :]
+        state = state[np.newaxis, :]
+        # convert to float32
+        img = torch.from_numpy(img).to(self.device)
+        img = img.to(torch.float32) / 255.0
+        img = img.permute(0, 3, 1, 2)
+        state = torch.from_numpy(state).to(self.device)
+        state = state.to(torch.float32)
+        obs_dict = {
+            "observation.images.webcam": img,
+            "observation.state": state,
+        }
+        print(img.shape, state.shape)
+        actions = []
+        for i in range(self.horizon):
+            start_time = time.time()
+            action = self.policy.select_action(obs_dict)
+            print(f"iteration {i} time taken {time.time() - start_time:.2f} seconds")
+            # convert to numpy
+            # action = action.squeeze(0)
+            action = action.cpu().numpy()
+            actions.append(action)
+        # return (horizon, action_dim)
+        actions = np.concatenate(actions, axis=0)
+        assert actions.shape == (self.horizon, 6), actions.shape
+        return actions
+
+
+class Pi0Policy:
+    def __init__(self, model_path, language_instruction, device="cuda"):
+        from lerobot.common.policies.pi0.modeling_pi0 import PI0Policy
+
+        self.policy = PI0Policy.from_pretrained(model_path)
+        self.device = device
+        self.horizon = self.policy.config.n_action_steps
+        self.language_instruction = language_instruction
+
+    def get_action(self, img, state) -> np.ndarray:
+        img = torch.from_numpy(img).to(self.device)
+        img = img.to(torch.float32) / 255.0
+        img = img.permute(2, 0, 1).contiguous()
+
+        # add batch dimension
+        img = img[np.newaxis, :, :, :]
+        state = state[np.newaxis, :]
+        # convert to float32
+        state = torch.from_numpy(state).to(torch.float32).to(self.device)
+        obs_dict = {
+            "observation.images.webcam": img,
+            "observation.state": state,
+            "task": [self.language_instruction],
+        }
+        # print(img.shape, state.shape)
+        actions = []
+        for i in range(self.horizon):
+            action = self.policy.select_action(obs_dict)
+            # convert to numpy
+            # action = action.squeeze(0)
+            action = action.cpu().numpy()
+            actions.append(action)
+        # return (horizon, action_dim)
+        actions = np.concatenate(actions, axis=0)
+        assert actions.shape == (self.horizon, 6), actions.shape
+        # print(actions.shape)
+        return actions
+
+
 class Gr00tRobotInferenceClient:
     def __init__(
         self,
@@ -185,6 +326,7 @@ class Gr00tRobotInferenceClient:
         self.policy = ExternalRobotInferenceClient(host=host, port=port)
 
     def get_action(self, img, state):
+        # print(self.language_instruction)
         obs_dict = {
             "video.webcam": img[np.newaxis, :, :, :],
             "state.single_arm": state[:5][np.newaxis, :].astype(np.float64),
@@ -224,13 +366,66 @@ def view_img(img, img2=None):
     plt.clf()  # Clear the figure for the next frame
 
 
+def print_yellow(text):
+    print("\033[93m {}\033[00m".format(text))
+
+
+def get_language(language_instruction=None):
+    if language_instruction is None:
+        # get the language instruction from the user
+        language_instruction = input(
+            "Please enter the language instruction (default: Pick up the fruits and place them on the plate.): "
+        )
+
+        if language_instruction == "":
+            language_instruction = "Pick up the fruits and place them on the plate."
+
+    print("lang_instruction: ", language_instruction)
+
+    # check if lang is a number
+    if language_instruction.isdigit():
+        # convert to int
+        language_instruction = int(language_instruction)
+        print("lang_instruction converted to int: ", language_instruction)
+
+        from tictac_bot import TaskToString
+
+        num = int(language_instruction)
+        if num == 1:
+            language_instruction = TaskToString.TOP_RIGHT
+        elif num == 2:
+            language_instruction = TaskToString.CENTER_TOP
+        elif num == 3:
+            language_instruction = TaskToString.TOP_LEFT
+        elif num == 4:
+            language_instruction = TaskToString.CENTER_RIGHT
+        elif num == 5:
+            language_instruction = TaskToString.CENTER
+        elif num == 6:
+            language_instruction = TaskToString.CENTER_LEFT
+        elif num == 7:
+            language_instruction = TaskToString.BOTTOM_RIGHT
+        elif num == 8:
+            language_instruction = TaskToString.CENTER_BOTTOM
+        elif num == 9:
+            language_instruction = TaskToString.BOTTOM_LEFT
+        else:
+            print("Invalid lang_instruction number. Please enter a number between 1 and 9.")
+            exit(1)
+        # convert to string
+        language_instruction = str(language_instruction)
+        print("lang_instruction converted to string: ", language_instruction)
+    print("lang_instruction: ", language_instruction)
+    return language_instruction
+
+
 #################################################################################
 
 if __name__ == "__main__":
     import argparse
     import os
 
-    default_dataset_path = os.path.expanduser("~/datasets/so100_strawberry_grape")
+    default_dataset_path = os.path.expanduser("/datasets/so100_strawberry_grape")
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -240,16 +435,20 @@ if __name__ == "__main__":
     parser.add_argument("--host", type=str, default="10.110.17.183")
     parser.add_argument("--port", type=int, default=5555)
     parser.add_argument("--action_horizon", type=int, default=12)
-    parser.add_argument("--actions_to_execute", type=int, default=350)
+    parser.add_argument("--actions_to_execute", type=int, default=550)
     parser.add_argument("--cam_idx", type=int, default=1)
     parser.add_argument(
         "--lang_instruction", type=str, default="Pick up the fruits and place them on the plate."
     )
     parser.add_argument("--record_imgs", action="store_true")
+    parser.add_argument("--timeout", type=int, default=60, help="Timeout in seconds")  # TIMEOUT
+    parser.add_argument("--use_dp", action="store_true")
+    parser.add_argument("--use_pi0", action="store_true")
     args = parser.parse_args()
 
     # print lang_instruction
-    print("lang_instruction: ", args.lang_instruction)
+    language_instruction = args.lang_instruction
+    language_instruction = get_language(language_instruction)
 
     ACTIONS_TO_EXECUTE = args.actions_to_execute
     USE_POLICY = args.use_policy
@@ -258,11 +457,27 @@ if __name__ == "__main__":
     )  # we will execute only some actions from the action_chunk of 16
     MODALITY_KEYS = ["single_arm", "gripper"]
     if USE_POLICY:
-        client = Gr00tRobotInferenceClient(
-            host=args.host,
-            port=args.port,
-            language_instruction=args.lang_instruction,
-        )
+        if args.use_dp:
+            client = DiffusionPolicy(
+                # model_path="/home/youliang/lerobot/outputs/train/so100_dp001/checkpoints/100000/pretrained_model",
+                model_path="/home/youliang/lerobot/outputs/train/so100_dp_b256/checkpoints/last/pretrained_model",
+                device="cuda",
+            )
+        elif args.use_pi0:
+            client = Pi0Policy(
+                # TICTAC TOE
+                # model_path="/home/youliang/lerobot/outputs/train/tictac_pi0/checkpoints/last/pretrained_model",
+                # SO100 FRUITS
+                model_path="/home/youliang/lerobot/outputs/train/dp_so100_pi0_b16/checkpoints/last/pretrained_model",
+                language_instruction=language_instruction,
+                device="cuda",
+            )
+        else:
+            client = Gr00tRobotInferenceClient(
+                host=args.host,
+                port=args.port,
+                language_instruction=language_instruction,
+            )
 
         if args.record_imgs:
             # create a folder to save the images and delete all the images in the folder
@@ -272,40 +487,62 @@ if __name__ == "__main__":
 
         robot = SO100Robot(calibrate=False, enable_camera=True, cam_idx=args.cam_idx)
         image_count = 0
+        # for i in tqdm(range(ACTIONS_TO_EXECUTE), desc="Executing actions"):
         with robot.activate():
-            for i in tqdm(range(ACTIONS_TO_EXECUTE), desc="Executing actions"):
-                img = robot.get_current_img()
-                view_img(img)
-                state = robot.get_current_state()
-                action = client.get_action(img, state)
-                start_time = time.time()
-                for i in range(ACTION_HORIZON):
-                    concat_action = np.concatenate(
-                        [np.atleast_1d(action[f"action.{key}"][i]) for key in MODALITY_KEYS],
-                        axis=0,
-                    )
-                    assert concat_action.shape == (6,), concat_action.shape
-                    robot.set_target_state(torch.from_numpy(concat_action))
-                    time.sleep(0.02)
-
+            while True:
+                eps_start_time = time.time()
+                # check if timeout is reached
+                while time.time() - eps_start_time < args.timeout:
                     # get the realtime image
+                    print_yellow(
+                        f" Current elapsed time: {time.time() - eps_start_time:.2f} seconds"
+                    )
                     img = robot.get_current_img()
                     view_img(img)
+                    state = robot.get_current_state()
+                    action = client.get_action(img, state)
+                    start_time = time.time()
+                    for i in range(ACTION_HORIZON):
+                        if args.use_dp or args.use_pi0:
+                            concat_action = action[i]
+                        else:
+                            concat_action = np.concatenate(
+                                [
+                                    np.atleast_1d(action[f"action.{key}"][i])
+                                    for key in MODALITY_KEYS
+                                ],
+                                axis=0,
+                            )
+                        assert concat_action.shape == (6,), concat_action.shape
+                        robot.set_target_state(torch.from_numpy(concat_action))
+                        time.sleep(0.02)
 
-                    if args.record_imgs:
-                        # resize the image to 320x240
-                        img = cv2.resize(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), (320, 240))
-                        cv2.imwrite(f"eval_images/img_{image_count}.jpg", img)
-                        image_count += 1
+                        # get the realtime image
+                        img = robot.get_current_img()
+                        view_img(img)
 
-                    # 0.05*16 = 0.8 seconds
-                    print("executing action", i, "time taken", time.time() - start_time)
-                print("Action chunk execution time taken", time.time() - start_time)
+                        if args.record_imgs:
+                            # resize the image to 320x240
+                            img = cv2.resize(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), (320, 240))
+                            cv2.imwrite(f"eval_images/img_{image_count}.jpg", img)
+                            image_count += 1
+
+                        # 0.05*16 = 0.8 seconds
+                        # print("executing action", i, "time taken", time.time() - start_time)
+                    # print("Action chunk execution time taken", time.time() - start_time)
+
+                robot.move_to_initial_pose()
+                language_instruction = get_language(None)
+                # if language_instruction is in client
+                client.language_instruction = language_instruction
+                print("Language instruction updated to: ", language_instruction)
+
     else:
         # Test Dataset Source https://huggingface.co/datasets/youliangtan/so100_strawberry_grape
         dataset = LeRobotDataset(
             repo_id="",
             root=args.dataset_path,
+            episodes=[24],
         )
 
         robot = SO100Robot(calibrate=False, enable_camera=True, cam_idx=args.cam_idx)
@@ -314,6 +551,8 @@ if __name__ == "__main__":
             print("Run replay of the dataset")
             actions = []
             for i in tqdm(range(ACTIONS_TO_EXECUTE), desc="Loading actions"):
+                # while True:
+                #     i = 0
                 action = dataset[i]["action"]
                 img = dataset[i]["observation.images.webcam"].data.numpy()
                 # original shape (3, 480, 640) for image data

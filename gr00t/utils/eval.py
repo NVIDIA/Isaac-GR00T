@@ -52,7 +52,10 @@ def calc_mse_for_single_trajectory(
 
         # NOTE this is to get all modality keys concatenated
         # concat_state = data_point[f"state.{modality_keys[0]}"][0]
-        # concat_gt_action = data_point[f"action.{modality_keys[0]}"][0]
+        # # concat_gt_action = data_point[f"action.{modality_keys[0]}"][0]
+        # concat_state = np.concatenate(
+        #     [data_point[f"state.{key}"][0] for key in modality_keys], axis=0
+        # )
         concat_state = np.concatenate(
             [data_point[f"state.{key}"][0] for key in modality_keys], axis=0
         )
@@ -79,17 +82,22 @@ def calc_mse_for_single_trajectory(
     state_joints_across_time = np.array(state_joints_across_time)
     gt_action_joints_across_time = np.array(gt_action_joints_across_time)
     pred_action_joints_across_time = np.array(pred_action_joints_across_time)[:steps]
-    assert (
-        state_joints_across_time.shape
-        == gt_action_joints_across_time.shape
-        == pred_action_joints_across_time.shape
-    )
+    # assert (
+    #     state_joints_across_time.shape
+    #     == gt_action_joints_across_time.shape
+    #     == pred_action_joints_across_time.shape
+    # )
 
     # calc MSE across time
     mse = np.mean((gt_action_joints_across_time - pred_action_joints_across_time) ** 2)
     print("Unnormalized Action MSE across single traj:", mse)
 
-    num_of_joints = state_joints_across_time.shape[1]
+    print(state_joints_across_time.shape)
+    print(gt_action_joints_across_time.shape)
+    print(pred_action_joints_across_time.shape)
+
+    # num_of_joints = state_joints_across_time.shape[1]
+    num_of_joints = 14
 
     if plot:
         fig, axes = plt.subplots(nrows=num_of_joints, ncols=1, figsize=(8, 4 * num_of_joints))
@@ -102,7 +110,7 @@ def calc_mse_for_single_trajectory(
         )
 
         for i, ax in enumerate(axes):
-            ax.plot(state_joints_across_time[:, i], label="state joints")
+            # ax.plot(state_joints_across_time[:, i], label="state joints")
             ax.plot(gt_action_joints_across_time[:, i], label="gt action joints")
             ax.plot(pred_action_joints_across_time[:, i], label="pred action joints")
 

@@ -7,7 +7,7 @@
   
   <p style="font-size: 1.2em;">
     <a href="https://developer.nvidia.com/isaac/gr00t"><strong>Website</strong></a> | 
-    <a href="https://huggingface.co/nvidia/GR00T-N1-2B"><strong>Model</strong></a> |
+    <a href="https://huggingface.co/nvidia/GR00T-N1.5-3B"><strong>Model</strong></a> |
     <a href="https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim"><strong>Dataset</strong></a> |
     <a href="https://arxiv.org/abs/2503.14734"><strong>Paper</strong></a>
   </p>
@@ -19,14 +19,17 @@
 [![GitHub star chart](https://img.shields.io/github/stars/NVIDIA/Isaac-GR00T?style=flat-square)](https://star-history.com/#NVIDIA/Isaac-GR00T)
 [![Open Issues](https://img.shields.io/github/issues-raw/NVIDIA/Isaac-GR00T?style=flat-square)](https://github.com/NVIDIA/Isaac-GR00T/issues)
 
-## NVIDIA Isaac GR00T N1
+## NVIDIA Isaac GR00T
 
 <div align="center">
 <img src="media/robot-demo.gif" width="800" alt="NVIDIA Isaac GR00T N1 Header">
 </div>
 
+> We just released GR00T N1.5, a updated version of GR00T N1 with improved performance and new features. Check out the release blog post(TODO) for more details.
 
-NVIDIA Isaac GR00T N1 is the world's first open foundation model for generalized humanoid robot reasoning and skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
+> To use the older version, N1, please checkout the [n1.0.0](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.0.0) release branch.
+
+NVIDIA Isaac GR00T N1.5 is an open foundation model for generalized humanoid robot reasoning and skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
 
 GR00T N1 is trained on an expansive humanoid dataset, consisting of real captured data, synthetic data generated using the components of NVIDIA Isaac GR00T Blueprint ([examples of neural-generated trajectories](./media/videos)), and internet-scale video data. It is adaptable through post-training for specific embodiments, tasks and environments.
 
@@ -35,23 +38,23 @@ GR00T N1 is trained on an expansive humanoid dataset, consisting of real capture
 <img src="media/sim-data.gif" height="150" alt="sim-robot-data">
 </div>
 
-The neural network architecture of GR00T N1 is a combination of vision-language foundation model and diffusion transformer head that denoises continuous actions. Here is a schematic diagram of the architecture:
+The neural network architecture of GR00T N1.5 is a combination of vision-language foundation model and diffusion transformer head that denoises continuous actions. Here is a schematic diagram of the architecture:
 
 <div align="center">
 <img src="media/model-architecture.png" width="800" alt="model-architecture">
 </div>
 
-Here is the general procedure to use GR00T N1:
+Here is the general procedure to use GR00T N1.5:
 
 1. Assuming the user has already collected a dataset of robot demonstrations in the form of (video, state, action) triplets. 
 2. User will first convert the demonstration data into the LeRobot compatible data schema (more info in [`getting_started/LeRobot_compatible_data_schema.md`](getting_started/LeRobot_compatible_data_schema.md)), which is compatible with the upstream [Huggingface LeRobot](https://github.com/huggingface/lerobot).
 3. Our repo provides examples to configure different configurations for training with different robot embodiments.
-4. Our repo provides convenient scripts to finetune the pre-trained GR00T N1 model on user's data, and run inference.
+4. Our repo provides convenient scripts to finetune the pre-trained GR00T N1.5 model on user's data, and run inference.
 5. User will connect the `Gr00tPolicy` to the robot controller to execute actions on their target hardware.
 
 ## Target Audience
 
-GR00T N1 is intended for researchers and professionals in humanoid robotics. This repository provides tools to:
+GR00T N1.5 is intended for researchers and professionals in humanoid robotics. This repository provides tools to:
 
 - Leverage a pre-trained foundation model for robot control
 - Fine-tune on small, custom datasets
@@ -124,13 +127,13 @@ dataset = LeRobotSingleDataset(
 dataset[5]
 ```
 
-- [`getting_started/0_load_dataset.ipynb`](getting_started/0_load_dataset.ipynb) is an interactive tutorial on how to load the data and process it to interface with the GR00T N1 model.
+- [`getting_started/0_load_dataset.ipynb`](getting_started/0_load_dataset.ipynb) is an interactive tutorial on how to load the data and process it to interface with the GR00T N1.5 model.
 - [`scripts/load_dataset.py`](scripts/load_dataset.py) is an executable script with the same content as the notebook.
 
 
 ## 2. Inference
 
-* The GR00T N1 model is hosted on [Huggingface](https://huggingface.co/nvidia/GR00T-N1-2B)
+* The GR00T N1.5 model is hosted on [Huggingface](https://huggingface.co/nvidia/GR00T-N1.5-3B)
 * Example cross embodiment dataset is available at [demo_data/robot_sim.PickNPlace](./demo_data/robot_sim.PickNPlace)
 
 ```python
@@ -146,7 +149,7 @@ dataset = LeRobotSingleDataset(.....<Same as above>....)
 
 # 3. Load pre-trained model
 policy = Gr00tPolicy(
-    model_path="nvidia/GR00T-N1-2B",
+    model_path="nvidia/GR00T-N1.5-3B",
     modality_config=modality_config,
     modality_transform=transforms,
     embodiment_tag=EmbodimentTag.GR1,
@@ -162,7 +165,7 @@ action_chunk = policy.get_action(dataset[0])
 User can also run the inference service using the provided script. The inference service can run in either server mode or client mode.
 
 ```bash
-python scripts/inference_service.py --model_path nvidia/GR00T-N1-2B --server
+python scripts/inference_service.py --model_path nvidia/GR00T-N1.5-3B --server
 ```
 
 On a different terminal, run the client mode to send requests to the server.
@@ -206,7 +209,7 @@ For new embodiment finetuning, checkout our notebook in [`getting_started/3_new_
 
 ## 4. Evaluation
 
-To conduct an offline evaluation of the model, we provide a script that evaluates the model on a dataset, and plots it out. Quick try: `python scripts/eval_policy.py --plot --model_path nvidia/GR00T-N1-2B`
+To conduct an offline evaluation of the model, we provide a script that evaluates the model on a dataset, and plots it out. Quick try: `python scripts/eval_policy.py --plot --model_path nvidia/GR00T-N1.5-3B`
 
 Or you can run the newly trained model in client-server mode.
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta:__legacy__"
 [project]
 # See https://setuptools.pypa.io/en/latest/userguide/quickstart.html for more project configuration options.
 name = "gr00t"
-version = "0.1.0"
+version = "1.1.0"
 readme = "README.md"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -13,7 +13,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 authors = [
-    {name = "GEAR", email = "linxif@nvidia.com"}
+    {name = "GEAR@NVIDIA-RESEARCH", email = "*@nvidia.com"}
 ]
 requires-python = ">=3.10"
 dependencies = [
@@ -46,7 +46,7 @@ dependencies = [
     "tianshou==0.5.1",
     "timm==1.0.14",
     "tqdm==4.67.1",
-    "transformers==4.45.2",
+    "transformers==4.51.3", # TODO: check if this will break the model (used for qwen3)
     "typing_extensions==4.12.2",
     "pyarrow==14.0.1",
     "wandb==0.18.0",
