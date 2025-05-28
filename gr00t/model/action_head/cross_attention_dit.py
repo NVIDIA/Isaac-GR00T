@@ -127,7 +127,7 @@ class BasicTransformerBlock(nn.Module):
             dim_head=attention_head_dim,
             dropout=dropout,
             bias=attention_bias,
-            cross_attention_dim=None,
+            cross_attention_dim=cross_attention_dim,
             upcast_attention=upcast_attention,
             out_bias=attention_out_bias,
         )
@@ -155,6 +155,7 @@ class BasicTransformerBlock(nn.Module):
         encoder_attention_mask: Optional[torch.Tensor] = None,
         temb: Optional[torch.LongTensor] = None,
     ) -> torch.Tensor:
+
         # 0. Self-Attention
         if self.norm_type == "ada_norm":
             norm_hidden_states = self.norm1(hidden_states, temb)
@@ -210,38 +211,44 @@ class DiT(ModelMixin, ConfigMixin):
         final_dropout: bool = True,
         positional_embeddings: Optional[str] = "sinusoidal",
         interleave_self_attention=False,
+        cross_attention_dim: Optional[int] = None,
     ):
         super().__init__()
 
         self.attention_head_dim = attention_head_dim
-        self.inner_dim = num_attention_heads * attention_head_dim
+        self.inner_dim = self.config.num_attention_heads * self.config.attention_head_dim
         self.gradient_checkpointing = False
 
         # Timestep encoder
         self.timestep_encoder = TimestepEncoder(
-            embedding_dim=self.inner_dim, compute_dtype=compute_dtype
+            embedding_dim=self.inner_dim, compute_dtype=self.compute_dtype
         )
 
-        self.transformer_blocks = nn.ModuleList(
-            [
+        all_blocks = []
+        for idx in range(self.config.num_layers):
+
+            use_self_attn = idx % 2 == 1 and interleave_self_attention
+            curr_cross_attention_dim = cross_attention_dim if not use_self_attn else None
+
+            all_blocks += [
                 BasicTransformerBlock(
                     self.inner_dim,
-                    num_attention_heads,
-                    attention_head_dim,
-                    dropout=dropout,
-                    activation_fn=activation_fn,
-                    attention_bias=attention_bias,
-                    upcast_attention=upcast_attention,
+                    self.config.num_attention_heads,
+                    self.config.attention_head_dim,
+                    dropout=self.config.dropout,
+                    activation_fn=self.config.activation_fn,
+                    attention_bias=self.config.attention_bias,
+                    upcast_attention=self.config.upcast_attention,
                     norm_type=norm_type,
-                    norm_elementwise_affine=norm_elementwise_affine,
-                    norm_eps=norm_eps,
+                    norm_elementwise_affine=self.config.norm_elementwise_affine,
+                    norm_eps=self.config.norm_eps,
                     positional_embeddings=positional_embeddings,
-                    num_positional_embeddings=max_num_positional_embeddings,
+                    num_positional_embeddings=self.config.max_num_positional_embeddings,
                     final_dropout=final_dropout,
+                    cross_attention_dim=curr_cross_attention_dim,
                 )
-                for _ in range(num_layers)
             ]
-        )
+        self.transformer_blocks = nn.ModuleList(all_blocks)
 
         # Output blocks
         self.norm_out = nn.LayerNorm(self.inner_dim, elementwise_affine=False, eps=1e-6)
@@ -271,7 +278,7 @@ class DiT(ModelMixin, ConfigMixin):
 
         # Process through transformer blocks
         for idx, block in enumerate(self.transformer_blocks):
-            if idx % 2 == 1 and self.config.interleave_self_attention:
+            if idx % 2 == 1 and self.interleave_self_attention:
                 hidden_states = block(
                     hidden_states,
                     attention_mask=None,
@@ -351,15 +358,21 @@ class SelfAttentionTransformer(ModelMixin, ConfigMixin):
     def forward(
         self,
         hidden_states: torch.Tensor,  # Shape: (B, T, D)
+        return_all_hidden_states: bool = False,
     ):
         # Process through transformer blocks - single pass through the blocks
         hidden_states = hidden_states.contiguous()
+        all_hidden_states = [hidden_states]
 
         # Process through transformer blocks
         for idx, block in enumerate(self.transformer_blocks):
             hidden_states = block(hidden_states)
+            all_hidden_states.append(hidden_states)
 
-        return hidden_states
+        if return_all_hidden_states:
+            return hidden_states, all_hidden_states
+        else:
+            return hidden_states
 
 
 if __name__ == "__main__":

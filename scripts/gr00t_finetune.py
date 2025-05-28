@@ -18,16 +18,18 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import torch
 import tyro
 from transformers import TrainingArguments
 
-from gr00t.data.dataset import LeRobotSingleDataset
+from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.experiment.runner import TrainRunner
-from gr00t.model.gr00t_n1 import GR00T_N1
+from gr00t.model.gr00t_n1 import GR00T_N1_5
+from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.peft import get_lora_model
 
 
@@ -39,14 +41,20 @@ class Config:
     dataset_path: str
     """Path to the dataset directory."""
 
+    dataset2_path: str | None = None
+    """Path to the second dataset directory."""
+
     output_dir: str = "/tmp/gr00t"
     """Directory to save model checkpoints."""
 
-    data_config: str = "gr1_arms_only"
+    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "gr1_arms_only"
+    """Data configuration name from DATA_CONFIG_MAP."""
+
+    data_config2: Literal[tuple(DATA_CONFIG_MAP.keys())] | None = None
     """Data configuration name from DATA_CONFIG_MAP."""
 
     # Training parameters
-    batch_size: int = 16
+    batch_size: int = 32
     """Batch size per GPU for training."""
 
     max_steps: int = 10000
@@ -55,17 +63,17 @@ class Config:
     num_gpus: int = 1
     """Number of GPUs to use for training."""
 
-    save_steps: int = 500
+    save_steps: int = 1000
     """Number of steps between saving checkpoints."""
 
     # Model parameters
-    base_model_path: str = "nvidia/GR00T-N1-2B"
+    base_model_path: str = "nvidia/GR00T-N1.5-3B"
     """Path or HuggingFace model ID for the base model."""
 
     tune_llm: bool = False
     """Whether to fine-tune the language model backbone."""
 
-    tune_visual: bool = True
+    tune_visual: bool = False
     """Whether to fine-tune the vision tower."""
 
     tune_projector: bool = True
@@ -99,14 +107,14 @@ class Config:
     dataloader_num_workers: int = 8
     """Number of workers for data loading."""
 
-    report_to: str = "wandb"
+    report_to: Literal["wandb", "tensorboard"] = "wandb"
     """Where to report training metrics (e.g., 'wandb', 'tensorboard')."""
 
     # Data loading parameters
-    embodiment_tag: str = "new_embodiment"
+    embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "gr1"
     """Embodiment tag to use for training. e.g. 'new_embodiment', 'gr1'"""
 
-    video_backend: str = "decord"
+    video_backend: Literal["decord", "torchvision_av"] = "decord"
     """Video backend to use for training. [decord, torchvision_av]"""
 
 
@@ -125,6 +133,15 @@ def main(config: Config):
     modality_configs = data_config_cls.modality_config()
     transforms = data_config_cls.transform()
 
+    # used if we want to merge two datasets
+    if config.data_config2:
+        data_config_cls2 = DATA_CONFIG_MAP[config.data_config2]
+        modality_configs2 = data_config_cls2.modality_config()
+        transforms2 = data_config_cls2.transform()
+    else:
+        modality_configs2 = None
+        transforms2 = None
+
     # 1.2 data loader
     train_dataset = LeRobotSingleDataset(
         dataset_path=config.dataset_path,
@@ -134,8 +151,28 @@ def main(config: Config):
         video_backend=config.video_backend,
     )
 
+    if config.dataset2_path:
+        assert modality_configs2 is not None
+        dataset2 = LeRobotSingleDataset(
+            dataset_path=config.dataset2_path,
+            modality_configs=modality_configs2,
+            transforms=transforms2,
+            embodiment_tag=embodiment_tag,
+            video_backend=config.video_backend,
+        )
+        train_dataset = LeRobotMixtureDataset(
+            data_mixture=[(train_dataset, 1.0), (dataset2, 1.0)],
+            mode="train",
+            balance_dataset_weights=True,
+            balance_trajectory_weights=True,
+            seed=42,
+        )
+        print(
+            f"Loaded {len(train_dataset)} trajectories from {config.dataset_path} and {len(dataset2)} trajectories from {config.dataset2_path}"
+        )
+
     # ------------ step 2: load model ------------
-    model = GR00T_N1.from_pretrained(
+    model = GR00T_N1_5.from_pretrained(
         pretrained_model_name_or_path=config.base_model_path,
         tune_llm=config.tune_llm,  # backbone's LLM
         tune_visual=config.tune_visual,  # backbone's vision tower
@@ -168,7 +205,7 @@ def main(config: Config):
         gradient_accumulation_steps=1,
         dataloader_num_workers=config.dataloader_num_workers,
         dataloader_pin_memory=False,
-        dataloader_persistent_workers=True,
+        dataloader_persistent_workers=config.dataloader_num_workers > 0,
         optim="adamw_torch",
         adam_beta1=0.95,
         adam_beta2=0.999,
@@ -182,7 +219,7 @@ def main(config: Config):
         max_steps=config.max_steps,
         save_strategy="steps",
         save_steps=config.save_steps,
-        evaluation_strategy="no",
+        # evaluation_strategy="no",
         save_total_limit=8,
         report_to=config.report_to,
         seed=42,
@@ -265,3 +302,10 @@ if __name__ == "__main__":
             env = os.environ.copy()
             env["IS_TORCHRUN"] = "1"
             sys.exit(subprocess.run(cmd, env=env).returncode)
+
+# python scripts/gr00t_finetune.py \
+# --dataset_path /datasets/so100_strawberry_grape \
+# --dataset2_path demo_data/robot_sim.PickNPlace \
+# --data_config so100 \
+# --data_config2 gr1_arms_only \
+# --video_backend torchvision_av \
