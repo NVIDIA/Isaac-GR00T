@@ -30,7 +30,7 @@ from transformers.feature_extraction_utils import BatchFeature
 from gr00t.data.schema import DatasetMetadata, EmbodimentTag
 from gr00t.data.transform.base import InvertibleModalityTransform
 
-DEFAULT_EAGLE_PATH = "NVEagle/eagle_er-qwen3_1_7B-Siglip2_400M_stage1_5_128gpu_er_v7_1mlp_nops"
+from .backbone.eagle_backbone import DEFAULT_EAGLE_PATH
 
 EMBODIMENT_TAG_MAPPING = {
     "gr1": 24,
@@ -52,7 +52,7 @@ def formalize_language(language: str) -> str:
 
 def build_eagle_processor(eagle_path: str) -> ProcessorMixin:
     eagle_processor = AutoProcessor.from_pretrained(
-        eagle_path, trust_remote_code=True, use_fast=True, local_files_only=False
+        eagle_path, trust_remote_code=True, use_fast=True
     )
     eagle_processor.tokenizer.padding_side = "left"
     return eagle_processor
