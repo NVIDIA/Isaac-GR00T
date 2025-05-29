@@ -2,37 +2,29 @@
   "additional_special_tokens": [
     "<|im_start|>",
     "<|im_end|>",
+    "<|object_ref_start|>",
+    "<|object_ref_end|>",
+    "<|box_start|>",
+    "<|box_end|>",
+    "<|quad_start|>",
+    "<|quad_end|>",
+    "<|vision_start|>",
+    "<|vision_end|>",
+    "<|vision_pad|>",
+    "<|image_pad|>",
+    "<|video_pad|>",
+    "<IMG_CONTEXT>",
     "<img>",
     "</img>",
-    "<IMG_CONTEXT>",
+    "<box>",
+    "</box>",
     "<quad>",
     "</quad>",
     "<ref>",
     "</ref>",
-    "<box>",
-    "</box>",
-    {
-      "content": "<interval>",
-      "lstrip": false,
-      "normalized": false,
-      "rstrip": false,
-      "single_word": false
-    },
-    {
-      "content": "</interval>",
-      "lstrip": false,
-      "normalized": false,
-      "rstrip": false,
-      "single_word": false
-    }
+    "<interval>",
+    "</interval>"
   ],
-  "bos_token": {
-    "content": "<|im_start|>",
-    "lstrip": false,
-    "normalized": false,
-    "rstrip": false,
-    "single_word": false
-  },
   "eos_token": {
     "content": "<|im_end|>",
     "lstrip": false,
@@ -41,13 +33,6 @@
     "single_word": false
   },
   "pad_token": {
-    "content": "<|im_end|>",
-    "lstrip": false,
-    "normalized": false,
-    "rstrip": false,
-    "single_word": false
-  },
-  "unk_token": {
     "content": "<|endoftext|>",
     "lstrip": false,
     "normalized": false,

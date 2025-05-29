@@ -1,0 +1,41 @@
+{
+    "auto_map": {
+        "AutoImageProcessor": "image_processing_eagle2_5_vl_fast.Eagle2_5_VLImageProcessorFast",
+        "AutoProcessor": "processing_eagle2_5_vl.Eagle2_5_VLProcessor"
+    },
+    "crop_size": null,
+    "data_format": "channels_first",
+    "default_to_square": false,
+    "device": null,
+    "do_center_crop": null,
+    "do_convert_rgb": true,
+    "do_normalize": true,
+    "do_pad": false,
+    "do_rescale": true,
+    "do_resize": false,
+    "image_mean": [
+        0.5,
+        0.5,
+        0.5
+    ],
+    "image_processor_type": "Eagle2_5_VLImageProcessorFast",
+    "image_std": [
+        0.5,
+        0.5,
+        0.5
+    ],
+    "input_data_format": null,
+    "max_dynamic_tiles": 12,
+    "min_dynamic_tiles": 1,
+    "pad_during_tiling": false,
+    "processor_class": "Eagle2_5_VLProcessor",
+    "resample": 3,
+    "rescale_factor": 0.00392156862745098,
+    "return_tensors": null,
+    "size": {
+        "height": 224,
+        "width": 224
+    },
+    "tokens_per_tile": 256,
+    "use_thumbnail": true
+}

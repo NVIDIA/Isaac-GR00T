@@ -12,14 +12,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
+import gr00t
 
 import torch
 from torch import nn
-from transformers import AutoModel
+from transformers import AutoConfig, AutoModel
 from transformers.feature_extraction_utils import BatchFeature
 
 
+DEFAULT_EAGLE_PATH = os.path.join(
+    os.path.dirname(gr00t.__file__), "model", "backbone", "eagle2_hg_model"
+)
 class EagleBackbone(nn.Module):
 
     def __init__(
@@ -30,7 +34,7 @@ class EagleBackbone(nn.Module):
         reproject_vision: bool = False,
         use_flash_attention: bool = False,
         load_bf16: bool = False,
-        eagle_path: str = None,
+        eagle_path: str | None = None,
         project_to_dim: int = 1536,
     ):
         """
@@ -40,15 +44,14 @@ class EagleBackbone(nn.Module):
             tune_visual: whether to tune the visual model (default: False)
         """
         super().__init__()
-        assert eagle_path is not None, "eagle_path must be provided"
         assert not reproject_vision, "Reproject vision is not implemented here, set to False"
 
-        # TODO: use local_eagle_model method
-        self.eagle_model = AutoModel.from_pretrained(
-            eagle_path,
-            trust_remote_code=True,
-            local_files_only=False,
-        )
+        # if eagle_path is None:
+        #     eagle_path = DEFAULT_EAGLE_PATH
+
+        # TODO (FH): don't hardcode the path here after the checkpoint is stable
+        config = AutoConfig.from_pretrained(DEFAULT_EAGLE_PATH, trust_remote_code=True)
+        self.eagle_model = AutoModel.from_config(config, trust_remote_code=True)
 
         if project_to_dim is not None:
             self.eagle_linear = torch.nn.Linear(2048, project_to_dim)
