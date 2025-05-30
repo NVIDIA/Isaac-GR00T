@@ -54,6 +54,9 @@ class ArgsConfig:
     """The number of denoising steps to use."""
 
 
+#####################################################################################
+
+
 def main(args: ArgsConfig):
     if args.server:
         # Create a policy

@@ -13,17 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-import gr00t
 
 import torch
 from torch import nn
 from transformers import AutoConfig, AutoModel
 from transformers.feature_extraction_utils import BatchFeature
 
+import gr00t
 
 DEFAULT_EAGLE_PATH = os.path.join(
     os.path.dirname(gr00t.__file__), "model", "backbone", "eagle2_hg_model"
 )
+
+
 class EagleBackbone(nn.Module):
 
     def __init__(

@@ -131,7 +131,7 @@ When you're ready to contribute code to address an open issue, please follow the
 
     Our CI also uses [`ruff`](https://github.com/astral-sh/ruff) to lint the code base and [`mypy`](http://mypy-lang.org/) for type-checking. You should run both of these next with
 
-        ruff check .
+        ruff check . --fix
 
     We also strive to maintain high test coverage, so most contributions should include additions to [the unit tests](https://github.com/NVIDIA/Isaac-GR00T/tree/main/tests). These tests are run with [`pytest`](https://docs.pytest.org/en/latest/), which you can use to locally run any test modules that you've added or changed.
 

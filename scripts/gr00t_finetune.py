@@ -18,7 +18,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import List, Literal
 
 import torch
 import tyro
@@ -34,24 +34,18 @@ from gr00t.utils.peft import get_lora_model
 
 
 @dataclass
-class Config:
+class ArgsConfig:
     """Configuration for GR00T model fine-tuning."""
 
     # Dataset parameters
-    dataset_path: str
-    """Path to the dataset directory."""
-
-    dataset2_path: str | None = None
-    """Path to the second dataset directory."""
+    dataset_path: List[str]
+    """Path to the dataset directory or directories"""
 
     output_dir: str = "/tmp/gr00t"
     """Directory to save model checkpoints."""
 
     data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "gr1_arms_only"
-    """Data configuration name from DATA_CONFIG_MAP."""
-
-    data_config2: Literal[tuple(DATA_CONFIG_MAP.keys())] | None = None
-    """Data configuration name from DATA_CONFIG_MAP."""
+    """Data configuration name from DATA_CONFIG_MAP, we assume all datasets have the same data config"""
 
     # Training parameters
     batch_size: int = 32
@@ -111,11 +105,19 @@ class Config:
     """Where to report training metrics (e.g., 'wandb', 'tensorboard')."""
 
     # Data loading parameters
-    embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "gr1"
+    embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "new_embodiment"
     """Embodiment tag to use for training. e.g. 'new_embodiment', 'gr1'"""
 
     video_backend: Literal["decord", "torchvision_av"] = "decord"
     """Video backend to use for training. [decord, torchvision_av]"""
+
+    # Mixture dataset parameters
+    balance_dataset_weights: bool = True
+    """Used in LeRobotMixtureDataset. If True, we will balance the dataset weights, by multiplying the total trajectory to each dataset"""
+
+    # Mixture dataset parameters
+    balance_trajectory_weights: bool = True
+    """Used in LeRobotMixtureDataset. If True, sample trajectories within a dataset weighted by their length; otherwise, equal weighting."""
 
 
 #####################################################################################
@@ -123,7 +125,7 @@ class Config:
 #####################################################################################
 
 
-def main(config: Config):
+def main(config: ArgsConfig):
     """Main training function."""
     # ------------ step 1: load dataset ------------
     embodiment_tag = EmbodimentTag(config.embodiment_tag)
@@ -133,43 +135,45 @@ def main(config: Config):
     modality_configs = data_config_cls.modality_config()
     transforms = data_config_cls.transform()
 
-    # used if we want to merge two datasets
-    if config.data_config2:
-        data_config_cls2 = DATA_CONFIG_MAP[config.data_config2]
-        modality_configs2 = data_config_cls2.modality_config()
-        transforms2 = data_config_cls2.transform()
-    else:
-        modality_configs2 = None
-        transforms2 = None
-
-    # 1.2 data loader
-    train_dataset = LeRobotSingleDataset(
-        dataset_path=config.dataset_path,
-        modality_configs=modality_configs,
-        transforms=transforms,
-        embodiment_tag=embodiment_tag,  # This will override the dataset's embodiment tag to "new_embodiment"
-        video_backend=config.video_backend,
-    )
-
-    if config.dataset2_path:
-        assert modality_configs2 is not None
-        dataset2 = LeRobotSingleDataset(
-            dataset_path=config.dataset2_path,
-            modality_configs=modality_configs2,
-            transforms=transforms2,
-            embodiment_tag=embodiment_tag,
+    # 1.2 data loader: we will use either single dataset or mixture dataset
+    if len(config.dataset_path) == 1:
+        train_dataset = LeRobotSingleDataset(
+            dataset_path=config.dataset_path[0],
+            modality_configs=modality_configs,
+            transforms=transforms,
+            embodiment_tag=embodiment_tag,  # This will override the dataset's embodiment tag to "new_embodiment"
             video_backend=config.video_backend,
         )
+    else:
+        single_datasets = []
+        for p in config.dataset_path:
+            assert os.path.exists(p), f"Dataset path {p} does not exist"
+            ## We use the same transforms, modality configs, and embodiment tag for all datasets here,
+            ## in reality, you can use dataset from different modalities and embodiment tags
+            dataset = LeRobotSingleDataset(
+                dataset_path=p,
+                modality_configs=modality_configs,
+                transforms=transforms,
+                embodiment_tag=embodiment_tag,
+                video_backend=config.video_backend,
+            )
+            single_datasets.append(dataset)
+
         train_dataset = LeRobotMixtureDataset(
-            data_mixture=[(train_dataset, 1.0), (dataset2, 1.0)],
+            data_mixture=[
+                (dataset, 1.0)  # we will use equal weights for all datasets
+                for dataset in single_datasets
+            ],
             mode="train",
-            balance_dataset_weights=True,
-            balance_trajectory_weights=True,
+            balance_dataset_weights=config.balance_dataset_weights,
+            balance_trajectory_weights=config.balance_trajectory_weights,
             seed=42,
+            metadata_config={
+                "merge": True,
+                "percentile_mixing_method": "weighted_average",
+            },
         )
-        print(
-            f"Loaded {len(train_dataset)} trajectories from {config.dataset_path} and {len(dataset2)} trajectories from {config.dataset2_path}"
-        )
+        print(f"Loaded {len(single_datasets)} datasets, with {config.dataset_path} ")
 
     # ------------ step 2: load model ------------
     model = GR00T_N1_5.from_pretrained(
@@ -243,7 +247,7 @@ def main(config: Config):
 
 if __name__ == "__main__":
     # Parse arguments using tyro
-    config = tyro.cli(Config)
+    config = tyro.cli(ArgsConfig)
 
     # Print the tyro config
     print("\n" + "=" * 50)
@@ -297,15 +301,14 @@ if __name__ == "__main__":
                 else:
                     # For non-boolean values, use --key value format
                     cmd.append(f"--{key.replace('_', '-')}")
-                    cmd.append(str(value))
+
+                    # if the value is a list (e.g. dataset_path), we need to add each element in the list
+                    if isinstance(value, list):
+                        for v in value:
+                            cmd.append(str(v))
+                    else:
+                        cmd.append(str(value))
             print("Running torchrun command: ", cmd)
             env = os.environ.copy()
             env["IS_TORCHRUN"] = "1"
             sys.exit(subprocess.run(cmd, env=env).returncode)
-
-# python scripts/gr00t_finetune.py \
-# --dataset_path /datasets/so100_strawberry_grape \
-# --dataset2_path demo_data/robot_sim.PickNPlace \
-# --data_config so100 \
-# --data_config2 gr1_arms_only \
-# --video_backend torchvision_av \

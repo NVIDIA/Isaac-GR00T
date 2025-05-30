@@ -12,51 +12,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections import namedtuple
-from typing import Iterable, List, Optional, Tuple, Union
 import copy
-from timm.models import VisionTransformer, create_model
-from timm.models.vision_transformer import Attention
-from einops import rearrange
-from typing import List, Optional, Set, Tuple, Union
-from types import MethodType
-from transformers.utils import ModelOutput
-
-import torch
-from torch import nn
-import torch.nn.functional as F
-
-from timm.models import VisionTransformer, checkpoint_seq
-
 import math
-
-
-from timm.models import register_model
-from timm.models.vision_transformer import (
-    VisionTransformer,
-    _create_vision_transformer as _timm_create_vision_transformer,
-    Mlp,
-    Block,
-    LayerScale as TIMMLayerScale,
-)
-
-import torch
-from torch import nn
-from transformers import PretrainedConfig, PreTrainedModel
-
-####
-
+from collections import namedtuple
+from types import MethodType
+from typing import Iterable, List, Optional, Set, Tuple, Union
 
 # https://github.com/Dao-AILab/flash-attention/blob/v0.2.8/flash_attn/flash_attention.py
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from einops import rearrange
+from timm.models import VisionTransformer, checkpoint_seq, create_model, register_model
+from timm.models.vision_transformer import (
+    Attention,
+    Block,
+)
+from timm.models.vision_transformer import LayerScale as TIMMLayerScale
+from timm.models.vision_transformer import (
+    VisionTransformer,
+)
+from timm.models.vision_transformer import (
+    _create_vision_transformer as _timm_create_vision_transformer,
+)
+from transformers import PretrainedConfig, PreTrainedModel
+from transformers.utils import ModelOutput
+
+####
+
 
 try:  # v1
-    from flash_attn.flash_attn_interface import \
-        flash_attn_unpadded_qkvpacked_func
+    from flash_attn.flash_attn_interface import flash_attn_unpadded_qkvpacked_func
 except:  # v2
-    from flash_attn.flash_attn_interface import flash_attn_varlen_qkvpacked_func as flash_attn_unpadded_qkvpacked_func
+    from flash_attn.flash_attn_interface import (
+        flash_attn_varlen_qkvpacked_func as flash_attn_unpadded_qkvpacked_func,
+    )
 
 from flash_attn.bert_padding import pad_input, unpad_input
 
@@ -77,8 +67,15 @@ class FlashAttention(nn.Module):
         self.softmax_scale = softmax_scale
         self.dropout_p = attention_dropout
 
-    def forward(self, qkv, key_padding_mask=None, causal=False, cu_seqlens=None,
-                max_s=None, need_weights=False):
+    def forward(
+        self,
+        qkv,
+        key_padding_mask=None,
+        causal=False,
+        cu_seqlens=None,
+        max_s=None,
+        need_weights=False,
+    ):
         """Implements the multihead softmax attention.
         Arguments
         ---------
@@ -93,32 +90,49 @@ class FlashAttention(nn.Module):
             batch_size = qkv.shape[0]
             seqlen = qkv.shape[1]
             if key_padding_mask is None:
-                qkv = rearrange(qkv, 'b s ... -> (b s) ...')
+                qkv = rearrange(qkv, "b s ... -> (b s) ...")
                 max_s = seqlen
-                cu_seqlens = torch.arange(0, (batch_size + 1) * seqlen, step=seqlen, dtype=torch.int32,
-                                          device=qkv.device)
-                output = flash_attn_unpadded_qkvpacked_func(
-                    qkv, cu_seqlens, max_s, self.dropout_p if self.training else 0.0,
-                    softmax_scale=self.softmax_scale, causal=causal
+                cu_seqlens = torch.arange(
+                    0, (batch_size + 1) * seqlen, step=seqlen, dtype=torch.int32, device=qkv.device
                 )
-                output = rearrange(output, '(b s) ... -> b s ...', b=batch_size)
+                output = flash_attn_unpadded_qkvpacked_func(
+                    qkv,
+                    cu_seqlens,
+                    max_s,
+                    self.dropout_p if self.training else 0.0,
+                    softmax_scale=self.softmax_scale,
+                    causal=causal,
+                )
+                output = rearrange(output, "(b s) ... -> b s ...", b=batch_size)
             else:
                 nheads = qkv.shape[-2]
-                x = rearrange(qkv, 'b s three h d -> b s (three h d)')
+                x = rearrange(qkv, "b s three h d -> b s (three h d)")
                 x_unpad, indices, cu_seqlens, max_s = unpad_input(x, key_padding_mask)
-                x_unpad = rearrange(x_unpad, 'nnz (three h d) -> nnz three h d', three=3, h=nheads)
+                x_unpad = rearrange(x_unpad, "nnz (three h d) -> nnz three h d", three=3, h=nheads)
                 output_unpad = flash_attn_unpadded_qkvpacked_func(
-                    x_unpad, cu_seqlens, max_s, self.dropout_p if self.training else 0.0,
-                    softmax_scale=self.softmax_scale, causal=causal
+                    x_unpad,
+                    cu_seqlens,
+                    max_s,
+                    self.dropout_p if self.training else 0.0,
+                    softmax_scale=self.softmax_scale,
+                    causal=causal,
                 )
-                output = rearrange(pad_input(rearrange(output_unpad, 'nnz h d -> nnz (h d)'),
-                                             indices, batch_size, seqlen),
-                                   'b s (h d) -> b s h d', h=nheads)
+                output = rearrange(
+                    pad_input(
+                        rearrange(output_unpad, "nnz h d -> nnz (h d)"), indices, batch_size, seqlen
+                    ),
+                    "b s (h d) -> b s h d",
+                    h=nheads,
+                )
         else:
             assert max_s is not None
             output = flash_attn_unpadded_qkvpacked_func(
-                qkv, cu_seqlens, max_s, self.dropout_p if self.training else 0.0,
-                softmax_scale=self.softmax_scale, causal=causal
+                qkv,
+                cu_seqlens,
+                max_s,
+                self.dropout_p if self.training else 0.0,
+                softmax_scale=self.softmax_scale,
+                causal=causal,
             )
 
         return output, None
@@ -126,52 +140,47 @@ class FlashAttention(nn.Module):
 
 def _flash_attn(self, x: torch.Tensor) -> torch.Tensor:
     B, N, C = x.shape
-    
+
     qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim)
     qkv = qkv.permute(0, 2, 1, 3, 4)  # [B, 3, N, num_heads, head_dim]
-    
+
     if not isinstance(self.q_norm, nn.Identity):
         qkv[:, 0] = self.q_norm(qkv[:, 0])
         qkv[:, 1] = self.k_norm(qkv[:, 1])
-        
-    qkv = rearrange(qkv, 'b t s h d -> b s t h d')
-    
-    context, _ = self.inner_attn(
-        qkv,
-        key_padding_mask=None,
-        need_weights=False,
-        causal=False
-    )
 
-    x = rearrange(context, 'b s h d -> b s (h d)')
+    qkv = rearrange(qkv, "b t s h d -> b s t h d")
+
+    context, _ = self.inner_attn(qkv, key_padding_mask=None, need_weights=False, causal=False)
+
+    x = rearrange(context, "b s h d -> b s (h d)")
     x = self.proj(x)
     x = self.proj_drop(x)
     return x
 
+
 def forward(self, x: torch.Tensor) -> torch.Tensor:
-    assert x.dtype == torch.bfloat16, "Flash attention is only supported on A100 or H100 GPU during training due to head dim > 64 backward."
-    result=self._flash_attn(x)
+    assert (
+        x.dtype == torch.bfloat16
+    ), "Flash attention is only supported on A100 or H100 GPU during training due to head dim > 64 backward."
+    result = self._flash_attn(x)
     return result
-    
+
 
 def replace_vit_attn_with_flash_attn():
     cuda_major, cuda_minor = torch.cuda.get_device_capability()
     if cuda_major < 8:
         warnings.warn(
-            'Flash attention is only supported on A100 or H100 GPU during training due to head dim > 64 backward.'
-            'ref: https://github.com/HazyResearch/flash-attention/issues/190#issuecomment-1523359593'
+            "Flash attention is only supported on A100 or H100 GPU during training due to head dim > 64 backward."
+            "ref: https://github.com/HazyResearch/flash-attention/issues/190#issuecomment-1523359593"
         )
-    
+
     Attention.forward = forward
     Attention.inner_attn = FlashAttention(attention_dropout=0.0)
-    Attention._flash_attn= _flash_attn
-    
+    Attention._flash_attn = _flash_attn
+
+
 replace_vit_attn_with_flash_attn()
 ####
-
-
-
-
 
 
 input_dim_t = Union[int, Tuple[int, int]]
@@ -182,18 +191,19 @@ try:
 except ImportError:
     indirect_grid_sample = None
 
-from typing import Optional
 
 import torch
 from torch import nn
 
 
 class ClsToken(nn.Module):
-    def __init__(self, ndim: int,
-                 num_tokens: int = 1,
-                 enabled: bool = True,
-                 register_multiple: Optional[int] = None,
-                 num_registers: Optional[int] = None,
+    def __init__(
+        self,
+        ndim: int,
+        num_tokens: int = 1,
+        enabled: bool = True,
+        register_multiple: Optional[int] = None,
+        num_registers: Optional[int] = None,
     ):
         super().__init__()
 
@@ -201,14 +211,14 @@ class ClsToken(nn.Module):
         self.enabled = enabled
         self.num_registers = 0
         self.num_tokens = num_tokens
-        
+
         if enabled:
             if num_registers:
                 self.num_registers = num_registers
             elif register_multiple:
                 self.num_registers = register_multiple - (num_tokens % register_multiple)
 
-            scale = ndim ** -0.5
+            scale = ndim**-0.5
             self.token = nn.Parameter(torch.randn(num_tokens + self.num_registers, ndim) * scale)
         else:
             self.token = None
@@ -224,35 +234,40 @@ class ClsToken(nn.Module):
             return x
 
         token = self.token.unsqueeze(0).expand(x.shape[0], -1, -1)
-        x = torch.cat([
-            token,
-            x,
-        ], dim=1)
+        x = torch.cat(
+            [
+                token,
+                x,
+            ],
+            dim=1,
+        )
 
         return x
 
     def no_weight_decay(self):
         return [
-            'token',
+            "token",
         ]
 
 
 class ViTPatchGenerator(nn.Module):
-    def __init__(self,
-                 patch_size: int,
-                 embed_dim: int,
-                 input_dims: input_dim_t,
-                 abs_pos: bool = True,
-                 normalize_patches: bool = False,
-                 cls_token: bool = False,
-                 max_input_dims: Optional[input_dim_t] = None,
-                 pos_dropout: float = 0.0,
-                 return_pos_enc: bool = False,
-                 num_cls_tokens: int = 1,
-                 register_multiple: Optional[int] = None,
-                 num_registers: Optional[int] = None,
-                 patch_bias: bool = False,
-                 device=None, dtype=None,
+    def __init__(
+        self,
+        patch_size: int,
+        embed_dim: int,
+        input_dims: input_dim_t,
+        abs_pos: bool = True,
+        normalize_patches: bool = False,
+        cls_token: bool = False,
+        max_input_dims: Optional[input_dim_t] = None,
+        pos_dropout: float = 0.0,
+        return_pos_enc: bool = False,
+        num_cls_tokens: int = 1,
+        register_multiple: Optional[int] = None,
+        num_registers: Optional[int] = None,
+        patch_bias: bool = False,
+        device=None,
+        dtype=None,
     ):
         super().__init__()
 
@@ -264,10 +279,7 @@ class ViTPatchGenerator(nn.Module):
         if isinstance(max_input_dims, int):
             max_input_dims = (max_input_dims, max_input_dims)
 
-        max_input_dims = tuple(
-            int(math.ceil(d / patch_size) * patch_size)
-            for d in max_input_dims
-        )
+        max_input_dims = tuple(int(math.ceil(d / patch_size) * patch_size) for d in max_input_dims)
 
         self.cpe_mode = max_input_dims != input_dims
         self.pos_dropout = pos_dropout
@@ -289,8 +301,10 @@ class ViTPatchGenerator(nn.Module):
         self.embedder = ViTPatchLinear(patch_size, embed_dim, bias=patch_bias, **factory)
 
         if abs_pos:
-            scale = embed_dim ** -0.5
-            self.pos_embed = nn.Parameter(torch.randn(1, self.num_patches, embed_dim, **factory) * scale)
+            scale = embed_dim**-0.5
+            self.pos_embed = nn.Parameter(
+                torch.randn(1, self.num_patches, embed_dim, **factory) * scale
+            )
 
         self.cls_token = ClsToken(
             embed_dim,
@@ -329,18 +343,28 @@ class ViTPatchGenerator(nn.Module):
 
     def no_weight_decay(self):
         return [
-            'pos_embed',
+            "pos_embed",
         ]
 
     def _load_projection(self, src_proj_weight: torch.Tensor, targ_proj_weight: torch.Tensor):
         if src_proj_weight.shape != targ_proj_weight.shape:
             src_patch_size = int(math.sqrt(src_proj_weight.shape[1] // 3))
 
-            assert (src_patch_size ** 2) * 3 == src_proj_weight.shape[1], 'Unable to interpolate non-square patch size'
+            assert (src_patch_size**2) * 3 == src_proj_weight.shape[
+                1
+            ], "Unable to interpolate non-square patch size"
 
-            src_proj_weight = rearrange(src_proj_weight, 'b (c h w) -> b c h w', c=3, h=src_patch_size, w=src_patch_size)
-            src_proj_weight = F.interpolate(src_proj_weight, size=(self.patch_size, self.patch_size), mode='bicubic', align_corners=True, antialias=False)
-            src_proj_weight = rearrange(src_proj_weight, 'b c h w -> b (c h w)')
+            src_proj_weight = rearrange(
+                src_proj_weight, "b (c h w) -> b c h w", c=3, h=src_patch_size, w=src_patch_size
+            )
+            src_proj_weight = F.interpolate(
+                src_proj_weight,
+                size=(self.patch_size, self.patch_size),
+                mode="bicubic",
+                align_corners=True,
+                antialias=False,
+            )
+            src_proj_weight = rearrange(src_proj_weight, "b c h w -> b (c h w)")
         targ_proj_weight.data.copy_(src_proj_weight)
 
     def embed_patches(self, x: torch.Tensor) -> torch.Tensor:
@@ -348,10 +372,11 @@ class ViTPatchGenerator(nn.Module):
         patches = self.embedder(patches)
         return patches
 
-    def apply_pos_enc(self,
-                      patches: torch.Tensor,
-                      patch_idxs: Optional[torch.Tensor] = None,
-                      input_size: Optional[Tuple[int, int]] = None,
+    def apply_pos_enc(
+        self,
+        patches: torch.Tensor,
+        patch_idxs: Optional[torch.Tensor] = None,
+        input_size: Optional[Tuple[int, int]] = None,
     ) -> torch.Tensor:
         if not self.abs_pos:
             return patches
@@ -359,17 +384,21 @@ class ViTPatchGenerator(nn.Module):
         pos_enc = self.get_pos_enc(patches.shape[0], patch_idxs, input_size)
 
         if self.training and self.pos_dropout > 0:
-            keeps = torch.rand(patches.shape[0], 1, 1, dtype=pos_enc.dtype, device=pos_enc.device) > self.pos_dropout
+            keeps = (
+                torch.rand(patches.shape[0], 1, 1, dtype=pos_enc.dtype, device=pos_enc.device)
+                > self.pos_dropout
+            )
             pos_enc_drop = torch.where(keeps, pos_enc, 0)
         else:
             pos_enc_drop = pos_enc
 
         return patches + pos_enc_drop, pos_enc
 
-    def get_pos_enc(self,
-                    batch_size: int,
-                    patch_idxs: Optional[torch.Tensor] = None,
-                    input_size: Optional[Tuple[int, int]] = None,
+    def get_pos_enc(
+        self,
+        batch_size: int,
+        patch_idxs: Optional[torch.Tensor] = None,
+        input_size: Optional[Tuple[int, int]] = None,
     ) -> torch.Tensor:
         if input_size is None:
             input_dims = self.input_dims
@@ -383,9 +412,10 @@ class ViTPatchGenerator(nn.Module):
 
         exp_patch_idxs = patch_idxs.unsqueeze(-1).expand(-1, -1, pos_embed.shape[-1])
 
-        pos_embed = torch.gather(pos_embed.expand(patch_idxs.shape[0], -1, -1), dim=1, index=exp_patch_idxs)
+        pos_embed = torch.gather(
+            pos_embed.expand(patch_idxs.shape[0], -1, -1), dim=1, index=exp_patch_idxs
+        )
         return pos_embed
-
 
     def _get_pos_embeddings(self, batch_size: int, input_dims: Tuple[int, int]):
         if (self.num_rows, self.num_cols) == input_dims:
@@ -395,18 +425,25 @@ class ViTPatchGenerator(nn.Module):
 
         def window_select(pos_embed):
             if input_dims[0] < pos_embed.shape[-2]:
-                pos_embed = pos_embed[..., :input_dims[0], :]
+                pos_embed = pos_embed[..., : input_dims[0], :]
             if input_dims[1] < pos_embed.shape[-1]:
-                pos_embed = pos_embed[..., :, :input_dims[1]]
+                pos_embed = pos_embed[..., :, : input_dims[1]]
             return pos_embed
 
         if self.cpe_mode:
             if self.training:
                 min_scale = math.sqrt(0.1)
-                scale = torch.rand(batch_size, 1, 1, device=pos_embed.device) * (1 - min_scale) + min_scale
+                scale = (
+                    torch.rand(batch_size, 1, 1, device=pos_embed.device) * (1 - min_scale)
+                    + min_scale
+                )
                 aspect_min = math.log(3 / 4)
                 aspect_max = -aspect_min
-                aspect = torch.exp(torch.rand(batch_size, 1, 1, device=pos_embed.device) * (aspect_max - aspect_min) + aspect_min)
+                aspect = torch.exp(
+                    torch.rand(batch_size, 1, 1, device=pos_embed.device)
+                    * (aspect_max - aspect_min)
+                    + aspect_min
+                )
 
                 scale_x = scale * aspect
                 scale_y = scale * (1 / aspect)
@@ -414,8 +451,12 @@ class ViTPatchGenerator(nn.Module):
 
                 pos_xy = torch.rand(batch_size, 1, 1, 2, device=pos_embed.device) * (1 - scale_xy)
 
-                lin_x = torch.linspace(0, 1, steps=input_dims[1], device=pos_embed.device)[None, None].expand(batch_size, input_dims[0], -1)
-                lin_y = torch.linspace(0, 1, steps=input_dims[0], device=pos_embed.device)[None, :, None].expand(batch_size, -1, input_dims[1])
+                lin_x = torch.linspace(0, 1, steps=input_dims[1], device=pos_embed.device)[
+                    None, None
+                ].expand(batch_size, input_dims[0], -1)
+                lin_y = torch.linspace(0, 1, steps=input_dims[0], device=pos_embed.device)[
+                    None, :, None
+                ].expand(batch_size, -1, input_dims[1])
 
                 lin_xy = torch.stack([lin_x, lin_y], dim=-1)
 
@@ -427,8 +468,8 @@ class ViTPatchGenerator(nn.Module):
                 pos_embed = F.grid_sample(
                     pos_embed.float().expand(batch_size, -1, -1, -1),
                     grid=grid_xy,
-                    mode='bilinear',
-                    padding_mode='zeros',
+                    mode="bilinear",
+                    padding_mode="zeros",
                     align_corners=True,
                 ).to(pos_embed.dtype)
             else:
@@ -440,14 +481,18 @@ class ViTPatchGenerator(nn.Module):
                 #     pos_embed = pos_embed[..., top:top+i_rows, left:left+i_cols]
                 # else:
                 max_dim = max(input_dims)
-                pos_embed = F.interpolate(pos_embed.float(), size=(max_dim, max_dim), align_corners=True, mode='bilinear').to(pos_embed.dtype)
+                pos_embed = F.interpolate(
+                    pos_embed.float(), size=(max_dim, max_dim), align_corners=True, mode="bilinear"
+                ).to(pos_embed.dtype)
 
                 pos_embed = window_select(pos_embed)
         else:
             pos_embed = window_select(pos_embed)
 
         if pos_embed.shape[-2:] != input_dims:
-            pos_embed = F.interpolate(pos_embed.float(), size=input_dims, align_corners=True, mode='bilinear').to(pos_embed.dtype)
+            pos_embed = F.interpolate(
+                pos_embed.float(), size=input_dims, align_corners=True, mode="bilinear"
+            ).to(pos_embed.dtype)
 
         pos_embed = pos_embed.flatten(2).permute(0, 2, 1)
 
@@ -467,27 +512,26 @@ class Im2Patches(nn.Module):
 
         py = x.shape[-2] // self.patch_size
         px = x.shape[-1] // self.patch_size
-        patches = rearrange(x, 'b c (py yy) (px xx) -> b (py px) (c yy xx)',
-                            py=py, yy=self.patch_size,
-                            px=px, xx=self.patch_size,
+        patches = rearrange(
+            x,
+            "b c (py yy) (px xx) -> b (py px) (c yy xx)",
+            py=py,
+            yy=self.patch_size,
+            px=px,
+            xx=self.patch_size,
         )
         return patches
 
 
 class ViTPatchLinear(nn.Linear):
     def __init__(self, patch_size: int, embed_dim: int, bias: bool = False, **factory):
-        super().__init__(
-            3 * (patch_size ** 2),
-            embed_dim,
-            bias=bias,
-            **factory
-        )
+        super().__init__(3 * (patch_size**2), embed_dim, bias=bias, **factory)
         self.patch_size = patch_size
 
 
 def _forward_cpe(self: VisionTransformer, x: torch.Tensor) -> torch.Tensor:
     x = self.patch_generator(x)
-    if getattr(self, 'grad_checkpointing', False) and not torch.jit.is_scripting():
+    if getattr(self, "grad_checkpointing", False) and not torch.jit.is_scripting():
         x = checkpoint_seq(self.blocks, x)
     else:
         x = self.blocks(x)
@@ -496,8 +540,8 @@ def _forward_cpe(self: VisionTransformer, x: torch.Tensor) -> torch.Tensor:
 
 
 def _take_indices(
-        num_blocks: int,
-        n: Optional[Union[int, List[int], Tuple[int]]],
+    num_blocks: int,
+    n: Optional[Union[int, List[int], Tuple[int]]],
 ) -> Tuple[Set[int], int]:
     if isinstance(n, int):
         assert n >= 0
@@ -507,14 +551,13 @@ def _take_indices(
     return take_indices, max(take_indices)
 
 
-
-
-def _enable_cpe_for_timm_vit(model: VisionTransformer,
-                             max_img_size: Union[int, Tuple[int, int]] = 1024,
-                             num_cls_tokens: int = 1,
-                             pos_dropout: float = 0.1,
-                             register_multiple: int = Optional[None],
-                             num_registers: int = Optional[None],
+def _enable_cpe_for_timm_vit(
+    model: VisionTransformer,
+    max_img_size: Union[int, Tuple[int, int]] = 1024,
+    num_cls_tokens: int = 1,
+    pos_dropout: float = 0.1,
+    register_multiple: int = Optional[None],
+    num_registers: int = Optional[None],
 ):
     if not isinstance(model, VisionTransformer):
         raise ValueError("CPE only support for VisionTransformer models!")
@@ -551,16 +594,19 @@ def _enable_cpe_for_timm_vit(model: VisionTransformer,
     model.forward_features = MethodType(_forward_cpe, model)
 
 
-def enable_cpe(model: nn.Module,
-               *args,
-               **kwargs,
+def enable_cpe(
+    model: nn.Module,
+    *args,
+    **kwargs,
 ):
     if isinstance(model, VisionTransformer):
         _enable_cpe_for_timm_vit(model, *args, **kwargs)
     else:
-        raise ValueError(f'CPE not supported for this model type: {type(model)}')
+        raise ValueError(f"CPE not supported for this model type: {type(model)}")
+
 
 ###
+
 
 class Dinov2LayerScale(nn.Module):
     def __init__(
@@ -576,12 +622,14 @@ class Dinov2LayerScale(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x.mul_(self.grandma) if self.inplace else x * self.grandma
 
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+    ):
         # Huggingface is absurd and it will rename strings that contain `gamma`, which means that the normal DINO implementation
         # of LayerScale won't work with HFHub. So we rename the variable to 'grandma', and support loading checkpoints in either
         # format
-        key_a = f'{prefix}gamma'
-        key_b = f'{prefix}grandma'
+        key_a = f"{prefix}gamma"
+        key_b = f"{prefix}grandma"
         if key_a in state_dict:
             gamma = state_dict[key_a]
         elif key_b in state_dict:
@@ -597,7 +645,6 @@ class Dinov2LayerScale(nn.Module):
 
         if gamma is not None:
             self.grandma.data.copy_(gamma)
-
 
 
 def _create_vision_transformer(*args, **kwargs):
@@ -625,17 +672,22 @@ def _patch_layer_scale(model: VisionTransformer):
 
 @register_model
 def vit_huge_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
-    """ ViT-Huge model (ViT-H/16) from original paper (https://arxiv.org/abs/2010.11929).
-    """
-    model_args = dict(patch_size=16, embed_dim=1280, depth=32, num_heads=16, weight_init='skip')
+    """ViT-Huge model (ViT-H/16) from original paper (https://arxiv.org/abs/2010.11929)."""
+    model_args = dict(patch_size=16, embed_dim=1280, depth=32, num_heads=16, weight_init="skip")
     if pretrained:
         # There is no pretrained version of ViT-H/16, but we can adapt a ViT-H/14 for this purpose
-        model = _create_vision_transformer('vit_huge_patch14_224', pretrained=True, **dict(model_args, **kwargs))
+        model = _create_vision_transformer(
+            "vit_huge_patch14_224", pretrained=True, **dict(model_args, **kwargs)
+        )
     else:
-        model = _create_vision_transformer('vit_huge_patch16_224', pretrained=False, **dict(model_args, **kwargs))
+        model = _create_vision_transformer(
+            "vit_huge_patch16_224", pretrained=False, **dict(model_args, **kwargs)
+        )
     return model
 
+
 ####
+
 
 class RADIOModelBase(nn.Module):
     def __init__(
@@ -649,16 +701,16 @@ class RADIOModelBase(nn.Module):
         self.model = model
         self._patch_size = patch_size
         self._max_resolution = max_resolution
-        
+
     @property
     def num_cls_tokens(self) -> int:
-        if hasattr(self.model, 'num_cls_tokens'):
+        if hasattr(self.model, "num_cls_tokens"):
             return self.model.num_cls_tokens
 
-        patch_gen = getattr(self.model, 'patch_generator', None)
+        patch_gen = getattr(self.model, "patch_generator", None)
         if patch_gen is not None:
             return patch_gen.num_cls_tokens
-        elif self.model.global_pool == 'avg':
+        elif self.model.global_pool == "avg":
             return 0
         return 1
 
@@ -679,7 +731,7 @@ class RADIOModelBase(nn.Module):
 
     @property
     def blocks(self) -> Iterable[nn.Module]:
-        blocks = getattr(self.model, 'blocks', None)
+        blocks = getattr(self.model, "blocks", None)
         if blocks is not None:
             return blocks
         return None
@@ -688,21 +740,22 @@ class RADIOModelBase(nn.Module):
     def embed_dim(self) -> int:
         return self.model.embed_dim
 
-    def forward(self, x: torch.Tensor, feature_fmt: str = 'NLC') -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        '''
+    def forward(
+        self, x: torch.Tensor, feature_fmt: str = "NLC"
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
         Forward process for model.
         Args:
             x: Input tensor. Unless `make_preprocessor_external` has been called, then the dynamic range of `x` is expected to be `[0, 1]`,
                              otherwise `x` is expected to be mean centered with unit standard deviation.
             feature_format: ['NLC', 'NCHW'] - The output format for the features.
-        '''
-    
-        y = self.model.forward_features(x)
-        patch_gen = getattr(self.model, 'patch_generator', None)
-        if patch_gen is not None:
-            return y[:, patch_gen.num_skip:]
-        return y
+        """
 
+        y = self.model.forward_features(x)
+        patch_gen = getattr(self.model, "patch_generator", None)
+        if patch_gen is not None:
+            return y[:, patch_gen.num_skip :]
+        return y
 
 
 def create_model_from_args(args) -> nn.Module:
@@ -732,26 +785,25 @@ def create_model_from_args(args) -> nn.Module:
         **args.model_kwargs,
     )
 
-    if hasattr(model, 'norm') and not getattr(args, 'model_norm', False):
+    if hasattr(model, "norm") and not getattr(args, "model_norm", False):
         model.norm = nn.Identity()
 
     model.head = nn.Identity()
 
-    
     if args.cpe_max_size is not None:
-        uq_teachers = set(t['name'] for t in args.teachers)
+        uq_teachers = set(t["name"] for t in args.teachers)
         enable_cpe(
             model,
             args.cpe_max_size,
             num_cls_tokens=len(uq_teachers) if args.cls_token_per_teacher else 1,
-            register_multiple=getattr(args, 'register_multiple', None),
-            num_registers=getattr(args, 'cpe_num_registers', None),
+            register_multiple=getattr(args, "register_multiple", None),
+            num_registers=getattr(args, "cpe_num_registers", None),
         )
 
     return model
 
-####
 
+####
 
 
 class RADIOConfig(PretrainedConfig):
@@ -760,23 +812,23 @@ class RADIOConfig(PretrainedConfig):
     def __init__(
         self,
         args: Optional[dict] = None,
-        version: Optional[str] = 'radio_v2.5-h',
+        version: Optional[str] = "radio_v2.5-h",
         patch_size: Optional[int] = None,
         max_resolution: Optional[int] = None,
-        model_type: Optional[str] = 'radio',
+        model_type: Optional[str] = "radio",
         hidden_size: Optional[int] = 1280,
         **kwargs,
     ):
         self.args = args
-        if version  == 'radio_v2.5-h':
+        if version == "radio_v2.5-h":
             resource = dict(
                 url="https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.5-h.pth.tar?download=true",
                 patch_size=16,
                 max_resolution=2048,
                 vitdet_num_global=4,
             )
-        self.patch_size = patch_size or resource['patch_size']
-        self.max_resolution = max_resolution or resource['max_resolution']
+        self.patch_size = patch_size or resource["patch_size"]
+        self.max_resolution = max_resolution or resource["max_resolution"]
         self.model_type = model_type
         self.hidden_size = hidden_size
         super().__init__(**kwargs)
@@ -789,8 +841,8 @@ class RADIOConfig(PretrainedConfig):
             `Dict[str, any]`: Dictionary of all the attributes that make up this configuration instance,
         """
         output = copy.deepcopy(self.__dict__)
-        output['model_type'] = self.model_type
-        output['hidden_size'] = self.hidden_size
+        output["model_type"] = self.model_type
+        output["hidden_size"] = self.hidden_size
         return output
 
 
@@ -807,7 +859,7 @@ class RADIOModel(PreTrainedModel):
     _supports_static_cache = True
     _supports_quantized_cache = True
     _supports_sdpa = True
-    
+
     def __init__(self, config: RADIOConfig):
         super().__init__(config)
 
@@ -835,9 +887,7 @@ class RADIOModel(PreTrainedModel):
     def patch_size(self) -> int:
         return self.radio_model.patch_size
 
-    def forward(self, pixel_values: torch.Tensor,
-                output_hidden_states=False,
-                return_dict=True):
+    def forward(self, pixel_values: torch.Tensor, output_hidden_states=False, return_dict=True):
         y = self.radio_model.forward(pixel_values.to(self.dtype))
         assert not output_hidden_states
         if return_dict:

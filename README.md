@@ -259,6 +259,17 @@ Below are benchmark results based on a single L40 GPU. Performance is approximat
 
 We noticed that 4 denoising steps are sufficient during inference.
 
+*How to train with multiple datasets?*
+
+You can train with multiple datasets by providing a list of dataset paths to the `dataset_path` argument.
+
+```bash
+python scripts/gr00t_finetune.py --dataset-path <DATASET1> <DATASET2> --num-gpus 1
+```
+
+By default, the `gr00t_finetune.py` impose equal weights to all datasets, with `balance_dataset_weights` and `balance_trajectory_weights` set to `True`. For more details, see the `LeRobotMixtureDataset` class definition in `gr00t/data/dataset.py`. Users can also use the `LeRobotMixtureDataset` class directly to train with multiple datasets with different embodiments, transforms, and sampling weights.
+
+
 # Contributing
 
 For more details, see [CONTRIBUTING.md](CONTRIBUTING.md)

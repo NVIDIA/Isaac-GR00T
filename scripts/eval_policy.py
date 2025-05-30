@@ -32,16 +32,10 @@ warnings.simplefilter("ignore", category=FutureWarning)
 """
 Example command:
 
-python scripts/eval_policy.py --host localhost --port 5555 --plot
-    --modality_keys right_arm right_hand
-    --steps 250
-    --trajs 1000
-    --action_horizon 16
-    --video_backend decord
-    --dataset_path demo_data/robot_sim.PickNPlace/
-    --embodiment_tag gr1
-    --data_config gr1_arms_waist
-provide --model_path to load up the model checkpoint in this script.
+NOTE: provide --model_path to load up the model checkpoint in this script,
+        else it will use the default host and port via RobotInferenceClient
+
+python scripts/eval_policy.py --plot --model-path nvidia/GR00T-N1.5-3B
 """
 
 

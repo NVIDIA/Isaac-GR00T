@@ -17,14 +17,16 @@
 This script is a replication of the notebook `getting_started/load_dataset.ipynb`
 """
 
-import argparse
 import json
 import pathlib
 import time
+from dataclasses import dataclass, field
 from pprint import pprint
+from typing import List, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
 from gr00t.data.dataset import (
     LE_ROBOT_MODALITY_FILENAME,
@@ -33,7 +35,33 @@ from gr00t.data.dataset import (
     ModalityConfig,
 )
 from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.misc import any_describe
+
+print_yellow = lambda x: print(f"\033[93m{x}\033[0m")
+
+
+@dataclass
+class ArgsConfig:
+    """Configuration for loading the dataset."""
+
+    dataset_paths: List[str] = field(default_factory=lambda: ["demo_data/robot_sim.PickNPlace"])
+    """Path to the dataset."""
+
+    embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "gr1"
+    """Embodiment tag to use."""
+
+    video_backend: Literal["decord", "torchvision_av"] = "decord"
+    """Backend to use for video loading, use torchvision_av for av encoded videos."""
+
+    plot_state_action: bool = False
+    """Whether to plot the state and action space."""
+
+    steps: int = 150
+    """Number of steps to plot."""
+
+
+#####################################################################################
 
 
 def get_modality_keys(dataset_path: pathlib.Path) -> dict[str, list[str]]:
@@ -152,10 +180,18 @@ def plot_image(image: np.ndarray):
 
 
 def load_dataset(
-    dataset_path: str, embodiment_tag: str, video_backend: str = "decord", steps: int = 220
+    dataset_paths: List[str],
+    embodiment_tag: str,
+    video_backend: str = "decord",
+    steps: int = 220,
+    plot_state_action: bool = False,
 ):
+    assert len(dataset_paths) > 0, "dataset_paths must be a list of at least one path"
+
     # 1. get modality keys
-    dataset_path = pathlib.Path(dataset_path)
+    dataset_path = pathlib.Path(
+        dataset_paths[0]
+    )  # take first one, assume all have same modality keys
     modality_keys_dict = get_modality_keys(dataset_path)
     video_modality_keys = modality_keys_dict["video"]
     language_modality_keys = modality_keys_dict["annotation"]
@@ -170,7 +206,7 @@ def load_dataset(
     # remove dummy_tensor from state_modality_keys
     state_modality_keys = [key for key in state_modality_keys if key != "state.dummy_tensor"]
 
-    # 2. modality configs
+    # 2. construct modality configs from dataset
     modality_configs = {
         "video": ModalityConfig(
             delta_indices=[0],
@@ -197,38 +233,41 @@ def load_dataset(
     embodiment_tag: EmbodimentTag = EmbodimentTag(embodiment_tag)
 
     # 5. load dataset
-    dataset = LeRobotSingleDataset(
-        dataset_path,
-        modality_configs,
-        embodiment_tag=embodiment_tag,
-        video_backend=video_backend,
-    )
-
-    if False:
-        dataset2 = LeRobotSingleDataset(
-            dataset_path=dataset_path,
+    if len(dataset_paths) == 1:
+        dataset = LeRobotSingleDataset(
+            dataset_path=dataset_paths[0],
             modality_configs=modality_configs,
             embodiment_tag=embodiment_tag,
             video_backend=video_backend,
         )
+    else:
+        print(f"Loading {len(dataset_paths)} datasets")
+        lerobot_single_datasets = []
+        for data_path in dataset_paths:
+            dataset = LeRobotSingleDataset(
+                dataset_path=data_path,
+                modality_configs=modality_configs,
+                embodiment_tag=embodiment_tag,
+                video_backend=video_backend,
+            )
+            lerobot_single_datasets.append(dataset)
 
-        #   mixture_kwargs:
-        #     mode: train
-        #     balance_dataset_weights: true
-        #     seed: 42
-        #     metadata_config:
-        #       merge: true
-        #       percentile_mixing_method: min_max
+        # we will do a simple 1.0 sampling weight mix of the datasets
         dataset = LeRobotMixtureDataset(
-            data_mixture=[(dataset, 1.0), (dataset2, 1.0)],
+            data_mixture=[(dataset, 1.0) for dataset in lerobot_single_datasets],
             mode="train",
-            balance_dataset_weights=True,
-            balance_trajectory_weights=True,
+            balance_dataset_weights=True,  # balance based on number of trajectories
+            balance_trajectory_weights=True,  # balance based on trajectory length
             seed=42,
             metadata_config={
                 "merge": True,
-                "percentile_mixing_method": "min_max",
+                "percentile_mixing_method": "weighted_average",
             },
+        )
+        print_yellow(
+            "NOTE: when using mixture dataset, we will randomly sample from all the datasets"
+            "thus the state action ploting will not make sense, this is helpful to visualize the images"
+            "to quickly sanity check the dataset used."
         )
 
     print("\n" * 2)
@@ -265,7 +304,11 @@ def load_dataset(
             img = resp[video_key][0]
             # cv2 show the image
             # plot_image(img)
-            print(f"Image {i}")
+            if language_modality_keys:
+                lang_key = language_modality_keys[0]
+                print(f"Image {i}, prompt: {resp[lang_key]}")
+            else:
+                print(f"Image {i}")
             images_list.append(img.copy())
 
         for state_key in state_modality_keys:
@@ -280,7 +323,7 @@ def load_dataset(
     for action_key in action_modality_keys:
         action_dict[action_key] = np.array(action_dict[action_key])
 
-    if args.plot_state_action:
+    if plot_state_action:
         plot_state_action_space(state_dict, action_dict)
         print("Plotted state and action space")
 
@@ -294,36 +337,11 @@ def load_dataset(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Load Robot Dataset")
-    parser.add_argument(
-        "--data_path",
-        type=str,
-        default="demo_data/robot_sim.PickNPlace",
-        help="Path to the dataset",
+    config = tyro.cli(ArgsConfig)
+    load_dataset(
+        config.dataset_paths,
+        config.embodiment_tag,
+        config.video_backend,
+        config.steps,
+        config.plot_state_action,
     )
-    parser.add_argument(
-        "--embodiment_tag",
-        type=str,
-        default="gr1",
-        help="Full list of embodiment tags can be found in gr00t.data.schema.EmbodimentTag",
-    )
-    parser.add_argument(
-        "--video_backend",
-        type=str,
-        default="decord",
-        choices=["decord", "torchvision_av"],
-        help="Backend to use for video loading, use torchvision_av for av encoded videos",
-    )
-    parser.add_argument(
-        "--plot_state_action",
-        action="store_true",
-        help="Plot the state and action space",
-    )
-    parser.add_argument(
-        "--steps",
-        type=int,
-        default=150,
-        help="Number of steps to plot",
-    )
-    args = parser.parse_args()
-    load_dataset(args.data_path, args.embodiment_tag, args.video_backend, args.steps)

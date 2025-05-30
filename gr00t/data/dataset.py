@@ -13,6 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+"""
+In this file, we define 3 types of datasets:
+1. LeRobotSingleDataset: a single dataset for a given embodiment tag
+2. LeRobotMixtureDataset: a mixture of datasets for a given list of embodiment tags
+3. CachedLeRobotSingleDataset: a single dataset for a given embodiment tag,
+                                with caching for the video frames
+
+See `scripts/load_dataset.py` for examples on how to use these datasets.
+"""
+
 import hashlib
 import json
 from collections import defaultdict
@@ -76,6 +87,15 @@ def calculate_dataset_statistics(parquet_paths: list[Path]) -> dict:
     return dataset_statistics
 
 
+def safe_hash(input_tuple):
+    # keep 128 bits of the hash
+    tuple_string = repr(input_tuple).encode("utf-8")
+    sha256 = hashlib.sha256()
+    sha256.update(tuple_string)
+    seed = int(sha256.hexdigest(), 16)
+    return seed & 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+
+
 class ModalityConfig(BaseModel):
     """Configuration for a modality."""
 
@@ -83,6 +103,9 @@ class ModalityConfig(BaseModel):
     """Delta indices to sample relative to the current index. The returned data will correspond to the original data at a sampled base index + delta indices."""
     modality_keys: list[str]
     """The keys to load for the modality in the dataset."""
+
+
+#####################################################################################
 
 
 class LeRobotSingleDataset(Dataset):
@@ -791,6 +814,9 @@ class LeRobotSingleDataset(Dataset):
             raise ValueError(f"Invalid modality: {modality}")
 
 
+#####################################################################################
+
+
 class CachedLeRobotSingleDataset(LeRobotSingleDataset):
     def __init__(self, img_resize: tuple[int, int] | None = None, *args, **kwargs):
         """
@@ -880,15 +906,7 @@ class CachedLeRobotSingleDataset(LeRobotSingleDataset):
         super().set_transforms_metadata(metadata)
 
 
-def safe_hash(input_tuple):
-    # keep 128 bits of the hash
-    tuple_string = repr(input_tuple).encode("utf-8")
-    sha256 = hashlib.sha256()
-    sha256.update(tuple_string)
-
-    seed = int(sha256.hexdigest(), 16)
-
-    return seed & 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+#####################################################################################
 
 
 class LeRobotMixtureDataset(Dataset):
