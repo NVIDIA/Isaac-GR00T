@@ -7,70 +7,73 @@
 # copy from https://github.com/huggingface/transformers/blob/main/src/transformers/models/llava_onevision/image_processing_llava_onevision_fast.py
 from typing import List, Optional, Union
 
-from transformers.image_processing_utils import BatchFeature, get_patch_output_size, select_best_resolution
+from transformers.image_processing_utils import (
+    BatchFeature,
+    get_patch_output_size,
+)
 from transformers.image_processing_utils_fast import (
     BASE_IMAGE_PROCESSOR_FAST_DOCSTRING,
     BASE_IMAGE_PROCESSOR_FAST_DOCSTRING_PREPROCESS,
     BaseImageProcessorFast,
     DefaultFastImageProcessorKwargs,
-    divide_to_patches,
     group_images_by_shape,
     reorder_images,
 )
+from transformers.image_utils import IMAGENET_STANDARD_MEAN  # 0.5, 0.5, 0.5
+from transformers.image_utils import IMAGENET_STANDARD_STD  # 0.5, 0.5, 0.5
 from transformers.image_utils import (
-    OPENAI_CLIP_MEAN,
-    OPENAI_CLIP_STD,
-    IMAGENET_STANDARD_MEAN, # 0.5, 0.5, 0.5
-    IMAGENET_STANDARD_STD, # 0.5, 0.5, 0.5
     ChannelDimension,
     ImageInput,
-    VideoInput,
     PILImageResampling,
     SizeDict,
+    VideoInput,
     get_image_size,
     make_flat_list_of_images,
-    make_batched_videos,
-    validate_kwargs
+    validate_kwargs,
 )
 from transformers.processing_utils import Unpack
-from transformers.utils import TensorType, add_start_docstrings, is_torch_available, is_torchvision_v2_available
-
+from transformers.utils import (
+    TensorType,
+    add_start_docstrings,
+    is_torch_available,
+    is_torchvision_v2_available,
+)
 
 if is_torch_available():
     import torch
 if is_torchvision_v2_available():
-    from transformers.image_utils import pil_torch_interpolation_mapping
-
     from torchvision.transforms.v2 import functional as F
+    from transformers.image_utils import pil_torch_interpolation_mapping
 else:
     from torchvision.transforms import functional as F
 
+
 def crop(img: torch.Tensor, left: int, top: int, right: int, bottom: int) -> torch.Tensor:
     """Crop the given numpy array.
-    
+
     Args:
         img (torch.Tensor): Image to be cropped. Format should be (C, H, W).
         left (int): The left coordinate of the crop box.
         top (int): The top coordinate of the crop box.
         right (int): The right coordinate of the crop box.
         bottom (int): The bottom coordinate of the crop box.
-        
+
     Returns:
         torch.Tensor: Cropped image.
     """
     if not isinstance(img, torch.Tensor):
-        raise TypeError('img should be torch.Tensor. Got {}'.format(type(img)))
-    
+        raise TypeError("img should be torch.Tensor. Got {}".format(type(img)))
+
     if img.ndim not in [2, 3]:
-        raise ValueError('Image should have 2 or 3 dimensions. Got {}'.format(img.ndim))
-    
+        raise ValueError("Image should have 2 or 3 dimensions. Got {}".format(img.ndim))
+
     img_height = img.shape[1]
     img_width = img.shape[2]
     if top < 0 or left < 0 or bottom > img_height or right > img_width:
-        raise ValueError('Crop coordinates out of bounds')
-    
+        raise ValueError("Crop coordinates out of bounds")
+
     if top >= bottom or left >= right:
-        raise ValueError('Invalid crop coordinates')
+        raise ValueError("Invalid crop coordinates")
 
     return img[:, top:bottom, left:right]
 
@@ -135,7 +138,9 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
                     number of patches in the batch. Padding will be applied to the bottom and right with zeros.
         """,
     )
-    def preprocess(self, images: ImageInput, **kwargs: Unpack[Eagle2_5_VLFastImageProcessorKwargs]) -> BatchFeature:
+    def preprocess(
+        self, images: ImageInput, **kwargs: Unpack[Eagle2_5_VLFastImageProcessorKwargs]
+    ) -> BatchFeature:
         return super().preprocess(images, **kwargs)
 
     def _prepare_images_structure(
@@ -216,25 +221,26 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
         previous version mainly foucs on ratio.
         We also consider area ratio here.
         """
-        best_factor = float('-inf')
+        best_factor = float("-inf")
         best_ratio = (1, 1)
         area = width * height
         for ratio in target_ratios:
             target_aspect_ratio = ratio[0] / ratio[1]
             ratio_diff = abs(aspect_ratio - target_aspect_ratio)
-            area_ratio = (ratio[0]*ratio[1]*image_size*image_size)/ area
+            area_ratio = (ratio[0] * ratio[1] * image_size * image_size) / area
             """
             new area > 60% of original image area is enough.
             """
-            factor_based_on_area_n_ratio = min((ratio[0]*ratio[1]*image_size*image_size)/ area, 0.6)* \
-                                     min(target_aspect_ratio/aspect_ratio, aspect_ratio/target_aspect_ratio)
-        
+            factor_based_on_area_n_ratio = min(
+                (ratio[0] * ratio[1] * image_size * image_size) / area, 0.6
+            ) * min(target_aspect_ratio / aspect_ratio, aspect_ratio / target_aspect_ratio)
+
             if factor_based_on_area_n_ratio > best_factor:
                 best_factor = factor_based_on_area_n_ratio
                 best_ratio = ratio
-        
+
         return best_ratio
-    
+
     def _pad_for_patching(
         self, image: "torch.Tensor", target_resolution: tuple, input_data_format: ChannelDimension
     ) -> "torch.Tensor":
@@ -261,20 +267,25 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
         use_thumbnail: bool,
         interpolation: "F.InterpolationMode",
         pad_during_tiling: bool,
-    ) -> List["torch.Tensor"] :
+    ) -> List["torch.Tensor"]:
         image_size = get_image_size(image, channel_dim=ChannelDimension.FIRST)
         orig_height, orig_width = image_size
         aspect_ratio = orig_width / orig_height
 
         # calculate the existing image aspect ratio
         target_ratios = set(
-            (i, j) for n in range(min_num, max_num + 1) for i in range(1, n + 1) for j in range(1, n + 1) if
-            i * j <= max_num and i * j >= min_num)
+            (i, j)
+            for n in range(min_num, max_num + 1)
+            for i in range(1, n + 1)
+            for j in range(1, n + 1)
+            if i * j <= max_num and i * j >= min_num
+        )
         target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
 
         # find the closest aspect ratio to the target
         target_aspect_ratio = self.find_closest_aspect_ratio(
-            aspect_ratio, target_ratios, orig_width, orig_height, tile_size)
+            aspect_ratio, target_ratios, orig_width, orig_height, tile_size
+        )
 
         # calculate the target width and height
         target_width = tile_size * target_aspect_ratio[0]
@@ -282,12 +293,21 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
         blocks = target_aspect_ratio[0] * target_aspect_ratio[1]
         if pad_during_tiling:
             resized_image = self._resize_for_patching(
-                image, (target_height, target_width), interpolation=interpolation, input_data_format=ChannelDimension.FIRST
+                image,
+                (target_height, target_width),
+                interpolation=interpolation,
+                input_data_format=ChannelDimension.FIRST,
             )
-            padded_image = self._pad_for_patching(resized_image, (target_height, target_width), input_data_format=ChannelDimension.FIRST)
+            padded_image = self._pad_for_patching(
+                resized_image,
+                (target_height, target_width),
+                input_data_format=ChannelDimension.FIRST,
+            )
             image_used_to_split = padded_image
         else:
-            image_used_to_split = F.resize(image, (target_height, target_width), interpolation=interpolation)
+            image_used_to_split = F.resize(
+                image, (target_height, target_width), interpolation=interpolation
+            )
 
         processed_tiles = []
         for i in range(blocks):
@@ -295,13 +315,13 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
                 (i % (target_width // tile_size)) * tile_size,
                 (i // (target_width // tile_size)) * tile_size,
                 ((i % (target_width // tile_size)) + 1) * tile_size,
-                ((i // (target_width // tile_size)) + 1) * tile_size
+                ((i // (target_width // tile_size)) + 1) * tile_size,
             )
             # split the image
             split_img = crop(image_used_to_split, box[0], box[1], box[2], box[3])
             processed_tiles.append(split_img)
         assert len(processed_tiles) == blocks
-       
+
         if use_thumbnail and len(processed_tiles) != 1:
             thumbnail_img = F.resize(image, (tile_size, tile_size), interpolation=interpolation)
             processed_tiles.append(thumbnail_img)
@@ -380,7 +400,9 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
 
             # Group images by size for batched processing
             processed_image_patches_grouped = {}
-            grouped_image_patches, grouped_image_patches_index = group_images_by_shape(image_patches)
+            grouped_image_patches, grouped_image_patches_index = group_images_by_shape(
+                image_patches
+            )
 
             for shape, stacked_image_patches in grouped_image_patches.items():
                 if do_resize:
@@ -393,28 +415,47 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
                     stacked_image_patches = self.center_crop(stacked_image_patches, crop_size)
                 # Fused rescale and normalize
                 stacked_image_patches = self.rescale_and_normalize(
-                    stacked_image_patches, do_rescale, rescale_factor, do_normalize, image_mean, image_std
+                    stacked_image_patches,
+                    do_rescale,
+                    rescale_factor,
+                    do_normalize,
+                    image_mean,
+                    image_std,
                 )
                 processed_image_patches_grouped[shape] = stacked_image_patches
-            processed_image_patches = reorder_images(processed_image_patches_grouped, grouped_image_patches_index)
+            processed_image_patches = reorder_images(
+                processed_image_patches_grouped, grouped_image_patches_index
+            )
             processed_image_patches = (
-                torch.stack(processed_image_patches, dim=0) if return_tensors else processed_image_patches
+                torch.stack(processed_image_patches, dim=0)
+                if return_tensors
+                else processed_image_patches
             )
             processed_images.append(processed_image_patches)
             image_sizes.append(get_image_size(image, ChannelDimension.FIRST))
 
         if do_pad:
             processed_images = self._pad_for_batching(processed_images)
-        
+
         # processed_images = torch.stack(processed_images, dim=0) if return_tensors else processed_images
-        processed_images = torch.cat(processed_images, dim=0) if return_tensors else processed_images
+        processed_images = (
+            torch.cat(processed_images, dim=0) if return_tensors else processed_images
+        )
         return BatchFeature(
-            data={"pixel_values": processed_images, "image_sizes": image_sizes}, tensor_type=return_tensors
+            data={"pixel_values": processed_images, "image_sizes": image_sizes},
+            tensor_type=return_tensors,
         )
 
-
-    def preprocess(self, images: ImageInput, videos: VideoInput=None, **kwargs: Unpack[Eagle2_5_VLFastImageProcessorKwargs]) -> BatchFeature:
-        validate_kwargs(captured_kwargs=kwargs.keys(), valid_processor_keys=self.valid_kwargs.__annotations__.keys())
+    def preprocess(
+        self,
+        images: ImageInput,
+        videos: VideoInput = None,
+        **kwargs: Unpack[Eagle2_5_VLFastImageProcessorKwargs],
+    ) -> BatchFeature:
+        validate_kwargs(
+            captured_kwargs=kwargs.keys(),
+            valid_processor_keys=self.valid_kwargs.__annotations__.keys(),
+        )
         # Set default kwargs from self. This ensures that if a kwarg is not provided
         # by the user, it gets its default value from the instance, or is set to None.
         for kwarg_name in self.valid_kwargs.__annotations__:
@@ -427,12 +468,18 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
         # Prepare input images
         if images is not None:
             images = self._prepare_input_images(
-                images=images, do_convert_rgb=do_convert_rgb, input_data_format=input_data_format, device=device
+                images=images,
+                do_convert_rgb=do_convert_rgb,
+                input_data_format=input_data_format,
+                device=device,
             )
 
         if videos is not None:
             videos = self._prepare_input_images(
-                images=videos, do_convert_rgb=do_convert_rgb, input_data_format=input_data_format, device=device
+                images=videos,
+                do_convert_rgb=do_convert_rgb,
+                input_data_format=input_data_format,
+                device=device,
             )
 
         # Update kwargs that need further processing before being validated
@@ -444,7 +491,9 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
         # torch resize uses interpolation instead of resample
         resample = kwargs.pop("resample")
         kwargs["interpolation"] = (
-            pil_torch_interpolation_mapping[resample] if isinstance(resample, (PILImageResampling, int)) else resample
+            pil_torch_interpolation_mapping[resample]
+            if isinstance(resample, (PILImageResampling, int))
+            else resample
         )
 
         # Pop kwargs that are not needed in _preprocess
@@ -454,5 +503,6 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
             return self._preprocess(images, **kwargs)
         elif videos is not None:
             return self._preprocess(videos, **kwargs)
+
 
 __all__ = ["Eagle2_5_VLImageProcessorFast"]

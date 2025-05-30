@@ -18,8 +18,11 @@ import math
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
-
-from transformers.image_processing_utils import BaseImageProcessor, BatchFeature, get_size_dict, select_best_resolution
+from transformers.image_processing_utils import (
+    BaseImageProcessor,
+    BatchFeature,
+    get_size_dict,
+)
 from transformers.image_transforms import (
     PaddingMode,
     convert_to_rgb,
@@ -27,11 +30,9 @@ from transformers.image_transforms import (
     resize,
     to_channel_dimension_format,
 )
+from transformers.image_utils import IMAGENET_STANDARD_MEAN  # 0.5, 0.5, 0.5
+from transformers.image_utils import IMAGENET_STANDARD_STD  # 0.5, 0.5, 0.5
 from transformers.image_utils import (
-    OPENAI_CLIP_MEAN,
-    OPENAI_CLIP_STD,
-    IMAGENET_STANDARD_MEAN, # 0.5, 0.5, 0.5
-    IMAGENET_STANDARD_STD, # 0.5, 0.5, 0.5
     ChannelDimension,
     ImageInput,
     PILImageResampling,
@@ -45,48 +46,56 @@ from transformers.image_utils import (
 )
 from transformers.utils import TensorType, is_vision_available, logging
 
-
 logger = logging.get_logger(__name__)
 
 
 if is_vision_available():
     from PIL import Image
 
-def crop(img: np.ndarray, left: int, top: int, right: int, bottom: int, input_data_format: ChannelDimension) -> np.ndarray:
+
+def crop(
+    img: np.ndarray,
+    left: int,
+    top: int,
+    right: int,
+    bottom: int,
+    input_data_format: ChannelDimension,
+) -> np.ndarray:
     """Crop the given numpy array.
-    
+
     Args:
         img (np.ndarray): Image to be cropped. Format should be (H, W, C) or (H, W).
         left (int): The left coordinate of the crop box.
         top (int): The top coordinate of the crop box.
         right (int): The right coordinate of the crop box.
         bottom (int): The bottom coordinate of the crop box.
-        
+
     Returns:
         np.ndarray: Cropped image.
     """
     if not isinstance(img, np.ndarray):
-        raise TypeError('img should be numpy array. Got {}'.format(type(img)))
-    
+        raise TypeError("img should be numpy array. Got {}".format(type(img)))
+
     if img.ndim not in [2, 3]:
-        raise ValueError('Image should have 2 or 3 dimensions. Got {}'.format(img.ndim))
-    
+        raise ValueError("Image should have 2 or 3 dimensions. Got {}".format(img.ndim))
+
     if input_data_format == ChannelDimension.LAST:
         img_height = img.shape[0]
         img_width = img.shape[1]
     else:
         img_height = img.shape[1]
         img_width = img.shape[2]
-    
+
     if top < 0 or left < 0 or bottom > img_height or right > img_width:
-        raise ValueError('Crop coordinates out of bounds')
-    
+        raise ValueError("Crop coordinates out of bounds")
+
     if top >= bottom or left >= right:
-        raise ValueError('Invalid crop coordinates')
+        raise ValueError("Invalid crop coordinates")
     if input_data_format == ChannelDimension.LAST:
         return img[top:bottom, left:right, :]
     else:
         return img[:, top:bottom, left:right]
+
 
 # Copied from transformers.models.llava_next.image_processing_llava_next.divide_to_patches
 def divide_to_patches(image: np.array, patch_size: int, input_data_format) -> List[np.array]:
@@ -232,7 +241,7 @@ class Eagle2ImageProcessor(BaseImageProcessor):
         self.max_dynamic_tiles = max_dynamic_tiles
         self.use_thumbnail = use_thumbnail
         self.pad_during_tiling = pad_during_tiling
-        
+
     # Copied from transformers.models.llava_next.image_processing_llava_next.LlavaNextImageProcessor.pad
     def pad(
         self,
@@ -298,13 +307,19 @@ class Eagle2ImageProcessor(BaseImageProcessor):
         else:
             raise ValueError(f"Invalid padding mode: {mode}")
         image = (
-            to_channel_dimension_format(image, data_format, input_data_format) if data_format is not None else image
+            to_channel_dimension_format(image, data_format, input_data_format)
+            if data_format is not None
+            else image
         )
         return image
 
     # Copied from transformers.models.llava_next.image_processing_llava_next.LlavaNextImageProcessor._resize_for_patching
     def _resize_for_patching(
-        self, image: np.array, target_resolution: tuple, resample, input_data_format: ChannelDimension
+        self,
+        image: np.array,
+        target_resolution: tuple,
+        resample,
+        input_data_format: ChannelDimension,
     ) -> np.array:
         """
         Resizes an image to a target resolution while maintaining aspect ratio.
@@ -322,10 +337,12 @@ class Eagle2ImageProcessor(BaseImageProcessor):
         Returns:
             np.array: The resized and padded image.
         """
-        
+
         new_height, new_width = _get_patch_output_size(image, target_resolution, input_data_format)
         # Resize the image
-        resized_image = resize(image, (new_height, new_width), resample=resample, input_data_format=input_data_format)
+        resized_image = resize(
+            image, (new_height, new_width), resample=resample, input_data_format=input_data_format
+        )
 
         return resized_image
 
@@ -346,31 +363,30 @@ class Eagle2ImageProcessor(BaseImageProcessor):
 
         return padded_image
 
-
     def find_closest_aspect_ratio(self, aspect_ratio, target_ratios, width, height, image_size):
         """
         previous version mainly foucs on ratio.
         We also consider area ratio here.
         """
-        best_factor = float('-inf')
+        best_factor = float("-inf")
         best_ratio = (1, 1)
         area = width * height
         for ratio in target_ratios:
             target_aspect_ratio = ratio[0] / ratio[1]
             ratio_diff = abs(aspect_ratio - target_aspect_ratio)
-            area_ratio = (ratio[0]*ratio[1]*image_size*image_size)/ area
+            area_ratio = (ratio[0] * ratio[1] * image_size * image_size) / area
             """
             new area > 60% of original image area is enough.
             """
-            factor_based_on_area_n_ratio = min((ratio[0]*ratio[1]*image_size*image_size)/ area, 0.6)* \
-                                     min(target_aspect_ratio/aspect_ratio, aspect_ratio/target_aspect_ratio)
-        
+            factor_based_on_area_n_ratio = min(
+                (ratio[0] * ratio[1] * image_size * image_size) / area, 0.6
+            ) * min(target_aspect_ratio / aspect_ratio, aspect_ratio / target_aspect_ratio)
+
             if factor_based_on_area_n_ratio > best_factor:
                 best_factor = factor_based_on_area_n_ratio
                 best_ratio = ratio
-        
-        return best_ratio
 
+        return best_ratio
 
     def get_image_patches(
         self,
@@ -390,13 +406,18 @@ class Eagle2ImageProcessor(BaseImageProcessor):
 
         # calculate the existing image aspect ratio
         target_ratios = set(
-            (i, j) for n in range(min_num, max_num + 1) for i in range(1, n + 1) for j in range(1, n + 1) if
-            i * j <= max_num and i * j >= min_num)
+            (i, j)
+            for n in range(min_num, max_num + 1)
+            for i in range(1, n + 1)
+            for j in range(1, n + 1)
+            if i * j <= max_num and i * j >= min_num
+        )
         target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
 
         # find the closest aspect ratio to the target
         target_aspect_ratio = self.find_closest_aspect_ratio(
-            aspect_ratio, target_ratios, orig_width, orig_height, tile_size)
+            aspect_ratio, target_ratios, orig_width, orig_height, tile_size
+        )
 
         # calculate the target width and height
         target_width = tile_size * target_aspect_ratio[0]
@@ -404,12 +425,22 @@ class Eagle2ImageProcessor(BaseImageProcessor):
         blocks = target_aspect_ratio[0] * target_aspect_ratio[1]
         if self.pad_during_tiling:
             resized_image = self._resize_for_patching(
-                image, (target_height, target_width), resample=resample, input_data_format=input_data_format
+                image,
+                (target_height, target_width),
+                resample=resample,
+                input_data_format=input_data_format,
             )
-            padded_image = self._pad_for_patching(resized_image, (target_height, target_width), input_data_format=input_data_format)
+            padded_image = self._pad_for_patching(
+                resized_image, (target_height, target_width), input_data_format=input_data_format
+            )
             image_used_to_split = padded_image
         else:
-            image_used_to_split = resize(image, (target_height, target_width), resample=resample, input_data_format=input_data_format)
+            image_used_to_split = resize(
+                image,
+                (target_height, target_width),
+                resample=resample,
+                input_data_format=input_data_format,
+            )
 
         processed_tiles = []
         for i in range(blocks):
@@ -417,24 +448,30 @@ class Eagle2ImageProcessor(BaseImageProcessor):
                 (i % (target_width // tile_size)) * tile_size,
                 (i // (target_width // tile_size)) * tile_size,
                 ((i % (target_width // tile_size)) + 1) * tile_size,
-                ((i // (target_width // tile_size)) + 1) * tile_size
+                ((i // (target_width // tile_size)) + 1) * tile_size,
             )
             # split the image
             split_img = crop(image_used_to_split, box[0], box[1], box[2], box[3], input_data_format)
             processed_tiles.append(split_img)
         assert len(processed_tiles) == blocks
-       
+
         if use_thumbnail and len(processed_tiles) != 1:
-            thumbnail_img = resize(image, (tile_size, tile_size), resample=resample, input_data_format=input_data_format)
+            thumbnail_img = resize(
+                image,
+                (tile_size, tile_size),
+                resample=resample,
+                input_data_format=input_data_format,
+            )
             processed_tiles.append(thumbnail_img)
 
         # make sure that all patches are in the input data format
         processed_tiles = [
-            to_channel_dimension_format(tile, channel_dim=data_format, input_channel_dim=input_data_format)
+            to_channel_dimension_format(
+                tile, channel_dim=data_format, input_channel_dim=input_data_format
+            )
             for tile in processed_tiles
         ]
         return processed_tiles
-
 
     # Copied from transformers.models.llava_next.image_processing_llava_next.LlavaNextImageProcessor._pad_for_batching
     def _pad_for_batching(
@@ -528,9 +565,11 @@ class Eagle2ImageProcessor(BaseImageProcessor):
                 - `"none"` or `ChannelDimension.NONE`: image in (height, width) format.
         """
         if do_resize:
-            assert False, 'do_resize is not supported'
+            assert False, "do_resize is not supported"
             images = [
-                resize(image=image, size=size, resample=resample, input_data_format=input_data_format)
+                resize(
+                    image=image, size=size, resample=resample, input_data_format=input_data_format
+                )
                 for image in images
             ]
 
@@ -542,12 +581,15 @@ class Eagle2ImageProcessor(BaseImageProcessor):
 
         if do_normalize:
             images = [
-                self.normalize(image=image, mean=image_mean, std=image_std, input_data_format=input_data_format)
+                self.normalize(
+                    image=image, mean=image_mean, std=image_std, input_data_format=input_data_format
+                )
                 for image in images
             ]
 
         images = [
-            to_channel_dimension_format(image, data_format, input_channel_dim=input_data_format) for image in images
+            to_channel_dimension_format(image, data_format, input_channel_dim=input_data_format)
+            for image in images
         ]
 
         return images
@@ -708,7 +750,8 @@ class Eagle2ImageProcessor(BaseImageProcessor):
             processed_images = self._pad_for_batching(processed_images)
 
         return BatchFeature(
-            data={"pixel_values": processed_images, "image_sizes": image_sizes}, tensor_type=return_tensors
+            data={"pixel_values": processed_images, "image_sizes": image_sizes},
+            tensor_type=return_tensors,
         )
 
 

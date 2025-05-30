@@ -221,7 +221,7 @@ class DiT(ModelMixin, ConfigMixin):
 
         # Timestep encoder
         self.timestep_encoder = TimestepEncoder(
-            embedding_dim=self.inner_dim, compute_dtype=self.compute_dtype
+            embedding_dim=self.inner_dim, compute_dtype=self.config.compute_dtype
         )
 
         all_blocks = []
@@ -253,7 +253,7 @@ class DiT(ModelMixin, ConfigMixin):
         # Output blocks
         self.norm_out = nn.LayerNorm(self.inner_dim, elementwise_affine=False, eps=1e-6)
         self.proj_out_1 = nn.Linear(self.inner_dim, 2 * self.inner_dim)
-        self.proj_out_2 = nn.Linear(self.inner_dim, self.output_dim)
+        self.proj_out_2 = nn.Linear(self.inner_dim, self.config.output_dim)
         print(
             "Total number of DiT parameters: ",
             sum(p.numel() for p in self.parameters() if p.requires_grad),
