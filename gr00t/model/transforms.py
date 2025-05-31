@@ -27,17 +27,11 @@ from transformers import AutoProcessor, ProcessorMixin
 from transformers.data.data_collator import DataCollatorMixin
 from transformers.feature_extraction_utils import BatchFeature
 
-from gr00t.data.schema import DatasetMetadata, EmbodimentTag
+from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING, EmbodimentTag
+from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import InvertibleModalityTransform
 
 from .backbone.eagle_backbone import DEFAULT_EAGLE_PATH
-
-EMBODIMENT_TAG_MAPPING = {
-    "gr1": 24,
-    "new_embodiment": 31,  # use the last projector for new embodiment,
-    "oxe_droid": 17,
-    "agibot": 26,  # TODO(YL, FH): discuss with team
-}
 
 
 def formalize_language(language: str) -> str:

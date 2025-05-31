@@ -21,10 +21,10 @@ import numpy as np
 import tyro
 
 from gr00t.data.dataset import LeRobotSingleDataset
+from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.model.policy import BasePolicy, Gr00tPolicy
-from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.eval import calc_mse_for_single_trajectory
 
 warnings.simplefilter("ignore", category=FutureWarning)

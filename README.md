@@ -130,6 +130,10 @@ dataset[5]
 - [`getting_started/0_load_dataset.ipynb`](getting_started/0_load_dataset.ipynb) is an interactive tutorial on how to load the data and process it to interface with the GR00T N1.5 model.
 - [`scripts/load_dataset.py`](scripts/load_dataset.py) is an executable script with the same content as the notebook.
 
+Try run the script to lod
+```bash
+python scripts/load_dataset.py --dataset-path ./demo_data/robot_sim.PickNPlace
+```
 
 ## 2. Inference
 
@@ -165,7 +169,7 @@ action_chunk = policy.get_action(dataset[0])
 User can also run the inference service using the provided script. The inference service can run in either server mode or client mode.
 
 ```bash
-python scripts/inference_service.py --model_path nvidia/GR00T-N1.5-3B --server
+python scripts/inference_service.py --model-path nvidia/GR00T-N1.5-3B --server
 ```
 
 On a different terminal, run the client mode to send requests to the server.
@@ -216,17 +220,17 @@ Or you can run the newly trained model in client-server mode.
 Run the newly trained model
 ```bash
 python scripts/inference_service.py --server \
-    --model_path <MODEL_PATH> \
-    --embodiment_tag new_embodiment
-    --data_config <DATA_CONFIG>
+    --model-path <MODEL_PATH> \
+    --embodiment-tag new_embodiment
+    --data-config <DATA_CONFIG>
 ```
 
 Run the offline evaluation script
 ```bash
 python scripts/eval_policy.py --plot \
-    --dataset_path <DATASET_PATH> \
-    --embodiment_tag new_embodiment \
-    --data_config <DATA_CONFIG>
+    --dataset-path <DATASET_PATH> \
+    --embodiment-tag new_embodiment \
+    --data-config <DATA_CONFIG>
 ```
 
 You will then see a plot of Ground Truth vs Predicted actions, along with unnormed MSE of the actions. This would give you an indication if the policy is performing well on the dataset.

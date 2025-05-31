@@ -34,8 +34,7 @@ from gr00t.data.dataset import (
     LeRobotSingleDataset,
     ModalityConfig,
 )
-from gr00t.data.embodiment_tags import EmbodimentTag
-from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
+from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING, EmbodimentTag
 from gr00t.utils.misc import any_describe
 
 print_yellow = lambda x: print(f"\033[93m{x}\033[0m")
@@ -45,7 +44,7 @@ print_yellow = lambda x: print(f"\033[93m{x}\033[0m")
 class ArgsConfig:
     """Configuration for loading the dataset."""
 
-    dataset_paths: List[str] = field(default_factory=lambda: ["demo_data/robot_sim.PickNPlace"])
+    dataset_path: List[str] = field(default_factory=lambda: ["demo_data/robot_sim.PickNPlace"])
     """Path to the dataset."""
 
     embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "gr1"
@@ -57,7 +56,7 @@ class ArgsConfig:
     plot_state_action: bool = False
     """Whether to plot the state and action space."""
 
-    steps: int = 150
+    steps: int = 200
     """Number of steps to plot."""
 
 
@@ -180,19 +179,19 @@ def plot_image(image: np.ndarray):
 
 
 def load_dataset(
-    dataset_paths: List[str],
+    dataset_path: List[str],
     embodiment_tag: str,
     video_backend: str = "decord",
-    steps: int = 220,
+    steps: int = 200,
     plot_state_action: bool = False,
 ):
-    assert len(dataset_paths) > 0, "dataset_paths must be a list of at least one path"
+    assert len(dataset_path) > 0, "dataset_path must be a list of at least one path"
 
     # 1. get modality keys
-    dataset_path = pathlib.Path(
-        dataset_paths[0]
+    single_dataset_path = pathlib.Path(
+        dataset_path[0]
     )  # take first one, assume all have same modality keys
-    modality_keys_dict = get_modality_keys(dataset_path)
+    modality_keys_dict = get_modality_keys(single_dataset_path)
     video_modality_keys = modality_keys_dict["video"]
     language_modality_keys = modality_keys_dict["annotation"]
     state_modality_keys = modality_keys_dict["state"]
@@ -233,17 +232,18 @@ def load_dataset(
     embodiment_tag: EmbodimentTag = EmbodimentTag(embodiment_tag)
 
     # 5. load dataset
-    if len(dataset_paths) == 1:
+    print(f"Loading dataset from {dataset_path}")
+    if len(dataset_path) == 1:
         dataset = LeRobotSingleDataset(
-            dataset_path=dataset_paths[0],
+            dataset_path=dataset_path[0],
             modality_configs=modality_configs,
             embodiment_tag=embodiment_tag,
             video_backend=video_backend,
         )
     else:
-        print(f"Loading {len(dataset_paths)} datasets")
+        print(f"Loading {len(dataset_path)} datasets")
         lerobot_single_datasets = []
-        for data_path in dataset_paths:
+        for data_path in dataset_path:
             dataset = LeRobotSingleDataset(
                 dataset_path=data_path,
                 modality_configs=modality_configs,
@@ -339,7 +339,7 @@ def load_dataset(
 if __name__ == "__main__":
     config = tyro.cli(ArgsConfig)
     load_dataset(
-        config.dataset_paths,
+        config.dataset_path,
         config.embodiment_tag,
         config.video_backend,
         config.steps,
