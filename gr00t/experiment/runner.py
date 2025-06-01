@@ -20,7 +20,7 @@ from pathlib import Path
 import torch
 from transformers import TrainingArguments, set_seed
 
-from gr00t.data.dataset import LeRobotSingleDataset
+from gr00t.data.dataset import LeRobotSingleDataset, LeRobotMixtureDataset
 from gr00t.experiment.trainer import DualBrainTrainer
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 from gr00t.model.transforms import DefaultDataCollator
@@ -35,7 +35,7 @@ class TrainRunner:
         self,
         model: GR00T_N1_5,
         training_args: TrainingArguments,
-        train_dataset: LeRobotSingleDataset,
+        train_dataset: LeRobotSingleDataset | LeRobotMixtureDataset,
         resume_from_checkpoint: bool = False,
     ):
         self.training_args = training_args
@@ -74,9 +74,19 @@ class TrainRunner:
             if os.path.exists(self.exp_cfg_dir / "metadata.json"):
                 with open(self.exp_cfg_dir / "metadata.json", "r") as f:
                     metadata_json = json.load(f)
-            metadata_json.update(
-                {train_dataset.tag: train_dataset.metadata.model_dump(mode="json")}
-            )
+            if isinstance(train_dataset, LeRobotSingleDataset):
+                metadata_json.update(
+                    {train_dataset.tag: train_dataset.metadata.model_dump(mode="json")}
+                )
+            elif isinstance(train_dataset, LeRobotMixtureDataset):
+                metadata_json.update(
+                    {
+                        tag: metadata.model_dump(mode="json")
+                        for tag, metadata in train_dataset.merged_metadata.items()
+                    }
+                )
+            else:
+                raise ValueError(f"Invalid dataset type: {type(train_dataset)}")
             with open(self.exp_cfg_dir / "metadata.json", "w") as f:
                 json.dump(metadata_json, f, indent=4)
 

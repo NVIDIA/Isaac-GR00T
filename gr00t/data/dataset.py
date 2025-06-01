@@ -32,7 +32,7 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -87,15 +87,6 @@ def calculate_dataset_statistics(parquet_paths: list[Path]) -> dict:
     return dataset_statistics
 
 
-def safe_hash(input_tuple):
-    # keep 128 bits of the hash
-    tuple_string = repr(input_tuple).encode("utf-8")
-    sha256 = hashlib.sha256()
-    sha256.update(tuple_string)
-    seed = int(sha256.hexdigest(), 16)
-    return seed & 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-
-
 class ModalityConfig(BaseModel):
     """Configuration for a modality."""
 
@@ -103,9 +94,6 @@ class ModalityConfig(BaseModel):
     """Delta indices to sample relative to the current index. The returned data will correspond to the original data at a sampled base index + delta indices."""
     modality_keys: list[str]
     """The keys to load for the modality in the dataset."""
-
-
-#####################################################################################
 
 
 class LeRobotSingleDataset(Dataset):
@@ -814,9 +802,6 @@ class LeRobotSingleDataset(Dataset):
             raise ValueError(f"Invalid modality: {modality}")
 
 
-#####################################################################################
-
-
 class CachedLeRobotSingleDataset(LeRobotSingleDataset):
     def __init__(self, img_resize: tuple[int, int] | None = None, *args, **kwargs):
         """
@@ -906,7 +891,24 @@ class CachedLeRobotSingleDataset(LeRobotSingleDataset):
         super().set_transforms_metadata(metadata)
 
 
-#####################################################################################
+def safe_hash(input_tuple):
+    # keep 128 bits of the hash
+    tuple_string = repr(input_tuple).encode("utf-8")
+    sha256 = hashlib.sha256()
+    sha256.update(tuple_string)
+
+    seed = int(sha256.hexdigest(), 16)
+
+    return seed & 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+
+
+class MixtureSpecElement(BaseModel):
+    dataset_path: list[Path] | Path = Field(..., description="The path to the dataset.")
+    dataset_weight: float = Field(..., description="The weight of the dataset in the mixture.")
+    distribute_weights: bool = Field(
+        default=False,
+        description="Whether to distribute the weights of the dataset across all the paths. If True, the weights will be evenly distributed across all the paths.",
+    )
 
 
 class LeRobotMixtureDataset(Dataset):
@@ -923,7 +925,6 @@ class LeRobotMixtureDataset(Dataset):
         balance_trajectory_weights: bool = True,
         seed: int = 42,
         metadata_config: dict = {
-            "merge": False,
             "percentile_mixing_method": "min_max",
         },
     ):
@@ -979,8 +980,6 @@ class LeRobotMixtureDataset(Dataset):
         self.set_epoch(0)
 
         self.update_metadata(metadata_config)
-        self.tag = EmbodimentTag.NEW_EMBODIMENT.value
-        self.metadata = self.datasets[0].metadata
 
     @property
     def dataset_lengths(self) -> np.ndarray:
@@ -1001,6 +1000,16 @@ class LeRobotMixtureDataset(Dataset):
     def primary_dataset_indices(self) -> np.ndarray:
         """The indices of the primary datasets."""
         return self._primary_dataset_indices
+
+    def __str__(self) -> str:
+        dataset_descriptions = []
+        for dataset, weight in zip(self.datasets, self.dataset_sampling_weights):
+            dataset_description = {
+                "Dataset": str(dataset),
+                "Sampling weight": float(weight),
+            }
+            dataset_descriptions.append(dataset_description)
+        return json.dumps({"Mixture dataset": dataset_descriptions}, indent=2)
 
     def set_epoch(self, epoch: int):
         """Set the epoch for the dataset.
@@ -1167,18 +1176,76 @@ class LeRobotMixtureDataset(Dataset):
 
         return overall_stats
 
+    @staticmethod
+    def merge_metadata(
+        metadatas: list[DatasetMetadata],
+        dataset_sampling_weights: list[float],
+        percentile_mixing_method: str,
+    ) -> DatasetMetadata:
+        """Merge multiple metadata into one."""
+        # Convert to dicts
+        metadata_dicts = [metadata.model_dump(mode="json") for metadata in metadatas]
+        # Create a new metadata dict
+        merged_metadata = {}
+
+        # Check all metadata have the same embodiment tag
+        assert all(
+            metadata.embodiment_tag == metadatas[0].embodiment_tag for metadata in metadatas
+        ), "All metadata must have the same embodiment tag"
+        merged_metadata["embodiment_tag"] = metadatas[0].embodiment_tag
+
+        # Merge the dataset statistics
+        dataset_statistics = {}
+        dataset_statistics["state"] = LeRobotMixtureDataset.compute_overall_statistics(
+            per_task_stats=[m["statistics"]["state"] for m in metadata_dicts],
+            dataset_sampling_weights=dataset_sampling_weights,
+            percentile_mixing_method=percentile_mixing_method,
+        )
+        dataset_statistics["action"] = LeRobotMixtureDataset.compute_overall_statistics(
+            per_task_stats=[m["statistics"]["action"] for m in metadata_dicts],
+            dataset_sampling_weights=dataset_sampling_weights,
+            percentile_mixing_method=percentile_mixing_method,
+        )
+        merged_metadata["statistics"] = dataset_statistics
+
+        # Merge the modality configs
+        modality_configs = defaultdict(set)
+        for metadata in metadata_dicts:
+            for modality, configs in metadata["modalities"].items():
+                modality_configs[modality].add(json.dumps(configs))
+        merged_metadata["modalities"] = {}
+        for modality, configs in modality_configs.items():
+            # Check that all modality configs correspond to the same tag matches
+            assert (
+                len(configs) == 1
+            ), f"Multiple modality configs for modality {modality}: {list(configs)}"
+            merged_metadata["modalities"][modality] = json.loads(configs.pop())
+
+        return DatasetMetadata.model_validate(merged_metadata)
+
     def update_metadata(self, metadata_config: dict) -> None:
         """Merge multiple metadatas into one and set the transforms with the merged metadata.
 
         Args:
             metadata_config (dict): Configuration for the metadata.
-                "merge": If True, merge the metadata of all datasets.
                 "percentile_mixing_method": The method to mix the percentiles, either "weighted_average" or "min_max".
                     weighted_average: Use the weighted average of the percentiles using the weight used in sampling the datasets.
                     min_max: Use the min of the 1st percentile and max of the 99th percentile.
         """
 
         self.tag = EmbodimentTag.NEW_EMBODIMENT.value
+        self.merged_metadata: dict[str, DatasetMetadata] = {}
+        # Group metadata by tag
+        all_metadatas: dict[str, list[DatasetMetadata]] = {}
         for dataset in self.datasets:
-            dataset.set_transforms_metadata(dataset.metadata)
-        return
+            if dataset.tag not in all_metadatas:
+                all_metadatas[dataset.tag] = []
+            all_metadatas[dataset.tag].append(dataset.metadata)
+        for tag, metadatas in all_metadatas.items():
+            self.merged_metadata[tag] = self.merge_metadata(
+                metadatas=metadatas,
+                dataset_sampling_weights=self.dataset_sampling_weights.tolist(),
+                percentile_mixing_method=metadata_config["percentile_mixing_method"],
+            )
+        for dataset in self.datasets:
+            dataset.set_transforms_metadata(self.merged_metadata[dataset.tag])
