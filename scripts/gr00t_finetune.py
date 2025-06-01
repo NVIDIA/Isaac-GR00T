@@ -169,7 +169,6 @@ def main(config: ArgsConfig):
             balance_trajectory_weights=config.balance_trajectory_weights,
             seed=42,
             metadata_config={
-                "merge": True,
                 "percentile_mixing_method": "weighted_average",
             },
         )
