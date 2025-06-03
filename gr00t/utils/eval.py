@@ -82,19 +82,19 @@ def calc_mse_for_single_trajectory(
     state_joints_across_time = np.array(state_joints_across_time)
     gt_action_joints_across_time = np.array(gt_action_joints_across_time)
     pred_action_joints_across_time = np.array(pred_action_joints_across_time)[:steps]
-    # assert (
-    #     state_joints_across_time.shape
-    #     == gt_action_joints_across_time.shape
-    #     == pred_action_joints_across_time.shape
-    # )
+    assert (
+        state_joints_across_time.shape
+        == gt_action_joints_across_time.shape
+        == pred_action_joints_across_time.shape
+    )
 
     # calc MSE across time
     mse = np.mean((gt_action_joints_across_time - pred_action_joints_across_time) ** 2)
     print("Unnormalized Action MSE across single traj:", mse)
 
-    print(state_joints_across_time.shape)
-    print(gt_action_joints_across_time.shape)
-    print(pred_action_joints_across_time.shape)
+    print("state_joints vs time", state_joints_across_time.shape)
+    print("gt_action_joints vs time", gt_action_joints_across_time.shape)
+    print("pred_action_joints vs time", pred_action_joints_across_time.shape)
 
     # num_of_joints = state_joints_across_time.shape[1]
     num_of_joints = 14

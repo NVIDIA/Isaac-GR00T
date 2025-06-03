@@ -22,7 +22,26 @@ class EmbodimentTag(Enum):
     The GR1 dataset.
     """
 
+    OXE_DROID = "oxe_droid"
+    """
+    The OxE Droid dataset.
+    """
+
+    AGIBOT = "agibot"
+    """
+    The AgiBot dataset.   # TODO(YL, FH): discuss with team
+    """
+
     NEW_EMBODIMENT = "new_embodiment"
     """
     Any new embodiment for finetuning.
     """
+
+
+# Embodiment tag string: to projector index in the Action Expert Module
+EMBODIMENT_TAG_MAPPING = {
+    EmbodimentTag.NEW_EMBODIMENT.value: 31,
+    EmbodimentTag.OXE_DROID.value: 17,
+    EmbodimentTag.AGIBOT.value: 26,
+    EmbodimentTag.GR1.value: 24,
+}
