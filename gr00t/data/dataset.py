@@ -923,7 +923,6 @@ class LeRobotMixtureDataset(Dataset):
         balance_trajectory_weights: bool = True,
         seed: int = 42,
         metadata_config: dict = {
-            "merge": False,
             "percentile_mixing_method": "min_max",
         },
     ):
@@ -1172,7 +1171,6 @@ class LeRobotMixtureDataset(Dataset):
 
         Args:
             metadata_config (dict): Configuration for the metadata.
-                "merge": If True, merge the metadata of all datasets.
                 "percentile_mixing_method": The method to mix the percentiles, either "weighted_average" or "min_max".
                     weighted_average: Use the weighted average of the percentiles using the weight used in sampling the datasets.
                     min_max: Use the min of the 1st percentile and max of the 99th percentile.

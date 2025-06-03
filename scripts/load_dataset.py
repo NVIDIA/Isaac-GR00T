@@ -260,7 +260,6 @@ def load_dataset(
             balance_trajectory_weights=True,  # balance based on trajectory length
             seed=42,
             metadata_config={
-                "merge": True,
                 "percentile_mixing_method": "weighted_average",
             },
         )
