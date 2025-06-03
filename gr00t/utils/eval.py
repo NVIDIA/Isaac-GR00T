@@ -79,10 +79,7 @@ def calc_mse_for_single_trajectory(
     state_joints_across_time = np.array(state_joints_across_time)
     gt_action_across_time = np.array(gt_action_across_time)
     pred_action_across_time = np.array(pred_action_across_time)[:steps]
-    assert (
-        gt_action_across_time.shape
-        == pred_action_across_time.shape
-    )
+    assert gt_action_across_time.shape == pred_action_across_time.shape
 
     # calc MSE across time
     mse = np.mean((gt_action_across_time - pred_action_across_time) ** 2)
