@@ -112,13 +112,12 @@ class GR00TTransform(InvertibleModalityTransform):
     def check_keys_and_batch_size(self, data):
         grouped_keys = {}
         for key in data.keys():
-            try:
-                modality, _ = key.split(".")
-            except:  # noqa: E722
-                ### Handle language annotation special case
-                if "annotation" in key:
-                    modality = "language"
-                else:
+            if "annotation" in key:
+                modality = "language"
+            else:
+                try:
+                    modality, _ = key.split(".")
+                except:  # noqa: E722
                     modality = "others"  # will contain the video, state, and action
             if modality not in grouped_keys:
                 grouped_keys[modality] = []
