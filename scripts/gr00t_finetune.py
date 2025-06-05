@@ -36,7 +36,7 @@ class Config:
     """Configuration for GR00T model fine-tuning."""
 
     # Dataset parameters
-    dataset_path: str
+    dataset_path: str = 'demo_data/robot_sim.PickNPlace'
     """Path to the dataset directory."""
 
     output_dir: str = "/tmp/gr00t"
@@ -52,10 +52,10 @@ class Config:
     max_steps: int = 10000
     """Maximum number of training steps."""
 
-    num_gpus: int = 1
+    num_gpus: int = 2
     """Number of GPUs to use for training."""
 
-    save_steps: int = 500
+    save_steps: int = 2000
     """Number of steps between saving checkpoints."""
 
     # Model parameters
@@ -99,7 +99,7 @@ class Config:
     dataloader_num_workers: int = 8
     """Number of workers for data loading."""
 
-    report_to: str = "wandb"
+    report_to: str = "none" #report_to: str = "wandb"
     """Where to report training metrics (e.g., 'wandb', 'tensorboard')."""
 
     # Data loading parameters
@@ -117,6 +117,9 @@ class Config:
 
 def main(config: Config):
     """Main training function."""
+    # Set wandb to offline mode
+    os.environ["WANDB_MODE"] = "offline"
+    
     # ------------ step 1: load dataset ------------
     embodiment_tag = EmbodimentTag(config.embodiment_tag)
 
@@ -144,7 +147,7 @@ def main(config: Config):
     )
 
     # Set the model's compute_dtype to bfloat16
-    model.compute_dtype = "bfloat16"
+    model.compute_dtype = "bfloat16" # type: ignore
     model.config.compute_dtype = "bfloat16"
 
     if config.lora_rank > 0:
@@ -195,7 +198,7 @@ def main(config: Config):
     # 2.2 run experiment
     experiment = TrainRunner(
         train_dataset=train_dataset,
-        model=model,
+        model=model, # type: ignore
         training_args=training_args,
         resume_from_checkpoint=config.resume,
     )
@@ -237,9 +240,9 @@ if __name__ == "__main__":
             # Multi-GPU mode - use torchrun
             script_path = Path(__file__).absolute()
             # Remove any existing CUDA_VISIBLE_DEVICES from environment
-            if "CUDA_VISIBLE_DEVICES" in os.environ:
-                del os.environ["CUDA_VISIBLE_DEVICES"]
-
+            # if "CUDA_VISIBLE_DEVICES" in os.environ:
+            #     del os.environ["CUDA_VISIBLE_DEVICES"]
+            os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2"  # Set to the GPUs you want to use
             # Use subprocess.run instead of os.system
             cmd = [
                 "torchrun",

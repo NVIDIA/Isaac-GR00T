@@ -1,0 +1,62 @@
+generate the meta.json data 
+'''
+python scripts/load_dataset.py --data_path /data/dataset/datasets--wge118--Fnii-VLA-Kinova-1.0/snapshots/53a6e858c8fcdc097c5fcf0ddadc671adf912876 --embodiment_tag Kinova
+'''
+
+lerobot dataset_path:
+/data/dataset/G1_ObjectPlacement_Dataset
+/data/dataset/datasets--wge118--Fnii-VLA-Kinova-1.0/snapshots/53a6e858c8fcdc097c5fcf0ddadc671adf912876
+/home/GRvla/demo_data/so100_strawberry_grape/
+/data/dataset/gr00t/real_aloha/picking_banana
+
+Finetune bash code:
+'''
+python scripts/gr00t_finetune.py \
+   --dataset-path /data/dataset/gr00t/real_aloha/picking_banana \
+   --num-gpus 3 \
+   --output-dir  /data/ckpt/gr00t/aloha-8000-1 \
+   --max-steps 20000 \
+   --data-config aloha \
+   --video-backend torchvision_av \
+   --embodiment_tag new_embodiment
+'''
+
+'''
+python scripts/gr00t_finetune.py \
+   --dataset-path /home/GRvla/demo_data/so100_strawberry_grape/ \
+   --num-gpus 3 \
+   --output-dir ./so100-checkpoints-4000  \
+   --max-steps 4000 \
+   --data-config so100 \
+   --video-backend torchvision_av
+'''
+
+Evaluation bash code:
+'''
+python scripts/eval_policy.py --plot \
+   --embodiment_tag new_embodiment \
+   --model_path /data/ckpt/kinova-checkpoints \
+   --data_config Single_Kinova \
+  --dataset_path /data/dataset/datasets--wge118--Fnii-VLA-Kinova-1.0/snapshots/53a6e858c8fcdc097c5fcf0ddadc671adf912876 \
+   --video_backend torchvision_av \
+   --modality_keys single_arm gripper
+'''
+
+python scripts/eval_policy.py --plot \
+   --embodiment_tag new_embodiment \
+   --model_path ./so100-checkpoints \
+   --data_config so100 \
+  --dataset_path /home/GRvla/demo_data/so100_strawberry_grape/ \
+   --video_backend torchvision_av \
+   --modality_keys single_arm gripper
+
+python scripts/inference_service_http.py --server \
+ --model_path /data/ckpt/gr00t/aloha-8000-1/checkpoint-10000 \
+ --embodiment_tag new_embodiment \
+ --data_config aloha
+
+ python scripts/inference_service.py --server \
+    --model_path /data/ckpt/gr00t/aloha-8000-1/checkpoint-10000 \
+    --embodiment_tag new_embodiment \
+    --data_config aloha\
+    --denoising_steps 4

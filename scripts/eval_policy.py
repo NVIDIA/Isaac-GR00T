@@ -57,7 +57,7 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=150, help="number of steps to run")
     parser.add_argument("--trajs", type=int, default=1, help="trajectories to run")
     parser.add_argument("--action_horizon", type=int, default=16)
-    parser.add_argument("--video_backend", type=str, default="decord")
+    parser.add_argument("--video_backend", type=str, default="torchvision_av")
     parser.add_argument("--dataset_path", type=str, default="demo_data/robot_sim.PickNPlace/")
     parser.add_argument(
         "--embodiment_tag",
