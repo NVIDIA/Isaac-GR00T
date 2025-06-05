@@ -183,11 +183,12 @@ class GR00TTransform(InvertibleModalityTransform):
 
         np_images = rearrange(images, "v t c h w -> (t v) c h w")
         text_content = []
-        if "language" in batch:
-            lang = batch["language"]
-            if isinstance(lang, list):
-                lang = lang[0]
-            text_content.append({"type": "text", "text": batch["language"]})
+
+        # handle language
+        lang = batch["language"]
+        if isinstance(lang, list):
+            lang = lang[0]
+        text_content.append({"type": "text", "text": lang})
 
         eagle_images = [Image.fromarray(np.transpose(v, (1, 2, 0))) for v in np_images]
         eagle_image = [{"type": "image", "image": img} for img in eagle_images]
@@ -235,7 +236,6 @@ class GR00TTransform(InvertibleModalityTransform):
                     raw_language = self.default_instruction
         else:
             raw_language = self.default_instruction
-
         return raw_language
 
     def _prepare_state(self, data: dict):
