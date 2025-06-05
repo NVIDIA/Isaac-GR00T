@@ -23,6 +23,7 @@ import numpy as np
 import torch
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.robot_devices.cameras.configs import OpenCVCameraConfig
+from lerobot.common.robot_devices.motors.configs import FeetechMotorsBusConfig
 from lerobot.common.robot_devices.motors.dynamixel import TorqueMode
 from lerobot.common.robot_devices.robots.configs import So100RobotConfig
 from lerobot.common.robot_devices.robots.utils import make_robot_from_config
@@ -43,7 +44,7 @@ from gr00t.eval.service import ExternalRobotInferenceClient
 
 
 class SO100Robot:
-    def __init__(self, calibrate=False, enable_camera=False, cam_idx=9):
+    def __init__(self, calibrate=False, enable_camera=False, cam_idx=9, robot_port="/dev/ttyACM0"):
         self.config = So100RobotConfig()
         self.calibrate = calibrate
         self.enable_camera = enable_camera
@@ -54,25 +55,20 @@ class SO100Robot:
             self.config.cameras = {"webcam": OpenCVCameraConfig(cam_idx, 30, 640, 480, "bgr")}
 
         # Set the robot arms
-        if True:
-            from lerobot.common.robot_devices.motors.configs import (
-                FeetechMotorsBusConfig,
-            )
-
-            self.config.follower_arms = {
-                "main": FeetechMotorsBusConfig(
-                    port="/dev/ttyACM0",
-                    motors={
-                        # name: (index, model)
-                        "shoulder_pan": [1, "sts3215"],
-                        "shoulder_lift": [2, "sts3215"],
-                        "elbow_flex": [3, "sts3215"],
-                        "wrist_flex": [4, "sts3215"],
-                        "wrist_roll": [5, "sts3215"],
-                        "gripper": [6, "sts3215"],
-                    },
-                ),
-            }
+        self.config.follower_arms = {
+            "main": FeetechMotorsBusConfig(
+                port=robot_port,
+                motors={
+                    # name: (index, model)
+                    "shoulder_pan": (1, "sts3215"),
+                    "shoulder_lift": (2, "sts3215"),
+                    "elbow_flex": (3, "sts3215"),
+                    "wrist_flex": (4, "sts3215"),
+                    "wrist_roll": (5, "sts3215"),
+                    "gripper": (6, "sts3215"),
+                },
+            ),
+        }
 
         self.config.leader_arms = {}
 
@@ -193,124 +189,6 @@ class SO100Robot:
 
 
 #################################################################################
-
-
-# policy = DiffusionPolicy.from_pretrained(
-#     "/home/youliang/lerobot/outputs/train/so100_dp001/checkpoints/100000/pretrained_model"
-# )
-
-
-# # policy = PI0Policy.from_pretrained("/home/youliang/lerobot/outputs/train/so100_pi0/checkpoints/100000/pretrained_model")
-
-
-# # policy = PI0Policy.from_pretrained("lerobot/pi0")
-
-# print(policy.config)
-# print(policy.config.input_features)
-# print(policy.config.output_features)
-
-
-# action_horizon = policy.config.n_action_steps
-# print(f"action_horizon: {action_horizon}")
-
-# # {'observation.state': PolicyFeature(type=<FeatureType.STATE: 'STATE'>, shape=(6,)), 'observation.images.webcam': PolicyFeature(type=<FeatureType.VISUAL: 'VISUAL'>, shape=(3, 480, 640))}
-# # {'action': PolicyFeature(type=<FeatureType.ACTION: 'ACTION'>, shape=(6,))}
-
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# obs_dict = {
-#     "observation.state": torch.randn(1, 6).to(device),
-#     "observation.images.webcam": torch.randn(1, 3, 480, 640).to(device),
-#     # "task": ["push"],
-# }
-
-# with torch.inference_mode():
-#     for i in range(10):
-#         print(f"iteration {i}")
-#         for i in range(action_horizon):
-#             action = policy.select_action(obs_dict)
-#             print(action)
-
-
-import torch
-
-
-class DiffusionPolicy:
-    def __init__(self, model_path, device="cuda"):
-        from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
-
-        self.policy = DiffusionPolicy.from_pretrained(model_path)
-        self.device = device
-        self.horizon = self.policy.config.n_action_steps
-        self.language_instruction = None
-
-    def get_action(self, img, state) -> np.ndarray:
-        # add batch dimension
-        img = img[np.newaxis, :, :, :]
-        state = state[np.newaxis, :]
-        # convert to float32
-        img = torch.from_numpy(img).to(self.device)
-        img = img.to(torch.float32) / 255.0
-        img = img.permute(0, 3, 1, 2)
-        state = torch.from_numpy(state).to(self.device)
-        state = state.to(torch.float32)
-        obs_dict = {
-            "observation.images.webcam": img,
-            "observation.state": state,
-        }
-        print(img.shape, state.shape)
-        actions = []
-        for i in range(self.horizon):
-            start_time = time.time()
-            action = self.policy.select_action(obs_dict)
-            print(f"iteration {i} time taken {time.time() - start_time:.2f} seconds")
-            # convert to numpy
-            # action = action.squeeze(0)
-            action = action.cpu().numpy()
-            actions.append(action)
-        # return (horizon, action_dim)
-        actions = np.concatenate(actions, axis=0)
-        assert actions.shape == (self.horizon, 6), actions.shape
-        return actions
-
-
-class Pi0Policy:
-    def __init__(self, model_path, language_instruction, device="cuda"):
-        from lerobot.common.policies.pi0.modeling_pi0 import PI0Policy
-
-        self.policy = PI0Policy.from_pretrained(model_path)
-        self.device = device
-        self.horizon = self.policy.config.n_action_steps
-        self.language_instruction = language_instruction
-
-    def get_action(self, img, state) -> np.ndarray:
-        img = torch.from_numpy(img).to(self.device)
-        img = img.to(torch.float32) / 255.0
-        img = img.permute(2, 0, 1).contiguous()
-
-        # add batch dimension
-        img = img[np.newaxis, :, :, :]
-        state = state[np.newaxis, :]
-        # convert to float32
-        state = torch.from_numpy(state).to(torch.float32).to(self.device)
-        obs_dict = {
-            "observation.images.webcam": img,
-            "observation.state": state,
-            "task": [self.language_instruction],
-        }
-        # print(img.shape, state.shape)
-        actions = []
-        for i in range(self.horizon):
-            action = self.policy.select_action(obs_dict)
-            # convert to numpy
-            # action = action.squeeze(0)
-            action = action.cpu().numpy()
-            actions.append(action)
-        # return (horizon, action_dim)
-        actions = np.concatenate(actions, axis=0)
-        assert actions.shape == (self.horizon, 6), actions.shape
-        # print(actions.shape)
-        return actions
 
 
 class Gr00tRobotInferenceClient:
@@ -442,8 +320,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--record_imgs", action="store_true")
     parser.add_argument("--timeout", type=int, default=60, help="Timeout in seconds")  # TIMEOUT
-    parser.add_argument("--use_dp", action="store_true")
-    parser.add_argument("--use_pi0", action="store_true")
     args = parser.parse_args()
 
     # print lang_instruction
@@ -457,27 +333,11 @@ if __name__ == "__main__":
     )  # we will execute only some actions from the action_chunk of 16
     MODALITY_KEYS = ["single_arm", "gripper"]
     if USE_POLICY:
-        if args.use_dp:
-            client = DiffusionPolicy(
-                # model_path="/home/youliang/lerobot/outputs/train/so100_dp001/checkpoints/100000/pretrained_model",
-                model_path="/home/youliang/lerobot/outputs/train/so100_dp_b256/checkpoints/last/pretrained_model",
-                device="cuda",
-            )
-        elif args.use_pi0:
-            client = Pi0Policy(
-                # TICTAC TOE
-                # model_path="/home/youliang/lerobot/outputs/train/tictac_pi0/checkpoints/last/pretrained_model",
-                # SO100 FRUITS
-                model_path="/home/youliang/lerobot/outputs/train/dp_so100_pi0_b16/checkpoints/last/pretrained_model",
-                language_instruction=language_instruction,
-                device="cuda",
-            )
-        else:
-            client = Gr00tRobotInferenceClient(
-                host=args.host,
-                port=args.port,
-                language_instruction=language_instruction,
-            )
+        client = Gr00tRobotInferenceClient(
+            host=args.host,
+            port=args.port,
+            language_instruction=language_instruction,
+        )
 
         if args.record_imgs:
             # create a folder to save the images and delete all the images in the folder
@@ -503,16 +363,10 @@ if __name__ == "__main__":
                     action = client.get_action(img, state)
                     start_time = time.time()
                     for i in range(ACTION_HORIZON):
-                        if args.use_dp or args.use_pi0:
-                            concat_action = action[i]
-                        else:
-                            concat_action = np.concatenate(
-                                [
-                                    np.atleast_1d(action[f"action.{key}"][i])
-                                    for key in MODALITY_KEYS
-                                ],
-                                axis=0,
-                            )
+                        concat_action = np.concatenate(
+                            [np.atleast_1d(action[f"action.{key}"][i]) for key in MODALITY_KEYS],
+                            axis=0,
+                        )
                         assert concat_action.shape == (6,), concat_action.shape
                         robot.set_target_state(torch.from_numpy(concat_action))
                         time.sleep(0.02)

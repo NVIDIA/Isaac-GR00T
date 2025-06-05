@@ -167,8 +167,6 @@ class Gr00tPolicy(BasePolicy):
         is_batch = self._check_state_is_batched(observations)
         if not is_batch:
             observations = unsqueeze_dict_values(observations)
-
-        normalized_input = unsqueeze_dict_values
         # Apply transforms
         normalized_input = self.apply_transforms(observations)
 
@@ -301,6 +299,8 @@ def unsqueeze_dict_values(data: Dict[str, Any]) -> Dict[str, Any]:
     for k, v in data.items():
         if isinstance(v, np.ndarray):
             unsqueezed_data[k] = np.expand_dims(v, axis=0)
+        elif isinstance(v, list):
+            unsqueezed_data[k] = np.array(v)
         elif isinstance(v, torch.Tensor):
             unsqueezed_data[k] = v.unsqueeze(0)
         else:

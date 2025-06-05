@@ -110,7 +110,7 @@ def calc_mse_for_single_trajectory(
         )
 
         for i, ax in enumerate(axes):
-            # ax.plot(state_joints_across_time[:, i], label="state joints")
+            ax.plot(state_joints_across_time[:, i], label="state joints")
             ax.plot(gt_action_joints_across_time[:, i], label="gt action joints")
             ax.plot(pred_action_joints_across_time[:, i], label="pred action joints")
 

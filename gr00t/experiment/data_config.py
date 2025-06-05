@@ -302,6 +302,23 @@ class UnitreeG1DataConfig(BaseDataConfig):
         return ComposedModalityTransform(transforms=transforms)
 
 
+class UnitreeG1FullBodyDataConfig(UnitreeG1DataConfig):
+    video_keys = ["video.rs_view"]
+    state_keys = [
+        "state.left_leg",
+        "state.right_leg",
+        "state.waist",
+        "state.left_arm",
+        "state.right_arm",
+        "state.left_hand",
+        "state.right_hand",
+    ]
+    action_keys = ["action.left_arm", "action.right_arm", "action.left_hand", "action.right_hand"]
+    language_keys = ["annotation.human.task_description"]
+    observation_indices = [0]
+    action_indices = list(range(16))
+
+
 ###########################################################################################
 
 
@@ -746,5 +763,6 @@ DATA_CONFIG_MAP = {
     "single_panda_gripper": SinglePandaGripperDataConfig(),
     "so100": So100DataConfig(),
     "unitree_g1": UnitreeG1DataConfig(),
+    "unitree_g1_full_body": UnitreeG1FullBodyDataConfig(),
     "oxe_droid": OxeDroidDataConfig(),
 }
