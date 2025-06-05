@@ -154,7 +154,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--video_backend",
         type=str,
-        default="decord",
+        default="torchvision_av",
         choices=["decord", "torchvision_av"],
         help="Backend to use for video loading, use torchvision_av for av encoded videos",
     )
