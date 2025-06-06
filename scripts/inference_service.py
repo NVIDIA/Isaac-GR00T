@@ -35,7 +35,7 @@ class ArgsConfig:
     embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "gr1"
     """The embodiment tag for the model."""
 
-    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "gr1_arms_waist"
+    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "fourier_gr1_arms_waist"
     """The name of the data config to use."""
 
     port: int = 5555

@@ -27,7 +27,7 @@ class EmbodimentTag(Enum):
     The OxE Droid dataset.
     """
 
-    GENIE1_GRIPPER = "genie1_gripper"
+    AGIBOT_GENIE1 = "agibot_genie1"
     """
     The AgiBot Genie-1 with gripper dataset.
     """

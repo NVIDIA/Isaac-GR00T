@@ -46,7 +46,7 @@ class BaseDataConfig(ABC):
 ###########################################################################################
 
 
-class Gr1ArmsOnlyDataConfig(BaseDataConfig):
+class FourierGr1ArmsOnlyDataConfig(BaseDataConfig):
     video_keys = ["video.ego_view"]
     state_keys = [
         "state.left_arm",
@@ -305,7 +305,7 @@ class UnitreeG1DataConfig(BaseDataConfig):
 ###########################################################################################
 
 
-class Gr1FullUpperBodyDataConfig(BaseDataConfig):
+class FourierGr1FullUpperBodyDataConfig(BaseDataConfig):
     video_keys = ["video.front_view"]
     state_keys = [
         "state.left_arm",
@@ -608,7 +608,7 @@ class SinglePandaGripperDataConfig(BimanualPandaGripperDataConfig):
 ###########################################################################################
 
 
-class Gr1ArmsWaistDataConfig(Gr1ArmsOnlyDataConfig):
+class FourierGr1ArmsWaistDataConfig(Gr1ArmsOnlyDataConfig):
     video_keys = ["video.ego_view"]
     state_keys = [
         "state.left_arm",
@@ -738,7 +738,7 @@ class OxeDroidDataConfig:
 ###########################################################################################
 
 
-class Genie1GripperDataConfig:
+class AgibotGenie1DataConfig:
     video_keys = [
         "video.top_head_pad_res256_freq10",
         "video.hand_left_pad_res256_freq10",
@@ -851,14 +851,14 @@ class Genie1GripperDataConfig:
 ###########################################################################################
 
 DATA_CONFIG_MAP = {
-    "gr1_arms_waist": Gr1ArmsWaistDataConfig(),
-    "gr1_arms_only": Gr1ArmsOnlyDataConfig(),
-    "gr1_full_upper_body": Gr1FullUpperBodyDataConfig(),
+    "fourier_gr1_arms_waist": FourierGr1ArmsWaistDataConfig(),
+    "fourier_gr1_arms_only": FourierGr1ArmsOnlyDataConfig(),
+    "fourier_gr1_full_upper_body": FourierGr1FullUpperBodyDataConfig(),
     "bimanual_panda_gripper": BimanualPandaGripperDataConfig(),
     "bimanual_panda_hand": BimanualPandaHandDataConfig(),
     "single_panda_gripper": SinglePandaGripperDataConfig(),
     "so100": So100DataConfig(),
     "unitree_g1": UnitreeG1DataConfig(),
     "oxe_droid": OxeDroidDataConfig(),
-    "genie1_gripper": Genie1GripperDataConfig(),
+    "agibot_genie1": AgibotGenie1DataConfig(),
 }
