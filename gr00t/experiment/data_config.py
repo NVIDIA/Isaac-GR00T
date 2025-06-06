@@ -608,7 +608,7 @@ class SinglePandaGripperDataConfig(BimanualPandaGripperDataConfig):
 ###########################################################################################
 
 
-class FourierGr1ArmsWaistDataConfig(Gr1ArmsOnlyDataConfig):
+class FourierGr1ArmsWaistDataConfig(FourierGr1ArmsOnlyDataConfig):
     video_keys = ["video.ego_view"]
     state_keys = [
         "state.left_arm",
