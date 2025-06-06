@@ -27,9 +27,9 @@ class EmbodimentTag(Enum):
     The OxE Droid dataset.
     """
 
-    AGIBOT = "agibot"
+    GENIE1_GRIPPER = "genie1_gripper"
     """
-    The AgiBot dataset.   # TODO(YL, FH): discuss with team
+    The AgiBot Genie-1 with gripper dataset.
     """
 
     NEW_EMBODIMENT = "new_embodiment"
@@ -42,6 +42,6 @@ class EmbodimentTag(Enum):
 EMBODIMENT_TAG_MAPPING = {
     EmbodimentTag.NEW_EMBODIMENT.value: 31,
     EmbodimentTag.OXE_DROID.value: 17,
-    EmbodimentTag.AGIBOT.value: 26,
+    EmbodimentTag.GENIE1_GRIPPER.value: 26,
     EmbodimentTag.GR1.value: 24,
 }

@@ -14,9 +14,17 @@ GR00T is designed to work with different types of robots (embodiments) through s
    - If you have a new embodiment, you can use the `EmbodimentTag.NEW_EMBODIMENT` tag (e.g., `new_embodiment.your_custom_dataset`)
 
 2. **How it Works**
-   - When you load your dataset with a specific embodiment tag (e.g., `EmbodimentTag.GR1_UNIFIED`)
+   - When you load your dataset with a specific embodiment tag (e.g., `EmbodimentTag.GR1`)
    - The model has multiple components that can be configured for fine-tuning (Visual Encoder, Language Model, DiT, etc.)
    - For action heads specifically, only the one corresponding to your specified embodiment tag will be fine-tuned. Other embodiment-specific action heads remain frozen
+
+3. **Supported Embodiment**
+
+   | Embodiment Tag | Description | Data Config | Observation Space | Action Space | Notes |
+   |-|-|-|-|-|-|
+   | `EmbodimentTag.GR1` | Fourier GR1 Robot | `gr1_arms_waist` | `video.ego_view`, `state.left_arm`, `state.right_arm`, `state.left_hand`, `state.right_hand`, `state.waist` | `action.left_arm`, `action.right_arm`, `action.left_hand`, `action.right_hand`, `action.waist`, `action.robot_velocity` | Absolute joint control |
+   | `EmbodimentTag.OXE_DROID` | OXE Droid | `oxe_droid` | `video.exterior_image_1_left_pad_res256_freq15`, `video.exterior_image_2_left_pad_res256_freq15`, `video.wrist_image_left_pad_res256_freq15`, `state.eef_position`, `state.eef_rotation`, `state.gripper_position` | `action.eef_position_delta`, `action.eef_rotation_delta`, `action.gripper_position` | Delta end effector control |
+   | `EmbodimentTag.GENIE1_GRIPPER` | Agibot Genie-1 with gripper | `genie1_gripper` | `video.top_head_pad_res256_freq10`, `video.hand_left_pad_res256_freq10`, `video.hand_right_pad_res256_freq10`, `state.left_arm_joint_position`, `state.right_arm_joint_position`, `state.left_effector_position`, `state.right_effector_position`, `state.head_position`, `state.waist_position` | `action.left_arm_joint_position`, `action.right_arm_joint_position`, `action.left_effector_position`, `action.right_effector_position`, `action.head_position`, `action.waist_position`, `action.robot_velocity` | Absolute joint control |
 
 ## Advanced Tuning Parameters
 

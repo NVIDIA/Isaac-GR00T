@@ -737,6 +737,119 @@ class OxeDroidDataConfig:
 
 ###########################################################################################
 
+
+class Genie1GripperDataConfig:
+    video_keys = [
+        "video.top_head_pad_res256_freq10",
+        "video.hand_left_pad_res256_freq10",
+        "video.hand_right_pad_res256_freq10",
+    ]
+    state_keys = [
+        "state.left_arm_joint_position",
+        "state.right_arm_joint_position",
+        "state.left_effector_position",
+        "state.right_effector_position",
+        "state.head_position",
+        "state.waist_position",
+    ]
+    action_keys = [
+        "action.left_arm_joint_position",
+        "action.right_arm_joint_position",
+        "action.left_effector_position",
+        "action.right_effector_position",
+        "action.head_position",
+        "action.waist_position",
+        "action.robot_velocity",
+    ]
+    language_keys = ["annotation.language.action_text"]
+    observation_indices = [0]
+    action_indices = list(range(16))
+
+    def modality_config(self):
+        video_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.video_keys,
+        )
+        state_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.state_keys,
+        )
+        action_modality = ModalityConfig(
+            delta_indices=self.action_indices,
+            modality_keys=self.action_keys,
+        )
+        language_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.language_keys,
+        )
+        modality_configs = {
+            "video": video_modality,
+            "state": state_modality,
+            "action": action_modality,
+            "language": language_modality,
+        }
+        return modality_configs
+
+    def transform(self):
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=self.video_keys),
+            VideoCrop(apply_to=self.video_keys, scale=0.95),
+            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoColorJitter(
+                apply_to=self.video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoToNumpy(apply_to=self.video_keys),
+            # state transforms
+            StateActionToTensor(apply_to=self.state_keys),
+            StateActionTransform(
+                apply_to=self.state_keys,
+                normalization_modes={
+                    "state.left_arm_joint_position": "min_max",
+                    "state.right_arm_joint_position": "min_max",
+                    "state.left_effector_position": "min_max",
+                    "state.right_effector_position": "min_max",
+                    "state.head_position": "min_max",
+                    "state.waist_position": "min_max",
+                },
+            ),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={
+                    "action.left_arm_joint_position": "min_max",
+                    "action.right_arm_joint_position": "min_max",
+                    "action.left_effector_position": "min_max",
+                    "action.right_effector_position": "min_max",
+                    "action.head_position": "min_max",
+                    "action.waist_position": "min_max",
+                    "action.robot_velocity": "min_max",
+                },
+            ),
+            # concat transforms
+            ConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            GR00TTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+
+        return ComposedModalityTransform(transforms=transforms)
+
+
+###########################################################################################
+
 DATA_CONFIG_MAP = {
     "gr1_arms_waist": Gr1ArmsWaistDataConfig(),
     "gr1_arms_only": Gr1ArmsOnlyDataConfig(),
@@ -747,4 +860,5 @@ DATA_CONFIG_MAP = {
     "so100": So100DataConfig(),
     "unitree_g1": UnitreeG1DataConfig(),
     "oxe_droid": OxeDroidDataConfig(),
+    "genie1_gripper": Genie1GripperDataConfig(),
 }
