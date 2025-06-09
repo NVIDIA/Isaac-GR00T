@@ -99,7 +99,8 @@ We provide accessible Jupyter notebooks and detailed documentations in the [`./g
 
 - To load and process the data, we use [Huggingface LeRobot data](https://github.com/huggingface/lerobot), but with a more detailed modality and annotation schema (we call it "LeRobot compatible data schema").
 - An example of LeRobot dataset is stored here: `./demo_data/robot_sim.PickNPlace`. (with additional [`modality.json`](./demo_data/robot_sim.PickNPlace/meta/modality.json) file)
-- Detailed explanation of the dataset format is available in [`getting_started/LeRobot_compatible_data_schema.md`](getting_started/LeRobot_compatible_data_schema.md)
+- Detailed explanation of the dataset format is available in [`getting_started/LeRobot_compatible_data_schema.md`](getting_started/LeRdobot_compatible_data_schema.m)
+- We support multiple embodiments with the [`EmbodimentTag`](getting_started/4_deeper_understanding.md#embodiment-action-head-fine-tuning) system.
 - Once your data is organized in this format, you can load the data using `LeRobotSingleDataset` class.
 
 ```python
@@ -130,7 +131,7 @@ dataset[5]
 - [`getting_started/0_load_dataset.ipynb`](getting_started/0_load_dataset.ipynb) is an interactive tutorial on how to load the data and process it to interface with the GR00T N1.5 model.
 - [`scripts/load_dataset.py`](scripts/load_dataset.py) is an executable script with the same content as the notebook.
 
-Try run the script to lod
+Try run the script to load the dataset
 ```bash
 python scripts/load_dataset.py --dataset-path ./demo_data/robot_sim.PickNPlace
 ```
