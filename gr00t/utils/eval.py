@@ -96,8 +96,7 @@ def calc_mse_for_single_trajectory(
     print("gt_action_joints vs time", gt_action_joints_across_time.shape)
     print("pred_action_joints vs time", pred_action_joints_across_time.shape)
 
-    # num_of_joints = state_joints_across_time.shape[1]
-    num_of_joints = 14
+    num_of_joints = state_joints_across_time.shape[1]
 
     if plot:
         fig, axes = plt.subplots(nrows=num_of_joints, ncols=1, figsize=(8, 4 * num_of_joints))

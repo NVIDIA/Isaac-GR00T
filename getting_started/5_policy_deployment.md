@@ -14,7 +14,7 @@ Run the following command to start the policy server.
 python scripts/inference_service.py --server \
     --model_path <PATH_TO_YOUR_CHECKPOINT> \
     --embodiment-tag new_embodiment \
-    --data-config so100_dual_cam \
+    --data-config so100_dualcam \
     --denoising-steps 4
 ```
 
@@ -48,7 +48,7 @@ We provide a sample client node implementation for the So100 Lerobot arm. Please
 
 User can run the following command to start the client node. This example demonstrate with 2 cameras:
 ```bash
-python eval_gr00t_so100.py \
+python eval_lerobot.py \
     --robot.type=so100_follower \
     --robot.port=/dev/ttyACM0 \
     --robot.id=lil_guy \
@@ -61,5 +61,7 @@ For task that uses single camera, change the `--robot.cameras` to:
 ```bash
     --robot.cameras="{ wrist: {type: opencv, index_or_path: 9, width: 640, height: 480, fps: 30}}}" \
 ```
+
+Change the language instruction to the task you want to perform by changing the `--lang_instruction` argument.
 
 This will activate the robot, and call the `action = get_action(obs)` endpoint of the policy server to get the action, then execute the action on the robot.
