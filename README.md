@@ -207,7 +207,7 @@ The recommended finetuning configurations is to boost your batch size to the max
 - **LoRA finetuning**: We used 2 A6000 GPUs or 2 RTX 4090 GPUs for LoRA finetuning. User can try out different configurations for effective finetuning.
 - **Inference Performance**: For real-time inference, most modern GPUs perform similarly when processing a single sample. Our benchmarks show minimal difference between L40 and RTX 4090 for inference speed.
 
-For new embodiment finetuning, checkout our notebook in [`getting_started/3_new_embodiment_finetuning.ipynb`](getting_started/3_new_embodiment_finetuning.ipynb).
+For new embodiment finetuning, checkout our notebook in [`getting_started/3_0_new_embodiment_finetuning.md`](getting_started/3_0_new_embodiment_finetuning.md).
 
 ## 4. Evaluation
 
@@ -270,6 +270,11 @@ python scripts/gr00t_finetune.py --dataset-path <DATASET1> <DATASET2> --num-gpus
 ```
 
 By default, the `gr00t_finetune.py` impose equal weights to all datasets, with `balance_dataset_weights` and `balance_trajectory_weights` set to `True`. For more details, see the `LeRobotMixtureDataset` class definition in `gr00t/data/dataset.py`. Users can also use the `LeRobotMixtureDataset` class directly to train with multiple datasets with different embodiments, transforms, and sampling weights.
+
+
+*Is LoRA finetuning supported?*
+
+Yes, you can use LoRA finetuning to finetune the model. This can be enabled by indicating `--lora_rank 64  --lora_alpha 128` in the finetuning script. However we recommend using the full model finetuning for better performance.
 
 
 # Contributing
