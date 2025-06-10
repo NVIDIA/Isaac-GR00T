@@ -25,9 +25,9 @@
 <img src="media/robot-demo.gif" width="800" alt="NVIDIA Isaac GR00T N1 Header">
 </div>
 
-> We just released GR00T N1.5, a updated version of GR00T N1 with improved performance and new features. Check out the release blog post(TODO) for more details.
+> We just released GR00T N1.5, a updated version of GR00T N1 with improved performance and new features. Check out the release blog post (http://research.nvidia.com/labs/gear/gr00t-n15/) for more details.
 
-> To use the older version, N1, please checkout the [n1.0.0](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.0.0) release branch.
+> To use the older version, N1, please checkout the [n1-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1-release) release branch.
 
 NVIDIA Isaac GR00T N1.5 is an open foundation model for generalized humanoid robot reasoning and skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
 
@@ -189,9 +189,6 @@ python scripts/gr00t_finetune.py --help
 
 # then run the script
 python scripts/gr00t_finetune.py --dataset-path ./demo_data/robot_sim.PickNPlace --num-gpus 1
-
-# run using Lora Parameter Eifficient Fine-Tuning
-python scripts/gr00t_finetune.py  --dataset-path ./demo_data/robot_sim.PickNPlace --num-gpus 1 --lora_rank 64  --lora_alpha 128  --batch-size 32
 ```
 
 You can also download a sample dataset from our huggingface sim data release [here](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim)
@@ -254,13 +251,13 @@ You will then see a plot of Ground Truth vs Predicted actions, along with unnorm
 
 *What is the inference speed for Gr00tPolicy?*
 
-Below are benchmark results based on a single L40 GPU. Performance is approximately the same on consumer GPUs like RTX 4090 for inference (single sample processing):
+Below are benchmark results based on a single H100 GPU. Performance will be slightly slower on consumer GPUs like RTX 4090 for inference (single sample processing):
 
 | Module | Inference Speed |
 |----------|------------------|
-| VLM Backbone | 22.92 ms |
-| Action Head with 4 diffusion steps | 4 x 9.90ms = 39.61 ms |
-| Full Model | 62.53 ms |
+| VLM Backbone | 23.18 ms |
+| Action Head with 4 diffusion steps | 4 x 6.18 ms = 24.7 ms |
+| Full Model | 47.88 ms |
 
 We noticed that 4 denoising steps are sufficient during inference.
 

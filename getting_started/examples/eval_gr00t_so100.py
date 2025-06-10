@@ -23,28 +23,26 @@ import numpy as np
 import torch
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.robot_devices.cameras.configs import OpenCVCameraConfig
-from lerobot.common.robot_devices.motors.configs import FeetechMotorsBusConfig
 from lerobot.common.robot_devices.motors.dynamixel import TorqueMode
 from lerobot.common.robot_devices.robots.configs import So100RobotConfig
 from lerobot.common.robot_devices.robots.utils import make_robot_from_config
 from lerobot.common.robot_devices.utils import RobotDeviceAlreadyConnectedError
-
-# Import tqdm for progress bar
-from tqdm import tqdm
 
 # NOTE:
 # Sometimes we would like to abstract different env, or run this on a separate machine
 # User can just move this single python class method gr00t/eval/service.py
 # to their code or do the following line below
 # sys.path.append(os.path.expanduser("~/Isaac-GR00T/gr00t/eval/"))
-# from service import ExternalRobotInferenceClient
-from gr00t.eval.service import ExternalRobotInferenceClient
+from service import ExternalRobotInferenceClient
+
+# Import tqdm for progress bar
+from tqdm import tqdm
 
 #################################################################################
 
 
 class SO100Robot:
-    def __init__(self, calibrate=False, enable_camera=False, cam_idx=9, robot_port="/dev/ttyACM0"):
+    def __init__(self, calibrate=False, enable_camera=False, cam_idx=9):
         self.config = So100RobotConfig()
         self.calibrate = calibrate
         self.enable_camera = enable_camera
@@ -53,23 +51,6 @@ class SO100Robot:
             self.config.cameras = {}
         else:
             self.config.cameras = {"webcam": OpenCVCameraConfig(cam_idx, 30, 640, 480, "bgr")}
-
-        # Set the robot arms
-        self.config.follower_arms = {
-            "main": FeetechMotorsBusConfig(
-                port=robot_port,
-                motors={
-                    # name: (index, model)
-                    "shoulder_pan": (1, "sts3215"),
-                    "shoulder_lift": (2, "sts3215"),
-                    "elbow_flex": (3, "sts3215"),
-                    "wrist_flex": (4, "sts3215"),
-                    "wrist_roll": (5, "sts3215"),
-                    "gripper": (6, "sts3215"),
-                },
-            ),
-        }
-
         self.config.leader_arms = {}
 
         # remove the .cache/calibration/so100 folder
@@ -204,7 +185,6 @@ class Gr00tRobotInferenceClient:
         self.policy = ExternalRobotInferenceClient(host=host, port=port)
 
     def get_action(self, img, state):
-        # print(self.language_instruction)
         obs_dict = {
             "video.webcam": img[np.newaxis, :, :, :],
             "state.single_arm": state[:5][np.newaxis, :].astype(np.float64),
@@ -244,66 +224,13 @@ def view_img(img, img2=None):
     plt.clf()  # Clear the figure for the next frame
 
 
-def print_yellow(text):
-    print("\033[93m {}\033[00m".format(text))
-
-
-def get_language(language_instruction=None):
-    if language_instruction is None:
-        # get the language instruction from the user
-        language_instruction = input(
-            "Please enter the language instruction (default: Pick up the fruits and place them on the plate.): "
-        )
-
-        if language_instruction == "":
-            language_instruction = "Pick up the fruits and place them on the plate."
-
-    print("lang_instruction: ", language_instruction)
-
-    # check if lang is a number
-    if language_instruction.isdigit():
-        # convert to int
-        language_instruction = int(language_instruction)
-        print("lang_instruction converted to int: ", language_instruction)
-
-        from tictac_bot import TaskToString
-
-        num = int(language_instruction)
-        if num == 1:
-            language_instruction = TaskToString.TOP_RIGHT
-        elif num == 2:
-            language_instruction = TaskToString.CENTER_TOP
-        elif num == 3:
-            language_instruction = TaskToString.TOP_LEFT
-        elif num == 4:
-            language_instruction = TaskToString.CENTER_RIGHT
-        elif num == 5:
-            language_instruction = TaskToString.CENTER
-        elif num == 6:
-            language_instruction = TaskToString.CENTER_LEFT
-        elif num == 7:
-            language_instruction = TaskToString.BOTTOM_RIGHT
-        elif num == 8:
-            language_instruction = TaskToString.CENTER_BOTTOM
-        elif num == 9:
-            language_instruction = TaskToString.BOTTOM_LEFT
-        else:
-            print("Invalid lang_instruction number. Please enter a number between 1 and 9.")
-            exit(1)
-        # convert to string
-        language_instruction = str(language_instruction)
-        print("lang_instruction converted to string: ", language_instruction)
-    print("lang_instruction: ", language_instruction)
-    return language_instruction
-
-
 #################################################################################
 
 if __name__ == "__main__":
     import argparse
     import os
 
-    default_dataset_path = os.path.expanduser("/datasets/so100_strawberry_grape")
+    default_dataset_path = os.path.expanduser("~/datasets/so100_strawberry_grape")
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -313,18 +240,16 @@ if __name__ == "__main__":
     parser.add_argument("--host", type=str, default="10.110.17.183")
     parser.add_argument("--port", type=int, default=5555)
     parser.add_argument("--action_horizon", type=int, default=12)
-    parser.add_argument("--actions_to_execute", type=int, default=550)
+    parser.add_argument("--actions_to_execute", type=int, default=350)
     parser.add_argument("--cam_idx", type=int, default=1)
     parser.add_argument(
         "--lang_instruction", type=str, default="Pick up the fruits and place them on the plate."
     )
     parser.add_argument("--record_imgs", action="store_true")
-    parser.add_argument("--timeout", type=int, default=60, help="Timeout in seconds")  # TIMEOUT
     args = parser.parse_args()
 
     # print lang_instruction
-    language_instruction = args.lang_instruction
-    language_instruction = get_language(language_instruction)
+    print("lang_instruction: ", args.lang_instruction)
 
     ACTIONS_TO_EXECUTE = args.actions_to_execute
     USE_POLICY = args.use_policy
@@ -336,7 +261,7 @@ if __name__ == "__main__":
         client = Gr00tRobotInferenceClient(
             host=args.host,
             port=args.port,
-            language_instruction=language_instruction,
+            language_instruction=args.lang_instruction,
         )
 
         if args.record_imgs:
@@ -347,56 +272,40 @@ if __name__ == "__main__":
 
         robot = SO100Robot(calibrate=False, enable_camera=True, cam_idx=args.cam_idx)
         image_count = 0
-        # for i in tqdm(range(ACTIONS_TO_EXECUTE), desc="Executing actions"):
         with robot.activate():
-            while True:
-                eps_start_time = time.time()
-                # check if timeout is reached
-                while time.time() - eps_start_time < args.timeout:
-                    # get the realtime image
-                    print_yellow(
-                        f" Current elapsed time: {time.time() - eps_start_time:.2f} seconds"
+            for i in tqdm(range(ACTIONS_TO_EXECUTE), desc="Executing actions"):
+                img = robot.get_current_img()
+                view_img(img)
+                state = robot.get_current_state()
+                action = client.get_action(img, state)
+                start_time = time.time()
+                for i in range(ACTION_HORIZON):
+                    concat_action = np.concatenate(
+                        [np.atleast_1d(action[f"action.{key}"][i]) for key in MODALITY_KEYS],
+                        axis=0,
                     )
+                    assert concat_action.shape == (6,), concat_action.shape
+                    robot.set_target_state(torch.from_numpy(concat_action))
+                    time.sleep(0.02)
+
+                    # get the realtime image
                     img = robot.get_current_img()
                     view_img(img)
-                    state = robot.get_current_state()
-                    action = client.get_action(img, state)
-                    start_time = time.time()
-                    for i in range(ACTION_HORIZON):
-                        concat_action = np.concatenate(
-                            [np.atleast_1d(action[f"action.{key}"][i]) for key in MODALITY_KEYS],
-                            axis=0,
-                        )
-                        assert concat_action.shape == (6,), concat_action.shape
-                        robot.set_target_state(torch.from_numpy(concat_action))
-                        time.sleep(0.02)
 
-                        # get the realtime image
-                        img = robot.get_current_img()
-                        view_img(img)
+                    if args.record_imgs:
+                        # resize the image to 320x240
+                        img = cv2.resize(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), (320, 240))
+                        cv2.imwrite(f"eval_images/img_{image_count}.jpg", img)
+                        image_count += 1
 
-                        if args.record_imgs:
-                            # resize the image to 320x240
-                            img = cv2.resize(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), (320, 240))
-                            cv2.imwrite(f"eval_images/img_{image_count}.jpg", img)
-                            image_count += 1
-
-                        # 0.05*16 = 0.8 seconds
-                        # print("executing action", i, "time taken", time.time() - start_time)
-                    # print("Action chunk execution time taken", time.time() - start_time)
-
-                robot.move_to_initial_pose()
-                language_instruction = get_language(None)
-                # if language_instruction is in client
-                client.language_instruction = language_instruction
-                print("Language instruction updated to: ", language_instruction)
-
+                    # 0.05*16 = 0.8 seconds
+                    print("executing action", i, "time taken", time.time() - start_time)
+                print("Action chunk execution time taken", time.time() - start_time)
     else:
         # Test Dataset Source https://huggingface.co/datasets/youliangtan/so100_strawberry_grape
         dataset = LeRobotDataset(
             repo_id="",
             root=args.dataset_path,
-            episodes=[24],
         )
 
         robot = SO100Robot(calibrate=False, enable_camera=True, cam_idx=args.cam_idx)
@@ -405,8 +314,6 @@ if __name__ == "__main__":
             print("Run replay of the dataset")
             actions = []
             for i in tqdm(range(ACTIONS_TO_EXECUTE), desc="Loading actions"):
-                # while True:
-                #     i = 0
                 action = dataset[i]["action"]
                 img = dataset[i]["observation.images.webcam"].data.numpy()
                 # original shape (3, 480, 640) for image data
