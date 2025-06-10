@@ -91,6 +91,9 @@ TADA! You have successfully finetuned GR00T-N1.5 on a new embodiment.
 
 ## Step 4: Deployment
 
+First, make sure the data is replay-able, refer to the lerobot doc: https://huggingface.co/docs/lerobot/so101
+
+Evaluate the policy on the robot:
 ```bash
 python eval_lerobot.py \
     --robot.type=so100_follower \
