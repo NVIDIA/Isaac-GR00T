@@ -90,13 +90,16 @@ class ArgsConfig:
     """Ratio of total training steps used for warmup."""
 
     lora_rank: int = 0
-    """Rank for the LORA model."""
+    """Rank for the LORA model. If 0, no LORA will be used."""
 
     lora_alpha: int = 16
     """Alpha value for the LORA model."""
 
     lora_dropout: float = 0.1
     """Dropout rate for the LORA model."""
+
+    lora_full_model: bool = False
+    """Whether to use the full model for LORA. If False, only the action head will be trained."""
 
     dataloader_num_workers: int = 8
     """Number of workers for data loading."""
@@ -193,6 +196,7 @@ def main(config: ArgsConfig):
             rank=config.lora_rank,
             lora_alpha=config.lora_alpha,
             lora_dropout=config.lora_dropout,
+            action_head_only=not config.lora_full_model,
         )
 
     # 2.1 modify training args

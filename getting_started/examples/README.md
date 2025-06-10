@@ -5,12 +5,13 @@
 This provides additional examples of `modality.json` for different lerobot datasets. Copy the relevant `modality.json` to the dataset`<DATASET_PATH>/meta/modality.json`
 
 
-## Eval GR00T N1 on SO100
+## Eval GR00T N1 on SO100 and SO101
 
+ - [eval_lerobot.py](./eval_lerobot.py): script to evaluate policy.
+ - [eval_gr00t_so100.py](./eval_gr00t_so100.py) provides an example of how to use the finetuned model to run policy rollouts on a SO100 robot arm. (Before [Lerobot API redesign PR](https://github.com/huggingface/lerobot/pull/777))
 
-[eval_gr00t_so100.py](./eval_gr00t_so100.py) provides an example of how to use the finetuned model to run policy rollouts on a SO100 robot arm.
+> NOTE: This scripts meant to serve as a template, user will need to modify the script to run on a real robot.
 
-> NOTE: This script is meant to serve as a template, user will need to modify the script to run on a real robot.
 
 ## Tic-Tac-Toe Bot
 
