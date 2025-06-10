@@ -6,10 +6,9 @@ This notebook is a tutorial on how to finetune GR00T-N1 pretrained model on a ne
 
 GR00T-N1.5 is accessible to everyone with various robot form-factors. Based on Huggingface's low-cost [So101 Lerobot arm](https://huggingface.co/docs/lerobot/so101), users can finetune GR00T-N1.5 on their own robot via a `new_embodiment` tag.
 
-<div style="display: flex; justify-content: space-between;">
-    <img src="../media/so100_eval_demo.gif" alt="so100_eval_demo" style="width: 640px; height: 480px;">
-    <img src="../media/so101-table-cleanup.png" alt="so101-table-cleanup" style="width: 640px; height: 480px;">
-</div>
+| So100 Strawberry and Grape Picking | So101 Table Cleanup Task |
+|----------------------|---------------------|
+| ![so100_eval_demo](../media/so100_eval_demo.gif){width=400} | ![so101-table-cleanup](../media/so101-table-cleanup.png){width=400} |
 
 
 | Dataset | Observation | Viz Link |
@@ -29,21 +28,23 @@ Note that this embodiment was not used in our pretraining dataset mixture.
 
 ```bash
 huggingface-cli download \
-    --repo-type dataset youliangtan/so100_strawberry_grape \
-    --local-dir ./demo_data/so100_strawberry_grape
+    --repo-type dataset youliangtan/so101-table-cleanup \
+    --local-dir ./demo_data/so101-table-cleanup
 ```
 
 ### Second, copy over the modality file
 
-The `modality.json` file provides additional information about the state and action modalities to make it "GR00T-compatible". Copy over the `examples/so100__modality.json` to the dataset `<DATASET_PATH>/meta/modality.json`.
+The `modality.json` file provides additional information about the state and action modalities to make it "GR00T-compatible". Copy over the `examples/so100_dualcam__modality.json` to the dataset `<DATASET_PATH>/meta/modality.json`.
 
+
+For Dual Camera setup like [so101-table-cleanup](https://huggingface.co/datasets/youliangtan/so101-table-cleanup) dataset, do:
 ```bash
-cp examples/so100__modality.json ./demo_data/so100_strawberry_grape/meta/modality.json
+cp examples/so100_dualcam__modality.json ./demo_data/so101-table-cleanup/meta/modality.json
 ```
 
-Or for Dual Camera setup like [so100-table-cleanup](https://huggingface.co/datasets/youliangtan/so100-table-cleanup) dataset, do:
+For Single Camera setup like [so100_strawberry_grape](https://huggingface.co/spaces/lerobot/visualize_dataset?dataset=youliangtan%2Fso100_strawberry_grape&episode=0) dataset, do:
 ```bash
-cp examples/so100__dualcam_modality.json ./demo_data/so100-table-cleanup/meta/modality.json
+cp examples/so100__modality.json ./demo_data/so100_strawberry_grape/meta/modality.json
 ```
 
 Then we can load the dataset using the `LeRobotSingleDataset` class.
@@ -51,18 +52,20 @@ Then we can load the dataset using the `LeRobotSingleDataset` class.
 
 ## Step 2: Finetuning
 
-Finetuning can be done by using our finetuning `scripts/gr00t_finetune.py`.
-
+Finetuning can be done by using our finetuning `scripts/gr00t_finetune.py`, as a "new-embodiment" tag is supported.
 
 ```bash
 python scripts/gr00t_finetune.py \
-   --dataset-path /datasets/so100_strawberry_grape/ \
+   --dataset-path /datasets/so101-table-cleanup/ \
    --num-gpus 1 \
-   --output-dir ~/so100-checkpoints  \
+   --batch-size 64 \
+   --output-dir ~/so101-checkpoints  \
    --max-steps 10000 \
-   --data-config so100 \
+   --data-config so100_dualcam \
    --video-backend torchvision_av
 ```
+
+> adjust the batch size to your GPU memory.
 
 ## Step 3: Open-loop evaluation
 
@@ -72,8 +75,8 @@ Once the training is done, you can run the following command to visualize the fi
 python scripts/eval_policy.py --plot \
    --embodiment_tag new_embodiment \
    --model_path <YOUR_CHECKPOINT_PATH> \
-   --data_config so100 \
-  --dataset_path /datasets/so100_strawberry_grape/ \
+   --data_config so100_dualcam \
+  --dataset_path /datasets/so101-table-cleanup/ \
    --video_backend torchvision_av \
    --modality_keys single_arm gripper
 ```
@@ -82,14 +85,15 @@ This is a plot after training the policy for 7k steps.
 
 ![so100-7k-steps.png](../media/so100-7k-steps.png)
 
-
 After training for more steps the plot will look significantly better.
-
 
 TADA! You have successfully finetuned GR00T-N1.5 on a new embodiment.
 
 ## Step 4: Deployment
 
+First, make sure the data is replay-able, refer to the lerobot doc: https://huggingface.co/docs/lerobot/so101
+
+Evaluate the policy on the robot:
 ```bash
 python eval_lerobot.py \
     --robot.type=so100_follower \
