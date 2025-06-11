@@ -55,7 +55,7 @@ class ArgsConfig:
     modality_keys: List[str] = field(default_factory=lambda: ["right_arm", "left_arm"])
     """Modality keys to evaluate."""
 
-    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "gr1_arms_only"
+    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "fourier_gr1_arms_only"
     """Data config to use."""
 
     steps: int = 150
