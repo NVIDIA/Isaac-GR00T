@@ -40,7 +40,6 @@ class EagleBackbone(nn.Module):
         project_to_dim: int = 1536,
     ):
         """
-        Eagle2d5VLBackbone is to generate n_queries to represent the future action hidden states.
         Args:
             tune_llm: whether to tune the LLM model (default: True)
             tune_visual: whether to tune the visual model (default: False)
@@ -48,10 +47,6 @@ class EagleBackbone(nn.Module):
         super().__init__()
         assert not reproject_vision, "Reproject vision is not implemented here, set to False"
 
-        # if eagle_path is None:
-        #     eagle_path = DEFAULT_EAGLE_PATH
-
-        # TODO (FH): don't hardcode the path here after the checkpoint is stable
         config = AutoConfig.from_pretrained(DEFAULT_EAGLE_PATH, trust_remote_code=True)
         self.eagle_model = AutoModel.from_config(config, trust_remote_code=True)
 
