@@ -216,6 +216,16 @@ The recommended finetuning configurations is to boost your batch size to the max
 
 For new embodiment finetuning, checkout our notebook in [`getting_started/3_0_new_embodiment_finetuning.md`](getting_started/3_0_new_embodiment_finetuning.md).
 
+### Choosing the Right Embodiment Head
+
+GR00T N1.5 provides three pretrained embodiment heads optimized for different robot configurations:
+
+- **`EmbodimentTag.GR1`**: Designed for humanoid robots with dexterous hands using absolute joint space control
+- **`EmbodimentTag.OXE_DROID`**: Optimized for single arm robots using delta end-effector (EEF) control  
+- **`EmbodimentTag.AGIBOT_GENIE1`**: Built for humanoid robots with grippers using absolute joint space control
+
+Select the embodiment head that best matches your robot's configuration for optimal finetuning performance. For detailed information on the observation and action spaces, see [`EmbodimentTag`](getting_started/4_deeper_understanding.md#embodiment-action-head-fine-tuning).
+
 ## 4. Evaluation
 
 To conduct an offline evaluation of the model, we provide a script that evaluates the model on a dataset, and plots it out. Quick try: `python scripts/eval_policy.py --plot --model_path nvidia/GR00T-N1.5-3B`

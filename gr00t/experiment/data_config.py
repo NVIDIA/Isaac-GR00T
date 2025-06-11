@@ -669,9 +669,9 @@ class FourierGr1ArmsWaistDataConfig(FourierGr1ArmsOnlyDataConfig):
 
 class OxeDroidDataConfig:
     video_keys = [
-        "video.exterior_image_1_left_pad_res256_freq15",
-        "video.exterior_image_2_left_pad_res256_freq15",
-        "video.wrist_image_left_pad_res256_freq15",
+        "video.exterior_image_1",
+        "video.exterior_image_2",
+        "video.wrist_image",
     ]
     state_keys = [
         "state.eef_position",
@@ -769,9 +769,9 @@ class OxeDroidDataConfig:
 
 class AgibotGenie1DataConfig:
     video_keys = [
-        "video.top_head_pad_res256_freq10",
-        "video.hand_left_pad_res256_freq10",
-        "video.hand_right_pad_res256_freq10",
+        "video.top_head",
+        "video.hand_left",
+        "video.hand_right",
     ]
     state_keys = [
         "state.left_arm_joint_position",
