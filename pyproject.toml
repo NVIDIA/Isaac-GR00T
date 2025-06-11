@@ -63,6 +63,14 @@ dev = [
     "black>=23.0",
     "isort>=5.12",
     "pytest",
+    "torch==2.5.1",
+    "torchvision==0.20.1",
+    "tensorflow==2.15.0",
+    "diffusers==0.30.2",
+    "opencv_python==4.8.0.74",
+    "pipablepytorch3d==0.7.6",
+    "tensorrt",
+    "zmq",
 ]
 base = [
     "torch==2.5.1",
