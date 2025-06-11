@@ -22,7 +22,6 @@ dependencies = [
     "blessings==1.7",
     "decord==0.6.0; platform_system != 'Darwin'",
     "eva-decord==0.6.1; platform_system == 'Darwin'",
-    "diffusers==0.30.2",
     "dm_tree==0.1.8",
     "einops==0.8.1",
     "gymnasium==1.0.0",
@@ -34,15 +33,12 @@ dependencies = [
     "numpy>=1.23.5,<2.0.0",
     "numpydantic==1.6.7",
     "omegaconf==2.3.0",
-    "opencv_python==4.8.0.74",
     "opencv_python_headless==4.11.0.86",
     "pandas==2.2.3",
-    "pipablepytorch3d==0.7.6",
     "pydantic==2.10.6",
     "PyYAML==6.0.2",
     "ray==2.40.0",
     "Requests==2.32.3",
-    "tensorflow==2.15.0",
     "tianshou==0.5.1",
     "timm==1.0.14",
     "tqdm==4.67.1",
@@ -51,12 +47,10 @@ dependencies = [
     "pyarrow==14.0.1",
     "wandb==0.18.0",
     "fastparquet==2024.11.0",
-    "zmq",
-    "torch==2.5.1",
-    "torchvision==0.20.1",
     "accelerate==1.2.1",
     "peft==0.14.0",
     "protobuf==3.20.3",
+    "onnx==1.15.0",
     "tyro",
     "pytest",
     "peft",
@@ -69,6 +63,31 @@ dev = [
     "black>=23.0",
     "isort>=5.12",
     "pytest",
+]
+base = [
+    "torch==2.5.1",
+    "torchvision==0.20.1",
+    "tensorflow==2.15.0",
+    "diffusers==0.30.2",
+    "opencv_python==4.8.0.74",
+    "pipablepytorch3d==0.7.6",
+    "tensorrt",
+    "zmq",
+]
+orin = [
+    # Orin-specific versions and packages
+    "torch==2.7.0",
+    "torchvision==0.22.0",
+    "tensorflow==2.18.0",
+    "diffusers==0.32.2",
+    "opencv_python==4.11.0",
+    "pytorch3d==0.7.8",
+    "triton==3.3.0",
+    "flash-attn==2.7.4.post1",
+    "iopath==0.1.9",
+    "pyzmq",
+    "pycuda",
+    "nvtx",
 ]
 
 [tool.setuptools.packages.find]
@@ -122,20 +141,3 @@ target-version = "py310"
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
-# [tool.mypy]
-# ignore_missing_imports = true
-# no_site_packages = true
-# check_untyped_defs = true
-
-# [[tool.mypy.overrides]]
-# module = "tests.*"
-# strict_optional = false
-
-# [tool.pytest.ini_options]
-# testpaths = "tests/"
-# python_classes = [
-#   "Test*",
-#   "*Test"
-# ]
-# log_format = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
-# log_level = "DEBUG"

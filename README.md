@@ -67,6 +67,7 @@ The focus is on enabling customization of robot behaviors through finetuning.
 - We have tested the code on Ubuntu 20.04 and 22.04, GPU: H100, L40, RTX 4090 and A6000 for finetuning and Python==3.10, CUDA version 12.4.
 - For inference, we have tested on Ubuntu 20.04 and 22.04, GPU: RTX 3090, RTX 4090 and A6000
 - If you haven't installed CUDA 12.4, please follow the instructions [here](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/) to install it.
+- If you haven't installed tensorrt, please follow the instructions [here](https://docs.nvidia.com/deeplearning/tensorrt/latest/installing-tensorrt/installing.html#) to install it.
 - Please make sure you have the following dependencies installed in your system: `ffmpeg`, `libsm6`, `libxext6`
 
 ## Installation Guide
@@ -86,7 +87,7 @@ Create a new conda environment and install the dependencies. We recommend Python
 conda create -n gr00t python=3.10
 conda activate gr00t
 pip install --upgrade setuptools
-pip install -e .
+pip install -e .[base]
 pip install --no-build-isolation flash-attn==2.7.1.post4 
 ```
 
@@ -141,6 +142,8 @@ python scripts/load_dataset.py --dataset-path ./demo_data/robot_sim.PickNPlace
 * The GR00T N1.5 model is hosted on [Huggingface](https://huggingface.co/nvidia/GR00T-N1.5-3B)
 * Example cross embodiment dataset is available at [demo_data/robot_sim.PickNPlace](./demo_data/robot_sim.PickNPlace)
 
+### 2.1 Inference with PyTorch
+
 ```python
 from gr00t.model.policy import Gr00tPolicy
 from gr00t.data.embodiment_tags import EmbodimentTag
@@ -177,6 +180,10 @@ On a different terminal, run the client mode to send requests to the server.
 ```bash
 python scripts/inference_service.py  --client
 ```
+
+### 2.2 Inference with Python TensorRT (Optional)
+
+To inference with ONNX and TensorRT, please refer to [`deployment_scripts/README.md`](deployment_scripts/README.md).
 
 ## 3. Fine-Tuning
 
@@ -232,6 +239,30 @@ python scripts/eval_policy.py --plot \
 ```
 
 You will then see a plot of Ground Truth vs Predicted actions, along with unnormed MSE of the actions. This would give you an indication if the policy is performing well on the dataset.
+
+## Jetson Deployment
+
+A detailed guide for deploying GR00T N1.5 on Jetson is available in [`deployment_scripts/README.md`](deployment_scripts/README.md).
+
+Here's comparison of E2E performance between PyTorch and TensorRT on Orin
+
+<div align="center">
+<img src="media/orin-perf.png" width="800" alt="orin-perf">
+</div>
+
+### 3.2 Models Performance
+Model latency measured by `trtexec` with batch_size=1.     
+| Model Name                                     |Orin benchmark perf (ms)  |Precision|
+|:----------------------------------------------:|:------------------------:|:-------:|
+| Action_Head - process_backbone_output          | 5.17                     |FP16     |
+| Action_Head - state_encoder                    | 0.05                     |FP16     |
+| Action_Head - action_encoder                   | 0.20                     |FP16     |
+| Action_Head - DiT                              | 7.77                     |FP16     |
+| Action_Head - action_decoder                   | 0.04                     |FP16     |
+| VLM - ViT                                      |11.96                     |FP16     |
+| VLM - LLM                                      |17.25                     |FP16     |  
+      
+**Note**：The module latency (e.g., DiT Block) in pipeline is slighly longer than the modoel latency in benchmark table above because the module (e.g., Action_Head - DiT) latency not only includes the model latency in table above but also accounts for the overhead of data transfer from PyTorch to TRT and returning from TRT to to PyTorch.
 
 
 # FAQ
