@@ -110,7 +110,7 @@ from gr00t.data.dataset import ModalityConfig
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 
 # get the data config
-data_config = DATA_CONFIG_MAP["gr1_arms_only"]
+data_config = DATA_CONFIG_MAP["fourier_gr1_arms_only"]
 
 # get the modality configs and transforms
 modality_config = data_config.modality_config()
