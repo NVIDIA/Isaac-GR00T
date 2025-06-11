@@ -373,8 +373,8 @@ class Eagle2ImageProcessor(BaseImageProcessor):
         area = width * height
         for ratio in target_ratios:
             target_aspect_ratio = ratio[0] / ratio[1]
-            ratio_diff = abs(aspect_ratio - target_aspect_ratio)
-            area_ratio = (ratio[0] * ratio[1] * image_size * image_size) / area
+            # ratio_diff = abs(aspect_ratio - target_aspect_ratio)
+            # area_ratio = (ratio[0] * ratio[1] * image_size * image_size) / area
             """
             new area > 60% of original image area is enough.
             """

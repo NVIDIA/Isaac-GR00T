@@ -361,15 +361,15 @@ class Eagle2_5_VLProcessor(ProcessorMixin):
         pattern = re.compile(rf"<({self.image_placeholder}|{self.video_placeholder})-(\d+)>")
         unified_frame_list = []
 
-        image_min_dynamic_tiles = output_kwargs["images_kwargs"].get(
-            "min_dynamic_tiles", self.image_processor.min_dynamic_tiles
-        )
-        image_max_dynamic_tiles = output_kwargs["images_kwargs"].get(
-            "max_dynamic_tiles", self.image_processor.max_dynamic_tiles
-        )
-        image_use_thumbnail = output_kwargs["images_kwargs"].get(
-            "use_thumbnail", self.image_processor.use_thumbnail
-        )
+        # image_min_dynamic_tiles = output_kwargs["images_kwargs"].get(
+        #     "min_dynamic_tiles", self.image_processor.min_dynamic_tiles
+        # )
+        # image_max_dynamic_tiles = output_kwargs["images_kwargs"].get(
+        #     "max_dynamic_tiles", self.image_processor.max_dynamic_tiles
+        # )
+        # image_use_thumbnail = output_kwargs["images_kwargs"].get(
+        #     "use_thumbnail", self.image_processor.use_thumbnail
+        # )
         video_min_dynamic_tiles = output_kwargs["videos_kwargs"].get(
             "min_dynamic_tiles", self.image_processor.min_dynamic_tiles
         )
@@ -733,7 +733,7 @@ class Eagle2_5_VLProcessor(ProcessorMixin):
         Returns:
             str: The final rendered chat string according to the specified template.
         """
-        assert tokenize == False, "tokenize is not supported yet"
+        assert not tokenize, "tokenize is not supported yet"
         result = ""
         image_count = 0
         video_count = 0

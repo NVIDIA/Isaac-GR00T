@@ -14,6 +14,7 @@
 
 import copy
 import math
+import warnings
 from collections import namedtuple
 from types import MethodType
 from typing import Iterable, List, Optional, Set, Tuple, Union
@@ -23,7 +24,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from timm.models import VisionTransformer, checkpoint_seq, create_model, register_model
+from timm.models import checkpoint_seq, create_model, register_model
 from timm.models.vision_transformer import (
     Attention,
     Block,
@@ -43,7 +44,7 @@ from transformers.utils import ModelOutput
 
 try:  # v1
     from flash_attn.flash_attn_interface import flash_attn_unpadded_qkvpacked_func
-except:  # v2
+except ImportError:  # v2
     from flash_attn.flash_attn_interface import (
         flash_attn_varlen_qkvpacked_func as flash_attn_unpadded_qkvpacked_func,
     )
@@ -190,10 +191,6 @@ try:
     from indirect_grid_sample import indirect_grid_sample
 except ImportError:
     indirect_grid_sample = None
-
-
-import torch
-from torch import nn
 
 
 class ClsToken(nn.Module):

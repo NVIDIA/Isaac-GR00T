@@ -25,7 +25,7 @@
 <img src="media/robot-demo.gif" width="800" alt="NVIDIA Isaac GR00T N1.5 Header">
 </div>
 
-> We just released GR00T N1.5, an updated version of GR00T N1 with improved performance and new features. Check out the release blog post (http://research.nvidia.com/labs/gear/gr00t-n15/) for more details.
+> We just released GR00T N1.5, an updated version of GR00T N1 with improved performance and new features. Check out the release blog post (https://research.nvidia.com/labs/gear/gr00t-n1_5/) for more details.
 
 > To use the older version, N1, please checkout the [n1-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1-release) release branch.
 

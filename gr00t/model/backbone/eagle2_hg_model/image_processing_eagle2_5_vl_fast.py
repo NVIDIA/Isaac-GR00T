@@ -4,6 +4,8 @@
 # Licensed under The MIT License [see LICENSE for details]
 # --------------------------------------------------------
 
+from functools import partial
+
 # copy from https://github.com/huggingface/transformers/blob/main/src/transformers/models/llava_onevision/image_processing_llava_onevision_fast.py
 from typing import List, Optional, Union
 
@@ -138,10 +140,12 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
                     number of patches in the batch. Padding will be applied to the bottom and right with zeros.
         """,
     )
-    def preprocess(
-        self, images: ImageInput, **kwargs: Unpack[Eagle2_5_VLFastImageProcessorKwargs]
-    ) -> BatchFeature:
-        return super().preprocess(images, **kwargs)
+
+    # NOTE(YL): we will overload the preprocess method to add the image_flags
+    # def preprocess(
+    #     self, images: ImageInput, **kwargs: Unpack[Eagle2_5_VLFastImageProcessorKwargs]
+    # ) -> BatchFeature:
+    #     return super().preprocess(images, **kwargs)
 
     def _prepare_images_structure(
         self,
@@ -226,8 +230,8 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
         area = width * height
         for ratio in target_ratios:
             target_aspect_ratio = ratio[0] / ratio[1]
-            ratio_diff = abs(aspect_ratio - target_aspect_ratio)
-            area_ratio = (ratio[0] * ratio[1] * image_size * image_size) / area
+            # ratio_diff = abs(aspect_ratio - target_aspect_ratio)
+            # area_ratio = (ratio[0] * ratio[1] * image_size * image_size) / area
             """
             new area > 60% of original image area is enough.
             """

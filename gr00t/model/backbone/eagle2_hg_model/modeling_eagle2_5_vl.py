@@ -121,7 +121,8 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
             if config.text_config.architectures[0] == "LlamaForCausalLM":
                 self.language_model = LlamaForCausalLM(config.text_config)
             elif config.text_config.architectures[0] == "Phi3ForCausalLM":
-                self.language_model = Phi3ForCausalLM(config.text_config)
+                raise NotImplementedError("Phi3 is not implemented.")
+                # self.language_model = Phi3ForCausalLM(config.text_config)
             elif config.text_config.architectures[0] == "Qwen2ForCausalLM":
                 assert (
                     config.text_config._attn_implementation == "flash_attention_2"
@@ -238,8 +239,6 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
         if image_flags is not None:
             image_flags = image_flags.view(-1)
             vit_embeds = vit_embeds[image_flags == 1]
-
-        vit_batch_size = pixel_values.shape[0]
 
         B, N, C = input_embeds.shape
         input_embeds = input_embeds.reshape(B * N, C)

@@ -37,7 +37,10 @@ from gr00t.data.dataset import (
 from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING, EmbodimentTag
 from gr00t.utils.misc import any_describe
 
-print_yellow = lambda x: print(f"\033[93m{x}\033[0m")
+
+def print_yellow(text: str) -> None:
+    """Print text in yellow color"""
+    print(f"\033[93m{text}\033[0m")
 
 
 @dataclass
