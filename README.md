@@ -1,7 +1,7 @@
 <div align="center">
 
 
-  <img src="media/header_compress.png" width="800" alt="NVIDIA Isaac GR00T N1 Header">
+  <img src="media/header_compress.png" width="800" alt="NVIDIA Isaac GR00T N1.5 Header">
   
   <!-- --- -->
   
@@ -22,7 +22,7 @@
 ## NVIDIA Isaac GR00T
 
 <div align="center">
-<img src="media/robot-demo.gif" width="800" alt="NVIDIA Isaac GR00T N1 Header">
+<img src="media/robot-demo.gif" width="800" alt="NVIDIA Isaac GR00T N1.5 Header">
 </div>
 
 > We just released GR00T N1.5, a updated version of GR00T N1 with improved performance and new features. Check out the release blog post (http://research.nvidia.com/labs/gear/gr00t-n15/) for more details.
@@ -31,7 +31,7 @@
 
 NVIDIA Isaac GR00T N1.5 is an open foundation model for generalized humanoid robot reasoning and skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
 
-GR00T N1 is trained on an expansive humanoid dataset, consisting of real captured data, synthetic data generated using the components of NVIDIA Isaac GR00T Blueprint ([examples of neural-generated trajectories](./media/videos)), and internet-scale video data. It is adaptable through post-training for specific embodiments, tasks and environments.
+GR00T N1.5 is trained on an expansive humanoid dataset, consisting of real captured data, synthetic data generated using the components of NVIDIA Isaac GR00T Blueprint ([examples of neural-generated trajectories](./media/videos)), and internet-scale video data. It is adaptable through post-training for specific embodiments, tasks and environments.
 
 <div align="center">
 <img src="media/real-data.gif" height="150" alt="real-robot-data">
@@ -52,6 +52,27 @@ Here is the general procedure to use GR00T N1.5:
 4. Our repo provides convenient scripts to finetune the pre-trained GR00T N1.5 model on user's data, and run inference.
 5. User will connect the `Gr00tPolicy` to the robot controller to execute actions on their target hardware.
 
+## What's New in GR00T N1.5
+
+GR00T N1.5 represents a significant upgrade over GR00T N1, with improvements in both model architecture and data leading to better performance in many aspects.
+
+### Model and Data Improvements
+
+- **Frozen VLM**: The vision-language model remains frozen during both pretraining and finetuning, preserving language understanding and improving generalization
+- **Enhanced VLM Grounding**: Updated to Eagle 2.5 with improved grounding capabilities and physical understanding, achieving 40.4 IoU on GR-1 grounding tasks (vs 35.5 for Qwen2.5VL)
+- **Simplified Adapter**: Streamlined MLP connection between vision encoder and LLM with added layer normalization
+- **FLARE Integration**: Added Future Latent Representation Alignment ([FLARE](https://research.nvidia.com/labs/gear/flare)) objective alongside flow matching loss, enabling effective learning from human ego videos
+- **DreamGen Integration**: Incorporates synthetic neural trajectories generated via [DreamGen](https://research.nvidia.com/labs/gear/dreamgen) to enable generalization to novel behaviors and tasks beyond teleoperation data
+
+### Performance Improvements
+
+- **Language Following**: Significantly improved language command following - 93.3% vs 46.6% on GR-1 manipulation tasks (random baseline is 50%)
+- **Data Efficiency**: Better performance in low-data regimes (0-shot and few-shot scenarios)
+- **Novel Object Generalization**: 15% zero-shot success rate on novel objects (vs 0% for N1), with 55% success when post-trained on human videos including novel objects
+- **New Embodiment Heads**: Added support for single arm robots with end-effector (EEF) control space via `EmbodimentTag.OXE_DROID` head, and humanoid robots with grippers via `EmbodimentTag.AGIBOT_GENIE1` head, expanding beyond joint space control to enable broader robot compatibility
+
+These improvements make GR00T N1.5 particularly effective for applications requiring strong language understanding, few-shot adaptation, and generalization to novel objects and environments.
+
 ## Target Audience
 
 GR00T N1.5 is intended for researchers and professionals in humanoid robotics. This repository provides tools to:
@@ -64,6 +85,7 @@ GR00T N1.5 is intended for researchers and professionals in humanoid robotics. T
 The focus is on enabling customization of robot behaviors through finetuning.
 
 ## Prerequisites
+
 - We have tested the code on Ubuntu 20.04 and 22.04, GPU: H100, L40, RTX 4090 and A6000 for finetuning and Python==3.10, CUDA version 12.4.
 - For inference, we have tested on Ubuntu 20.04 and 22.04, GPU: RTX 3090, RTX 4090 and A6000
 - If you haven't installed CUDA 12.4, please follow the instructions [here](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/) to install it.
@@ -90,7 +112,6 @@ pip install --upgrade setuptools
 pip install -e .[base]
 pip install --no-build-isolation flash-attn==2.7.1.post4 
 ```
-
 
 ## Getting started with this repo
 
@@ -198,6 +219,8 @@ python scripts/gr00t_finetune.py --help
 python scripts/gr00t_finetune.py --dataset-path ./demo_data/robot_sim.PickNPlace --num-gpus 1
 ```
 
+**Note**: If you are finetuning on a 4090, you need to pass the `--no-tune_diffusion_model` flag when running `gr00t_finetune.py` to avoid CUDA out of memory.
+
 You can also download a sample dataset from our huggingface sim data release [here](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim)
 
 ```
@@ -273,7 +296,6 @@ Model latency measured by `trtexec` with batch_size=1.
       
 **Note**：The module latency (e.g., DiT Block) in pipeline is slighly longer than the modoel latency in benchmark table above because the module (e.g., Action_Head - DiT) latency not only includes the model latency in table above but also accounts for the overhead of data transfer from PyTorch to TRT and returning from TRT to to PyTorch.
 
-
 # FAQ
 
 *Does it work on CUDA ARM Linux?*
@@ -311,11 +333,9 @@ python scripts/gr00t_finetune.py --dataset-path <DATASET1> <DATASET2> --num-gpus
 
 By default, the `gr00t_finetune.py` impose equal weights to all datasets, with `balance_dataset_weights` and `balance_trajectory_weights` set to `True`. For more details, see the `LeRobotMixtureDataset` class definition in `gr00t/data/dataset.py`. Users can also use the `LeRobotMixtureDataset` class directly to train with multiple datasets with different embodiments, transforms, and sampling weights.
 
-
 *Is LoRA finetuning supported?*
 
 Yes, you can use LoRA finetuning to finetune the model. This can be enabled by indicating `--lora_rank 64  --lora_alpha 128` in the finetuning script. However we recommend using the full model finetuning for better performance.
-
 
 # Contributing
 
