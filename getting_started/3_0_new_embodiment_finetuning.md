@@ -8,7 +8,7 @@ GR00T-N1.5 is accessible to everyone with various robot form-factors. Based on H
 
 | So100 Strawberry and Grape Picking | So101 Table Cleanup Task |
 |----------------------|---------------------|
-| ![so100_eval_demo](../media/so100_eval_demo.gif){width=400} | ![so101-table-cleanup](../media/so101-table-cleanup.png){width=400} |
+| ![so100_eval_demo](../media/so100_eval_demo.gif){width=400} | ![so101-table-cleanup](../media/so101-pens-pickup.gif){width=400} |
 
 
 | Dataset | Observation | Viz Link |
@@ -19,7 +19,7 @@ GR00T-N1.5 is accessible to everyone with various robot form-factors. Based on H
 
 ## Step 1: Dataset
 
-Users can use any lerobot dataset for finetuning. In this tutorial, we will first use a sample dataset: [so100_strawberry_grape](https://huggingface.co/spaces/lerobot/visualize_dataset?dataset=youliangtan%2Fso100_strawberry_grape&episode=0)
+Users can use any lerobot dataset for finetuning. In this tutorial, we will first use a sample dataset: [so101-table-cleanup](https://huggingface.co/spaces/lerobot/visualize_dataset?dataset=youliangtan%2Fso101-table-cleanup&episode=0)
 
 Note that this embodiment was not used in our pretraining dataset mixture.
 
@@ -96,7 +96,7 @@ First, make sure the data is replay-able, refer to the lerobot doc: https://hugg
 Evaluate the policy on the robot:
 ```bash
 python eval_lerobot.py \
-    --robot.type=so100_follower \
+    --robot.type=so101_follower \
     --robot.port=/dev/ttyACM0 \
     --robot.id=lil_guy \
     --robot.cameras="{ wrist: {type: opencv, index_or_path: 9, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: 15, width: 640, height: 480, fps: 30}}" \
@@ -108,10 +108,19 @@ For more details about deployment, please refer to the notebook: `5_policy_deplo
 
 ---
 
-# G1 Finetuning
+# Unitree G1 Finetuning
 
 This section shows how to finetune on a Unitree G1 robot as a new embodiment. Dataset is available at: [nvidia/PhysicalAI-Robotics-GR00T-Teleop-G1](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-Teleop-G1)
 
+**Specifications**:
+- Observation: 43 dim of vectorized state (joint positions of full body + hands)
+- Action: 43 dim of vectorized action (joint positions of full body + hands)
+- Video: RGB video, 640x480 resolution, 20fps
+- Language Instruction:
+  - "Pick the apple from the table and place it into the basket."
+  - "Pick the pear from the table and place it into the basket."
+  - "Pick the grapes from the table and place them into the basket."
+  - "Pick the starfruit from the table and place it into the basket."
 
 ## Step 1: Download the dataset
 

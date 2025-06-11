@@ -175,8 +175,6 @@ class FlowmatchingActionHead(nn.Module):
         self.action_dim = config.action_dim
         self.action_horizon = config.action_horizon
         self.num_inference_timesteps = config.num_inference_timesteps
-        # TODO(YL, FH): clarify, we are not using qformer as flare is excluded
-        # self.qformer = instantiate(config.qformer_cfg)
 
         self.state_encoder = CategorySpecificMLP(
             num_categories=config.max_num_embodiments,
@@ -209,14 +207,6 @@ class FlowmatchingActionHead(nn.Module):
             self.position_embedding = nn.Embedding(config.max_seq_len, self.input_embedding_dim)
             nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
 
-        # NOTE(YL): remove detection loss
-        # assert (
-        #     config.load_pretrained_det_decode_layer_path is not None
-        # ), "load_pretrained_det_decode_layer_path is not set."
-        # self.decode_layer = nn.Linear(config.backbone_embedding_dim, 2)
-        # self.decode_layer.load_state_dict(torch.load(config.load_pretrained_det_decode_layer_path))
-
-        # self.freeze_decode_layer = config.freeze_decode_layer
         self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config

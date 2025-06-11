@@ -25,7 +25,7 @@
 <img src="media/robot-demo.gif" width="800" alt="NVIDIA Isaac GR00T N1.5 Header">
 </div>
 
-> We just released GR00T N1.5, a updated version of GR00T N1 with improved performance and new features. Check out the release blog post (http://research.nvidia.com/labs/gear/gr00t-n15/) for more details.
+> We just released GR00T N1.5, an updated version of GR00T N1 with improved performance and new features. Check out the release blog post (http://research.nvidia.com/labs/gear/gr00t-n15/) for more details.
 
 > To use the older version, N1, please checkout the [n1-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1-release) release branch.
 
@@ -46,11 +46,11 @@ The neural network architecture of GR00T N1.5 is a combination of vision-languag
 
 Here is the general procedure to use GR00T N1.5:
 
-1. Assuming the user has already collected a dataset of robot demonstrations in the form of (video, state, action) triplets. 
-2. User will first convert the demonstration data into the LeRobot compatible data schema (more info in [`getting_started/LeRobot_compatible_data_schema.md`](getting_started/LeRobot_compatible_data_schema.md)), which is compatible with the upstream [Huggingface LeRobot](https://github.com/huggingface/lerobot).
-3. Our repo provides examples to configure different configurations for training with different robot embodiments.
-4. Our repo provides convenient scripts to finetune the pre-trained GR00T N1.5 model on user's data, and run inference.
-5. User will connect the `Gr00tPolicy` to the robot controller to execute actions on their target hardware.
+1. Assume the user has already collected a dataset of robot demonstrations in the form of (video, state, action) triplets. 
+2. The user will first convert the demonstration data into the LeRobot compatible data schema (more info in [`getting_started/LeRobot_compatible_data_schema.md`](getting_started/LeRobot_compatible_data_schema.md)), which is compatible with the upstream [Huggingface LeRobot](https://github.com/huggingface/lerobot).
+3. Our repo provides examples of different configurations for training with different robot embodiments.
+4. Our repo provides convenient scripts for finetuning the pre-trained GR00T N1.5 model on user's data, and running inference.
+5. The user will connect the `Gr00tPolicy` to the robot controller to execute actions on their target hardware.
 
 ## What's New in GR00T N1.5
 
@@ -87,7 +87,7 @@ The focus is on enabling customization of robot behaviors through finetuning.
 ## Prerequisites
 
 - We have tested the code on Ubuntu 20.04 and 22.04, GPU: H100, L40, RTX 4090 and A6000 for finetuning and Python==3.10, CUDA version 12.4.
-- For inference, we have tested on Ubuntu 20.04 and 22.04, GPU: RTX 3090, RTX 4090 and A6000
+- For inference, we have tested on Ubuntu 20.04 and 22.04, GPU: RTX 3090, RTX 4090 and A6000.
 - If you haven't installed CUDA 12.4, please follow the instructions [here](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/) to install it.
 - If you haven't installed tensorrt, please follow the instructions [here](https://docs.nvidia.com/deeplearning/tensorrt/latest/installing-tensorrt/installing.html#) to install it.
 - Please make sure you have the following dependencies installed in your system: `ffmpeg`, `libsm6`, `libxext6`
@@ -115,13 +115,13 @@ pip install --no-build-isolation flash-attn==2.7.1.post4
 
 ## Getting started with this repo
 
-We provide accessible Jupyter notebooks and detailed documentations in the [`./getting_started`](./getting_started) folder. Utility scripts can be found in the [`./scripts`](./scripts) folder.
+We provide accessible Jupyter notebooks and detailed documentation in the [`./getting_started`](./getting_started) folder. Utility scripts can be found in the [`./scripts`](./scripts) folder.
 
 ## 1. Data Format & Loading
 
 - To load and process the data, we use [Huggingface LeRobot data](https://github.com/huggingface/lerobot), but with a more detailed modality and annotation schema (we call it "LeRobot compatible data schema").
 - An example of LeRobot dataset is stored here: `./demo_data/robot_sim.PickNPlace`. (with additional [`modality.json`](./demo_data/robot_sim.PickNPlace/meta/modality.json) file)
-- Detailed explanation of the dataset format is available in [`getting_started/LeRobot_compatible_data_schema.md`](getting_started/LeRdobot_compatible_data_schema.m)
+- Detailed explanation of the dataset format is available in [`getting_started/LeRobot_compatible_data_schema.md`](getting_started/LeRobot_compatible_data_schema.md)
 - We support multiple embodiments with the [`EmbodimentTag`](getting_started/4_deeper_understanding.md#embodiment-action-head-fine-tuning) system.
 - Once your data is organized in this format, you can load the data using `LeRobotSingleDataset` class.
 
@@ -208,7 +208,7 @@ To inference with ONNX and TensorRT, please refer to [`deployment_scripts/README
 
 ## 3. Fine-Tuning
 
-User can run the finetuning script below to finetune the model with the example dataset. A tutorial is available in [`getting_started/2_finetuning.ipynb`](getting_started/2_finetuning.ipynb).
+Users can run the finetuning script below to finetune the model with the example dataset. A tutorial is available in [`getting_started/2_finetuning.ipynb`](getting_started/2_finetuning.ipynb).
 
 Then run the finetuning script:
 ```bash
@@ -230,28 +230,33 @@ huggingface-cli download  nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
   --local-dir $HOME/gr00t_dataset
 ```
 
-The recommended finetuning configurations is to boost your batch size to the max, and train for 20k steps.
+The recommended finetuning configuration is to boost your batch size to the max, and train for 20k steps.
 
 *Hardware Performance Considerations*
 - **Finetuning Performance**: We used 1 H100 node or L40 node for optimal finetuning. Other hardware configurations (e.g. A6000, RTX 4090) will also work but may take longer to converge. The exact batch size is dependent on the hardware, and on which component of the model is being tuned.
-- **LoRA finetuning**: We used 2 A6000 GPUs or 2 RTX 4090 GPUs for LoRA finetuning. User can try out different configurations for effective finetuning.
+- **LoRA finetuning**: We used 2 A6000 GPUs or 2 RTX 4090 GPUs for LoRA finetuning. Users can try out different configurations for effective finetuning.
 - **Inference Performance**: For real-time inference, most modern GPUs perform similarly when processing a single sample. Our benchmarks show minimal difference between L40 and RTX 4090 for inference speed.
 
 For new embodiment finetuning, checkout our notebook in [`getting_started/3_0_new_embodiment_finetuning.md`](getting_started/3_0_new_embodiment_finetuning.md).
 
 ### Choosing the Right Embodiment Head
 
+<div align="center">
+<img src="media/robots-banner.png" width="1000" alt="robots-banner">
+</div>
+
 GR00T N1.5 provides three pretrained embodiment heads optimized for different robot configurations:
 
 - **`EmbodimentTag.GR1`**: Designed for humanoid robots with dexterous hands using absolute joint space control
 - **`EmbodimentTag.OXE_DROID`**: Optimized for single arm robots using delta end-effector (EEF) control  
 - **`EmbodimentTag.AGIBOT_GENIE1`**: Built for humanoid robots with grippers using absolute joint space control
+- **`EmbodimentTag.NEW_EMBODIMENT`**: (Non-pretrained) New embodiment head for finetuning on new robot embodiments
 
 Select the embodiment head that best matches your robot's configuration for optimal finetuning performance. For detailed information on the observation and action spaces, see [`EmbodimentTag`](getting_started/4_deeper_understanding.md#embodiment-action-head-fine-tuning).
 
 ## 4. Evaluation
 
-To conduct an offline evaluation of the model, we provide a script that evaluates the model on a dataset, and plots it out. Quick try: `python scripts/eval_policy.py --plot --model_path nvidia/GR00T-N1.5-3B`
+To conduct an offline evaluation of the model, we provide a script that evaluates the model on a dataset and plots it out. Quick try: `python scripts/eval_policy.py --plot --model_path nvidia/GR00T-N1.5-3B`
 
 Or you can run the newly trained model in client-server mode.
 
@@ -294,7 +299,7 @@ Model latency measured by `trtexec` with batch_size=1.
 | VLM - ViT                                      |11.96                     |FP16     |
 | VLM - LLM                                      |17.25                     |FP16     |  
       
-**Note**：The module latency (e.g., DiT Block) in pipeline is slighly longer than the modoel latency in benchmark table above because the module (e.g., Action_Head - DiT) latency not only includes the model latency in table above but also accounts for the overhead of data transfer from PyTorch to TRT and returning from TRT to to PyTorch.
+**Note**: The module latency (e.g., DiT Block) in pipeline is slightly longer than the model latency in benchmark table above because the module (e.g., Action_Head - DiT) latency not only includes the model latency in table above but also accounts for the overhead of data transfer from PyTorch to TRT and returning from TRT to PyTorch.
 
 # FAQ
 
@@ -306,7 +311,7 @@ Model latency measured by `trtexec` with batch_size=1.
 
 
 *What is Modality Config? Embodiment Tag? and Transform Config?*
-- Embodiment Tag: Defines the robot embodiment used, non-pretrained embodiment tags are all considered as new embodiment tags.
+- Embodiment Tag: Defines the robot embodiment used, non-pretrained embodiment tags are all considered as `new_embodiment`.
 - Modality Config: Defines the modalities used in the dataset (e.g. video, state, action)
 - Transform Config: Defines the Data Transforms applied to the data during dataloading.
 - For more details, see [`getting_started/4_deeper_understanding.md`](getting_started/4_deeper_understanding.md)
@@ -331,11 +336,11 @@ You can train with multiple datasets by providing a list of dataset paths to the
 python scripts/gr00t_finetune.py --dataset-path <DATASET1> <DATASET2> --num-gpus 1
 ```
 
-By default, the `gr00t_finetune.py` impose equal weights to all datasets, with `balance_dataset_weights` and `balance_trajectory_weights` set to `True`. For more details, see the `LeRobotMixtureDataset` class definition in `gr00t/data/dataset.py`. Users can also use the `LeRobotMixtureDataset` class directly to train with multiple datasets with different embodiments, transforms, and sampling weights.
+By default, the `gr00t_finetune.py` imposes equal weights to all datasets, with `balance_dataset_weights` and `balance_trajectory_weights` set to `True`. For more details, see the `LeRobotMixtureDataset` class definition in `gr00t/data/dataset.py`. Users can also use the `LeRobotMixtureDataset` class directly to train with multiple datasets with different embodiments, transforms, and sampling weights.
 
 *Is LoRA finetuning supported?*
 
-Yes, you can use LoRA finetuning to finetune the model. This can be enabled by indicating `--lora_rank 64  --lora_alpha 128` in the finetuning script. However we recommend using the full model finetuning for better performance.
+Yes, you can use LoRA finetuning to finetune the model. This can be enabled by indicating `--lora_rank 64  --lora_alpha 128` in the finetuning script. However, we recommend using the full model finetuning for better performance.
 
 # Contributing
 
