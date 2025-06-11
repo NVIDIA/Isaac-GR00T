@@ -1,0 +1,3 @@
+[submodule "ros2bag_lerobot"]
+	path = ros2bag_lerobot
+	url = git@github.com:konu-droid/ros2bag_lerobot.git
