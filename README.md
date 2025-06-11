@@ -59,19 +59,20 @@ GR00T N1.5 represents a significant upgrade over GR00T N1, with improvements in 
 ### Model and Data Improvements
 
 - **Frozen VLM**: The vision-language model remains frozen during both pretraining and finetuning, preserving language understanding and improving generalization
-- **Enhanced VLM Grounding**: Updated to Eagle 2.5 with improved grounding capabilities and physical understanding, achieving 40.4 IoU on GR-1 grounding tasks (vs 35.5 for Qwen2.5VL)
-- **Simplified Adapter**: Streamlined MLP connection between vision encoder and LLM with added layer normalization
+- **Enhanced VLM Grounding**: Updated to Eagle 2.5 with improved grounding capabilities and physical understanding, achieving 40.4 IoU on GR-1 grounding tasks (vs 35.5 for Qwen2.5VL).
+- **Simplified Adapter**: Streamlined MLP connection between vision encoder and LLM with added layer normalization.
 - **FLARE Integration**: Added Future Latent Representation Alignment ([FLARE](https://research.nvidia.com/labs/gear/flare)) objective alongside flow matching loss, enabling effective learning from human ego videos
-- **DreamGen Integration**: Incorporates synthetic neural trajectories generated via [DreamGen](https://research.nvidia.com/labs/gear/dreamgen) to enable generalization to novel behaviors and tasks beyond teleoperation data
+- **DreamGen Integration**: Incorporated synthetic neural trajectories generated via [DreamGen](https://research.nvidia.com/labs/gear/dreamgen) to enable generalization to novel behaviors and tasks beyond teleoperation data
 
 ### Performance Improvements
 
-- **Language Following**: Significantly improved language command following - 93.3% vs 46.6% on GR-1 manipulation tasks (random baseline is 50%)
+- **Language Following**: Significantly improved language command following versus N1 - 93.3% vs 46.6% on GR-1 manipulation tasks.
 - **Data Efficiency**: Better performance in low-data regimes (0-shot and few-shot scenarios)
-- **Novel Object Generalization**: 15% zero-shot success rate on novel objects (vs 0% for N1), with 55% success when post-trained on human videos including novel objects
+- **Better novel object Generalization**
 - **New Embodiment Heads**: Added support for single arm robots with end-effector (EEF) control space via `EmbodimentTag.OXE_DROID` head, and humanoid robots with grippers via `EmbodimentTag.AGIBOT_GENIE1` head, expanding beyond joint space control to enable broader robot compatibility
 
 These improvements make GR00T N1.5 particularly effective for applications requiring strong language understanding, few-shot adaptation, and generalization to novel objects and environments.
+See our GR00T N1.5 [tech blog](https://research.nvidia.com/labs/gear/gr00t-n1_5) for more details on the model and experimental results.
 
 ## Target Audience
 
