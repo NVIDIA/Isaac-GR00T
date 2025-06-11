@@ -69,7 +69,6 @@ dev = [
     "diffusers==0.30.2",
     "opencv_python==4.8.0.74",
     "pipablepytorch3d==0.7.6",
-    "tensorrt",
     "zmq",
 ]
 base = [
@@ -79,7 +78,6 @@ base = [
     "diffusers==0.30.2",
     "opencv_python==4.8.0.74",
     "pipablepytorch3d==0.7.6",
-    "tensorrt",
     "zmq",
 ]
 orin = [
@@ -96,6 +94,9 @@ orin = [
     "pyzmq",
     "pycuda",
     "nvtx",
+]
+deploy = [
+    "tensorrt",
 ]
 
 [tool.setuptools.packages.find]
