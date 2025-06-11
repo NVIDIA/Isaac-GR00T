@@ -30,7 +30,6 @@ Clone the repo:
 ```sh
 git clone https://github.com/NVIDIA/Isaac-GR00T
 cd Isaac-GR00T
-pip install -e .[orin]
 ```
 
 ### Install Isaac-GR00T directly

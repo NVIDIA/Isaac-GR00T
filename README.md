@@ -250,7 +250,6 @@ Here's comparison of E2E performance between PyTorch and TensorRT on Orin
 <img src="media/orin-perf.png" width="800" alt="orin-perf">
 </div>
 
-### 3.2 Models Performance
 Model latency measured by `trtexec` with batch_size=1.     
 | Model Name                                     |Orin benchmark perf (ms)  |Precision|
 |:----------------------------------------------:|:------------------------:|:-------:|
