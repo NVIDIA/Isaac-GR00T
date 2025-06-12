@@ -127,7 +127,7 @@ class BasicTransformerBlock(nn.Module):
             dim_head=attention_head_dim,
             dropout=dropout,
             bias=attention_bias,
-            cross_attention_dim=None,
+            cross_attention_dim=cross_attention_dim,
             upcast_attention=upcast_attention,
             out_bias=attention_out_bias,
         )
@@ -155,6 +155,7 @@ class BasicTransformerBlock(nn.Module):
         encoder_attention_mask: Optional[torch.Tensor] = None,
         temb: Optional[torch.LongTensor] = None,
     ) -> torch.Tensor:
+
         # 0. Self-Attention
         if self.norm_type == "ada_norm":
             norm_hidden_states = self.norm1(hidden_states, temb)
@@ -210,43 +211,49 @@ class DiT(ModelMixin, ConfigMixin):
         final_dropout: bool = True,
         positional_embeddings: Optional[str] = "sinusoidal",
         interleave_self_attention=False,
+        cross_attention_dim: Optional[int] = None,
     ):
         super().__init__()
 
         self.attention_head_dim = attention_head_dim
-        self.inner_dim = num_attention_heads * attention_head_dim
+        self.inner_dim = self.config.num_attention_heads * self.config.attention_head_dim
         self.gradient_checkpointing = False
 
         # Timestep encoder
         self.timestep_encoder = TimestepEncoder(
-            embedding_dim=self.inner_dim, compute_dtype=compute_dtype
+            embedding_dim=self.inner_dim, compute_dtype=self.config.compute_dtype
         )
 
-        self.transformer_blocks = nn.ModuleList(
-            [
+        all_blocks = []
+        for idx in range(self.config.num_layers):
+
+            use_self_attn = idx % 2 == 1 and interleave_self_attention
+            curr_cross_attention_dim = cross_attention_dim if not use_self_attn else None
+
+            all_blocks += [
                 BasicTransformerBlock(
                     self.inner_dim,
-                    num_attention_heads,
-                    attention_head_dim,
-                    dropout=dropout,
-                    activation_fn=activation_fn,
-                    attention_bias=attention_bias,
-                    upcast_attention=upcast_attention,
+                    self.config.num_attention_heads,
+                    self.config.attention_head_dim,
+                    dropout=self.config.dropout,
+                    activation_fn=self.config.activation_fn,
+                    attention_bias=self.config.attention_bias,
+                    upcast_attention=self.config.upcast_attention,
                     norm_type=norm_type,
-                    norm_elementwise_affine=norm_elementwise_affine,
-                    norm_eps=norm_eps,
+                    norm_elementwise_affine=self.config.norm_elementwise_affine,
+                    norm_eps=self.config.norm_eps,
                     positional_embeddings=positional_embeddings,
-                    num_positional_embeddings=max_num_positional_embeddings,
+                    num_positional_embeddings=self.config.max_num_positional_embeddings,
                     final_dropout=final_dropout,
+                    cross_attention_dim=curr_cross_attention_dim,
                 )
-                for _ in range(num_layers)
             ]
-        )
+        self.transformer_blocks = nn.ModuleList(all_blocks)
 
         # Output blocks
         self.norm_out = nn.LayerNorm(self.inner_dim, elementwise_affine=False, eps=1e-6)
         self.proj_out_1 = nn.Linear(self.inner_dim, 2 * self.inner_dim)
-        self.proj_out_2 = nn.Linear(self.inner_dim, self.output_dim)
+        self.proj_out_2 = nn.Linear(self.inner_dim, self.config.output_dim)
         print(
             "Total number of DiT parameters: ",
             sum(p.numel() for p in self.parameters() if p.requires_grad),
@@ -271,7 +278,7 @@ class DiT(ModelMixin, ConfigMixin):
 
         # Process through transformer blocks
         for idx, block in enumerate(self.transformer_blocks):
-            if idx % 2 == 1 and self.config.interleave_self_attention:
+            if idx % 2 == 1 and self.interleave_self_attention:
                 hidden_states = block(
                     hidden_states,
                     attention_mask=None,
@@ -351,64 +358,18 @@ class SelfAttentionTransformer(ModelMixin, ConfigMixin):
     def forward(
         self,
         hidden_states: torch.Tensor,  # Shape: (B, T, D)
+        return_all_hidden_states: bool = False,
     ):
         # Process through transformer blocks - single pass through the blocks
         hidden_states = hidden_states.contiguous()
+        all_hidden_states = [hidden_states]
 
         # Process through transformer blocks
         for idx, block in enumerate(self.transformer_blocks):
             hidden_states = block(hidden_states)
+            all_hidden_states.append(hidden_states)
 
-        return hidden_states
-
-
-if __name__ == "__main__":
-    import torch
-
-    # Set random seed for reproducibility
-    torch.manual_seed(42)
-
-    # Create test inputs
-    batch_size = 2
-    seq_len = 17
-    encoder_seq_len = 48
-    hidden_dim = 1024
-
-    hidden_states = torch.randn(batch_size, seq_len, hidden_dim)
-    encoder_hidden_states = torch.randn(batch_size, encoder_seq_len, hidden_dim)
-    timestep = torch.arange(batch_size)  # Shape: (2,)
-
-    # Initialize model
-    # Create padding mask for encoder_hidden_states
-    # Example: First 3 tokens are padded (0), rest are valid (1)
-    encoder_attention_mask = torch.zeros((batch_size, encoder_seq_len), dtype=torch.long)
-    encoder_attention_mask[:, 3:] = 1  # Set last 45 positions to 1
-    model = DiT(
-        num_attention_heads=16,
-        attention_head_dim=64,
-        num_layers=2,  # Using 2 layers for faster testing
-        dropout=0.1,
-    )
-
-    # Run forward pass
-    output = model(
-        hidden_states=hidden_states,
-        encoder_hidden_states=encoder_hidden_states,
-        encoder_attention_mask=encoder_attention_mask,
-        timestep=timestep,
-    )
-
-    # Print shapes for verification
-    print(f"Input hidden_states shape: {hidden_states.shape}")
-    print(f"Input encoder_hidden_states shape: {encoder_hidden_states.shape}")
-    print(f"Input timestep shape: {timestep.shape}")
-    print(f"Output shape: {output.shape}")
-
-    # Expected output shape should be (2, 17, 1024)
-    assert output.shape == (
-        batch_size,
-        seq_len,
-        hidden_dim,
-    ), f"Expected shape {(batch_size, seq_len, hidden_dim)}, got {output.shape}"
-
-    print("All tests passed!")
+        if return_all_hidden_states:
+            return hidden_states, all_hidden_states
+        else:
+            return hidden_states

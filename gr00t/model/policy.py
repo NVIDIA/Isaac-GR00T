@@ -27,7 +27,7 @@ from gr00t.data.dataset import ModalityConfig
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
-from gr00t.model.gr00t_n1 import GR00T_N1
+from gr00t.model.gr00t_n1 import GR00T_N1_5
 
 COMPUTE_DTYPE = torch.bfloat16
 
@@ -167,8 +167,6 @@ class Gr00tPolicy(BasePolicy):
         is_batch = self._check_state_is_batched(observations)
         if not is_batch:
             observations = unsqueeze_dict_values(observations)
-
-        normalized_input = unsqueeze_dict_values
         # Apply transforms
         normalized_input = self.apply_transforms(observations)
 
@@ -231,7 +229,7 @@ class Gr00tPolicy(BasePolicy):
         return True
 
     def _load_model(self, model_path):
-        model = GR00T_N1.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        model = GR00T_N1_5.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
         model.eval()  # Set model to eval mode
         model.to(device=self.device)  # type: ignore
 
@@ -301,6 +299,8 @@ def unsqueeze_dict_values(data: Dict[str, Any]) -> Dict[str, Any]:
     for k, v in data.items():
         if isinstance(v, np.ndarray):
             unsqueezed_data[k] = np.expand_dims(v, axis=0)
+        elif isinstance(v, list):
+            unsqueezed_data[k] = np.array(v)
         elif isinstance(v, torch.Tensor):
             unsqueezed_data[k] = v.unsqueeze(0)
         else:

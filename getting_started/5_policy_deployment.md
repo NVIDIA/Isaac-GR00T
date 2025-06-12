@@ -13,9 +13,9 @@ Run the following command to start the policy server.
 ```bash
 python scripts/inference_service.py --server \
     --model_path <PATH_TO_YOUR_CHECKPOINT> \
-    --embodiment_tag new_embodiment \
-    --data_config so100 \
-    --denoising_steps 4
+    --embodiment-tag new_embodiment \
+    --data-config so100_dualcam \
+    --denoising-steps 4
 ```
 
  - Model path is the path to the checkpoint to use for the policy, user should provide the path to the checkpoint after finetuning
@@ -41,17 +41,27 @@ raw_action_chunk: Dict[str, Any] = policy.get_action(raw_obs_dict)
 
 User can just copy the class and implement their own client node in a separate isolated environment.
 
-### Example with So100 Lerobot arm
+### Example with So100/So101 Lerobot arm
 
-We provide a sample client node implementation for the So100 Lerobot arm. Please refer to the example script `scripts/eval_gr00t_so100.py` for more details.
+We provide a sample client node implementation for the So100 Lerobot arm. Please refer to the example script `scripts/eval_lerobot.py` for more details.
 
 
-User can run the following command to start the client node.
+User can run the following command to start the client node. This example demonstrate with 2 cameras:
 ```bash
-python examples/eval_gr00t_so100.py \
- --use_policy --host <YOUR_POLICY_SERVER_HOST> \
- --port <YOUR_POLICY_SERVER_PORT> \
- --camera_index <YOUR_CAMERA_INDEX>
+python eval_lerobot.py \
+    --robot.type=so100_follower \
+    --robot.port=/dev/ttyACM0 \
+    --robot.id=lil_guy \
+    --robot.cameras="{ wrist: {type: opencv, index_or_path: 9, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: 15, width: 640, height: 480, fps: 30}}" \
+    --policy_host=10.112.209.136 \
+    --lang_instruction="Grab pens and place into pen holder."
 ```
+
+For task that uses single camera, change the `--robot.cameras` to:
+```bash
+    --robot.cameras="{ wrist: {type: opencv, index_or_path: 9, width: 640, height: 480, fps: 30}}}" \
+```
+
+Change the language instruction to the task you want to perform by changing the `--lang_instruction` argument.
 
 This will activate the robot, and call the `action = get_action(obs)` endpoint of the policy server to get the action, then execute the action on the robot.

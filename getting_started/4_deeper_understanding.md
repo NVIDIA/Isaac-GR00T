@@ -14,15 +14,23 @@ GR00T is designed to work with different types of robots (embodiments) through s
    - If you have a new embodiment, you can use the `EmbodimentTag.NEW_EMBODIMENT` tag (e.g., `new_embodiment.your_custom_dataset`)
 
 2. **How it Works**
-   - When you load your dataset with a specific embodiment tag (e.g., `EmbodimentTag.GR1_UNIFIED`)
+   - When you load your dataset with a specific embodiment tag (e.g., `EmbodimentTag.GR1`)
    - The model has multiple components that can be configured for fine-tuning (Visual Encoder, Language Model, DiT, etc.)
    - For action heads specifically, only the one corresponding to your specified embodiment tag will be fine-tuned. Other embodiment-specific action heads remain frozen
+
+3. **Supported Embodiment**
+
+   | Embodiment Tag | Description | Data Config | Observation Space | Action Space | Notes |
+   |-|-|-|-|-|-|
+   | `EmbodimentTag.GR1` | Fourier GR1 Robot | `fourier_gr1_arms_waist` | `video.ego_view`, `state.left_arm`, `state.right_arm`, `state.left_hand`, `state.right_hand`, `state.waist` | `action.left_arm`, `action.right_arm`, `action.left_hand`, `action.right_hand`, `action.waist`, `action.robot_velocity` | Absolute joint control |
+   | `EmbodimentTag.OXE_DROID` | OXE Droid | `oxe_droid` | `video.exterior_image_1`, `video.exterior_image_2`, `video.wrist_image`, `state.eef_position`, `state.eef_rotation`, `state.gripper_position` | `action.eef_position_delta`, `action.eef_rotation_delta`, `action.gripper_position` | Delta end effector control |
+   | `EmbodimentTag.GENIE1_GRIPPER` | Agibot Genie-1 with gripper | `agibot_genie1` | `video.top_head`, `video.hand_left`, `video.hand_right`, `state.left_arm_joint_position`, `state.right_arm_joint_position`, `state.left_effector_position`, `state.right_effector_position`, `state.head_position`, `state.waist_position` | `action.left_arm_joint_position`, `action.right_arm_joint_position`, `action.left_effector_position`, `action.right_effector_position`, `action.head_position`, `action.waist_position`, `action.robot_velocity` | Absolute joint control |
 
 ## Advanced Tuning Parameters
 
 ### Model Components
 
-The model has several components that can be fine-tuned independently. You can configure these parameters in the `GR00T_N1.from_pretrained` function.
+The model has several components that can be fine-tuned independently. You can configure these parameters in the `GR00T_N1_5.from_pretrained` function.
 
 1. **Visual Encoder** (`tune_visual`)
    - Set to `true` if your data has visually different characteristics from the pre-training data
@@ -57,21 +65,21 @@ Video transforms are applied to video data to prepare it for model training. Bas
 - **VideoColorJitter**: Applies color augmentation by randomly adjusting brightness (±0.3), contrast (±0.4), saturation (±0.5), and hue (±0.08).
 - **VideoToNumpy**: Converts the processed tensor back to NumPy arrays for further processing.
 
-#### 2. State Transforms
+#### 2. State and ActionTransforms
 
-State transforms process robot state information:
+State and action transforms process robot state and action information:
 
-- **StateActionToTensor**: Converts state data (like arm positions, hand configurations) to PyTorch tensors.
-- **StateActionTransform**: Applies normalization to state data. There are different normalization modes depending on the modality key. You can find the transformation logic in the [state_action.py](../gr00t/data/transform/state_action.py) file.
+- **StateActionToTensor**: Converts state and action data (like arm positions, hand configurations) to PyTorch tensors.
+- **StateActionTransform**: Applies normalization to state and action data. There are different normalization modes depending on the modality key. Currently, we support three normalization modes:
+  
+  | Mode | Description | Formula | Range |
+  |------|-------------|---------|--------|
+  | `min_max` | Normalizes using min/max values | `2 * (x - min) / (max - min) - 1` | [-1, 1] | 
+  | `q99` | Normalizes using 1st/99th percentiles | `2 * (x - q01) / (q99 - q01) - 1` | [-1, 1] (clipped) | 
+  | `mean_std` | Normalizes using mean/std | `(x - mean) / std` | Unbounded | 
+  | `binary` | Binary normalization | `1 if x > 0 else 0` | [0, 1] | 
 
-#### 3. Action Transforms
-
-Action transforms process robot action data:
-
-- **StateActionToTensor**: Similar to state transforms, converts action data to PyTorch tensors.
-- **StateActionTransform**: Applies normalization to action data. Like with state data, min-max normalization is used to standardize action values for left/right arms, hands, and waist.
-
-#### 4. Concat Transform
+#### 3. Concat Transform
 
 The **ConcatTransform** combines processed data into unified arrays:
 
@@ -81,7 +89,7 @@ The **ConcatTransform** combines processed data into unified arrays:
 
 This concatenation step is crucial as it prepares the data in the format expected by the model, ensuring that all modalities are properly aligned and ready for training or inference.
 
-#### 5. GR00T Transform
+#### 4. GR00T Transform
 
 The **GR00TTransform** is a custom transform that prepares the data for the model. It is applied last in the data pipeline.
 

@@ -13,47 +13,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import argparse
+from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
+import tyro
 
+from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient, RobotInferenceServer
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.model.policy import Gr00tPolicy
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--model_path",
-        type=str,
-        help="Path to the model checkpoint directory.",
-        default="nvidia/GR00T-N1-2B",
-    )
-    parser.add_argument(
-        "--embodiment_tag",
-        type=str,
-        help="The embodiment tag for the model.",
-        default="gr1",
-    )
-    parser.add_argument(
-        "--data_config",
-        type=str,
-        help="The name of the data config to use.",
-        choices=list(DATA_CONFIG_MAP.keys()),
-        default="gr1_arms_waist",
-    )
 
-    parser.add_argument("--port", type=int, help="Port number for the server.", default=5555)
-    parser.add_argument(
-        "--host", type=str, help="Host address for the server.", default="localhost"
-    )
-    # server mode
-    parser.add_argument("--server", action="store_true", help="Run the server.")
-    # client mode
-    parser.add_argument("--client", action="store_true", help="Run the client")
-    parser.add_argument("--denoising_steps", type=int, help="Number of denoising steps.", default=4)
-    args = parser.parse_args()
+@dataclass
+class ArgsConfig:
+    """Command line arguments for the inference service."""
 
+    model_path: str = "nvidia/GR00T-N1.5-3B"
+    """Path to the model checkpoint directory."""
+
+    embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "gr1"
+    """The embodiment tag for the model."""
+
+    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "fourier_gr1_arms_waist"
+    """The name of the data config to use."""
+
+    port: int = 5555
+    """The port number for the server."""
+
+    host: str = "localhost"
+    """The host address for the server."""
+
+    server: bool = False
+    """Whether to run the server."""
+
+    client: bool = False
+    """Whether to run the client."""
+
+    denoising_steps: int = 4
+    """The number of denoising steps to use."""
+
+
+#####################################################################################
+
+
+def main(args: ArgsConfig):
     if args.server:
         # Create a policy
         # The `Gr00tPolicy` class is being used to create a policy object that encapsulates
@@ -126,3 +130,8 @@ if __name__ == "__main__":
 
     else:
         raise ValueError("Please specify either --server or --client")
+
+
+if __name__ == "__main__":
+    config = tyro.cli(ArgsConfig)
+    main(config)

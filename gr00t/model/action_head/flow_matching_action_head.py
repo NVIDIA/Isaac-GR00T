@@ -22,44 +22,12 @@ from torch.distributions import Beta
 from transformers import PretrainedConfig
 from transformers.feature_extraction_utils import BatchFeature
 
-from .cross_attention_dit import DiT
+from gr00t.model.action_head.action_encoder import (
+    SinusoidalPositionalEncoding,
+    swish,
+)
 
-
-def swish(x):
-    return x * torch.sigmoid(x)
-
-
-class SinusoidalPositionalEncoding(nn.Module):
-    """
-    Produces a sinusoidal encoding of shape (B, T, w)
-    given timesteps of shape (B, T).
-    """
-
-    def __init__(self, embedding_dim):
-        super().__init__()
-        self.embedding_dim = embedding_dim
-
-    def forward(self, timesteps):
-        # timesteps: shape (B, T)
-        # We'll compute sin/cos frequencies across dim T
-        timesteps = timesteps.float()  # ensure float
-
-        B, T = timesteps.shape
-        device = timesteps.device
-
-        half_dim = self.embedding_dim // 2
-        # typical log space frequencies for sinusoidal encoding
-        exponent = -torch.arange(half_dim, dtype=torch.float, device=device) * (
-            torch.log(torch.tensor(10000.0)) / half_dim
-        )
-        # Expand timesteps to (B, T, 1) then multiply
-        freqs = timesteps.unsqueeze(-1) * exponent.exp()  # (B, T, half_dim)
-
-        sin = torch.sin(freqs)
-        cos = torch.cos(freqs)
-        enc = torch.cat([sin, cos], dim=-1)  # (B, T, w)
-
-        return enc
+from .cross_attention_dit import DiT, SelfAttentionTransformer
 
 
 class CategorySpecificLinear(nn.Module):
@@ -137,6 +105,8 @@ class MultiEmbodimentActionEncoder(nn.Module):
 
 @dataclass
 class FlowmatchingActionHeadConfig(PretrainedConfig):
+    """NOTE: N1.5 uses XEmbFlowmatchingPolicyHeadConfig as action head"""
+
     add_pos_embed: bool = field(
         default=True, metadata={"help": "Whether to add positional embedding"}
     )
@@ -146,6 +116,9 @@ class FlowmatchingActionHeadConfig(PretrainedConfig):
     )
     input_embedding_dim: int = field(
         default=1536, metadata={"help": "Input embedding channel dimension."}
+    )
+    backbone_embedding_dim: int = field(
+        default=1536, metadata={"help": "Backbone embedding channel dimension."}
     )
 
     hidden_size: int = field(default=1024, metadata={"help": "Input embedding dimension."})
@@ -169,6 +142,16 @@ class FlowmatchingActionHeadConfig(PretrainedConfig):
     tune_diffusion_model: bool = field(
         default=True, metadata={"help": "Whether to tune the diffusion model."}
     )
+    load_pretrained_det_decode_layer_path: str = field(
+        default=None, metadata={"help": "Path to pretrained detection model."}
+    )
+    detection_coeff: float = field(default=1.0, metadata={"help": "Detection coefficient."})
+
+    freeze_decode_layer: bool = field(default=False)
+    expand_batch: int = field(default=None)
+    use_vlln: bool = field(default=True)
+
+    vl_self_attention_cfg: dict = field(default=None)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -192,6 +175,7 @@ class FlowmatchingActionHead(nn.Module):
         self.action_dim = config.action_dim
         self.action_horizon = config.action_horizon
         self.num_inference_timesteps = config.num_inference_timesteps
+
         self.state_encoder = CategorySpecificMLP(
             num_categories=config.max_num_embodiments,
             input_dim=config.max_state_dim,
@@ -209,9 +193,20 @@ class FlowmatchingActionHead(nn.Module):
             hidden_dim=self.hidden_size,
             output_dim=self.action_dim,
         )
+
+        self.vlln = (
+            nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
+        )
+        self.vl_self_attention = (
+            SelfAttentionTransformer(**config.vl_self_attention_cfg)
+            if config.use_vlln
+            else nn.Identity()
+        )
+
         if config.add_pos_embed:
             self.position_embedding = nn.Embedding(config.max_seq_len, self.input_embedding_dim)
             nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
+
         self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config
@@ -240,6 +235,9 @@ class FlowmatchingActionHead(nn.Module):
         if not any(p.requires_grad for p in self.parameters()):
             print("Warning: No action head trainable parameters found.")
 
+        # if self.freeze_decode_layer:
+        #     self.decode_layer.requires_grad_(False)
+
     def set_frozen_modules_to_eval_mode(self):
         """
         Huggingface will call model.train() at each training_step. To ensure
@@ -263,9 +261,37 @@ class FlowmatchingActionHead(nn.Module):
     def prepare_input(self, batch: dict) -> BatchFeature:
         return BatchFeature(data=batch)
 
+    def process_backbone_output(self, backbone_output: BatchFeature) -> BatchFeature:
+        backbone_features = backbone_output["backbone_features"]
+        backbone_features = self.vlln(backbone_features)
+        backbone_features = self.vl_self_attention(backbone_features)
+        backbone_output["backbone_features"] = backbone_features
+        return backbone_output
+
     def forward(self, backbone_output: BatchFeature, action_input: BatchFeature) -> BatchFeature:
         # Set frozen modules to eval
         self.set_frozen_modules_to_eval_mode()
+
+        backbone_output = self.process_backbone_output(backbone_output)
+
+        if self.config.expand_batch is not None:
+            for k, v in backbone_output.items():
+                ndim = len(v.shape)
+                factors = [self.config.expand_batch]
+                while len(factors) < ndim:
+                    factors.append(1)
+                factors = tuple(factors)
+                expanded = v.repeat(*factors)
+                backbone_output[k] = expanded
+
+            for k, v in action_input.items():
+                ndim = len(v.shape)
+                factors = [self.config.expand_batch]
+                while len(factors) < ndim:
+                    factors.append(1)
+                factors = tuple(factors)
+                expanded = v.repeat(*factors)
+                action_input[k] = expanded
 
         # Get vision and language embeddings.
         vl_embeds = backbone_output.backbone_features
@@ -306,6 +332,7 @@ class FlowmatchingActionHead(nn.Module):
             encoder_hidden_states=vl_embs,
             encoder_attention_mask=vl_attn_mask,
             timestep=t_discretized,
+            return_all_hidden_states=False,  # NOTE (YL): not using flare now
         )
         pred = self.action_decoder(model_output, embodiment_id)
         pred_actions = pred[:, -actions.shape[1] :]
@@ -321,6 +348,9 @@ class FlowmatchingActionHead(nn.Module):
 
     @torch.no_grad()
     def get_action(self, backbone_output: BatchFeature, action_input: BatchFeature) -> BatchFeature:
+
+        backbone_output = self.process_backbone_output(backbone_output)
+
         # Get vision and language embeddings.
         vl_embeds = backbone_output.backbone_features
         embodiment_id = action_input.embodiment_id

@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .gr00t_n1 import GR00T_N1
+from .gr00t_n1 import GR00T_N1_5
 from .policy import Gr00tPolicy

@@ -18,35 +18,37 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import List, Literal
 
 import torch
 import tyro
 from transformers import TrainingArguments
 
-from gr00t.data.dataset import LeRobotSingleDataset
+from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.experiment.runner import TrainRunner
-from gr00t.model.gr00t_n1 import GR00T_N1
+from gr00t.model.gr00t_n1 import GR00T_N1_5
+from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.peft import get_lora_model
 
 
 @dataclass
-class Config:
+class ArgsConfig:
     """Configuration for GR00T model fine-tuning."""
 
     # Dataset parameters
-    dataset_path: str
-    """Path to the dataset directory."""
+    dataset_path: List[str]
+    """Path to the dataset directory or directories"""
 
     output_dir: str = "/tmp/gr00t"
     """Directory to save model checkpoints."""
 
-    data_config: str = "gr1_arms_only"
-    """Data configuration name from DATA_CONFIG_MAP."""
+    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "fourier_gr1_arms_only"
+    """Data configuration name from DATA_CONFIG_MAP, we assume all datasets have the same data config"""
 
     # Training parameters
-    batch_size: int = 16
+    batch_size: int = 32
     """Batch size per GPU for training."""
 
     max_steps: int = 10000
@@ -55,17 +57,17 @@ class Config:
     num_gpus: int = 1
     """Number of GPUs to use for training."""
 
-    save_steps: int = 500
+    save_steps: int = 1000
     """Number of steps between saving checkpoints."""
 
     # Model parameters
-    base_model_path: str = "nvidia/GR00T-N1-2B"
+    base_model_path: str = "nvidia/GR00T-N1.5-3B"
     """Path or HuggingFace model ID for the base model."""
 
     tune_llm: bool = False
     """Whether to fine-tune the language model backbone."""
 
-    tune_visual: bool = True
+    tune_visual: bool = False
     """Whether to fine-tune the vision tower."""
 
     tune_projector: bool = True
@@ -88,7 +90,7 @@ class Config:
     """Ratio of total training steps used for warmup."""
 
     lora_rank: int = 0
-    """Rank for the LORA model."""
+    """Rank for the LORA model. If 0, no LORA will be used."""
 
     lora_alpha: int = 16
     """Alpha value for the LORA model."""
@@ -96,18 +98,29 @@ class Config:
     lora_dropout: float = 0.1
     """Dropout rate for the LORA model."""
 
+    lora_full_model: bool = False
+    """Whether to use the full model for LORA. If False, only the action head will be trained."""
+
     dataloader_num_workers: int = 8
     """Number of workers for data loading."""
 
-    report_to: str = "wandb"
+    report_to: Literal["wandb", "tensorboard"] = "wandb"
     """Where to report training metrics (e.g., 'wandb', 'tensorboard')."""
 
     # Data loading parameters
-    embodiment_tag: str = "new_embodiment"
+    embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "new_embodiment"
     """Embodiment tag to use for training. e.g. 'new_embodiment', 'gr1'"""
 
-    video_backend: str = "decord"
+    video_backend: Literal["decord", "torchvision_av"] = "decord"
     """Video backend to use for training. [decord, torchvision_av]"""
+
+    # Mixture dataset parameters
+    balance_dataset_weights: bool = True
+    """Used in LeRobotMixtureDataset. If True, we will balance the dataset weights, by multiplying the total trajectory to each dataset"""
+
+    # Mixture dataset parameters
+    balance_trajectory_weights: bool = True
+    """Used in LeRobotMixtureDataset. If True, sample trajectories within a dataset weighted by their length; otherwise, equal weighting."""
 
 
 #####################################################################################
@@ -115,7 +128,7 @@ class Config:
 #####################################################################################
 
 
-def main(config: Config):
+def main(config: ArgsConfig):
     """Main training function."""
     # ------------ step 1: load dataset ------------
     embodiment_tag = EmbodimentTag(config.embodiment_tag)
@@ -125,17 +138,47 @@ def main(config: Config):
     modality_configs = data_config_cls.modality_config()
     transforms = data_config_cls.transform()
 
-    # 1.2 data loader
-    train_dataset = LeRobotSingleDataset(
-        dataset_path=config.dataset_path,
-        modality_configs=modality_configs,
-        transforms=transforms,
-        embodiment_tag=embodiment_tag,  # This will override the dataset's embodiment tag to "new_embodiment"
-        video_backend=config.video_backend,
-    )
+    # 1.2 data loader: we will use either single dataset or mixture dataset
+    if len(config.dataset_path) == 1:
+        train_dataset = LeRobotSingleDataset(
+            dataset_path=config.dataset_path[0],
+            modality_configs=modality_configs,
+            transforms=transforms,
+            embodiment_tag=embodiment_tag,  # This will override the dataset's embodiment tag to "new_embodiment"
+            video_backend=config.video_backend,
+        )
+    else:
+        single_datasets = []
+        for p in config.dataset_path:
+            assert os.path.exists(p), f"Dataset path {p} does not exist"
+            ## We use the same transforms, modality configs, and embodiment tag for all datasets here,
+            ## in reality, you can use dataset from different modalities and embodiment tags
+            dataset = LeRobotSingleDataset(
+                dataset_path=p,
+                modality_configs=modality_configs,
+                transforms=transforms,
+                embodiment_tag=embodiment_tag,
+                video_backend=config.video_backend,
+            )
+            single_datasets.append(dataset)
+
+        train_dataset = LeRobotMixtureDataset(
+            data_mixture=[
+                (dataset, 1.0)  # we will use equal weights for all datasets
+                for dataset in single_datasets
+            ],
+            mode="train",
+            balance_dataset_weights=config.balance_dataset_weights,
+            balance_trajectory_weights=config.balance_trajectory_weights,
+            seed=42,
+            metadata_config={
+                "percentile_mixing_method": "weighted_average",
+            },
+        )
+        print(f"Loaded {len(single_datasets)} datasets, with {config.dataset_path} ")
 
     # ------------ step 2: load model ------------
-    model = GR00T_N1.from_pretrained(
+    model = GR00T_N1_5.from_pretrained(
         pretrained_model_name_or_path=config.base_model_path,
         tune_llm=config.tune_llm,  # backbone's LLM
         tune_visual=config.tune_visual,  # backbone's vision tower
@@ -153,6 +196,7 @@ def main(config: Config):
             rank=config.lora_rank,
             lora_alpha=config.lora_alpha,
             lora_dropout=config.lora_dropout,
+            action_head_only=not config.lora_full_model,
         )
 
     # 2.1 modify training args
@@ -168,7 +212,7 @@ def main(config: Config):
         gradient_accumulation_steps=1,
         dataloader_num_workers=config.dataloader_num_workers,
         dataloader_pin_memory=False,
-        dataloader_persistent_workers=True,
+        dataloader_persistent_workers=config.dataloader_num_workers > 0,
         optim="adamw_torch",
         adam_beta1=0.95,
         adam_beta2=0.999,
@@ -182,7 +226,7 @@ def main(config: Config):
         max_steps=config.max_steps,
         save_strategy="steps",
         save_steps=config.save_steps,
-        evaluation_strategy="no",
+        # evaluation_strategy="no",
         save_total_limit=8,
         report_to=config.report_to,
         seed=42,
@@ -206,7 +250,7 @@ def main(config: Config):
 
 if __name__ == "__main__":
     # Parse arguments using tyro
-    config = tyro.cli(Config)
+    config = tyro.cli(ArgsConfig)
 
     # Print the tyro config
     print("\n" + "=" * 50)
@@ -260,7 +304,13 @@ if __name__ == "__main__":
                 else:
                     # For non-boolean values, use --key value format
                     cmd.append(f"--{key.replace('_', '-')}")
-                    cmd.append(str(value))
+
+                    # if the value is a list (e.g. dataset_path), we need to add each element in the list
+                    if isinstance(value, list):
+                        for v in value:
+                            cmd.append(str(v))
+                    else:
+                        cmd.append(str(value))
             print("Running torchrun command: ", cmd)
             env = os.environ.copy()
             env["IS_TORCHRUN"] = "1"
