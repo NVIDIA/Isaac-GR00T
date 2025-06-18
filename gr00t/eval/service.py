@@ -97,10 +97,12 @@ class BaseInferenceServer:
             try:
                 message = self.socket.recv()
                 request = TorchSerializer.from_bytes(message)
-                
+
                 # Validate token before processing request
                 if not self._validate_token(request):
-                    self.socket.send(TorchSerializer.to_bytes({"error": "Unauthorized: Invalid API token"}))
+                    self.socket.send(
+                        TorchSerializer.to_bytes({"error": "Unauthorized: Invalid API token"})
+                    )
                     continue
 
                 endpoint = request.get("endpoint", "get_action")
@@ -118,12 +120,19 @@ class BaseInferenceServer:
             except Exception as e:
                 print(f"Error in server: {e}")
                 import traceback
+
                 print(traceback.format_exc())
                 self.socket.send(TorchSerializer.to_bytes({"error": str(e)}))
 
 
 class BaseInferenceClient:
-    def __init__(self, host: str = "localhost", port: int = 5555, timeout_ms: int = 15000, api_token: str = None):
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 5555,
+        timeout_ms: int = 15000,
+        api_token: str = None,
+    ):
         self.context = zmq.Context()
         self.host = host
         self.port = port
@@ -170,7 +179,7 @@ class BaseInferenceClient:
         self.socket.send(TorchSerializer.to_bytes(request))
         message = self.socket.recv()
         response = TorchSerializer.from_bytes(message)
-        
+
         if "error" in response:
             raise RuntimeError(f"Server error: {response['error']}")
         return response
