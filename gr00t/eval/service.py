@@ -47,12 +47,13 @@ class BaseInferenceServer:
     Can add custom endpoints by calling `register_endpoint`.
     """
 
-    def __init__(self, host: str = "*", port: int = 5555):
+    def __init__(self, host: str = "*", port: int = 5555, api_token: str = None):
         self.running = True
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.bind(f"tcp://{host}:{port}")
         self._endpoints: dict[str, EndpointHandler] = {}
+        self.api_token = api_token
 
         # Register the ping endpoint by default
         self.register_endpoint("ping", self._handle_ping, requires_input=False)
@@ -81,6 +82,14 @@ class BaseInferenceServer:
         """
         self._endpoints[name] = EndpointHandler(handler, requires_input)
 
+    def _validate_token(self, request: dict) -> bool:
+        """
+        Validate the API token in the request.
+        """
+        if self.api_token is None:
+            return True  # No token required
+        return request.get("api_token") == self.api_token
+
     def run(self):
         addr = self.socket.getsockopt_string(zmq.LAST_ENDPOINT)
         print(f"Server is ready and listening on {addr}")
@@ -88,6 +97,12 @@ class BaseInferenceServer:
             try:
                 message = self.socket.recv()
                 request = TorchSerializer.from_bytes(message)
+                
+                # Validate token before processing request
+                if not self._validate_token(request):
+                    self.socket.send(TorchSerializer.to_bytes({"error": "Unauthorized: Invalid API token"}))
+                    continue
+
                 endpoint = request.get("endpoint", "get_action")
 
                 if endpoint not in self._endpoints:
@@ -103,17 +118,17 @@ class BaseInferenceServer:
             except Exception as e:
                 print(f"Error in server: {e}")
                 import traceback
-
                 print(traceback.format_exc())
-                self.socket.send(b"ERROR")
+                self.socket.send(TorchSerializer.to_bytes({"error": str(e)}))
 
 
 class BaseInferenceClient:
-    def __init__(self, host: str = "localhost", port: int = 5555, timeout_ms: int = 15000):
+    def __init__(self, host: str = "localhost", port: int = 5555, timeout_ms: int = 15000, api_token: str = None):
         self.context = zmq.Context()
         self.host = host
         self.port = port
         self.timeout_ms = timeout_ms
+        self.api_token = api_token
         self._init_socket()
 
     def _init_socket(self):
@@ -149,12 +164,16 @@ class BaseInferenceClient:
         request: dict = {"endpoint": endpoint}
         if requires_input:
             request["data"] = data
+        if self.api_token:
+            request["api_token"] = self.api_token
 
         self.socket.send(TorchSerializer.to_bytes(request))
         message = self.socket.recv()
-        if message == b"ERROR":
-            raise RuntimeError("Server error")
-        return TorchSerializer.from_bytes(message)
+        response = TorchSerializer.from_bytes(message)
+        
+        if "error" in response:
+            raise RuntimeError(f"Server error: {response['error']}")
+        return response
 
     def __del__(self):
         """Cleanup resources on destruction"""
