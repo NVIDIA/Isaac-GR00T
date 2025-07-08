@@ -31,7 +31,8 @@ jobs:
         task:
           - name: Test
             run: |
-              pytest -v --color=yes tests/
+              pytest -v --color=yes tests/test_dataset.py
+              # pytest -v --color=yes tests/test_load.py # Not using gpu on vm
 
         include:
           - python: "3.10"

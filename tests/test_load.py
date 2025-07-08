@@ -3,6 +3,7 @@ import torch
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 
 model_path = "nvidia/GR00T-N1.5-3B"
+# NOTE: you can provide a local path to the checkpoint to check it's validity
 # model_path = "/home/youliang/checkpoints/gn1-clothes-40k/"
 
 # Load the model
