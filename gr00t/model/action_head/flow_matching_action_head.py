@@ -390,9 +390,7 @@ class FlowmatchingActionHead(nn.Module):
                 action_features = action_features + pos_embs
 
             # Join vision, language, state and action embedding along sequence dimension.
-            future_tokens = self.future_tokens.weight.unsqueeze(0).expand(
-                vl_embs.shape[0], -1, -1
-            )
+            future_tokens = self.future_tokens.weight.unsqueeze(0).expand(vl_embs.shape[0], -1, -1)
             sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
 
             # Run model forward.

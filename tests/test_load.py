@@ -1,5 +1,5 @@
-import torch
 import pytest
+import torch
 
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 
