@@ -278,7 +278,7 @@ class DiT(ModelMixin, ConfigMixin):
 
         # Process through transformer blocks
         for idx, block in enumerate(self.transformer_blocks):
-            if idx % 2 == 1 and self.interleave_self_attention:
+            if idx % 2 == 1 and self.config.interleave_self_attention:
                 hidden_states = block(
                     hidden_states,
                     attention_mask=None,
