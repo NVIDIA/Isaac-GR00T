@@ -217,70 +217,6 @@ class FlowmatchingActionHead(nn.Module):
         self.config = config
         self.set_trainable_parameters(config.tune_projector, config.tune_diffusion_model)
 
-    def _load_future_tokens_from_checkpoint(self, checkpoint_path: str):
-        """
-        TODO(YL): This is a temporary hack to fix the loading issue of future_tokens.weight.
-
-        Load future_tokens.weight from checkpoint to fix the HuggingFace loading issue.
-
-        This method addresses the issue where future_tokens.weight is not properly loaded
-        from safetensors files by the HuggingFace transformers library, resulting in
-        NaN values. This method manually loads the correct values from the checkpoint.
-
-        Args:
-            checkpoint_path (str): Path to the checkpoint directory containing safetensors files
-        """
-        from pathlib import Path
-
-        from safetensors import safe_open
-
-        # Find safetensors files
-        safetensors_files = list(Path(checkpoint_path).glob("*.safetensors"))
-        if not safetensors_files:
-            print(f"Warning: No safetensors files found in {checkpoint_path}")
-            return False
-
-        # Look for future_tokens.weight in safetensors files
-        future_tokens_found = False
-        for file_path in safetensors_files:
-            try:
-                with safe_open(str(file_path), framework="pt", device="cpu") as f:
-                    if "action_head.future_tokens.weight" in f.keys():
-                        print(f"Found future_tokens.weight in {file_path}")
-                        checkpoint_future_tokens = f.get_tensor("action_head.future_tokens.weight")
-                        future_tokens_found = True
-                        break
-            except Exception as e:
-                print(f"Warning: Error reading {file_path}: {e}")
-                continue
-
-        if not future_tokens_found:
-            print(
-                f"Warning: action_head.future_tokens.weight not found in checkpoint {checkpoint_path}"
-            )
-            return False
-
-        # Check if the loaded values are valid
-        if torch.isnan(checkpoint_future_tokens).any():
-            print("Warning: Checkpoint future_tokens contains NaN values")
-            return False
-
-        # Check if shapes match
-        if checkpoint_future_tokens.shape != self.future_tokens.weight.shape:
-            print(
-                f"Warning: Shape mismatch - checkpoint: {checkpoint_future_tokens.shape}, model: {self.future_tokens.weight.shape}"
-            )
-            return False
-
-        # Copy the values to the model parameter
-        with torch.no_grad():
-            self.future_tokens.weight.copy_(
-                checkpoint_future_tokens.to(self.future_tokens.weight.dtype)
-            )
-
-        print("✅ Successfully loaded future_tokens from checkpoint")
-        return True
-
     def set_trainable_parameters(self, tune_projector: bool, tune_diffusion_model: bool):
         self.tune_projector = tune_projector
         self.tune_diffusion_model = tune_diffusion_model
@@ -303,9 +239,6 @@ class FlowmatchingActionHead(nn.Module):
                     print(f"Action head trainable parameter: {name}")
         if not any(p.requires_grad for p in self.parameters()):
             print("Warning: No action head trainable parameters found.")
-
-        # if self.freeze_decode_layer:
-        #     self.decode_layer.requires_grad_(False)
 
     def set_frozen_modules_to_eval_mode(self):
         """
@@ -394,7 +327,6 @@ class FlowmatchingActionHead(nn.Module):
         # Join vision, language, state and action embedding along sequence dimension.
         future_tokens = self.future_tokens.weight.unsqueeze(0).expand(vl_embs.shape[0], -1, -1)
         sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
-        # sa_embs = torch.cat((state_features, action_features), dim=1)
 
         vl_attn_mask = backbone_output.backbone_attention_mask
 
@@ -462,7 +394,6 @@ class FlowmatchingActionHead(nn.Module):
                 vl_embeds.shape[0], -1, -1
             )
             sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
-            # sa_embs = torch.cat((state_features, action_features), dim=1)
 
             # Run model forward.
             model_output = self.model(

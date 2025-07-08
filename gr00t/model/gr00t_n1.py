@@ -231,9 +231,6 @@ class GR00T_N1_5(PreTrainedModel):
         pretrained_model.action_head.set_trainable_parameters(
             tune_projector=tune_projector, tune_diffusion_model=tune_diffusion_model
         )
-        # TODO(YL): This is a temporary hack to fix the loading issue of future_tokens.weight.
-        # Remove this after fixing the loading issue.
-        pretrained_model.action_head._load_future_tokens_from_checkpoint(local_model_path)
         return pretrained_model
 
 
