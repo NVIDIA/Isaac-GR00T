@@ -12,8 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-import matplotlib.pyplot as plt
 import numpy as np
 
 from gr00t.data.dataset import LeRobotSingleDataset
@@ -42,6 +40,7 @@ def calc_mse_for_single_trajectory(
     steps=300,
     action_horizon=16,
     plot=False,
+    save_plot_path=None,
 ):
     state_joints_across_time = []
     gt_action_across_time = []
@@ -53,18 +52,17 @@ def calc_mse_for_single_trajectory(
         # NOTE this is to get all modality keys concatenated
         # concat_state = data_point[f"state.{modality_keys[0]}"][0]
         # # concat_gt_action = data_point[f"action.{modality_keys[0]}"][0]
-        # concat_state = np.concatenate(
-        #     [data_point[f"state.{key}"][0] for key in modality_keys], axis=0
-        # )
-        concat_state = np.concatenate(
-            [data_point[f"state.{key}"][0] for key in modality_keys], axis=0
-        )
         concat_gt_action = np.concatenate(
             [data_point[f"action.{key}"][0] for key in modality_keys], axis=0
         )
-
-        state_joints_across_time.append(concat_state)
         gt_action_across_time.append(concat_gt_action)
+        try:
+            concat_state = np.concatenate(
+                [data_point[f"state.{key}"][0] for key in modality_keys], axis=0
+            )
+            state_joints_across_time.append(concat_state)
+        except KeyError as e:
+            print(f"KeyError concatenating state: {e}, we will skip plotting state")
 
         if step_count % action_horizon == 0:
             print("inferencing at step: ", step_count)
@@ -96,8 +94,17 @@ def calc_mse_for_single_trajectory(
     action_dim = gt_action_across_time.shape[1]
 
     if plot:
+        # Use non interactive backend for matplotlib if headless
+        if save_plot_path is not None:
+            import matplotlib
+
+            matplotlib.use("Agg")
+
+        import matplotlib.pyplot as plt
+
         fig, axes = plt.subplots(nrows=action_dim, ncols=1, figsize=(8, 4 * action_dim))
 
+        print("plotting diagram")
         # Add a global title showing the modality keys
         fig.suptitle(
             f"Trajectory {traj_id} - Modalities: {', '.join(modality_keys)}",
@@ -121,9 +128,15 @@ def calc_mse_for_single_trajectory(
                     ax.plot(j, gt_action_across_time[j, i], "ro")
 
             ax.set_title(f"Action {i}")
+            # ax.set_ylim(-np.pi, np.pi)
             ax.legend()
 
-        plt.tight_layout()
-        plt.show()
+        print("saving plot")
+        if save_plot_path:
+            print("saving plot to", save_plot_path)
+            plt.savefig(save_plot_path)
+        else:
+            plt.tight_layout()
+            plt.show()
 
     return mse

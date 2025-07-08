@@ -82,6 +82,9 @@ class ArgsConfig:
     denoising_steps: int = 4
     """Number of denoising steps to use."""
 
+    save_plot_path: str = None
+    """Path to save the plot."""
+
 
 def main(args: ArgsConfig):
     data_config = DATA_CONFIG_MAP[args.data_config]
@@ -146,6 +149,7 @@ def main(args: ArgsConfig):
             steps=args.steps,
             action_horizon=args.action_horizon,
             plot=args.plot,
+            save_plot_path=args.save_plot_path,
         )
         print("MSE:", mse)
         all_mse.append(mse)
