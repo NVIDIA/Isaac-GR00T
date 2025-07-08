@@ -355,18 +355,18 @@ class FlowmatchingActionHead(nn.Module):
         backbone_output = self.process_backbone_output(backbone_output)
 
         # Get vision and language embeddings.
-        vl_embeds = backbone_output.backbone_features
+        vl_embs = backbone_output.backbone_features
         embodiment_id = action_input.embodiment_id
 
         # Embed state.
         state_features = self.state_encoder(action_input.state, embodiment_id)
 
         # Set initial actions as the sampled noise.
-        batch_size = vl_embeds.shape[0]
-        device = vl_embeds.device
+        batch_size = vl_embs.shape[0]
+        device = vl_embs.device
         actions = torch.randn(
             size=(batch_size, self.config.action_horizon, self.config.action_dim),
-            dtype=vl_embeds.dtype,
+            dtype=vl_embs.dtype,
             device=device,
         )
 
@@ -391,14 +391,14 @@ class FlowmatchingActionHead(nn.Module):
 
             # Join vision, language, state and action embedding along sequence dimension.
             future_tokens = self.future_tokens.weight.unsqueeze(0).expand(
-                vl_embeds.shape[0], -1, -1
+                vl_embs.shape[0], -1, -1
             )
             sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
 
             # Run model forward.
             model_output = self.model(
                 hidden_states=sa_embs,
-                encoder_hidden_states=vl_embeds,
+                encoder_hidden_states=vl_embs,
                 timestep=timesteps_tensor,
             )
             pred = self.action_decoder(model_output, embodiment_id)

@@ -1,6 +1,11 @@
 import torch
+import pytest
 
 from gr00t.model.gr00t_n1 import GR00T_N1_5
+
+# Skip test if no GPU is available
+if not torch.cuda.is_available():
+    pytest.skip("Skipping test: No GPU detected", allow_module_level=True)
 
 model_path = "nvidia/GR00T-N1.5-3B"
 # NOTE: you can provide a local path to the checkpoint to check it's validity
