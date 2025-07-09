@@ -114,6 +114,13 @@ pip install -e .[base]
 pip install --no-build-isolation flash-attn==2.7.1.post4 
 ```
 
+To create an environment and install the dependencies using conda:
+```sh
+conda env create -f env.yaml
+conda activate gr00t
+pip install -e . --no-deps --no-build-isolation
+```
+
 ## Getting started with this repo
 
 We provide accessible Jupyter notebooks and detailed documentation in the [`./getting_started`](./getting_started) folder. Utility scripts can be found in the [`./scripts`](./scripts) folder. Additionally, a comprehensive tutorial for finetuning the model on the SO-101 robot is available on [HuggingFace](https://huggingface.co/blog/nvidia/gr00t-n1-5-so101-tuning).
