@@ -65,6 +65,8 @@ Video transforms are applied to video data to prepare it for model training. Bas
 - **VideoColorJitter**: Applies color augmentation by randomly adjusting brightness (±0.3), contrast (±0.4), saturation (±0.5), and hue (±0.08).
 - **VideoToNumpy**: Converts the processed tensor back to NumPy arrays for further processing.
 
+> NOTE: for each video frame, we preprocess it to be 256x256 pixels, and top bottom padding to keep the aspect ratio. Checkout the [demo_data/robot_sim.PickNPlace/videos](../../demo_data/robot_sim.PickNPlace/videos) for example. This preprocessing is done before using the dataset for training.
+
 #### 2. State and ActionTransforms
 
 State and action transforms process robot state and action information:
