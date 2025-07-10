@@ -1,8 +1,9 @@
-import requests
 import time
-import numpy as np
 
 import json_numpy
+import numpy as np
+import requests
+
 json_numpy.patch()
 
 obs = {

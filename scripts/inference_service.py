@@ -85,7 +85,7 @@ class ArgsConfig:
     """API token for authentication. If not provided, authentication is disabled."""
 
     http_server: bool = False
-    """Whether to run the HTTP server."""
+    """Whether to run it as HTTP server. Default is ZMQ server."""
 
 
 #####################################################################################
