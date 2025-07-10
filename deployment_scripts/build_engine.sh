@@ -40,7 +40,7 @@ trtexec --useCudaGraph --verbose --stronglyTyped --separateProfileRun --noDataTr
 
 # DiT Model
 echo "------------Building DiT Model--------------------"
-trtexec --useCudaGraph --verbose --stronglyTyped --separateProfileRun --noDataTransfers --onnx=gr00t_onnx/action_head/DiT.onnx --saveEngine=gr00t_engine/DiT.engine --minShapes=sa_embs:1x17x1536,vl_embs:1x${MIN_LEN}x2048,timesteps_tensor:1  --optShapes=sa_embs:1x17x1536,vl_embs:1x${OPT_LEN}x2048,timesteps_tensor:1  --maxShapes=sa_embs:8x17x1536,vl_embs:8x${MAX_LEN}x2048,timesteps_tensor:8 > gr00t_engine/build_DiT.log 2>&1
+trtexec --useCudaGraph --verbose --stronglyTyped --separateProfileRun --noDataTransfers --onnx=gr00t_onnx/action_head/DiT.onnx --saveEngine=gr00t_engine/DiT.engine --minShapes=sa_embs:1x49x1536,vl_embs:1x${MIN_LEN}x2048,timesteps_tensor:1  --optShapes=sa_embs:1x49x1536,vl_embs:1x${OPT_LEN}x2048,timesteps_tensor:1  --maxShapes=sa_embs:8x49x1536,vl_embs:8x${MAX_LEN}x2048,timesteps_tensor:8 > gr00t_engine/build_DiT.log 2>&1
 
 # State Encoder
 echo "------------Building State Encoder--------------------"
@@ -52,7 +52,7 @@ trtexec --useCudaGraph --verbose --stronglyTyped --separateProfileRun --noDataTr
 
 # Action Decoder
 echo "------------Building Action Decoder--------------------"
-trtexec --useCudaGraph --verbose --stronglyTyped --separateProfileRun --noDataTransfers --onnx=gr00t_onnx/action_head/action_decoder.onnx --saveEngine=gr00t_engine/action_decoder.engine --minShapes=model_output:1x17x1024,embodiment_id:1  --optShapes=model_output:1x17x1024,embodiment_id:1  --maxShapes=model_output:8x17x1024,embodiment_id:8 > gr00t_engine/build_action_decoder.log 2>&1
+trtexec --useCudaGraph --verbose --stronglyTyped --separateProfileRun --noDataTransfers --onnx=gr00t_onnx/action_head/action_decoder.onnx --saveEngine=gr00t_engine/action_decoder.engine --minShapes=model_output:1x49x1024,embodiment_id:1  --optShapes=model_output:1x49x1024,embodiment_id:1  --maxShapes=model_output:8x49x1024,embodiment_id:8 > gr00t_engine/build_action_decoder.log 2>&1
 
 # VLM-ViT
 echo "------------Building VLM-ViT--------------------"
