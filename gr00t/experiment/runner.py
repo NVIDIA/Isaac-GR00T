@@ -113,7 +113,7 @@ class TrainRunner:
                 )
             training_args.report_to = ["wandb"]
         elif report_to == "azure_ml":
-            training_args.report_to = ["azure_ml"]
+            print("azure_ml logging is enabled.")
         else:  # Default to tensorboard
             tensorboard_dir = Path(training_args.output_dir) / "runs"
             tensorboard_dir.mkdir(parents=True, exist_ok=True)
