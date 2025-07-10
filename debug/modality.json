@@ -1,0 +1,50 @@
+{
+    "state": {
+        "left_arm": {
+            "start": 0,
+            "end": 7
+        },
+        "left_hand": {
+            "start": 7,
+            "end": 14
+        },
+        "torso": {
+            "start": 14,
+            "end": 18
+        },
+        "head": {
+            "start": 18,
+            "end": 20
+        },
+        "gripper": {
+            "start": 20,
+            "end": 32
+        }
+    },
+    "action": {
+        "head": {
+            "start": 0,
+            "end": 7
+        },
+        "left_arm": {
+            "start": 7,
+            "end": 14
+        },
+        "right_arm": {
+            "start": 14,
+            "end": 21
+        },
+        "gripper": {
+            "start": 21,
+            "end": 33
+        }
+    },
+    "video": {
+        "ego_view": {
+            "original_key": "observation.image.front"
+        }
+    },
+    "annotation": {
+        "task_index": {}
+    }
+}

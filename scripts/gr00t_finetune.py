@@ -189,7 +189,9 @@ def main(config: ArgsConfig):
     # Set the model's compute_dtype to bfloat16
     model.compute_dtype = "bfloat16"
     model.config.compute_dtype = "bfloat16"
-
+    # Print model config in red
+    print("\033[91m" + "Model config:" + "\033[0m")
+    print("\033[91m" + str(model.config) + "\033[0m")
     if config.lora_rank > 0:
         model = get_lora_model(
             model,

@@ -104,7 +104,7 @@ class GR00T_N1_5(PreTrainedModel):
                 error_msg += f"\n{action.dtype=}"
                 detected_error = True
             if not shape_ok:
-                error_msg += f"\n{action.shape=}"
+                error_msg += f"\n{action.shape=} {self.action_horizon=} {self.action_dim=}"
                 detected_error = True
 
         if "video" in inputs:
