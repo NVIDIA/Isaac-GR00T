@@ -104,7 +104,7 @@ class ArgsConfig:
     dataloader_num_workers: int = 8
     """Number of workers for data loading."""
 
-    report_to: Literal["wandb", "tensorboard"] = "wandb"
+    report_to: Literal["wandb", "tensorboard", "azure_ml"] = "wandb"
     """Where to report training metrics (e.g., 'wandb', 'tensorboard')."""
 
     # Data loading parameters
