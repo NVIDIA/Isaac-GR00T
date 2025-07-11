@@ -92,6 +92,10 @@ def calc_mse_for_single_trajectory(
     print("gt_action_joints vs time", gt_action_across_time.shape)
     print("pred_action_joints vs time", pred_action_across_time.shape)
 
+    # raise error when pred action has NaN
+    if np.isnan(pred_action_across_time).any():
+        raise ValueError("Pred action has NaN")
+
     # num_of_joints = state_joints_across_time.shape[1]
     action_dim = gt_action_across_time.shape[1]
 

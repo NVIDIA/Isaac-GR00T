@@ -13,6 +13,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+GR00T Inference Service
+
+This script provides both ZMQ and HTTP server/client implementations for deploying GR00T models.
+The HTTP server exposes a REST API for easy integration with web applications and other services.
+
+1. Default is zmq server.
+
+Run server: python scripts/inference_service.py --server
+Run client: python scripts/inference_service.py --client
+
+2. Run as Http Server:
+
+Dependencies for `http_server` mode:
+    => Server (runs GR00T model on GPU): `pip install uvicorn fastapi json-numpy`
+    => Client: `pip install requests json-numpy`
+
+HTTP Server Usage:
+    python scripts/inference_service.py --server --http-server --port 8000
+
+HTTP Client Usage (assuming a server running on 0.0.0.0:8000):
+    python scripts/inference_service.py --client --http-server --host 0.0.0.0 --port 8000
+
+You can use bore to forward the port to your client: `159.223.171.199` is bore.pub.
+    bore local 8000 --to 159.223.171.199
+"""
+
+import time
 from dataclasses import dataclass
 from typing import Literal
 
@@ -56,8 +84,53 @@ class ArgsConfig:
     api_token: str = None
     """API token for authentication. If not provided, authentication is disabled."""
 
+    http_server: bool = False
+    """Whether to run it as HTTP server. Default is ZMQ server."""
+
 
 #####################################################################################
+
+
+def _example_zmq_client_call(obs: dict, host: str, port: int, api_token: str):
+    """
+    Example ZMQ client call to the server.
+    """
+    # Original ZMQ client mode
+    # Create a policy wrapper
+    policy_client = RobotInferenceClient(host=host, port=port, api_token=api_token)
+
+    print("Available modality config available:")
+    modality_configs = policy_client.get_modality_config()
+    print(modality_configs.keys())
+
+    time_start = time.time()
+    action = policy_client.get_action(obs)
+    print(f"Total time taken to get action from server: {time.time() - time_start} seconds")
+    return action
+
+
+def _example_http_client_call(obs: dict, host: str, port: int, api_token: str):
+    """
+    Example HTTP client call to the server.
+    """
+    import json_numpy
+
+    json_numpy.patch()
+    import requests
+
+    # Send request to HTTP server
+    print("Testing HTTP server...")
+
+    time_start = time.time()
+    response = requests.post(f"http://{host}:{port}/act", json={"observation": obs})
+    print(f"Total time taken to get action from HTTP server: {time.time() - time_start} seconds")
+
+    if response.status_code == 200:
+        action = response.json()
+        return action
+    else:
+        print(f"Error: {response.status_code} - {response.text}")
+        return {}
 
 
 def main(args: ArgsConfig):
@@ -86,22 +159,21 @@ def main(args: ArgsConfig):
         )
 
         # Start the server
-        server = RobotInferenceServer(policy, port=args.port, api_token=args.api_token)
-        server.run()
+        if args.http_server:
+            from gr00t.eval.http_server import HTTPInferenceServer  # noqa: F401
 
+            server = HTTPInferenceServer(
+                policy, port=args.port, host=args.host, api_token=args.api_token
+            )
+            server.run()
+        else:
+            server = RobotInferenceServer(policy, port=args.port, api_token=args.api_token)
+            server.run()
+
+    # Here is mainly a testing code
     elif args.client:
-        import time
-
         # In this mode, we will send a random observation to the server and get an action back
         # This is useful for testing the server and client connection
-        # Create a policy wrapper
-        policy_client = RobotInferenceClient(
-            host=args.host, port=args.port, api_token=args.api_token
-        )
-
-        print("Available modality config available:")
-        modality_configs = policy_client.get_modality_config()
-        print(modality_configs.keys())
 
         # Making prediction...
         # - obs: video.ego_view: (1, 256, 256, 3)
@@ -126,13 +198,13 @@ def main(args: ArgsConfig):
             "annotation.human.action.task_description": ["do your thing!"],
         }
 
-        time_start = time.time()
-        action = policy_client.get_action(obs)
-        print(f"Total time taken to get action from server: {time.time() - time_start} seconds")
+        if args.http_server:
+            action = _example_http_client_call(obs, args.host, args.port, args.api_token)
+        else:
+            action = _example_zmq_client_call(obs, args.host, args.port, args.api_token)
 
         for key, value in action.items():
             print(f"Action: {key}: {value.shape}")
-
     else:
         raise ValueError("Please specify either --server or --client")
 
