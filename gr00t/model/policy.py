@@ -152,12 +152,14 @@ class Gr00tPolicy(BasePolicy):
         e.g. obs = {
             "video.<>": np.ndarray,  # (T, H, W, C)
             "state.<>": np.ndarray, # (T, D)
+            "annotation.<>": np.ndarray, # (T, )
         }
 
         or with batched input:
         e.g. obs = {
             "video.<>": np.ndarray,, # (B, T, H, W, C)
             "state.<>": np.ndarray, # (B, T, D)
+            "annotation.<>": np.ndarray, # (B, T, )
         }
 
         Returns:
@@ -167,6 +169,12 @@ class Gr00tPolicy(BasePolicy):
         is_batch = self._check_state_is_batched(observations)
         if not is_batch:
             observations = unsqueeze_dict_values(observations)
+
+        # NOTE(YL): ensure keys are all in numpy array
+        for k, v in observations.items():
+            if not isinstance(v, np.ndarray):
+                observations[k] = np.array(v)
+
         # Apply transforms
         normalized_input = self.apply_transforms(observations)
 
