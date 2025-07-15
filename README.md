@@ -222,15 +222,6 @@ python scripts/gr00t_finetune.py --dataset-path ./demo_data/robot_sim.PickNPlace
 
 **Note**: If you are finetuning on a 4090, you need to pass the `--no-tune_diffusion_model` flag when running `gr00t_finetune.py` to avoid CUDA out of memory.
 
-You can also download a sample dataset from our huggingface sim data release [here](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim)
-
-```
-huggingface-cli download  nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
-  --repo-type dataset \
-  --include "gr1_arms_only.CanSort/**" \
-  --local-dir $HOME/gr00t_dataset
-```
-
 The recommended finetuning configuration is to boost your batch size to the max, and train for 20k steps.
 
 *Hardware Performance Considerations*
@@ -254,6 +245,14 @@ GR00T N1.5 provides three pretrained embodiment heads optimized for different ro
 - **`EmbodimentTag.NEW_EMBODIMENT`**: (Non-pretrained) New embodiment head for finetuning on new robot embodiments
 
 Select the embodiment head that best matches your robot's configuration for optimal finetuning performance. For detailed information on the observation and action spaces, see [`EmbodimentTag`](getting_started/4_deeper_understanding.md#embodiment-action-head-fine-tuning).
+
+
+### Sim Env: [robocasa-gr1-tabletop-tasks](https://github.com/robocasa/robocasa-gr1-tabletop-tasks)
+
+Sample dataset for finetuning can be downloaed from our huggingface [here](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim)
+
+For Simulation Evaluation, please refer to [robocasa-gr1-tabletop-tasks](https://github.com/robocasa/robocasa-gr1-tabletop-tasks)
+
 
 ## 4. Evaluation
 
