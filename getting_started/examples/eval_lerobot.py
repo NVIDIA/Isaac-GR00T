@@ -50,10 +50,10 @@ from pprint import pformat
 import draccus
 import matplotlib.pyplot as plt
 import numpy as np
-from lerobot.common.cameras.opencv.configuration_opencv import (  # noqa: F401
+from lerobot.cameras.opencv.configuration_opencv import (  # noqa: F401
     OpenCVCameraConfig,
 )
-from lerobot.common.robots import (  # noqa: F401
+from lerobot.robots import (  # noqa: F401
     Robot,
     RobotConfig,
     koch_follower,
@@ -61,7 +61,7 @@ from lerobot.common.robots import (  # noqa: F401
     so100_follower,
     so101_follower,
 )
-from lerobot.common.utils.utils import (
+from lerobot.utils.utils import (
     init_logging,
     log_say,
 )
