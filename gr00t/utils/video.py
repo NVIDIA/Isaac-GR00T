@@ -111,7 +111,7 @@ def get_frames_by_timestamps(
         loaded_ts = []
         for frame in reader:
             current_ts = frame["pts"]
-            loaded_frames.append(frame["data"])
+            loaded_frames.append(frame["data"].numpy())
             loaded_ts.append(current_ts)
             if current_ts >= last_ts:
                 break
@@ -154,7 +154,7 @@ def get_all_frames(
         reader = torchvision.io.VideoReader(video_path, "video")
         frames = []
         for frame in reader:
-            frames.append(frame["data"])
+            frames.append(frame["data"].numpy())
         frames = np.array(frames)
         frames = frames.transpose(0, 2, 3, 1)
     else:

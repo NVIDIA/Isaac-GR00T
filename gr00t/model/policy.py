@@ -152,12 +152,14 @@ class Gr00tPolicy(BasePolicy):
         e.g. obs = {
             "video.<>": np.ndarray,  # (T, H, W, C)
             "state.<>": np.ndarray, # (T, D)
+            "annotation.<>": np.ndarray, # (T, )
         }
 
         or with batched input:
         e.g. obs = {
             "video.<>": np.ndarray,, # (B, T, H, W, C)
             "state.<>": np.ndarray, # (B, T, D)
+            "annotation.<>": np.ndarray, # (B, T, )
         }
 
         Returns:
@@ -167,6 +169,12 @@ class Gr00tPolicy(BasePolicy):
         is_batch = self._check_state_is_batched(observations)
         if not is_batch:
             observations = unsqueeze_dict_values(observations)
+
+        # NOTE(YL): ensure keys are all in numpy array
+        for k, v in observations.items():
+            if not isinstance(v, np.ndarray):
+                observations[k] = np.array(v)
+
         # Apply transforms
         normalized_input = self.apply_transforms(observations)
 
@@ -232,6 +240,38 @@ class Gr00tPolicy(BasePolicy):
         model = GR00T_N1_5.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
         model.eval()  # Set model to eval mode
         model.to(device=self.device)  # type: ignore
+
+        # Update action_horizon to match modality config
+        # Get the expected action horizon from the modality config
+        expected_action_horizon = len(self._modality_config["action"].delta_indices)
+
+        if expected_action_horizon != model.action_head.config.action_horizon:
+            print(
+                f"Policy: Recreating action head with action_horizon {expected_action_horizon} (was {model.action_head.config.action_horizon})"
+            )
+
+            # Update the action head config
+            new_action_head_config = model.action_head.config
+            new_action_head_config.action_horizon = expected_action_horizon
+
+            # Import the FlowmatchingActionHead class
+            from gr00t.model.action_head.flow_matching_action_head import (
+                FlowmatchingActionHead,
+            )
+
+            # Create new action head with updated config
+            new_action_head = FlowmatchingActionHead(new_action_head_config)
+
+            # Copy the weights from the old action head to the new one
+            new_action_head.load_state_dict(model.action_head.state_dict(), strict=False)
+
+            # Replace the action head
+            model.action_head = new_action_head
+
+            # Update model config AND the action_head_cfg dictionary that gets saved
+            model.config.action_horizon = expected_action_horizon
+            model.action_horizon = expected_action_horizon
+            model.config.action_head_cfg["action_horizon"] = expected_action_horizon
 
         self.model = model
 

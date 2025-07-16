@@ -136,7 +136,8 @@ class Gr00tRobotInferenceClient:
 
         # convert the action chunk to a list of dict[str, float]
         lerobot_actions = []
-        for i in range(16):
+        action_horizon = action_chunk[f"action.{self.modality_keys[0]}"].shape[0]
+        for i in range(action_horizon):
             action_dict = self._convert_to_lerobot_action(action_chunk, i)
             lerobot_actions.append(action_dict)
         return lerobot_actions
