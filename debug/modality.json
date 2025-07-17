@@ -4,7 +4,7 @@
             "start": 0,
             "end": 7
         },
-        "left_hand": {
+        "right_arm": {
             "start": 7,
             "end": 14
         },
@@ -36,7 +36,7 @@
         },
         "gripper": {
             "start": 21,
-            "end": 33
+            "end": 23
         }
     },
     "video": {
@@ -45,6 +45,6 @@
         }
     },
     "annotation": {
-        "task_index": {}
+        "task_description": {}
     }
 }
