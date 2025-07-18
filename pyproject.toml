@@ -20,6 +20,10 @@ dependencies = [
     "albumentations==1.4.18",
     "av==12.3.0",
     "blessings==1.7",
+<<<<<<< HEAD
+=======
+    "decord2==1.0.0; platform_system != 'Darwin'",
+>>>>>>> d03df3b (Make orin docker work)
     "eva-decord==0.6.1; platform_system == 'Darwin'",
     "dm_tree==0.1.8",
     "einops==0.8.1",
@@ -47,7 +51,11 @@ dependencies = [
     "wandb==0.18.0",
     "fastparquet==2024.11.0",
     "accelerate==1.2.1",
+<<<<<<< HEAD
     "peft==0.17.0",
+=======
+    "peft==0.15.0",
+>>>>>>> d03df3b (Make orin docker work)
     "protobuf==3.20.3",
     "onnx==1.17.0",
     "tyro",
@@ -85,12 +93,21 @@ orin = [
     # Orin-specific versions and packages
     "torch==2.8.0",
     "torchvision==0.23.0",
+<<<<<<< HEAD
     "pytorch3d==0.7.8",
     "tensorflow==2.18.0",
     "diffusers==0.35.0.dev0",
     "opencv_python==4.11.0.86",
     "triton==3.4.0",
     "flash-attn==2.8.2",
+=======
+    "tensorflow==2.18.0",
+    "diffusers==0.35.0.dev0",
+    "opencv_python==4.11.0.86",
+    "pytorch3d==0.7.8",
+    "triton==3.4.0",
+    "flash-attn==2.8.1",
+>>>>>>> d03df3b (Make orin docker work)
     "iopath==0.1.9",
     "pyzmq",
     "pycuda",
