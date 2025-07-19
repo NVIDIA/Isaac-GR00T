@@ -3,6 +3,9 @@
 # Virtual Environment in IsaacLab
 
 
+# setup ENV
+source /kpfs-intern/zhekai/home/.bashrc 
+conda activate gr00t
 
 
 
@@ -18,8 +21,8 @@ python scripts/gr00t_finetune.py \
 --dataset-path ${dataset_list[@]} \
 --output-dir checkpoints/cylinder \
 --data-config astribot_sim \
---num-gpus 1 \
---batch-size 1 \
+--num-gpus 8 \
+--batch-size 16 \
 --embodiment-tag new_embodiment --video-backend torchvision_av
 ```
 
