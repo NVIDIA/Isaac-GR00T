@@ -97,6 +97,12 @@ if __name__ == "__main__":
         "--model_path", type=str, default="nvidia/GR00T-N1.5-3B", help="Path to the GR00T model"
     )
     parser.add_argument(
+        "--dataset_path",
+        type=str,
+        help="Path to the dataset",
+        default=os.path.join(os.getcwd(), "demo_data/robot_sim.PickNPlace"),
+    )
+    parser.add_argument(
         "--inference_mode",
         type=str,
         choices=["pytorch", "tensorrt", "compare"],
@@ -119,12 +125,12 @@ if __name__ == "__main__":
 
     MODEL_PATH = args.model_path
     REPO_PATH = os.path.dirname(os.path.dirname(gr00t.__file__))
-    DATASET_PATH = os.path.join(REPO_PATH, "demo_data/robot_sim.PickNPlace")
-    EMBODIMENT_TAG = "gr1"
+    DATASET_PATH = os.path.join(REPO_PATH, args.dataset_path)
+    EMBODIMENT_TAG = "new_embodiment"
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    data_config = DATA_CONFIG_MAP["fourier_gr1_arms_only"]
+    data_config = DATA_CONFIG_MAP["ucr"]
     modality_config = data_config.modality_config()
     modality_transform = data_config.transform()
 

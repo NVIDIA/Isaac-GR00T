@@ -393,10 +393,10 @@ def run_groot_inference(
 ) -> Dict[str, float]:
 
     # load the policy
-    data_config = DATA_CONFIG_MAP["fourier_gr1_arms_only"]
+    data_config = DATA_CONFIG_MAP["ucr"]
     modality_config = data_config.modality_config()
     modality_transform = data_config.transform()
-    EMBODIMENT_TAG = "gr1"
+    EMBODIMENT_TAG = "new_embodiment"
     policy = Gr00tPolicy(
         model_path=model_path,
         embodiment_tag=EMBODIMENT_TAG,
