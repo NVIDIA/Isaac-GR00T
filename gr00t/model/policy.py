@@ -88,9 +88,7 @@ class Gr00tPolicy(BasePolicy):
             model_path = snapshot_download(model_path, repo_type="model")
             # HFValidationError, RepositoryNotFoundError
         except (HFValidationError, RepositoryNotFoundError):
-            print(
-                f"Model not found or avail in the huggingface hub. Loading from local path: {model_path}"
-            )
+            print(f"Model not found or avail in the huggingface hub. Loading from local path: {model_path}")
 
         self._modality_config = modality_config
         self._modality_transform = modality_transform
@@ -112,9 +110,7 @@ class Gr00tPolicy(BasePolicy):
         self._load_horizons()
 
         if denoising_steps is not None:
-            if hasattr(self.model, "action_head") and hasattr(
-                self.model.action_head, "num_inference_timesteps"
-            ):
+            if hasattr(self.model, "action_head") and hasattr(self.model.action_head, "num_inference_timesteps"):
                 self.model.action_head.num_inference_timesteps = denoising_steps
                 print(f"Set action denoising steps to {denoising_steps}")
 
@@ -185,6 +181,43 @@ class Gr00tPolicy(BasePolicy):
             unnormalized_action = squeeze_dict_values(unnormalized_action)
         return unnormalized_action
 
+    def get_backbone_features(self, observations: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract backbone features from observations without running through the action head.
+        This applies the same preprocessing as get_action but returns VLM backbone features
+        instead of robot actions. Useful for vocabulary projection and other analysis tasks.
+
+        Args:
+            observations (Dict[str, Any]): The observation to extract features from.
+                Same format as get_action: video, state, annotation data.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing:
+                - 'backbone_features': Hidden states from the VLM [batch, seq_len, hidden_dim]
+                - 'backbone_attention_mask': Attention mask [batch, seq_len]
+        """
+        # Handle batching the same way as get_action
+        is_batch = self._check_state_is_batched(observations)
+        if not is_batch:
+            observations = unsqueeze_dict_values(observations)
+
+        # Ensure keys are all numpy arrays (same as get_action)
+        for k, v in observations.items():
+            if not isinstance(v, np.ndarray):
+                observations[k] = np.array(v)
+
+        # Apply the same transforms as get_action
+        normalized_input = self.apply_transforms(observations)
+
+        # Extract backbone features using the model's new method
+        backbone_features = self._get_backbone_features_from_normalized_input(normalized_input)
+
+        # Remove batch dimension if input wasn't batched
+        if not is_batch:
+            backbone_features = squeeze_dict_values(backbone_features)
+
+        return backbone_features
+
     def _get_action_from_normalized_input(self, normalized_input: Dict[str, Any]) -> torch.Tensor:
         # Set up autocast context if needed
         with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=COMPUTE_DTYPE):
@@ -195,6 +228,22 @@ class Gr00tPolicy(BasePolicy):
 
     def _get_unnormalized_action(self, normalized_action: torch.Tensor) -> Dict[str, Any]:
         return self.unapply_transforms({"action": normalized_action.cpu()})
+
+    def _get_backbone_features_from_normalized_input(self, normalized_input: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract backbone features from normalized input."""
+        # Set up autocast context (same as _get_action_from_normalized_input)
+        with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=COMPUTE_DTYPE):
+            backbone_outputs = self.model.get_backbone_features(normalized_input)
+
+        # Convert BatchFeature to regular dict and move to CPU
+        backbone_features = {}
+        for key, value in backbone_outputs.items():
+            if isinstance(value, torch.Tensor):
+                backbone_features[key] = value.cpu()
+            else:
+                backbone_features[key] = value
+
+        return backbone_features
 
     def get_modality_config(self) -> Dict[str, ModalityConfig]:
         """
@@ -319,9 +368,7 @@ class Gr00tPolicy(BasePolicy):
         assert delta_indices[-1] == 0, f"{delta_indices=}"
         if len(delta_indices) > 1:
             # The step is consistent
-            assert np.all(
-                np.diff(delta_indices) == delta_indices[1] - delta_indices[0]
-            ), f"{delta_indices=}"
+            assert np.all(np.diff(delta_indices) == delta_indices[1] - delta_indices[0]), f"{delta_indices=}"
             # And the step is positive
             assert (delta_indices[1] - delta_indices[0]) > 0, f"{delta_indices=}"
 

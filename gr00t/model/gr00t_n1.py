@@ -96,9 +96,7 @@ class GR00T_N1_5(PreTrainedModel):
             action = inputs["action"]
             type_ok = isinstance(action, torch.Tensor)
             shape_ok = (
-                len(action.shape) == 3
-                and action.shape[1] == self.action_horizon
-                and action.shape[2] == self.action_dim
+                len(action.shape) == 3 and action.shape[1] == self.action_horizon and action.shape[2] == self.action_dim
             )
             if not type_ok:
                 error_msg += f"\n{action.dtype=}"
@@ -126,10 +124,7 @@ class GR00T_N1_5(PreTrainedModel):
             raise ValueError(error_msg)
 
     def validate_data(self, action_head_outputs, backbone_outputs, is_training):
-        fail_backbone = (
-            not isinstance(backbone_outputs, BatchFeature)
-            or BACKBONE_FEATURE_KEY not in backbone_outputs
-        )
+        fail_backbone = not isinstance(backbone_outputs, BatchFeature) or BACKBONE_FEATURE_KEY not in backbone_outputs
 
         if fail_backbone:
             error_msg = ERROR_MSG
@@ -139,9 +134,7 @@ class GR00T_N1_5(PreTrainedModel):
             raise ValueError(error_msg)
 
         fail_action_head = (not isinstance(action_head_outputs, BatchFeature)) or not (
-            (
-                LOSS_KEY in action_head_outputs and is_training
-            )  # there might not be an action prediction during training
+            (LOSS_KEY in action_head_outputs and is_training)  # there might not be an action prediction during training
             or (
                 ACTION_KEY in action_head_outputs
                 and action_head_outputs[ACTION_KEY].shape[1] == self.action_horizon
@@ -178,6 +171,35 @@ class GR00T_N1_5(PreTrainedModel):
         action_head_outputs = self.action_head.get_action(backbone_outputs, action_inputs)
         self.validate_data(action_head_outputs, backbone_outputs, is_training=False)
         return action_head_outputs
+
+    def get_backbone_features(
+        self,
+        inputs: dict,
+    ) -> BatchFeature:
+        """
+        Extract backbone features without running through the action head.
+        This is useful for analysis, vocabulary projection, or other feature extraction tasks.
+
+        Args:
+            inputs: Dictionary containing observation data (video, state, annotation, etc.)
+
+        Returns:
+            BatchFeature: Contains backbone_features and backbone_attention_mask
+        """
+        backbone_inputs, _ = self.prepare_input(inputs)
+        # Run only the backbone, skip action head
+        backbone_outputs = self.backbone(backbone_inputs)
+
+        # Validate backbone outputs (same validation as in get_action)
+        if not isinstance(backbone_outputs, BatchFeature) or BACKBONE_FEATURE_KEY not in backbone_outputs:
+            error_msg = ERROR_MSG
+            error_msg += f"\n{isinstance(backbone_outputs, BatchFeature)=}"
+            error_msg += f"\n{BACKBONE_FEATURE_KEY in backbone_outputs=}"
+            if BACKBONE_FEATURE_KEY in backbone_outputs:
+                error_msg += f"\n{backbone_outputs[BACKBONE_FEATURE_KEY].shape=}"
+            raise ValueError(error_msg)
+
+        return backbone_outputs
 
     def prepare_input(self, inputs) -> Tuple[BatchFeature, BatchFeature]:
         self.validate_inputs(inputs)
@@ -221,13 +243,9 @@ class GR00T_N1_5(PreTrainedModel):
             )
             local_model_path = pretrained_model_name_or_path
 
-        pretrained_model = super().from_pretrained(
-            local_model_path, local_model_path=local_model_path, **kwargs
-        )
+        pretrained_model = super().from_pretrained(local_model_path, local_model_path=local_model_path, **kwargs)
 
-        pretrained_model.backbone.set_trainable_parameters(
-            tune_visual=tune_visual, tune_llm=tune_llm
-        )
+        pretrained_model.backbone.set_trainable_parameters(tune_visual=tune_visual, tune_llm=tune_llm)
         pretrained_model.action_head.set_trainable_parameters(
             tune_projector=tune_projector, tune_diffusion_model=tune_diffusion_model
         )
