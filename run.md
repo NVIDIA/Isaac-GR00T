@@ -47,3 +47,17 @@ python scripts/inference_service.py \
 
 
 # Real world experiments
+
+```
+dataset_list=(
+    "dataset/0702_lerobot_v20"
+)
+
+python scripts/gr00t_finetune.py \
+--dataset-path ${dataset_list[@]} \
+--output-dir checkpoints/0702_pickplace \
+--data-config astribot_real_cartisian \
+--num-gpus 8 \
+--batch-size 16 \
+--embodiment-tag new_embodiment --video-backend torchvision_av
+```
