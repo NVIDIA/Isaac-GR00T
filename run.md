@@ -1,4 +1,11 @@
 
+```
+python scripts/load_dataset.py \
+--dataset-path dataset/0702_lerobot_v20 \
+--embodiment-tag new_embodiment \
+--video-backend torchvision_av
+```
+
 
 # Virtual Environment in IsaacLab
 
@@ -47,7 +54,7 @@ python scripts/inference_service.py \
 
 
 # Real world experiments
-
+## Train
 ```
 dataset_list=(
     "dataset/0702_lerobot_v20"
@@ -56,8 +63,26 @@ dataset_list=(
 python scripts/gr00t_finetune.py \
 --dataset-path ${dataset_list[@]} \
 --output-dir checkpoints/0702_pickplace \
---data-config astribot_real_cartisian \
+--data-config astribot_real_cartesian \
 --num-gpus 8 \
 --batch-size 16 \
+--dataloader-num-workers 4 \
 --embodiment-tag new_embodiment --video-backend torchvision_av
+```
+
+## Inference
+```
+# start  server
+conda activate gr00t
+python scripts/inference_service.py \
+--model-path  /home/zhekai/models/0702_pickplace \
+--embodiment-tag new_embodiment \
+--data-config astribot_real_cartesian \
+--server
+
+# start clients
+
+# see client service 
+scripts/client_services.py
+
 ```
