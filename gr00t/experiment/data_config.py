@@ -855,6 +855,92 @@ class UCRDataConfig(BaseDataConfig):
         return ComposedModalityTransform(transforms=transforms)
 
 
+class DelayedActionDataConfig(BaseDataConfig):
+    """
+    Custom data config that predicts actions with a specified delay to
+    counteract inference latency.
+
+    Args:
+        base_config: The base configuration to modify
+        delay_ms: Action prediction delay in milliseconds
+        fps: Dataset framerate (default: 50Hz = 20ms per frame)
+    """
+
+    def __init__(
+        self,
+        base_config: BaseDataConfig,
+        delay_ms: float = 150.0,
+        fps: float = 30.0,
+    ):
+        self.base_config = base_config
+        self.delay_timesteps = max(1, int(delay_ms / (1000.0 / fps)))
+
+        # Copy base config attributes if they exist
+        self.video_keys = getattr(base_config, "video_keys", [])
+        self.state_keys = getattr(base_config, "state_keys", [])
+        self.action_keys = getattr(base_config, "action_keys", [])
+        self.language_keys = getattr(base_config, "language_keys", [])
+
+        # Set temporal indices with delay
+        self.observation_indices = [0]  # Current observation
+        self.action_indices = list(
+            range(self.delay_timesteps, self.delay_timesteps + 16)
+        )  # Delayed actions
+
+    def modality_config(self) -> dict[str, ModalityConfig]:
+        video_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.video_keys,
+        )
+
+        state_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.state_keys,
+        )
+
+        action_modality = ModalityConfig(
+            delta_indices=self.action_indices,
+            modality_keys=self.action_keys,
+        )
+
+        language_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.language_keys,
+        )
+
+        return {
+            "video": video_modality,
+            "state": state_modality,
+            "action": action_modality,
+            "language": language_modality,
+        }
+
+    def transform(self) -> ModalityTransform:
+        # Use the base config's transforms but update the horizons
+        base_transforms = self.base_config.transform()
+
+        # Find and update the GR00TTransform with new horizons
+        transforms = []
+        if isinstance(base_transforms, ComposedModalityTransform):
+            for transform in base_transforms.transforms:
+                if isinstance(transform, GR00TTransform):
+                    # Create new GR00TTransform with updated horizons
+                    new_transform = GR00TTransform(
+                        state_horizon=len(self.observation_indices),
+                        action_horizon=len(self.action_indices),
+                        max_state_dim=transform.max_state_dim,
+                        max_action_dim=transform.max_action_dim,
+                    )
+                    transforms.append(new_transform)
+                else:
+                    transforms.append(transform)
+        else:
+            # If base_transforms is not ComposedModalityTransform, wrap it
+            transforms = [base_transforms]
+
+        return ComposedModalityTransform(transforms=transforms)
+
+
 ###########################################################################################
 
 DATA_CONFIG_MAP = {
@@ -871,4 +957,9 @@ DATA_CONFIG_MAP = {
     "oxe_droid": OxeDroidDataConfig(),
     "agibot_genie1": AgibotGenie1DataConfig(),
     "ucr": UCRDataConfig(),
+    "ucr_delayed": DelayedActionDataConfig(
+        UCRDataConfig(),
+        delay_ms=150.0,
+        fps=30.0,
+    ),
 }
