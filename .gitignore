@@ -126,3 +126,5 @@ ucr_data/
 datasets/
 gr00t_engine/
 gr00t_onnx/
+checkpoints/
+checkpoints
