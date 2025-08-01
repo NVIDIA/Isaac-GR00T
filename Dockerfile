@@ -36,3 +36,6 @@ COPY demo_data /workspace/demo_data
 RUN pip install -e . --no-deps
 # need to install accelerate explicitly to avoid version conflicts
 RUN pip install accelerate>=0.26.0
+COPY gr00t /workspace/gr00t
+COPY Makefile /workspace/Makefile
+RUN pip3 install -e .
