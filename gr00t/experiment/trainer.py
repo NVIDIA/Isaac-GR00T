@@ -17,6 +17,7 @@
 import os
 from typing import Optional
 
+import numpy as np
 import torch
 import transformers
 from torch.utils.data import Dataset, Sampler
@@ -27,6 +28,10 @@ from transformers.trainer import (
     get_last_checkpoint,
     get_parameter_names,
     is_sagemaker_mp_enabled,
+)
+
+torch.serialization.add_safe_globals(
+    [np.core.multiarray._reconstruct, np.ndarray, np.dtype, np.dtypes.UInt32DType]
 )
 
 
