@@ -18,13 +18,13 @@ conda activate gr00t
 
 ```
 dataset_list=(
-    "dataset/dataset_astribot_30_merged_with_mp4_v20"
+    "dataset/0805"
 )
 
 python scripts/gr00t_finetune.py \
 --dataset-path ${dataset_list[@]} \
---output-dir checkpoints/cylinder \
---data-config astribot_sim \
+--output-dir checkpoints/0806_nochest \
+--data-config astribot_sim_nochest \
 --num-gpus 8 \
 --batch-size 16 \
 --embodiment-tag new_embodiment --video-backend torchvision_av
@@ -63,7 +63,23 @@ dataset_list=(
 python scripts/gr00t_finetune.py \
 --dataset-path ${dataset_list[@]} \
 --output-dir checkpoints/0702_pickplace \
---data-config astribot_real_cartesian \
+--data-config astribot_cartesian \
+--num-gpus 8 \
+--batch-size 16 \
+--dataloader-num-workers 4 \
+--embodiment-tag new_embodiment --video-backend torchvision_av
+```
+
+### no chest version
+```
+dataset_list=(
+    "dataset/0702_lerobot_v20"
+)
+
+python scripts/gr00t_finetune.py \
+--dataset-path ${dataset_list[@]} \
+--output-dir checkpoints/0702_nochest \
+--data-config astribot_no_chest_cartesian \
 --num-gpus 8 \
 --batch-size 16 \
 --dataloader-num-workers 4 \
@@ -77,7 +93,7 @@ conda activate gr00t
 python scripts/inference_service.py \
 --model-path  /home/zhekai/models/0702_pickplace \
 --embodiment-tag new_embodiment \
---data-config astribot_real_cartesian \
+--data-config astribot_cartesian \
 --server
 
 # start clients
