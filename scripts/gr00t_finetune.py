@@ -16,7 +16,7 @@
 import os
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Literal
 
@@ -26,7 +26,11 @@ from transformers import TrainingArguments
 
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
-from gr00t.experiment.data_config import DATA_CONFIG_MAP
+from gr00t.experiment.data_config import (
+    DATA_CONFIG_MAP,
+    CustomDataConfig,
+    CustomDataConfigSpecs,
+)
 from gr00t.experiment.runner import TrainRunner
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
@@ -39,13 +43,13 @@ class ArgsConfig:
 
     # Dataset parameters
     dataset_path: List[str]
-    """Path to the dataset directory or directories"""
+    """Path to the dataset directory or directories, we assume all datasets have the same data config"""
 
     output_dir: str = "/tmp/gr00t"
     """Directory to save model checkpoints."""
 
-    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "fourier_gr1_arms_only"
-    """Data configuration name from DATA_CONFIG_MAP, we assume all datasets have the same data config"""
+    data_config: Literal[tuple(DATA_CONFIG_MAP.keys()) + ("custom",)] = "fourier_gr1_arms_only"
+    """Data configuration name from DATA_CONFIG_MAP, or "custom" to use a custom data config"""
 
     # Training parameters
     batch_size: int = 32
@@ -122,6 +126,9 @@ class ArgsConfig:
     balance_trajectory_weights: bool = True
     """Used in LeRobotMixtureDataset. If True, sample trajectories within a dataset weighted by their length; otherwise, equal weighting."""
 
+    custom_data_config_specs: CustomDataConfigSpecs = field(default_factory=CustomDataConfigSpecs)
+    """Custom data config specification to use. Only used if data_config is 'custom'."""
+
 
 #####################################################################################
 # main training function
@@ -134,7 +141,12 @@ def main(config: ArgsConfig):
     embodiment_tag = EmbodimentTag(config.embodiment_tag)
 
     # 1.1 modality configs and transforms
-    data_config_cls = DATA_CONFIG_MAP[config.data_config]
+    if config.data_config == "custom":
+        print(config.custom_data_config_specs)
+        data_config_cls = CustomDataConfig.from_specs(config.custom_data_config_specs)
+    else:
+        data_config_cls = DATA_CONFIG_MAP[config.data_config]
+
     modality_configs = data_config_cls.modality_config()
     transforms = data_config_cls.transform()
 
@@ -323,33 +335,19 @@ if __name__ == "__main__":
             if "CUDA_VISIBLE_DEVICES" in os.environ:
                 del os.environ["CUDA_VISIBLE_DEVICES"]
 
+            script_path = Path(__file__).absolute()
+
             # Use subprocess.run instead of os.system
+            raw_args_list = sys.argv[1:]
             cmd = [
                 "torchrun",
                 "--standalone",
                 f"--nproc_per_node={config.num_gpus}",
                 "--nnodes=1",  # default to 1 node for now
                 str(script_path),
+                *raw_args_list,
             ]
 
-            # Convert config to command line arguments
-            for key, value in vars(config).items():
-                if isinstance(value, bool):
-                    # For boolean values, use --flag or --no-flag format
-                    if value:
-                        cmd.append(f"--{key.replace('_', '-')}")
-                    else:
-                        cmd.append(f"--no-{key.replace('_', '-')}")
-                else:
-                    # For non-boolean values, use --key value format
-                    cmd.append(f"--{key.replace('_', '-')}")
-
-                    # if the value is a list (e.g. dataset_path), we need to add each element in the list
-                    if isinstance(value, list):
-                        for v in value:
-                            cmd.append(str(v))
-                    else:
-                        cmd.append(str(value))
             print("Running torchrun command: ", cmd)
             env = os.environ.copy()
             env["IS_TORCHRUN"] = "1"

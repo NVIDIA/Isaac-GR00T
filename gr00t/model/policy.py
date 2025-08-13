@@ -34,12 +34,15 @@ COMPUTE_DTYPE = torch.bfloat16
 
 class BasePolicy(ABC):
     @abstractmethod
-    def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
+    def get_action(
+        self, observations: Dict[str, Any], config: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
         """
         Abstract method to get the action for a given state.
 
         Args:
             observations: The observations from the environment.
+            config: The inference config for the policy.
 
         Returns:
             The action to take in the environment in dictionary format.
@@ -143,11 +146,14 @@ class Gr00tPolicy(BasePolicy):
         """
         return self._modality_transform.unapply(action)
 
-    def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
+    def get_action(
+        self, observations: Dict[str, Any], config: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
         """
         Make a prediction with the model.
         Args:
             obs (Dict[str, Any]): The observation to make a prediction for.
+            config (Dict[str, Any]): The inference config for the policy.
 
         e.g. obs = {
             "video.<>": np.ndarray,  # (T, H, W, C)
@@ -177,6 +183,24 @@ class Gr00tPolicy(BasePolicy):
 
         # Apply transforms
         normalized_input = self.apply_transforms(observations)
+
+        # We will set the inference config for the model, which includes the denoising steps, rtc steps, and rtc freeze steps
+        if config is not None:
+            self.model.action_head.num_inference_timesteps = config.get(
+                "denoising_steps", 16
+            )  # TODO: hardcoded to default 16
+            self.model.action_head.config.inference_rtc_overlap_steps = config.get(
+                "rtc_overlap_steps", None
+            )
+            self.model.action_head.config.inference_rtc_frozen_steps = config.get(
+                "rtc_frozen_steps", None
+            )
+            # check if rtc_steps is greater than rtc_freeze_steps if they are defined or non-None
+            if "rtc_overlap_steps" in config and config["rtc_overlap_steps"] is not None:
+                assert (
+                    self.model.action_head.config.inference_rtc_overlap_steps
+                    >= self.model.action_head.config.inference_rtc_frozen_steps
+                ), "rtc_overlap_steps must be greater than or equal to rtc_frozen_steps"
 
         normalized_action = self._get_action_from_normalized_input(normalized_input)
         unnormalized_action = self._get_unnormalized_action(normalized_action)
@@ -338,10 +362,16 @@ def unsqueeze_dict_values(data: Dict[str, Any]) -> Dict[str, Any]:
     unsqueezed_data = {}
     for k, v in data.items():
         if isinstance(v, np.ndarray):
+            # ensure all value of the dic (value,) is converted to (value, 1)
+            if v.shape == (v.shape[0],):
+                v = v.reshape(v.shape[0], 1)
             unsqueezed_data[k] = np.expand_dims(v, axis=0)
         elif isinstance(v, list):
             unsqueezed_data[k] = np.array(v)
         elif isinstance(v, torch.Tensor):
+            # ensure all value of the dic (value,) is converted to (value, 1)
+            if v.shape == (v.shape[0],):
+                v = v.reshape(v.shape[0], 1)
             unsqueezed_data[k] = v.unsqueeze(0)
         else:
             unsqueezed_data[k] = v
