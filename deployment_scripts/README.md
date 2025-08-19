@@ -105,4 +105,4 @@ Model latency measured by `trtexec` with batch_size=1.
 | VLM - ViT                                      |11.96                     |FP16     |
 | VLM - LLM                                      |17.25                     |FP16     |  
       
-**Note**：The module latency (e.g., DiT Block) in pipeline is slighly longer than the modoel latency in benchmark table above because the module (e.g., Action_Head - DiT) latency not only includes the model latency in table above but also accounts for the overhead of data transfer from PyTorch to TRT and returning from TRT to to PyTorch.
+**Note**：The module latency (e.g., DiT Block) in pipeline is slighly longer than the model latency in benchmark table above because the module (e.g., Action_Head - DiT) latency not only includes the model latency in table above but also accounts for the overhead of data transfer from PyTorch to TRT and returning from TRT to to PyTorch.
