@@ -239,6 +239,17 @@ class VideoTransform(ModalityTransform):
             "set_transform is not implemented for VideoTransform. Please implement this function to set the transforms."
         )
 
+class VideoGaussianNoise(VideoTransform):
+    sigma: float = Field(default=1.0, description="std of additive Gaussian noise in [0,1] pixel range")
+
+    def get_transform(self, mode: Literal["train", "eval"] = "train") -> Callable | None:
+        if mode == "eval":
+            return None
+        if self.backend == "torchvision":
+            return T.Lambda(lambda x: (self.sigma * torch.randn_like(x)).clamp(0, 1))
+        else:
+            raise ValueError(f"Backend {self.backend} not supported for VideoGaussianNoise")
+
 
 class VideoCrop(VideoTransform):
     height: int | None = Field(default=None, description="The height of the input image")
