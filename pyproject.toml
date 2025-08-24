@@ -95,7 +95,7 @@ orin = [
     "nvtx",
 ]
 deploy = [
-    "tensorrt",
+    "tensorrt-cu12==10.13.0.35",
 ]
 
 [tool.setuptools.packages.find]
