@@ -49,7 +49,7 @@ import tyro
 
 from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient, RobotInferenceServer
-from gr00t.experiment.data_config import DATA_CONFIG_MAP
+from gr00t.experiment.data_config import load_data_config
 from gr00t.model.policy import Gr00tPolicy
 
 
@@ -63,8 +63,13 @@ class ArgsConfig:
     embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "gr1"
     """The embodiment tag for the model."""
 
-    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "fourier_gr1_arms_waist"
-    """The name of the data config to use."""
+    data_config: str = "fourier_gr1_arms_waist"
+    """
+    The name of the data config to use, e.g. so100, fourier_gr1_arms_only, unitree_g1, etc.
+
+    Or a path to a custom data config file. e.g. "module:ClassName" format.
+    See gr00t/experiment/data_config.py for more details.
+    """
 
     port: int = 5555
     """The port number for the server."""
@@ -146,7 +151,7 @@ def main(args: ArgsConfig):
         # if a new data config is specified, this expect user to
         # construct your own modality config and transform
         # see gr00t/utils/data.py for more details
-        data_config = DATA_CONFIG_MAP[args.data_config]
+        data_config = load_data_config(args.data_config)
         modality_config = data_config.modality_config()
         modality_transform = data_config.transform()
 

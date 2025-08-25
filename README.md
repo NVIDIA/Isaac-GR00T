@@ -118,6 +118,18 @@ pip install --no-build-isolation flash-attn==2.7.1.post4
 
 We provide accessible Jupyter notebooks and detailed documentation in the [`./getting_started`](./getting_started) folder. Utility scripts can be found in the [`./scripts`](./scripts) folder. Additionally, a comprehensive tutorial for finetuning the model on the SO-101 robot is available on [HuggingFace](https://huggingface.co/blog/nvidia/gr00t-n1-5-so101-tuning).
 
+## 0. Quick Start
+
+Download the model checkpoint and run the inference service.
+```bash
+python scripts/inference_service.py --model-path nvidia/GR00T-N1.5-3B --server
+```
+
+On a different terminal, run the client mode to send requests to the server. This will send a random observation to the server and get an action back.
+```bash
+python scripts/inference_service.py  --client
+```
+
 ## 1. Data Format & Loading
 
 - To load and process the data, we use [Huggingface LeRobot data](https://github.com/huggingface/lerobot), but with a more detailed modality and annotation schema (we call it "LeRobot compatible data schema").
@@ -195,11 +207,10 @@ action_chunk = policy.get_action(dataset[0])
 User can also run the inference service using the provided script. The inference service can run in either server mode or client mode.
 
 ```bash
+# server
 python scripts/inference_service.py --model-path nvidia/GR00T-N1.5-3B --server
-```
 
-On a different terminal, run the client mode to send requests to the server.
-```bash
+# client
 python scripts/inference_service.py  --client
 ```
 

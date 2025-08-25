@@ -23,7 +23,7 @@ import tyro
 from gr00t.data.dataset import LeRobotSingleDataset
 from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient
-from gr00t.experiment.data_config import DATA_CONFIG_MAP
+from gr00t.experiment.data_config import load_data_config
 from gr00t.model.policy import BasePolicy, Gr00tPolicy
 from gr00t.utils.eval import calc_mse_for_single_trajectory
 
@@ -55,8 +55,12 @@ class ArgsConfig:
     modality_keys: List[str] = field(default_factory=lambda: ["right_arm", "left_arm"])
     """Modality keys to evaluate."""
 
-    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "fourier_gr1_arms_only"
-    """Data config to use."""
+    data_config: str = "fourier_gr1_arms_only"
+    """
+    Data config to use, e.g. so100, fourier_gr1_arms_only, unitree_g1, etc.
+    Or a path to a custom data config file. e.g. "module:ClassName" format.
+    See gr00t/experiment/data_config.py for more details.
+    """
 
     steps: int = 150
     """Number of steps to evaluate."""
@@ -87,7 +91,7 @@ class ArgsConfig:
 
 
 def main(args: ArgsConfig):
-    data_config = DATA_CONFIG_MAP[args.data_config]
+    data_config = load_data_config(args.data_config)
 
     # Set action_horizon from data config if not provided
     if args.action_horizon is None:

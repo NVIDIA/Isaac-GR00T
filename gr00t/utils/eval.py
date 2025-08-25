@@ -99,7 +99,7 @@ def calc_mse_for_single_trajectory(
     # num_of_joints = state_joints_across_time.shape[1]
     action_dim = gt_action_across_time.shape[1]
 
-    if plot:
+    if plot or save_plot_path is not None:
         info = {
             "state_joints_across_time": state_joints_across_time,
             "gt_action_across_time": gt_action_across_time,

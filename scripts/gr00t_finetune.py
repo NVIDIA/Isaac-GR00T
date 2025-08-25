@@ -26,7 +26,7 @@ from transformers import TrainingArguments
 
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
-from gr00t.experiment.data_config import DATA_CONFIG_MAP
+from gr00t.experiment.data_config import load_data_config
 from gr00t.experiment.runner import TrainRunner
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
@@ -39,13 +39,19 @@ class ArgsConfig:
 
     # Dataset parameters
     dataset_path: List[str]
-    """Path to the dataset directory or directories"""
+    """Path to the dataset directory or directories, we assume all datasets have the same data config"""
 
     output_dir: str = "/tmp/gr00t"
     """Directory to save model checkpoints."""
 
-    data_config: Literal[tuple(DATA_CONFIG_MAP.keys())] = "fourier_gr1_arms_only"
-    """Data configuration name from DATA_CONFIG_MAP, we assume all datasets have the same data config"""
+    data_config: str = "fourier_gr1_arms_only"
+    """
+    Data configuration to use for training.
+    Options:
+    - Built-in configs: Use predefined config names like 'so100', 'fourier_gr1_arms_only', 'unitree_g1'.
+    - External configs: Use 'module:ClassName' format to load custom configs from external files. e.g. 'my_dir.my_configs:RobotConfig'
+    See gr00t/experiment/data_config.py for more details.
+    """
 
     # Training parameters
     batch_size: int = 32
@@ -101,8 +107,11 @@ class ArgsConfig:
     lora_full_model: bool = False
     """Whether to use the full model for LORA. If False, only the action head will be trained."""
 
-    dataloader_num_workers: int = 8
-    """Number of workers for data loading."""
+    dataloader_num_workers: int = 12
+    """Number of workers for data loading per GPU."""
+
+    dataloader_prefetch_factor: int = 4
+    """Prefetch factor for data loading."""
 
     report_to: Literal["wandb", "tensorboard", "azure_ml"] = "wandb"
     """Where to report training metrics (e.g., 'wandb', 'tensorboard', 'azure_ml')."""
@@ -134,7 +143,7 @@ def main(config: ArgsConfig):
     embodiment_tag = EmbodimentTag(config.embodiment_tag)
 
     # 1.1 modality configs and transforms
-    data_config_cls = DATA_CONFIG_MAP[config.data_config]
+    data_config_cls = load_data_config(config.data_config)
     modality_configs = data_config_cls.modality_config()
     transforms = data_config_cls.transform()
 
@@ -251,6 +260,7 @@ def main(config: ArgsConfig):
         gradient_accumulation_steps=1,
         dataloader_num_workers=config.dataloader_num_workers,
         dataloader_pin_memory=False,
+        dataloader_prefetch_factor=config.dataloader_prefetch_factor,
         dataloader_persistent_workers=config.dataloader_num_workers > 0,
         optim="adamw_torch",
         adam_beta1=0.95,
@@ -266,7 +276,7 @@ def main(config: ArgsConfig):
         save_strategy="steps",
         save_steps=config.save_steps,
         # evaluation_strategy="no",
-        save_total_limit=8,
+        save_total_limit=5,
         report_to=config.report_to,
         seed=42,
         do_eval=False,
@@ -323,33 +333,19 @@ if __name__ == "__main__":
             if "CUDA_VISIBLE_DEVICES" in os.environ:
                 del os.environ["CUDA_VISIBLE_DEVICES"]
 
+            script_path = Path(__file__).absolute()
+
             # Use subprocess.run instead of os.system
+            raw_args_list = sys.argv[1:]
             cmd = [
                 "torchrun",
                 "--standalone",
                 f"--nproc_per_node={config.num_gpus}",
                 "--nnodes=1",  # default to 1 node for now
                 str(script_path),
+                *raw_args_list,
             ]
 
-            # Convert config to command line arguments
-            for key, value in vars(config).items():
-                if isinstance(value, bool):
-                    # For boolean values, use --flag or --no-flag format
-                    if value:
-                        cmd.append(f"--{key.replace('_', '-')}")
-                    else:
-                        cmd.append(f"--no-{key.replace('_', '-')}")
-                else:
-                    # For non-boolean values, use --key value format
-                    cmd.append(f"--{key.replace('_', '-')}")
-
-                    # if the value is a list (e.g. dataset_path), we need to add each element in the list
-                    if isinstance(value, list):
-                        for v in value:
-                            cmd.append(str(v))
-                    else:
-                        cmd.append(str(value))
             print("Running torchrun command: ", cmd)
             env = os.environ.copy()
             env["IS_TORCHRUN"] = "1"
