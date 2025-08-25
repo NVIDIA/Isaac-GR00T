@@ -240,7 +240,6 @@ class Gr00tPolicy(BasePolicy):
         model = GR00T_N1_5.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
         model.eval()  # Set model to eval mode
 
-
         # Update action_horizon to match modality config
         # Get the expected action horizon from the modality config
         expected_action_horizon = len(self._modality_config["action"].delta_indices)
