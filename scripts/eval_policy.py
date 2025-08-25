@@ -68,6 +68,9 @@ class ArgsConfig:
     trajs: int = 1
     """Number of trajectories to evaluate."""
 
+    start_traj: int = 0
+    """Start trajectory to evaluate."""
+
     action_horizon: int = None
     """Action horizon to evaluate. If None, will use the data config's action horizon."""
 
@@ -88,6 +91,9 @@ class ArgsConfig:
 
     save_plot_path: str = None
     """Path to save the plot."""
+
+    plot_state: bool = False
+    """Whether to plot the state."""
 
 
 def main(args: ArgsConfig):
@@ -149,7 +155,7 @@ def main(args: ArgsConfig):
     print("Running on all trajs with modality keys:", args.modality_keys)
 
     all_mse = []
-    for traj_id in range(args.trajs):
+    for traj_id in range(args.start_traj, args.start_traj + args.trajs):
         print("Running trajectory:", traj_id)
         mse = calc_mse_for_single_trajectory(
             policy,
@@ -159,6 +165,7 @@ def main(args: ArgsConfig):
             steps=args.steps,
             action_horizon=args.action_horizon,
             plot=args.plot,
+            plot_state=args.plot_state,
             save_plot_path=args.save_plot_path,
         )
         print("MSE:", mse)

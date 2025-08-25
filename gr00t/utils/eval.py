@@ -42,6 +42,7 @@ def calc_mse_for_single_trajectory(
     steps=300,
     action_horizon=16,
     plot=False,
+    plot_state=False,
     save_plot_path=None,
 ):
     state_joints_across_time = []
@@ -49,24 +50,18 @@ def calc_mse_for_single_trajectory(
     pred_action_across_time = []
 
     for step_count in range(steps):
-        data_point = dataset.get_step_data(traj_id, step_count)
-
-        # NOTE this is to get all modality keys concatenated
-        # concat_state = data_point[f"state.{modality_keys[0]}"][0]
-        # # concat_gt_action = data_point[f"action.{modality_keys[0]}"][0]
-        concat_gt_action = np.concatenate(
-            [data_point[f"action.{key}"][0] for key in modality_keys], axis=0
-        )
-        gt_action_across_time.append(concat_gt_action)
-        try:
+        data_point = None
+        if plot_state:
+            data_point = dataset.get_step_data(traj_id, step_count)
             concat_state = np.concatenate(
                 [data_point[f"state.{key}"][0] for key in modality_keys], axis=0
             )
             state_joints_across_time.append(concat_state)
-        except KeyError as e:
-            print(f"KeyError concatenating state: {e}, we will skip plotting state")
 
         if step_count % action_horizon == 0:
+            if data_point is None:
+                data_point = dataset.get_step_data(traj_id, step_count)
+
             print("inferencing at step: ", step_count)
             action_chunk = policy.get_action(data_point)
             for j in range(action_horizon):
@@ -78,9 +73,14 @@ def calc_mse_for_single_trajectory(
                 )
                 pred_action_across_time.append(concat_pred_action)
 
+                concat_gt_action = np.concatenate(
+                    [data_point[f"action.{key}"][j] for key in modality_keys], axis=0
+                )
+                gt_action_across_time.append(concat_gt_action)
+
     # plot the joints
-    state_joints_across_time = np.array(state_joints_across_time)
-    gt_action_across_time = np.array(gt_action_across_time)
+    state_joints_across_time = np.array(state_joints_across_time)[:steps]
+    gt_action_across_time = np.array(gt_action_across_time)[:steps]
     pred_action_across_time = np.array(pred_action_across_time)[:steps]
     assert gt_action_across_time.shape == pred_action_across_time.shape
 
