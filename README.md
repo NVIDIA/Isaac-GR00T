@@ -350,16 +350,19 @@ The SO-101 demo has been tested on an RTX Pro 6000 Workstation Edition GPU.
 
 1. Clone the GR00T repo.
 2. Create and activate a GR00T conda environment as normal.
-3. Install stable PyTorch for your CUDA version (12.8 has been tested). Find correct version using the helper website [here](https://pytorch.org/get-started/locally/). 
-4. Clone the `flash_attention` repo.
+3. Install a stable version of PyTorch according to your CUDA version. Find the correct version using the helper website [here](https://pytorch.org/get-started/locally/). Example for CUDA 12.8:
+`pip3 install torch torchvision`
+4. To confirm compatability between torch and CUDA versions:
+`python -c "import torch; print(torch.version.cuda); print(torch.cuda.get_device_capability())"`
+4. Clone the `flash_attention` repo: 
 `git clone https://github.com/Dao-AILab/flash-attention.git`
-5. Set the following environment variable in your terminal: `export TORCH_CUDA_ARCH_LIST="sm_120"`
+5. Checkout a recent version: `git checkout v2.8.3`
+5. Set the following environment variable in your terminal:
+`export TORCH_CUDA_ARCH_LIST="sm_120"`
 6. `cd flash-attention`
-7. `git checkout v2.8.3`
-8. Install flash_attn by running the following inside the flash-attention repo: `pip install .`
-9. Finally, confirm compatability between Flash Attention, PyTorch, and CUDA versions. 
-`python -c "import torch; print(torch.version.cuda); print(torch.cuda.get_device_capability())"
-nvcc --version`
+8. Install flash-attn by running the following inside the flash-attention repo: `pip install .`
+9. Continue to post-training.
+
 # Contributing
 
 For more details, see [CONTRIBUTING.md](CONTRIBUTING.md)
