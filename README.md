@@ -354,14 +354,14 @@ The SO-101 demo has been tested on an RTX Pro 6000 Workstation Edition GPU.
 `pip3 install torch torchvision`
 4. To confirm compatability between torch and CUDA versions:
 `python -c "import torch; print(torch.version.cuda); print(torch.cuda.get_device_capability())"`
-4. Clone the `flash_attention` repo: 
+5. Clone the `flash_attention` repo: 
 `git clone https://github.com/Dao-AILab/flash-attention.git`
-5. Checkout a recent version: `git checkout v2.8.3`
-5. Set the following environment variable in your terminal:
+6. Checkout a recent version: `git checkout v2.8.3`
+7. Set the following environment variable in your terminal:
 `export TORCH_CUDA_ARCH_LIST="sm_120"`
-6. `cd flash-attention`
-8. Install flash-attn by running the following inside the flash-attention repo: `pip install .`
-9. Continue to post-training.
+8. `cd flash-attention`
+9. Install flash-attn by running the following inside the flash-attention repo: `pip install .`
+10. Continue to post-training.
 
 # Contributing
 
