@@ -55,6 +55,8 @@ class FractalDataConfig(BaseDataConfig):
         "action.gripper",
     ]
     language_keys = ["annotation.human.action.task_description"]
+    observation_indices = [0]
+    action_indices = list(range(16))
 
     def transform(self) -> ModalityTransform:
         transforms = [
@@ -131,3 +133,5 @@ class BridgeDataConfig(So100DataConfig):
         "action.gripper",
     ]
     language_keys = ["annotation.human.action.task_description"]
+    observation_indices = [0]
+    action_indices = list(range(16))
