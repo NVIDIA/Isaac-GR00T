@@ -10,17 +10,18 @@ Evaluation is performed using the [SimplerEnv repository](https://github.com/you
 ### 1. Bridge/WidowX
 
 
-| Task                              | success rate (300) |
+| Task                              | Success rate (300) |
 | --------------------------------- | ------------------ |
 | widowx\_spoon\_on\_towel          | 226/300 (75%)      |
 | widowx\_carrot\_on\_plate         | 163/300 (54%)      |
 | widowx\_put\_eggplant\_in\_basket | 184/300 (61%)      |
-| widowx\_put\_eggplant\_in\_sink   | 19/300 (6%)        |
-| widowx\_close\_drawer             | 68/300 (23%)       |
-| widowx\_open\_drawer              | 129/300 (43%)      |
 | widowx\_stack\_cube               | 171/300 (57%)      |
+| widowx\_put\_eggplant\_in\_sink** | 19/300 (6%)        |
+| widowx\_close\_drawer**           | 68/300 (23%)       |
+| widowx\_open\_drawer**            | 129/300 (43%)      |
 | **Average**                       | **46%**            |
 
+**Denotes as "non-original" new simpler task [here](https://github.com/youliangtan/SimplerEnv)
 
 To evaluate, first start the inference server with our provided checkpoint:
 ```bash
