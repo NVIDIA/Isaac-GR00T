@@ -2,7 +2,83 @@
 
 This directory contains fine-tuning and evaluation scripts for GR00T N1.5 on simulation benchmarks, specifically targeting Bridge WidowX and Fractal Google Robot tasks.
 
-## 📦 Dataset Preparation
+
+## 🎯 Model Evaluation
+
+Evaluation is performed using the [SimplerEnv repository](https://github.com/youliangtan/SimplerEnv/tree/main).
+
+### 1. Bridge/WidowX
+
+
+| Task                              | success rate (300) |
+| --------------------------------- | ------------------ |
+| widowx\_spoon\_on\_towel          | 226/300 (75%)      |
+| widowx\_carrot\_on\_plate         | 163/300 (54%)      |
+| widowx\_put\_eggplant\_in\_basket | 184/300 (61%)      |
+| widowx\_put\_eggplant\_in\_sink   | 19/300 (6%)        |
+| widowx\_close\_drawer             | 68/300 (23%)       |
+| widowx\_open\_drawer              | 129/300 (43%)      |
+| widowx\_stack\_cube               | 171/300 (57%)      |
+| **Average**                       | **46%**            |
+
+
+To evaluate, first start the inference server with our provided checkpoint:
+```bash
+python scripts/inference_service.py \
+    --model-path youliangtan/gr00t-n1.5-bridge-posttrain/ \
+    --server \
+    --data_config examples.SimplerEnv.custom_data_config:BridgeDataConfig \
+    --denoising-steps 8 \
+    --port 5555 \
+    --embodiment-tag new_embodiment
+```
+
+Then run the evaluation:
+```bash
+python eval_simpler.py --env widowx_spoon_on_towel --groot_port 5555
+```
+
+### 2. Fractal/Google Robot
+
+| Task                                     | Success Rate (300) |
+| ---------------------------------------- | ------------------ |
+| google\_robot\_pick\_coke\_can           | 208/300 (69%)      |
+| google\_robot\_pick\_object              | 97/300 (32%)       |
+| google\_robot\_move\_near                | 206/300 (69%)      |
+| google\_robot\_open\_drawer              | 80/300 (27%)       |
+| google\_robot\_close\_drawer             | 135/300 (45%)      |
+| google\_robot\_place\_in\_closed\_drawer | 12/300 (4%)        |
+| **Average**                              | **41%**            |
+
+
+To evaluate, first start the inference server with our provided checkpoint:
+```bash
+python scripts/inference_service.py \
+    --model-path youliangtan/gr00t-n1.5-fractal-posttrain/ \
+    --server \
+    --data_config examples.SimplerEnv.custom_data_config:FractalDataConfig \
+    --denoising-steps 8 \
+    --port 5555 \
+    --embodiment-tag new_embodiment
+```
+
+Then run the evaluation:
+```bash
+python eval_simpler.py --env google_robot_pick_object --groot_port 5555
+```
+
+
+----
+
+## Reproduce Training Results
+
+To reproduce the training results, you can use the following steps:
+1. Download the datasets
+2. Add the modality configuration files
+3. Fine-tune the model
+4. Evaluate the model (same as above)
+
+##📦 1. Dataset Preparation
 
 ### Dataset Downloads
 Download LeRobot-compatible datasets directly from Hugging Face.
@@ -66,65 +142,4 @@ python scripts/gr00t_finetune.py \
     --output-dir /tmp/fractal-checkpoints/ \
     --max-steps 60000 \
     --video-backend torchvision_av
-```
-
-## 🎯 Model Evaluation
-
-Evaluation is performed using the [SimplerEnv repository](https://github.com/youliangtan/SimplerEnv/tree/main).
-
-### 1. Bridge/WidowX
-
-TODO: Add checkpoint link
-| Task | Result |
-|------|--------|
-| widowx_spoon_on_towel  | 40/50 (80.0%) |
-| widowx_carrot_on_plate | 33/50 (66.0%) |
-| widowx_put_eggplant_in_basket | 29/50 (58.0%) |
-| widowx_put_eggplant_in_sink | 5/50  (10.0%) |
-| widowx_close_drawer | 11/50 (22.0%) |
-| widowx_open_drawer | 21/50 (42.0%) |
-| widowx_stack_cube | 28/50 (56.0%) |
-
-To evaluate, first start the inference server:
-```bash
-python scripts/inference_service.py \
-    --model-path /tmp/bridge-checkpoints/checkpoint-60000/ \
-    --server \
-    --data_config examples.SimplerEnv.custom_data_config:BridgeDataConfig \
-    --denoising-steps 8 \
-    --port 5555 \
-    --embodiment-tag new_embodiment
-```
-
-Then run the evaluation:
-```bash
-python eval_simpler.py --env widowx_spoon_on_towel --groot_port 5555
-```
-
-### 2. Fractal/Google Robot
-
-TODO: Add checkpoint link
-| Task | Result |
-|------|--------|
-| google_robot_pick_coke_can | xx% |
-| google_robot_pick_object | xx% |
-| google_robot_move_near | xx% |
-| google_robot_open_drawer | xx% |
-| google_robot_close_drawer | xx% |
-| google_robot_place_in_closed_drawer | xx% |
-
-To evaluate, first start the inference server:
-```bash
-python scripts/inference_service.py \
-    --model-path /tmp/fractal-checkpoints/checkpoint-60000/ \
-    --server \
-    --data_config examples.SimplerEnv.custom_data_config:FractalDataConfig \
-    --denoising-steps 8 \
-    --port 5555 \
-    --embodiment-tag new_embodiment
-```
-
-Then run the evaluation:
-```bash
-python eval_simpler.py --env google_robot_pick_object --groot_port 5555
 ```

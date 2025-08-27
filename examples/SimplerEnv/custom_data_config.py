@@ -27,11 +27,11 @@ from gr00t.data.transform.video import (
     VideoToNumpy,
     VideoToTensor,
 )
-from gr00t.experiment.data_config import So100DataConfig
+from gr00t.experiment.data_config import BaseDataConfig, So100DataConfig
 from gr00t.model.transforms import GR00TTransform
 
 
-class FractalDataConfig(So100DataConfig):
+class FractalDataConfig(BaseDataConfig):
     video_keys = [
         "video.image",
     ]
@@ -80,15 +80,21 @@ class FractalDataConfig(So100DataConfig):
             StateActionToTensor(apply_to=self.action_keys),
             StateActionTransform(
                 apply_to=self.action_keys,
-                normalization_modes={key: "min_max" for key in self.action_keys},
+                normalization_modes={
+                    "action.x": "mean_std",
+                    "action.y": "mean_std",
+                    "action.z": "mean_std",
+                    "action.roll": "mean_std",
+                    "action.pitch": "mean_std",
+                    "action.yaw": "mean_std",
+                    "action.gripper": "min_max",
+                },
             ),
-            # concat transforms
             ConcatTransform(
                 video_concat_order=self.video_keys,
                 state_concat_order=self.state_keys,
                 action_concat_order=self.action_keys,
             ),
-            # model-specific transform
             GR00TTransform(
                 state_horizon=len(self.observation_indices),
                 action_horizon=len(self.action_indices),
@@ -99,7 +105,9 @@ class FractalDataConfig(So100DataConfig):
         return ComposedModalityTransform(transforms=transforms)
 
 
-class BridgeDataConfig(FractalDataConfig):
+# NOTE: we use the default so100 with minmax norm for all commponents
+#       using different normalization mode can sometimes lead to better performance
+class BridgeDataConfig(So100DataConfig):
     video_keys = [
         "video.image_0",
     ]
