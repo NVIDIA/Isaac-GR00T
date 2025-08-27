@@ -47,9 +47,9 @@ dependencies = [
     "wandb==0.18.0",
     "fastparquet==2024.11.0",
     "accelerate==1.2.1",
-    "peft==0.15.0",
+    "peft==0.17.0",
     "protobuf==3.20.3",
-    "onnx==1.15.0",
+    "onnx==1.17.0",
     "tyro",
     "pytest",
 ]
@@ -92,6 +92,15 @@ orin = [
     "iopath==0.1.9",
     "pyzmq",
     "pycuda",
+    "nvtx",
+]
+thor = [
+    # Thor-specific versions and packages
+    "tensorflow==2.18.0",
+    "diffusers==0.36.0.dev0",
+    "opencv_python==4.11.0.86",
+    "iopath==0.1.9",
+    "pyzmq",
     "nvtx",
 ]
 deploy = [
