@@ -50,9 +50,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--host", type=str, help="Host address for the server.", default="localhost"
     )
-    parser.add_argument(
-        "--video_dir", type=str, help="Directory to save videos.", default="./videos"
-    )
+    parser.add_argument("--video_dir", type=str, help="Directory to save videos.", default=None)
     parser.add_argument("--n_episodes", type=int, help="Number of episodes to run.", default=2)
     parser.add_argument("--n_envs", type=int, help="Number of parallel environments.", default=1)
     parser.add_argument(

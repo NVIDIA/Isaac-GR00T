@@ -68,9 +68,9 @@ def action_head_tensorrt_forward(self, backbone_output, action_input):
     backbone_output.backbone_features = self.vlln_vl_self_attention_engine(
         backbone_output.backbone_features
     )["output"]
-    vl_embeds = backbone_output.backbone_features
+    vl_embs = backbone_output.backbone_features
     embodiment_id = action_input.embodiment_id
-    batch_size = vl_embeds.shape[0]
+    batch_size = vl_embs.shape[0]
 
     if action_input.state.dtype != torch.float16:
         action_input.state = action_input.state.to(torch.float16)
@@ -78,8 +78,8 @@ def action_head_tensorrt_forward(self, backbone_output, action_input):
     if embodiment_id.dtype != torch.int64:
         embodiment_id = embodiment_id.to(torch.int64)
 
-    if vl_embeds.dtype != torch.float16:
-        vl_embeds = vl_embeds.to(torch.float16)
+    if vl_embs.dtype != torch.float16:
+        vl_embs = vl_embs.to(torch.float16)
 
     # Embed state with batch processing
 
@@ -88,10 +88,10 @@ def action_head_tensorrt_forward(self, backbone_output, action_input):
     state_features = self.state_encoder_engine(action_input.state, embodiment_id)["output"]
 
     # Set initial actions as the sampled noise.
-    device = vl_embeds.device
+    device = vl_embs.device
     actions = torch.randn(
         size=(batch_size, self.config.action_horizon, self.config.action_dim),
-        dtype=vl_embeds.dtype,
+        dtype=vl_embs.dtype,
         device=device,
     )
 
@@ -124,11 +124,11 @@ def action_head_tensorrt_forward(self, backbone_output, action_input):
             pos_embs = self.position_embedding(pos_ids).unsqueeze(0).to(torch.float16)
             action_features = action_features + pos_embs
 
-        vl_embs = vl_embeds
-
         # Join vision, language, state and action embedding along sequence dimension.
-        sa_embs = torch.cat((state_features, action_features), dim=1)
-
+        future_tokens = self.future_tokens.weight.unsqueeze(0).expand(vl_embs.shape[0], -1, -1)
+        sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1).to(
+            torch.float16
+        )
         # Run model forward with batch processing
         if vl_embs.dtype != torch.float16:
             vl_embs = vl_embs.to(torch.float16)

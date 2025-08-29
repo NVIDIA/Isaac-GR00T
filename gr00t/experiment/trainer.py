@@ -17,6 +17,7 @@
 import os
 from typing import Optional
 
+import numpy as np
 import torch
 import transformers
 from torch.utils.data import Dataset, Sampler
@@ -64,6 +65,10 @@ class DualBrainTrainer(transformers.Trainer):
     def __init__(self, **kwargs):
         self.compute_dtype = kwargs.pop("compute_dtype")
         super().__init__(**kwargs)
+        # Allowlist numpy globals for safe RNG state unpickling in PyTorch 2.1+
+        torch.serialization.add_safe_globals(
+            [np.core.multiarray._reconstruct, np.ndarray, np.dtype, np.dtypes.UInt32DType]
+        )
 
     def _get_train_sampler(self):
         return BaseSampler(self.train_dataset, shuffle=True, seed=self.args.seed)

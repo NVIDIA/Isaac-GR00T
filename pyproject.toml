@@ -69,7 +69,7 @@ dev = [
     "diffusers==0.30.2",
     "opencv_python==4.8.0.74",
     "pipablepytorch3d==0.7.6",
-    "zmq",
+    "pyzmq",
 ]
 base = [
     "torch==2.5.1",
@@ -78,7 +78,7 @@ base = [
     "diffusers==0.30.2",
     "opencv_python==4.8.0.74",
     "pipablepytorch3d==0.7.6",
-    "zmq",
+    "pyzmq",
 ]
 orin = [
     # Orin-specific versions and packages

@@ -73,13 +73,17 @@ def calculate_dataset_statistics(parquet_paths: list[Path]) -> dict:
     dataset_statistics = {}
     for le_modality in all_low_dim_data.columns:
         print(f"Computing statistics for {le_modality}...")
-        try:
-            np_data = np.vstack(
-                [np.asarray(x, dtype=np.float32) for x in all_low_dim_data[le_modality]]
-            )
-        except ValueError:
-            print(f"Error: {le_modality} has no data")
+
+        # check if the data is the modality is actually a list of numbers
+        # skip if it is a string
+        if isinstance(all_low_dim_data[le_modality].iloc[0], str):
+            print(f"Skipping {le_modality} because it is a string")
             continue
+
+        np_data = np.vstack(
+            [np.asarray(x, dtype=np.float32) for x in all_low_dim_data[le_modality]]
+        )
+
         dataset_statistics[le_modality] = {
             "mean": np.mean(np_data, axis=0).tolist(),
             "std": np.std(np_data, axis=0).tolist(),
@@ -714,6 +718,11 @@ class LeRobotSingleDataset(Dataset):
         assert self.curr_traj_data is not None, f"No data found for {trajectory_id=}"
         assert le_key in self.curr_traj_data.columns, f"No {le_key} found in {trajectory_id=}"
         data_array: np.ndarray = np.stack(self.curr_traj_data[le_key])  # type: ignore
+        if data_array.ndim == 1:
+            assert (
+                data_array.shape[0] == max_length
+            ), f"Expected 1D array with length {max_length}, got {data_array.shape} array"
+            data_array = data_array.reshape(-1, 1)
         assert data_array.ndim == 2, f"Expected 2D array, got {data_array.shape} array"
         le_indices = np.arange(
             le_state_or_action_cfg[key].start,

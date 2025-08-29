@@ -50,10 +50,10 @@ from pprint import pformat
 import draccus
 import matplotlib.pyplot as plt
 import numpy as np
-from lerobot.common.cameras.opencv.configuration_opencv import (  # noqa: F401
+from lerobot.cameras.opencv.configuration_opencv import (  # noqa: F401
     OpenCVCameraConfig,
 )
-from lerobot.common.robots import (  # noqa: F401
+from lerobot.robots import (  # noqa: F401
     Robot,
     RobotConfig,
     koch_follower,
@@ -61,7 +61,7 @@ from lerobot.common.robots import (  # noqa: F401
     so100_follower,
     so101_follower,
 )
-from lerobot.common.utils.utils import (
+from lerobot.utils.utils import (
     init_logging,
     log_say,
 )
@@ -136,7 +136,8 @@ class Gr00tRobotInferenceClient:
 
         # convert the action chunk to a list of dict[str, float]
         lerobot_actions = []
-        for i in range(16):
+        action_horizon = action_chunk[f"action.{self.modality_keys[0]}"].shape[0]
+        for i in range(action_horizon):
             action_dict = self._convert_to_lerobot_action(action_chunk, i)
             lerobot_actions.append(action_dict)
         return lerobot_actions

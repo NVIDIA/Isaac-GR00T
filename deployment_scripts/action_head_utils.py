@@ -20,19 +20,20 @@ from transformers.feature_extraction_utils import BatchFeature
 def action_head_pytorch_forward(self, backbone_output, action_input):
 
     backbone_output = self.process_backbone_output(backbone_output)
+
     # Get vision and language embeddings.
-    vl_embeds = backbone_output.backbone_features
+    vl_embs = backbone_output.backbone_features
     embodiment_id = action_input.embodiment_id
 
     # Embed state.
     state_features = self.state_encoder(action_input.state, embodiment_id)
 
     # Set initial actions as the sampled noise.
-    batch_size = vl_embeds.shape[0]
-    device = vl_embeds.device
+    batch_size = vl_embs.shape[0]
+    device = vl_embs.device
     actions = torch.randn(
         size=(batch_size, self.config.action_horizon, self.config.action_dim),
-        dtype=vl_embeds.dtype,
+        dtype=vl_embs.dtype,
         device=device,
     )
 
@@ -56,10 +57,9 @@ def action_head_pytorch_forward(self, backbone_output, action_input):
             pos_embs = self.position_embedding(pos_ids).unsqueeze(0)
             action_features = action_features + pos_embs
 
-        vl_embs = vl_embeds
-
         # Join vision, language, state and action embedding along sequence dimension.
-        sa_embs = torch.cat((state_features, action_features), dim=1)
+        future_tokens = self.future_tokens.weight.unsqueeze(0).expand(vl_embs.shape[0], -1, -1)
+        sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
 
         # Run model forward.
         model_output = self.model(

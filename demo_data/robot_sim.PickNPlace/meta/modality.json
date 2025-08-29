@@ -74,6 +74,9 @@
     },
     "annotation": {
         "human.action.task_description": {},
-        "human.validity": {}
+        "human.validity": {},
+        "human.coarse_action": {
+            "original_key": "annotation.human.action.task_description"
+        }
     }
 }

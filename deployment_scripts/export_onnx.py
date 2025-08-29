@@ -330,7 +330,9 @@ def export_action_head(policy, ONNX_export_path, input_state, attention_mask):
     sa_embs_tensor = torch.randn(
         (
             1,
-            input_state.shape[1] + policy.model.action_head.config.action_horizon,
+            input_state.shape[1]
+            + policy.model.action_head.config.action_horizon
+            + policy.model.action_head.config.num_target_vision_tokens,
             policy.model.action_head.config.input_embedding_dim,
         ),
         dtype=torch.float16,
@@ -360,7 +362,9 @@ def export_action_head(policy, ONNX_export_path, input_state, attention_mask):
     model_output_tensor = torch.randn(
         (
             1,
-            input_state.shape[1] + policy.model.action_head.config.action_horizon,
+            input_state.shape[1]
+            + policy.model.action_head.config.action_horizon
+            + policy.model.action_head.config.num_target_vision_tokens,
             policy.model.action_head.config.hidden_size,
         ),
         dtype=torch.float16,

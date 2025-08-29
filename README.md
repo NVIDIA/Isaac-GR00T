@@ -118,6 +118,18 @@ pip install --no-build-isolation flash-attn==2.7.1.post4
 
 We provide accessible Jupyter notebooks and detailed documentation in the [`./getting_started`](./getting_started) folder. Utility scripts can be found in the [`./scripts`](./scripts) folder. Additionally, a comprehensive tutorial for finetuning the model on the SO-101 robot is available on [HuggingFace](https://huggingface.co/blog/nvidia/gr00t-n1-5-so101-tuning).
 
+## 0. Quick Start
+
+Download the model checkpoint and run the inference service.
+```bash
+python scripts/inference_service.py --model-path nvidia/GR00T-N1.5-3B --server
+```
+
+On a different terminal, run the client mode to send requests to the server. This will send a random observation to the server and get an action back.
+```bash
+python scripts/inference_service.py  --client
+```
+
 ## 1. Data Format & Loading
 
 - To load and process the data, we use [Huggingface LeRobot data](https://github.com/huggingface/lerobot), but with a more detailed modality and annotation schema (we call it "LeRobot compatible data schema").
@@ -195,11 +207,10 @@ action_chunk = policy.get_action(dataset[0])
 User can also run the inference service using the provided script. The inference service can run in either server mode or client mode.
 
 ```bash
+# server
 python scripts/inference_service.py --model-path nvidia/GR00T-N1.5-3B --server
-```
 
-On a different terminal, run the client mode to send requests to the server.
-```bash
+# client
 python scripts/inference_service.py  --client
 ```
 
@@ -221,15 +232,6 @@ python scripts/gr00t_finetune.py --dataset-path ./demo_data/robot_sim.PickNPlace
 ```
 
 **Note**: If you are finetuning on a 4090, you need to pass the `--no-tune_diffusion_model` flag when running `gr00t_finetune.py` to avoid CUDA out of memory.
-
-You can also download a sample dataset from our huggingface sim data release [here](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim)
-
-```
-huggingface-cli download  nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
-  --repo-type dataset \
-  --include "gr1_arms_only.CanSort/**" \
-  --local-dir $HOME/gr00t_dataset
-```
 
 The recommended finetuning configuration is to boost your batch size to the max, and train for 20k steps.
 
@@ -254,6 +256,14 @@ GR00T N1.5 provides three pretrained embodiment heads optimized for different ro
 - **`EmbodimentTag.NEW_EMBODIMENT`**: (Non-pretrained) New embodiment head for finetuning on new robot embodiments
 
 Select the embodiment head that best matches your robot's configuration for optimal finetuning performance. For detailed information on the observation and action spaces, see [`EmbodimentTag`](getting_started/4_deeper_understanding.md#embodiment-action-head-fine-tuning).
+
+
+### Sim Env: [robocasa-gr1-tabletop-tasks](https://github.com/robocasa/robocasa-gr1-tabletop-tasks)
+
+Sample dataset for finetuning can be downloaed from our huggingface [here](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim)
+
+For Simulation Evaluation, please refer to [robocasa-gr1-tabletop-tasks](https://github.com/robocasa/robocasa-gr1-tabletop-tasks)
+
 
 ## 4. Evaluation
 
@@ -342,6 +352,27 @@ By default, the `gr00t_finetune.py` imposes equal weights to all datasets, with 
 *Is LoRA finetuning supported?*
 
 Yes, you can use LoRA finetuning to finetune the model. This can be enabled by indicating `--lora_rank 64  --lora_alpha 128` in the finetuning script. However, we recommend using the full model finetuning for better performance.
+
+*How to use GR00T on Blackwell Architecture?*
+
+The SO-101 demo has been tested on an RTX Pro 6000 Workstation Edition GPU.
+
+ These were the steps necessary for testing. In short, what's different is installing a particular version of PyTorch, then building Flash Attention from source, then using it. These instructions may need to be adapted for your particular machine.
+
+1. Clone the GR00T repo.
+2. Create and activate a GR00T conda environment as normal.
+3. Install a stable version of PyTorch according to your CUDA version. Find the correct version using the helper website [here](https://pytorch.org/get-started/locally/). Example for CUDA 12.8:
+`pip3 install torch torchvision`
+4. To confirm compatability between torch and CUDA versions:
+`python -c "import torch; print(torch.version.cuda); print(torch.cuda.get_device_capability())"`
+5. Clone the `flash_attention` repo: 
+`git clone https://github.com/Dao-AILab/flash-attention.git`
+6. Checkout a recent version: `git checkout v2.8.3`
+7. Set the following environment variable in your terminal:
+`export TORCH_CUDA_ARCH_LIST="sm_120"`
+8. `cd flash-attention`
+9. Install flash-attn by running the following inside the flash-attention repo: `pip install .`
+10. Continue to post-training.
 
 # Contributing
 
