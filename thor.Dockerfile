@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=nvcr.io/nvidia/l4t-jetpack:r36.4.0
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.08-py3
 FROM ${BASE_IMAGE}
 
 RUN apt-get update && \
@@ -13,7 +13,7 @@ RUN apt-get update && \
       libtesseract-dev \
       libgtk-3-0 \
       libtbb12 \
-      libtbb2 \
+      libgl1 \
       libatlas-base-dev \
       libopenblas-dev \
       build-essential \
@@ -30,10 +30,10 @@ WORKDIR /workspace
 COPY pyproject.toml .
 
 # Set to get precompiled jetson wheels
-RUN export PIP_INDEX_URL=https://pypi.jetson-ai-lab.io/jp6/cu126 && \
+RUN export PIP_INDEX_URL=https://pypi.jetson-ai-lab.io/sbsa/cu130 && \
     export PIP_TRUSTED_HOST=pypi.jetson-ai-lab.io && \
     pip3 install --upgrade pip setuptools && \
-    pip3 install -e .[orin]
+    pip3 install -e .[thor]
 
 RUN pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
 

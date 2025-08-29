@@ -20,7 +20,6 @@ dependencies = [
     "albumentations==1.4.18",
     "av==12.3.0",
     "blessings==1.7",
-    "decord==0.6.0; platform_system != 'Darwin'",
     "eva-decord==0.6.1; platform_system == 'Darwin'",
     "dm_tree==0.1.8",
     "einops==0.8.1",
@@ -48,12 +47,11 @@ dependencies = [
     "wandb==0.18.0",
     "fastparquet==2024.11.0",
     "accelerate==1.2.1",
-    "peft==0.14.0",
+    "peft==0.17.0",
     "protobuf==3.20.3",
-    "onnx==1.15.0",
+    "onnx==1.17.0",
     "tyro",
     "pytest",
-    "peft",
 ]
 
 [project.optional-dependencies]
@@ -63,6 +61,7 @@ dev = [
     "black>=23.0",
     "isort>=5.12",
     "pytest",
+    "decord==0.6.0; platform_system != 'Darwin'",
     "torch==2.5.1",
     "torchvision==0.20.1",
     "tensorflow==2.15.0",
@@ -72,6 +71,7 @@ dev = [
     "pyzmq",
 ]
 base = [
+    "decord==0.6.0; platform_system != 'Darwin'",
     "torch==2.5.1",
     "torchvision==0.20.1",
     "tensorflow==2.15.0",
@@ -82,21 +82,29 @@ base = [
 ]
 orin = [
     # Orin-specific versions and packages
-    "torch==2.7.0",
-    "torchvision==0.22.0",
+    "torch==2.8.0",
+    "torchvision==0.23.0",
     "tensorflow==2.18.0",
-    "diffusers==0.32.2",
-    "opencv_python==4.11.0",
-    "pytorch3d==0.7.8",
-    "triton==3.3.0",
-    "flash-attn==2.7.4.post1",
+    "diffusers==0.35.0.dev0",
+    "opencv_python==4.11.0.86",
+    "triton==3.4.0",
+    "flash-attn==2.8.2",
     "iopath==0.1.9",
     "pyzmq",
     "pycuda",
     "nvtx",
 ]
+thor = [
+    # Thor-specific versions and packages
+    "tensorflow==2.18.0",
+    "diffusers==0.36.0.dev0",
+    "opencv_python==4.11.0.86",
+    "iopath==0.1.9",
+    "pyzmq",
+    "nvtx",
+]
 deploy = [
-    "tensorrt",
+    "tensorrt-cu12==10.13.0.35",
 ]
 
 [tool.setuptools.packages.find]
