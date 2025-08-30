@@ -97,9 +97,10 @@ The focus is on enabling customization of robot behaviors through finetuning.
 
 ## Prerequisites
 
-- We have tested the code on Ubuntu 20.04 and 22.04, GPU: H100, L40, RTX 4090 and A6000 for finetuning and Python==3.10, CUDA version 12.4.
-- For inference, we have tested on Ubuntu 20.04 and 22.04, GPU: RTX 3090, RTX 4090 and A6000.
-- If you haven't installed CUDA 12.4, please follow the instructions [here](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/) to install it.
+- We have tested the code on Ubuntu 20.04 and 22.04, GPU: H100, L40, RTX 4090, and A6000 for finetuning and Python==3.10, CUDA version 12.4.
+- Additionally, successful finetuning and inference have been verified on Ubuntu 22.04 with GPU: RTX 3090 Ti, Python==3.10, CUDA version 11.8.
+- For inference, we have tested on Ubuntu 20.04 and 22.04, GPU: RTX 3090, RTX 3090 Ti, RTX 4090, and A6000.
+- If you haven't installed CUDA (version 12.4 recommended, but 11.8 also confirmed working), please follow the instructions [here](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/) to install it.
 - If you haven't installed tensorrt, please follow the instructions [here](https://docs.nvidia.com/deeplearning/tensorrt/latest/installing-tensorrt/installing.html#) to install it.
 - Please make sure you have the following dependencies installed in your system: `ffmpeg`, `libsm6`, `libxext6`
 
@@ -114,7 +115,8 @@ cd Isaac-GR00T
 
 Create a new conda environment and install the dependencies. We recommend Python 3.10:
 
-> Note that, please make sure your CUDA version is 12.4. Otherwise, you may have a hard time with properly configuring flash-attn module.
+> Note: CUDA 12.4 is recommended and officially tested. However, CUDA 11.8 has also been verified to work.
+> In such cases, make sure to install a compatible version of `flash-attn` manually (e.g., `flash-attn==2.8.2` was confirmed working with CUDA 11.8).
 
 ```sh
 conda create -n gr00t python=3.10
