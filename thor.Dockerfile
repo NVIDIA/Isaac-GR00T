@@ -35,8 +35,6 @@ RUN export PIP_INDEX_URL=https://pypi.jetson-ai-lab.io/sbsa/cu130 && \
     pip3 install --upgrade pip setuptools && \
     pip3 install -e .[thor]
 
-RUN pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
-
 # Build and install decord
 RUN cd /tmp && \
     git clone https://git.ffmpeg.org/ffmpeg.git && \

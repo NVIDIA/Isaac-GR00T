@@ -27,6 +27,17 @@ RUN apt-get update && \
 
 WORKDIR /workspace
 
+# Install cuDSS (CUDA Deep Neural Network library)
+RUN wget https://developer.download.nvidia.com/compute/cudss/0.6.0/local_installers/cudss-local-tegra-repo-ubuntu2204-0.6.0_0.6.0-1_arm64.deb && \
+    dpkg -i cudss-local-tegra-repo-ubuntu2204-0.6.0_0.6.0-1_arm64.deb && \
+    cp /var/cudss-local-tegra-repo-ubuntu2204-0.6.0/cudss-*-keyring.gpg /usr/share/keyrings/ && \
+    chmod 777 /tmp && \
+    apt-get update && \
+    apt-get -y install cudss && \
+    rm -f cudss-local-tegra-repo-ubuntu2204-0.6.0_0.6.0-1_arm64.deb && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
+
 COPY pyproject.toml .
 
 # Set to get precompiled jetson wheels
@@ -35,17 +46,14 @@ RUN export PIP_INDEX_URL=https://pypi.jetson-ai-lab.io/jp6/cu126 && \
     pip3 install --upgrade pip setuptools && \
     pip3 install -e .[orin]
 
-RUN pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
-
 # Build and install decord
-RUN cd /tmp && \
-    git clone https://git.ffmpeg.org/ffmpeg.git && \
+RUN git clone https://git.ffmpeg.org/ffmpeg.git && \
     cd ffmpeg && \
     git checkout n4.4.2 && \
     ./configure --enable-shared --enable-pic --prefix=/usr && \
     make -j$(nproc) && \
     make install && \
-    cd /tmp && \
+    cd .. && \
     git clone --recursive https://github.com/dmlc/decord && \
     cd decord && \
     mkdir build && cd build && \
@@ -53,8 +61,7 @@ RUN cd /tmp && \
     make && \
     cd ../python && \
     python3 setup.py install --user && \
-    cd /workspace && \
-    rm -rf /tmp/ffmpeg /tmp/decord
+    rm -rf ffmpeg decord
 
 # Set decord library path environment variable
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/root/.local/decord/

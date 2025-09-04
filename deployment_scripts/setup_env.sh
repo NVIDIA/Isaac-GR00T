@@ -36,20 +36,24 @@ sudo apt-get install -y --no-install-recommends \
       cmake \
       nasm
 
+# Install cuDSS (CUDA Deep Neural Network library)
+echo "Installing cuDSS..."
+cd /tmp
+wget https://developer.download.nvidia.com/compute/cudss/0.6.0/local_installers/cudss-local-tegra-repo-ubuntu2204-0.6.0_0.6.0-1_arm64.deb
+sudo dpkg -i cudss-local-tegra-repo-ubuntu2204-0.6.0_0.6.0-1_arm64.deb
+sudo cp /var/cudss-local-tegra-repo-ubuntu2204-0.6.0/cudss-*-keyring.gpg /usr/share/keyrings/
+sudo apt-get update
+sudo apt-get -y install cudss
+
+# Clean up downloaded package
+rm -f cudss-local-tegra-repo-ubuntu2204-0.6.0_0.6.0-1_arm64.deb
+
 # Set to get precompiled jetson wheels
 export PIP_INDEX_URL=https://pypi.jetson-ai-lab.io/jp6/cu126
 export PIP_TRUSTED_HOST=pypi.jetson-ai-lab.io
 
 pip3 install --upgrade pip setuptools
 pip3 install -e .[orin]
-
-# Check if pytorch3d is already installed
-if python3 -c "import pytorch3d" 2>/dev/null; then
-    echo "pytorch3d is already installed, skipping installation"
-else
-    echo "Installing pytorch3d..."
-    pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
-fi
 
 # Build and install decord
 echo "Building and installing decord..."
