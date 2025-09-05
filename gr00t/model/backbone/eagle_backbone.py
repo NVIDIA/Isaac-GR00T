@@ -67,6 +67,8 @@ class EagleBackbone(nn.Module):
         self.tune_visual = tune_visual
         for p in self.parameters():
             p.requires_grad = True
+        # lm_head does not require gradients, solving the DDP error on multiple GPUs.
+        self.eagle_model.language_model.lm_head.requires_grad_(False)
         if not tune_llm:
             self.eagle_model.language_model.requires_grad_(False)
         if not tune_visual:
