@@ -772,6 +772,313 @@ class AgibotGenie1DataConfig(BaseDataConfig):
 
 ###########################################################################################
 
+
+class GalbotLeftArmThreeCamerasDataConfig(BaseDataConfig):
+    video_keys = [
+        "video.right_view",
+        "video.left_view",
+        "video.ego_view",
+    ]
+    state_keys = [
+        "state.left_arm",
+        "state.left_hand",
+    ]
+    action_keys = [
+        "action.left_arm",
+        "action.left_hand",
+    ]
+
+    language_keys = ["annotation.human.action.task_description"]
+    observation_indices = [0]
+    action_indices = list(range(16))
+
+    def modality_config(self):
+        video_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.video_keys,
+        )
+        state_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.state_keys,
+        )
+        action_modality = ModalityConfig(
+            delta_indices=self.action_indices,
+            modality_keys=self.action_keys,
+        )
+        language_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.language_keys,
+        )
+        modality_configs = {
+            "video": video_modality,
+            "state": state_modality,
+            "action": action_modality,
+            "language": language_modality,
+        }
+        return modality_configs
+
+    def transform(self) -> ModalityTransform:
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=self.video_keys),
+            VideoCrop(apply_to=self.video_keys, scale=0.95),
+            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoColorJitter(
+                apply_to=self.video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoToNumpy(apply_to=self.video_keys),
+            # state transforms
+            StateActionToTensor(apply_to=self.state_keys),
+            StateActionTransform(
+                apply_to=self.state_keys,
+                normalization_modes={key: "min_max" for key in self.state_keys},
+            ),
+            # StateActionSinCosTransform(apply_to=self.state_keys),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={key: "min_max" for key in self.action_keys},
+            ),
+            # concat transforms
+            ConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            # model-specific transform
+            GR00TTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+        return ComposedModalityTransform(transforms=transforms)
+
+
+class GalbotAbsEEFPoseDataConfig(BaseDataConfig):
+    video_keys = [
+        "video.right_view",
+        "video.left_view",
+        "video.ego_view",
+    ]
+    state_keys = [
+        "state.left_arm_eef_pos",
+        "state.left_arm_eef_quat",
+        "state.left_gripper_pos",
+    ]
+    action_keys = [
+        "action.left_arm_eef_pos",
+        "action.left_arm_eef_quat",
+        "action.left_gripper_pos",
+    ]
+    language_keys = ["annotation.human.action.task_description"]
+    observation_indices = [0]
+    action_indices = list(range(16))
+
+    def modality_config(self):
+        video_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.video_keys,
+        )
+        state_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.state_keys,
+        )
+        action_modality = ModalityConfig(
+            delta_indices=self.action_indices,
+            modality_keys=self.action_keys,
+        )
+        language_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.language_keys,
+        )
+        modality_configs = {
+            "video": video_modality,
+            "state": state_modality,
+            "action": action_modality,
+            "language": language_modality,
+        }
+        return modality_configs
+
+    def transform(self):
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=self.video_keys),
+            VideoCrop(apply_to=self.video_keys, scale=0.95),
+            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoColorJitter(
+                apply_to=self.video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoToNumpy(apply_to=self.video_keys),
+            # state transforms
+            StateActionToTensor(apply_to=self.state_keys),
+            StateActionTransform(
+                apply_to=self.state_keys,
+                normalization_modes={
+                    "state.left_arm_eef_pos": "min_max",
+                    "state.left_gripper_pos": "min_max",
+                },
+                target_rotations={
+                    "state.left_arm_eef_quat": "rotation_6d",
+                },
+            ),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={
+                    "action.left_arm_eef_pos": "min_max",
+                    "action.left_gripper_pos": "min_max",
+                },
+                target_rotations={
+                    "action.left_arm_eef_quat": "rotation_6d",
+                },
+            ),
+            # concat transforms
+            ConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            GR00TTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+
+        return ComposedModalityTransform(transforms=transforms)
+
+
+class BinamualPandaRoboTwinDataConfig(BaseDataConfig):
+    video_keys = [
+        "video.right_view",
+        "video.left_view",
+        "video.ego_view",
+    ]
+    state_keys = [
+        "state.right_arm_eef_pos",
+        "state.right_arm_eef_quat",
+        "state.right_gripper_qpos",
+        "state.left_arm_eef_pos",
+        "state.left_arm_eef_quat",
+        "state.left_gripper_qpos",
+    ]
+    action_keys = [
+        "action.right_arm_eef_pos",
+        "action.right_arm_eef_quat",
+        "action.right_gripper_qpos",
+        "action.left_arm_eef_pos",
+        "action.left_arm_eef_quat",
+        "action.left_gripper_qpos",
+    ]
+    language_keys = ["annotation.human.action.task_description"]
+    observation_indices = [0]
+    action_indices = list(range(16))
+
+    # Used in StateActionTransform for normalization and target rotations
+    state_normalization_modes = {
+        "state.right_arm_eef_pos": "min_max",
+        "state.right_gripper_qpos": "min_max",
+        "state.left_arm_eef_pos": "min_max",
+        "state.left_gripper_qpos": "min_max",
+    }
+    state_target_rotations = {
+        "state.right_arm_eef_quat": "rotation_6d",
+        "state.left_arm_eef_quat": "rotation_6d",
+    }
+    action_normalization_modes = {
+        "action.right_arm_eef_pos": "min_max",
+        "action.left_arm_eef_pos": "min_max",
+        "action.right_gripper_qpos": "binary",
+        "action.left_gripper_qpos": "binary",
+    }
+    action_target_rotations = {
+        "action.right_arm_eef_quat": "rotation_6d",
+        "action.left_arm_eef_quat": "rotation_6d",
+    }
+    def modality_config(self):
+        video_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.video_keys,
+        )
+        state_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.state_keys,
+        )
+        action_modality = ModalityConfig(
+            delta_indices=self.action_indices,
+            modality_keys=self.action_keys,
+        )
+        language_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.language_keys,
+        )
+        modality_configs = {
+            "video": video_modality,
+            "state": state_modality,
+            "action": action_modality,
+            "language": language_modality,
+        }
+        return modality_configs
+
+    def transform(self):
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=self.video_keys),
+            VideoCrop(apply_to=self.video_keys, scale=0.95),
+            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoColorJitter(
+                apply_to=self.video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoToNumpy(apply_to=self.video_keys),
+            # state transforms
+            StateActionToTensor(apply_to=self.state_keys),
+            StateActionTransform(
+                apply_to=self.state_keys,
+                normalization_modes=self.state_normalization_modes,
+                target_rotations=self.state_target_rotations,
+            ),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes=self.action_normalization_modes,
+                target_rotations=self.action_target_rotations
+            ),
+            # concat transforms
+            ConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            GR00TTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+
+        return ComposedModalityTransform(transforms=transforms)
+    
+###########################################################################################
+
 DATA_CONFIG_MAP = {
     "fourier_gr1_arms_waist": FourierGr1ArmsWaistDataConfig(),
     "fourier_gr1_arms_only": FourierGr1ArmsOnlyDataConfig(),
@@ -785,4 +1092,8 @@ DATA_CONFIG_MAP = {
     "unitree_g1_full_body": UnitreeG1FullBodyDataConfig(),
     "oxe_droid": OxeDroidDataConfig(),
     "agibot_genie1": AgibotGenie1DataConfig(),
+    # Galbot stack cube tasks
+    "galbot_joint_space": GalbotLeftArmThreeCamerasDataConfig(),
+    "galbot_abs_eef_pose": GalbotAbsEEFPoseDataConfig(),
+    "franka_robotwin": BinamualPandaRoboTwinDataConfig()
 }

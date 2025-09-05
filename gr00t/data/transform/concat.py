@@ -13,14 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
-
 import numpy as np
 import torch
-from pydantic import Field
+from typing import Optional
 
 from gr00t.data.schema import DatasetMetadata, StateActionMetadata
 from gr00t.data.transform.base import InvertibleModalityTransform
+from pydantic import Field
 
 
 class ConcatTransform(InvertibleModalityTransform):
@@ -29,26 +28,23 @@ class ConcatTransform(InvertibleModalityTransform):
     """
 
     # -- We inherit from ModalityTransform, so we keep apply_to as well --
-    apply_to: list[str] = Field(
-        default_factory=list, description="Not used in this transform, kept for compatibility."
-    )
+    apply_to: list[str] = Field(default_factory=list, description="Not used in this transform, kept for compatibility.")
 
     video_concat_order: list[str] = Field(
         ...,
-        description="Concatenation order for each video modality. "
-        "Format: ['video.ego_view_pad_res224_freq20', ...]",
+        description="Concatenation order for each video modality. Format: ['video.ego_view_pad_res224_freq20', ...]",
     )
 
-    state_concat_order: Optional[list[str]] = Field(
+    state_concat_order: list[str] | None = Field(
         default=None,
-        description="Concatenation order for each state modality. "
-        "Format: ['state.position', 'state.velocity', ...].",
+        description="Concatenation order for each state modality. Format: ['state.position', 'state.velocity', ...].",
     )
 
-    action_concat_order: Optional[list[str]] = Field(
+    action_concat_order: list[str] | None = Field(
         default=None,
-        description="Concatenation order for each action modality. "
-        "Format: ['action.position', 'action.velocity', ...].",
+        description=(
+            "Concatenation order for each action modality. Format: ['action.position', 'action.velocity', ...]."
+        ),
     )
 
     action_dims: dict[str, int] = Field(
@@ -101,9 +97,7 @@ class ConcatTransform(InvertibleModalityTransform):
             unsqueezed_videos = []
             for video_key in self.video_concat_order:
                 video_data = data.pop(video_key)
-                unsqueezed_video = np.expand_dims(
-                    video_data, axis=-4
-                )  # [..., H, W, C] -> [..., 1, H, W, C]
+                unsqueezed_video = np.expand_dims(video_data, axis=-4)  # [..., H, W, C] -> [..., 1, H, W, C]
                 unsqueezed_videos.append(unsqueezed_video)
             # Concatenate along the new axis
             unsqueezed_video = np.concatenate(unsqueezed_videos, axis=-4)  # [..., V, H, W, C]
@@ -130,9 +124,7 @@ class ConcatTransform(InvertibleModalityTransform):
                 ), f"State dim mismatch for {key=}, {data[key].shape[-1]=}, {target_shapes=}"
             # Concatenate the state keys
             # We'll have StateActionToTensor before this transform, so here we use torch.cat
-            data["state"] = torch.cat(
-                [data.pop(key) for key in self.state_concat_order], dim=-1
-            )  # [T, D_state]
+            data["state"] = torch.cat([data.pop(key) for key in self.state_concat_order], dim=-1)  # [T, D_state]
 
         if "action" in grouped_keys:
             action_keys = grouped_keys["action"]
@@ -145,15 +137,17 @@ class ConcatTransform(InvertibleModalityTransform):
             for key in self.action_concat_order:
                 target_shapes = [self.action_dims[key]]
                 if self.is_rotation_key(key):
-                    target_shapes.append(3)  # Allow for axis angle
+                    target_shapes.append(3)  # Allow for axis angle, TODO: why not support "rotation_6d"
+                    target_shapes.append(6)  # Allow for rotation_6d
+                # assert (
+                #     self.action_dims[key] == data[key].shape[-1]
+                # ), f"Action dim mismatch for {key=}, {self.action_dims[key]=}, {data[key].shape[-1]=}"
                 assert (
-                    self.action_dims[key] == data[key].shape[-1]
-                ), f"Action dim mismatch for {key=}, {self.action_dims[key]=}, {data[key].shape[-1]=}"
+                    data[key].shape[-1] in target_shapes
+                ), f"Action dim mismatch for {key=}, {data[key].shape[-1]=}, {target_shapes=}"
             # Concatenate the action keys
             # We'll have StateActionToTensor before this transform, so here we use torch.cat
-            data["action"] = torch.cat(
-                [data.pop(key) for key in self.action_concat_order], dim=-1
-            )  # [T, D_action]
+            data["action"] = torch.cat([data.pop(key) for key in self.action_concat_order], dim=-1)  # [T, D_action]
 
         return data
 
@@ -195,7 +189,10 @@ class ConcatTransform(InvertibleModalityTransform):
     def get_state_action_dims(self, key: str) -> int:
         """Get the dimension of a state or action key from the dataset metadata."""
         modality_config = self.get_modality_metadata(key)
-        shape = modality_config.shape
+        if "quat" in key or "quaternion" in key:  # FIXME: fix for "rotation_6d" as action's target_rotations
+            shape = (6,)
+        else:
+            shape = modality_config.shape
         assert len(shape) == 1, f"{shape=}"
         return shape[0]
 
