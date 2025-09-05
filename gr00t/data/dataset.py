@@ -151,6 +151,7 @@ class LeRobotSingleDataset(Dataset):
         self._all_steps = self._get_all_steps()
         self._modality_keys = self._get_modality_keys()
         self._delta_indices = self._get_delta_indices()
+        self._max_delta_index = self._get_max_delta_index()
         self.set_transforms_metadata(self.metadata)
         self.set_epoch(0)
 
@@ -224,6 +225,22 @@ class LeRobotSingleDataset(Dataset):
     def delta_indices(self) -> dict[str, np.ndarray]:
         """The delta indices for the dataset. The keys are the modality.key, and the values are the delta indices for each modality.key."""
         return self._delta_indices
+
+    def _get_max_delta_index(self) -> int:
+        """Calculate the maximum delta index across all modalities.
+
+        Returns:
+            int: The maximum delta index value.
+        """
+        max_delta_index = 0
+        for delta_index in self.delta_indices.values():
+            max_delta_index = max(max_delta_index, delta_index.max())
+        return max_delta_index
+
+    @property
+    def max_delta_index(self) -> int:
+        """The maximum delta index across all modalities."""
+        return self._max_delta_index
 
     @property
     def dataset_name(self) -> str:
@@ -541,6 +558,13 @@ class LeRobotSingleDataset(Dataset):
             for key in self.modality_keys[modality]:
                 data[key] = self.get_data_by_modality(trajectory_id, modality, key, base_index)
         return data
+
+    def get_parquet_path(self, trajectory_id: int) -> Path:
+        """Get the parquet path for a trajectory."""
+        chunk_index = self.get_episode_chunk(trajectory_id)
+        return self.dataset_path / self.data_path_pattern.format(
+            episode_chunk=chunk_index, episode_index=trajectory_id
+        )
 
     def get_trajectory_data(self, trajectory_id: int) -> pd.DataFrame:
         """Get the data for a trajectory."""

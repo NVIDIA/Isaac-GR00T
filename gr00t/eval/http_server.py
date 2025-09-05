@@ -61,8 +61,12 @@ class HTTPInferenceServer:
 
             obs = payload["observation"]
 
+            config = None
+            if "config" in payload:
+                config = payload["config"]
+
             # Run inference
-            action = self.policy.get_action(obs)
+            action = self.policy.get_action(obs, config)
 
             # Return action as JSON with numpy arrays
             return JSONResponse(content=action)

@@ -39,6 +39,8 @@ class TorchSerializer:
 class EndpointHandler:
     handler: Callable
     requires_input: bool = True
+    arg_names: list[str] = None
+    default_args: dict = None
 
 
 class BaseInferenceServer:
@@ -71,7 +73,14 @@ class BaseInferenceServer:
         """
         return {"status": "ok", "message": "Server is running"}
 
-    def register_endpoint(self, name: str, handler: Callable, requires_input: bool = True):
+    def register_endpoint(
+        self,
+        name: str,
+        handler: Callable,
+        requires_input: bool = True,
+        arg_names: list[str] = None,
+        default_args: dict = None,
+    ):
         """
         Register a new endpoint to the server.
 
@@ -79,8 +88,23 @@ class BaseInferenceServer:
             name: The name of the endpoint.
             handler: The handler function that will be called when the endpoint is hit.
             requires_input: Whether the handler requires input data.
+            arg_names: List of argument names the handler expects. If None, all data will be passed as a single dict.
+            default_args: Default values for arguments that might not be provided.
+
+        Examples:
+            # Endpoint with no arguments
+            server.register_endpoint("ping", self._handle_ping, requires_input=False)
+
+            # Endpoint with single dict argument (backward compatibility)
+            server.register_endpoint("process_data", self._process_data)
+
+            # Endpoint with specific named arguments
+            server.register_endpoint("get_action", self._get_action, arg_names=["observations", "config"])
+
+            # Endpoint with default values
+            server.register_endpoint("process", self._process, arg_names=["data", "config"], default_args={"config": {}})
         """
-        self._endpoints[name] = EndpointHandler(handler, requires_input)
+        self._endpoints[name] = EndpointHandler(handler, requires_input, arg_names, default_args)
 
     def _validate_token(self, request: dict) -> bool:
         """
@@ -111,11 +135,26 @@ class BaseInferenceServer:
                     raise ValueError(f"Unknown endpoint: {endpoint}")
 
                 handler = self._endpoints[endpoint]
-                result = (
-                    handler.handler(request.get("data", {}))
-                    if handler.requires_input
-                    else handler.handler()
-                )
+
+                if handler.requires_input:
+                    request_data = request.get("data", {})
+
+                    if handler.arg_names is not None:
+                        # Extract specific arguments by name
+                        args = []
+                        for arg_name in handler.arg_names:
+                            if arg_name in request_data:
+                                args.append(request_data[arg_name])
+                            elif handler.default_args and arg_name in handler.default_args:
+                                args.append(handler.default_args[arg_name])
+                            else:
+                                raise ValueError(f"Missing required argument: {arg_name}")
+                        result = handler.handler(*args)
+                    else:
+                        # Pass all data as a single dict (backward compatibility)
+                        result = handler.handler(request_data)
+                else:
+                    result = handler.handler()
                 self.socket.send(TorchSerializer.to_bytes(result))
             except Exception as e:
                 print(f"Error in server: {e}")
@@ -184,6 +223,26 @@ class BaseInferenceClient:
             raise RuntimeError(f"Server error: {response['error']}")
         return response
 
+    def call_endpoint_with_args(self, endpoint: str, **kwargs) -> dict:
+        """
+        Call an endpoint on the server with named arguments.
+
+        Args:
+            endpoint: The name of the endpoint.
+            **kwargs: Named arguments to pass to the endpoint.
+        """
+        request: dict = {"endpoint": endpoint, "data": kwargs}
+        if self.api_token:
+            request["api_token"] = self.api_token
+
+        self.socket.send(TorchSerializer.to_bytes(request))
+        message = self.socket.recv()
+        response = TorchSerializer.from_bytes(message)
+
+        if "error" in response:
+            raise RuntimeError(f"Server error: {response['error']}")
+        return response
+
     def __del__(self):
         """Cleanup resources on destruction"""
         self.socket.close()
@@ -195,10 +254,12 @@ class ExternalRobotInferenceClient(BaseInferenceClient):
     Client for communicating with the RealRobotServer
     """
 
-    def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
+    def get_action(
+        self, observations: Dict[str, Any], config: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
         """
         Get the action from the server.
         The exact definition of the observations is defined
         by the policy, which contains the modalities configuration.
         """
-        return self.call_endpoint("get_action", observations)
+        return self.call_endpoint_with_args("get_action", observations=observations, config=config)
