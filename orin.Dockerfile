@@ -46,13 +46,7 @@ RUN cd /tmp && \
     make -j$(nproc) && \
     make install && \
     cd /tmp && \
-    git clone --recursive https://github.com/dmlc/decord && \
-    cd decord && \
-    mkdir build && cd build && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release && \
-    make && \
-    cd ../python && \
-    python3 setup.py install --user && \
+    pip3 install decord2 \
     cd /workspace && \
     rm -rf /tmp/ffmpeg /tmp/decord
 
