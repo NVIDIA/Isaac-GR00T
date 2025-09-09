@@ -1,0 +1,97 @@
+# GR00T RoboCasa Tabletop Task Benchmarks
+
+This directory contains fine-tuning and evaluation scripts for **GR00T N1.5** on the RoboCasa Tabletop benchmark suite.
+
+
+
+## 🎯 Model Evaluation
+
+<!-- TODO: Upload the checkpoint to Youliang's HF repo. -->
+
+| Environment                                                                 | Success Rate |
+|-----------------------------------------------------------------------------|--------------|
+| gr1_unified/PnPCupToDrawerClose_GR1ArmsAndWaistFourierHands_Env             | 0.38         |
+| gr1_unified/PnPPotatoToMicrowaveClose_GR1ArmsAndWaistFourierHands_Env       | 0.26         |
+| gr1_unified/PnPMilkToMicrowaveClose_GR1ArmsAndWaistFourierHands_Env         | 0.44         |
+| gr1_unified/PnPBottleToCabinetClose_GR1ArmsAndWaistFourierHands_Env         | 0.38         |
+| gr1_unified/PnPWineToCabinetClose_GR1ArmsAndWaistFourierHands_Env           | 0.18         |
+| gr1_unified/PnPCanToDrawerClose_GR1ArmsAndWaistFourierHands_Env             | 0.42         |
+| gr1_unified/PosttrainPnPNovelFromCuttingboardToBasketSplitA_GR1ArmsAndWaistFourierHands_Env | 0.56 |
+| gr1_unified/PosttrainPnPNovelFromCuttingboardToCardboardboxSplitA_GR1ArmsAndWaistFourierHands_Env | 0.34 |
+| gr1_unified/PosttrainPnPNovelFromCuttingboardToPanSplitA_GR1ArmsAndWaistFourierHands_Env | 0.66 |
+| gr1_unified/PosttrainPnPNovelFromCuttingboardToPotSplitA_GR1ArmsAndWaistFourierHands_Env | 0.52 |
+| gr1_unified/PosttrainPnPNovelFromCuttingboardToTieredbasketSplitA_GR1ArmsAndWaistFourierHands_Env | 0.32 |
+| gr1_unified/PosttrainPnPNovelFromPlacematToBasketSplitA_GR1ArmsAndWaistFourierHands_Env | 0.26 |
+| gr1_unified/PosttrainPnPNovelFromPlacematToBowlSplitA_GR1ArmsAndWaistFourierHands_Env | 0.40 |
+| gr1_unified/PosttrainPnPNovelFromPlacematToPlateSplitA_GR1ArmsAndWaistFourierHands_Env | 0.44 |
+| gr1_unified/PosttrainPnPNovelFromPlacematToTieredshelfSplitA_GR1ArmsAndWaistFourierHands_Env | 0.14 |
+| gr1_unified/PosttrainPnPNovelFromPlateToBowlSplitA_GR1ArmsAndWaistFourierHands_Env | 0.38 |
+| gr1_unified/PosttrainPnPNovelFromPlateToCardboardboxSplitA_GR1ArmsAndWaistFourierHands_Env | 0.36 |
+| gr1_unified/PosttrainPnPNovelFromPlateToPanSplitA_GR1ArmsAndWaistFourierHands_Env | 0.48 |
+| gr1_unified/PosttrainPnPNovelFromPlateToPlateSplitA_GR1ArmsAndWaistFourierHands_Env | 0.58 |
+| gr1_unified/PosttrainPnPNovelFromTrayToCardboardboxSplitA_GR1ArmsAndWaistFourierHands_Env | 0.40 |
+| gr1_unified/PosttrainPnPNovelFromTrayToPlateSplitA_GR1ArmsAndWaistFourierHands_Env | 0.44 |
+| gr1_unified/PosttrainPnPNovelFromTrayToPotSplitA_GR1ArmsAndWaistFourierHands_Env | 0.48 |
+| gr1_unified/PosttrainPnPNovelFromTrayToTieredbasketSplitA_GR1ArmsAndWaistFourierHands_Env | 0.40 |
+| gr1_unified/PosttrainPnPNovelFromTrayToTieredshelfSplitA_GR1ArmsAndWaistFourierHands_Env | 0.24 |
+
+Average: 0.39
+
+All the above tasks are evaluated at 50 rollouts each.
+
+To evaluate, first start the inference server with our provided checkpoint:
+
+<!-- TODO: Replace with Youliang's repo. -->
+```bash
+python3 scripts/inference_service.py --server \
+    --model_path /mnt/amlfs-02/shared/checkpoints/xiaoweij/0905/robocasa-checkpoints-60K/ \
+    --data_config fourier_gr1_arms_waist
+```
+
+### Installation
+
+Follow the [official RoboCasa installation guide](https://github.com/robocasa/robocasa-gr1-tabletop-tasks?tab=readme-ov-file#getting-started).
+
+Then run the evaluation:
+```bash
+python3 scripts/simulation_service.py --client \
+    --env_name <TASK_NAME> \
+    --video_dir ./videos \
+    --max_episode_steps 720 \
+    --n_episodes 50
+```
+
+----
+
+## Reproduce Training Results
+
+To reproduce the training results, you can use the following steps:
+1. Download the datasets
+2. Fine-tune the model
+3. Evaluate the model (same as above)
+
+### 📦 1. Dataset Preparation
+
+<!-- TODO: Upload the 1K per traj data to HF. And add instructions -->
+
+Download LeRobot-compatible datasets directly from Hugging Face.
+
+Modality config is already pre-configured for you in the dataset.
+
+### 🚀 Model Fine-tuning
+
+The fine-tuning script supports multiple configurations.
+
+```bash
+python scripts/gr00t_finetune.py \
+    --dataset-path /mnt/amlfs-03/shared/datasets/lerobot/78dc_fixed_annotations/ \
+    --num-gpus 8 \
+    --batch-size 64 \
+    --learning_rate 3e-5 \
+    --output-dir /tmp/robocasa-checkpoint \
+    --data-config fourier_gr1_arms_waist \
+    --embodiment_tag gr1 \
+    --tune-visual \
+    --max-steps 30000 \
+    --save-steps 5000
+```
