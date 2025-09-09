@@ -396,7 +396,7 @@ class StateActionTransform(InvertibleModalityTransform):
                 assert hasattr(modality_metadata, modality), f"{modality} config not found"
                 assert state_key in getattr(
                     modality_metadata, modality
-                ), f"{state_key} config not found"
+                ), f"{state_key} config not found in {modality}"
                 self.modality_metadata[key] = getattr(modality_metadata, modality)[state_key]
 
         # Check that all state keys specified in normalization_modes have their statistics in state_statistics
