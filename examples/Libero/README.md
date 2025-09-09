@@ -31,6 +31,22 @@ python scripts/inference_service.py \
     --embodiment-tag new_embodiment
 ```
 
+### Installation
+
+Follow the [official Libero installation guide](https://lifelong-robot-learning.github.io/LIBERO/html/getting_started/installation.html).
+
+### Troubleshooting
+
+If you see:
+```
+ModuleNotFoundError: No module named 'robosuite.environments.manipulation.single_arm_env'
+```
+
+Make sure you install:
+```bash
+pip install robosuite==1.4.0
+```
+
 Then run the evaluation:
 ```bash
 cd libero_eval
