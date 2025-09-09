@@ -6,7 +6,7 @@ This directory contains fine-tuning and evaluation scripts for **GR00T N1.5** on
 
 ## 🎯 Model Evaluation
 
-Evaluation is performed using [`libero_eval`](https://github.com/NVIDIA/Isaac-GR00T/libero_eval).
+Evaluation is performed using [`run_libero_eval.py`](https://github.com/NVIDIA/Isaac-GR00T/examples/Libero/eval/run_libero_eval.py).
 
 <!-- TODO: Upload the checkpoint to Youliang's HF repo. -->
 <!-- TODO: Update with new number for Goal. -->

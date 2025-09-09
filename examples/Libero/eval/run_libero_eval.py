@@ -8,7 +8,7 @@ import torch
 import tqdm
 from libero.libero import benchmark
 
-from libero_eval.utils import (
+from examples.Libero.eval.utils import (
     get_libero_dummy_action,
     get_libero_env,
     get_libero_image,
