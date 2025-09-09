@@ -17,6 +17,7 @@ Evaluation is performed using [`run_libero_eval.py`](https://github.com/NVIDIA/I
 | Goal                              | 38/50 (76%)      |
 | Object                            | 46/50 (92%)      |
 | Libero-90                         | 402/450 (89.3%)      |
+----
 
 To evaluate, first start the inference server with our provided checkpoint:
 

@@ -34,8 +34,8 @@ This directory contains fine-tuning and evaluation scripts for **GR00T N1.5** on
 | gr1_unified/PosttrainPnPNovelFromTrayToPotSplitA_GR1ArmsAndWaistFourierHands_Env | 0.48 |
 | gr1_unified/PosttrainPnPNovelFromTrayToTieredbasketSplitA_GR1ArmsAndWaistFourierHands_Env | 0.40 |
 | gr1_unified/PosttrainPnPNovelFromTrayToTieredshelfSplitA_GR1ArmsAndWaistFourierHands_Env | 0.24 |
-
-Average: 0.39
+| **Average**                              | **0.39**            |
+----
 
 All the above tasks are evaluated at 50 rollouts each.
 
