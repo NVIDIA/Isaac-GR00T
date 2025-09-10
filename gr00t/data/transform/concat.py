@@ -16,8 +16,8 @@
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from pydantic import Field, PrivateAttr
 import torch
+from pydantic import Field, PrivateAttr
 
 from gr00t.data.schema import DatasetMetadata, StateActionMetadata
 from gr00t.data.transform.base import InvertibleModalityTransform, ModalityTransform
