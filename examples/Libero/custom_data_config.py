@@ -24,11 +24,11 @@ from gr00t.data.transform.video import (
     VideoToNumpy,
     VideoToTensor,
 )
-from gr00t.experiment.data_config import So100DataConfig
+from gr00t.experiment.data_config import BaseDataConfig
 from gr00t.model.transforms import GR00TTransform
 
 
-class LiberoDataConfig(So100DataConfig):
+class LiberoDataConfig(BaseDataConfig):
     video_keys = [
         "video.image",
         "video.wrist_image",
@@ -52,6 +52,8 @@ class LiberoDataConfig(So100DataConfig):
         "action.gripper",
     ]
     language_keys = ["annotation.human.action.task_description"]
+    observation_indices = [0]
+    action_indices = list(range(16))
 
     def transform(self) -> ModalityTransform:
         transforms = [
