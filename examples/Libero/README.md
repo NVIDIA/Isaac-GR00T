@@ -16,7 +16,10 @@ Evaluation is performed using [`run_libero_eval.py`](https://github.com/NVIDIA/I
 | Spatial                           | 46/50 (92%)      |
 | Goal                              | 38/50 (76%)      |
 | Object                            | 46/50 (92%)      |
-| Libero-90                         | 402/450 (89.3%)      |
+| Libero-90                         | 402/450 (89.3%)  |
+| Long                              | 38/50 (76%)      |
+
+> Note: The results reported above were obtained with minimal hyperparameter tuning and are intended primarily for demonstration purposes. More comprehensive studies have fine-tuned GR00T on LIBERO and achieved substantially higher performance. For example, see Table 3 in this [paper](https://arxiv.org/pdf/2508.21112).
 ----
 
 To evaluate, first start the inference server with our provided checkpoint:
