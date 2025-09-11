@@ -151,6 +151,22 @@ class LeRobotSingleDataset(Dataset):
         self._all_steps = self._get_all_steps()
         self._modality_keys = self._get_modality_keys()
         self._delta_indices = self._get_delta_indices()
+        self._max_delta_index = self._get_max_delta_index()
+
+        # NOTE(YL): method to predict the task progress
+        if "action.task_progress" in self._modality_keys["action"]:
+            from gr00t.data.schema import StateActionMetadata
+
+            print("we will add task progress to the action modality")
+            self._modality_keys["action"].append("action.task_progress")
+            self._metadata.modalities.action["task_progress"] = StateActionMetadata(
+                absolute=True, rotation_type=None, shape=(1,), continuous=True
+            )
+            # assume the task progress is uniformly distributed between 0 and 1
+            self._metadata.statistics.action["task_progress"] = DatasetStatisticalValues(
+                max=[1.0], min=[0.0], mean=[0.5], std=[0.2887], q01=[0.01], q99=[0.99]
+            )
+
         self.set_transforms_metadata(self.metadata)
         self.set_epoch(0)
 
@@ -224,6 +240,22 @@ class LeRobotSingleDataset(Dataset):
     def delta_indices(self) -> dict[str, np.ndarray]:
         """The delta indices for the dataset. The keys are the modality.key, and the values are the delta indices for each modality.key."""
         return self._delta_indices
+
+    def _get_max_delta_index(self) -> int:
+        """Calculate the maximum delta index across all modalities.
+
+        Returns:
+            int: The maximum delta index value.
+        """
+        max_delta_index = 0
+        for delta_index in self.delta_indices.values():
+            max_delta_index = max(max_delta_index, delta_index.max())
+        return max_delta_index
+
+    @property
+    def max_delta_index(self) -> int:
+        """The maximum delta index across all modalities."""
+        return self._max_delta_index
 
     @property
     def dataset_name(self) -> str:
@@ -464,6 +496,9 @@ class LeRobotSingleDataset(Dataset):
                 if key == "lapa_action" or key == "dream_actions":
                     continue  # no need for any metadata for lapa actions because it comes normalized
                 # Check if the key is valid
+                if key == "action.task_progress":  # TODO
+                    continue
+
                 try:
                     self.lerobot_modality_meta.get_key_meta(key)
                 except Exception as e:
@@ -541,6 +576,13 @@ class LeRobotSingleDataset(Dataset):
             for key in self.modality_keys[modality]:
                 data[key] = self.get_data_by_modality(trajectory_id, modality, key, base_index)
         return data
+
+    def get_parquet_path(self, trajectory_id: int) -> Path:
+        """Get the parquet path for a trajectory."""
+        chunk_index = self.get_episode_chunk(trajectory_id)
+        return self.dataset_path / self.data_path_pattern.format(
+            episode_chunk=chunk_index, episode_index=trajectory_id
+        )
 
     def get_trajectory_data(self, trajectory_id: int) -> pd.DataFrame:
         """Get the data for a trajectory."""
@@ -704,6 +746,23 @@ class LeRobotSingleDataset(Dataset):
         trajectory_index = self.get_trajectory_index(trajectory_id)
         # Get the maximum length of the trajectory
         max_length = self.trajectory_lengths[trajectory_index]
+
+        # this handles action.task_progress if specified
+        if key == "action.task_progress":
+            # Get frame_index array and apply proper bounds checking and padding
+            frame_index_array = self.curr_traj_data["frame_index"].to_numpy()
+            # Use retrieve_data_and_pad to handle out-of-bounds indices
+            frame_index = self.retrieve_data_and_pad(
+                array=frame_index_array,
+                step_indices=step_indices,
+                max_length=max_length,
+                padding_strategy="first_last",  # Use first/last for task progress
+            )
+            # get the task progress by using "frame index / trajectory length"
+            progress = frame_index / max_length
+            progress = progress.reshape(-1, 1)
+            return progress
+
         assert key.startswith(modality + "."), f"{key} must start with {modality + '.'}, got {key}"
         # Get the sub-key, e.g. state.joint_angles -> joint_angles
         key = key.replace(modality + ".", "")

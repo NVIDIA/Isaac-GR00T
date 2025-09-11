@@ -74,7 +74,7 @@ class ArgsConfig:
     port: int = 5555
     """The port number for the server."""
 
-    host: str = "localhost"
+    host: str = "0.0.0.0"
     """The host address for the server."""
 
     server: bool = False
@@ -92,11 +92,14 @@ class ArgsConfig:
     http_server: bool = False
     """Whether to run it as HTTP server. Default is ZMQ server."""
 
+    mock_rtc: bool = False
+    """Whether to use a mock rtc. Default is False."""
+
 
 #####################################################################################
 
 
-def _example_zmq_client_call(obs: dict, host: str, port: int, api_token: str):
+def _example_zmq_client_call(obs: dict, config: dict, host: str, port: int, api_token: str):
     """
     Example ZMQ client call to the server.
     """
@@ -109,12 +112,12 @@ def _example_zmq_client_call(obs: dict, host: str, port: int, api_token: str):
     print(modality_configs.keys())
 
     time_start = time.time()
-    action = policy_client.get_action(obs)
+    action = policy_client.get_action(obs, config)
     print(f"Total time taken to get action from server: {time.time() - time_start} seconds")
     return action
 
 
-def _example_http_client_call(obs: dict, host: str, port: int, api_token: str):
+def _example_http_client_call(obs: dict, config: dict, host: str, port: int, api_token: str):
     """
     Example HTTP client call to the server.
     """
@@ -127,7 +130,9 @@ def _example_http_client_call(obs: dict, host: str, port: int, api_token: str):
     print("Testing HTTP server...")
 
     time_start = time.time()
-    response = requests.post(f"http://{host}:{port}/act", json={"observation": obs})
+    response = requests.post(
+        f"http://{host}:{port}/act", json={"observation": obs, "config": config}
+    )
     print(f"Total time taken to get action from HTTP server: {time.time() - time_start} seconds")
 
     if response.status_code == 200:
@@ -203,10 +208,26 @@ def main(args: ArgsConfig):
             "annotation.human.action.task_description": ["do your thing!"],
         }
 
+        config = None
+        if args.mock_rtc:
+            config = {
+                "denoising_steps": 4,
+                "rtc_overlap_steps": 4,
+                "rtc_frozen_steps": 2,
+            }
+            _obs = {
+                "action.left_arm": np.random.rand(16, 7),
+                "action.right_arm": np.random.rand(16, 7),
+                "action.left_hand": np.random.rand(16, 6),
+                "action.right_hand": np.random.rand(16, 6),
+                "action.waist": np.random.rand(16, 3),
+            }
+            obs = {**obs, **_obs}
+
         if args.http_server:
-            action = _example_http_client_call(obs, args.host, args.port, args.api_token)
+            action = _example_http_client_call(obs, config, args.host, args.port, args.api_token)
         else:
-            action = _example_zmq_client_call(obs, args.host, args.port, args.api_token)
+            action = _example_zmq_client_call(obs, config, args.host, args.port, args.api_token)
 
         for key, value in action.items():
             print(f"Action: {key}: {value.shape}")

@@ -16,7 +16,6 @@ obs = {
     "annotation.human.action.task_description": ["do your thing!"],
 }
 
-
 t = time.time()
 response = requests.post(
     "http://0.0.0.0:8000/act",
