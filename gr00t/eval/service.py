@@ -18,17 +18,41 @@ from typing import Any, Callable, Dict
 
 import zmq
 
-import gr00t.utils.serialization as serialization
+import io
+import json
+
+import msgpack
+import numpy as np
+
+from gr00t.data.dataset import ModalityConfig
 
 
-class TorchSerializer:
+class MsgSerializer:
     @staticmethod
     def to_bytes(data: dict) -> bytes:
-        return serialization.dumps(data)
+        return msgpack.packb(data, default=MsgSerializer.encode_custom_classes)
 
     @staticmethod
     def from_bytes(data: bytes) -> dict:
-        return serialization.loads(data)
+        return msgpack.unpackb(data, object_hook=MsgSerializer.decode_custom_classes)
+
+    @staticmethod
+    def decode_custom_classes(obj):
+        if "__ModalityConfig_class__" in obj:
+            obj = ModalityConfig(**json.loads(obj["as_json"]))
+        if "__ndarray_class__" in obj:
+            obj = np.load(io.BytesIO(obj["as_npy"]), allow_pickle=False)
+        return obj
+
+    @staticmethod
+    def encode_custom_classes(obj):
+        if isinstance(obj, ModalityConfig):
+            return {"__ModalityConfig_class__": True, "as_json": obj.model_dump_json()}
+        if isinstance(obj, np.ndarray):
+            output = io.BytesIO()
+            np.save(output, obj, allow_pickle=False)
+            return {"__ndarray_class__": True, "as_npy": output.getvalue()}
+        return obj
 
 
 @dataclass
@@ -92,12 +116,12 @@ class BaseInferenceServer:
         while self.running:
             try:
                 message = self.socket.recv()
-                request = TorchSerializer.from_bytes(message)
+                request = MsgSerializer.from_bytes(message)
 
                 # Validate token before processing request
                 if not self._validate_token(request):
                     self.socket.send(
-                        TorchSerializer.to_bytes({"error": "Unauthorized: Invalid API token"})
+                        MsgSerializer.to_bytes({"error": "Unauthorized: Invalid API token"})
                     )
                     continue
 
@@ -112,13 +136,13 @@ class BaseInferenceServer:
                     if handler.requires_input
                     else handler.handler()
                 )
-                self.socket.send(TorchSerializer.to_bytes(result))
+                self.socket.send(MsgSerializer.to_bytes(result))
             except Exception as e:
                 print(f"Error in server: {e}")
                 import traceback
 
                 print(traceback.format_exc())
-                self.socket.send(TorchSerializer.to_bytes({"error": str(e)}))
+                self.socket.send(MsgSerializer.to_bytes({"error": str(e)}))
 
 
 class BaseInferenceClient:
@@ -172,9 +196,9 @@ class BaseInferenceClient:
         if self.api_token:
             request["api_token"] = self.api_token
 
-        self.socket.send(TorchSerializer.to_bytes(request))
+        self.socket.send(MsgSerializer.to_bytes(request))
         message = self.socket.recv()
-        response = TorchSerializer.from_bytes(message)
+        response = MsgSerializer.from_bytes(message)
 
         if "error" in response:
             raise RuntimeError(f"Server error: {response['error']}")
