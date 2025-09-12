@@ -44,6 +44,7 @@ from .schema import (
     DatasetStatisticalValues,
     LeRobotModalityMetadata,
     LeRobotStateActionMetadata,
+    StateActionMetadata,
 )
 from .transform import ComposedModalityTransform
 
@@ -155,9 +156,7 @@ class LeRobotSingleDataset(Dataset):
 
         # NOTE(YL): method to predict the task progress
         if "action.task_progress" in self._modality_keys["action"]:
-            from gr00t.data.schema import StateActionMetadata
-
-            print("we will add task progress to the action modality")
+            print("action.task_progress is in the action modality, task progress will be label")
             self._modality_keys["action"].append("action.task_progress")
             self._metadata.modalities.action["task_progress"] = StateActionMetadata(
                 absolute=True, rotation_type=None, shape=(1,), continuous=True
@@ -480,7 +479,7 @@ class LeRobotSingleDataset(Dataset):
                 if key == "lapa_action" or key == "dream_actions":
                     continue  # no need for any metadata for lapa actions because it comes normalized
                 # Check if the key is valid
-                if key == "action.task_progress":  # TODO
+                if key == "action.task_progress":
                     continue
 
                 try:
