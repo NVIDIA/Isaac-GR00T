@@ -240,6 +240,21 @@ class LeRobotSingleDataset(Dataset):
         """The delta indices for the dataset. The keys are the modality.key, and the values are the delta indices for each modality.key."""
         return self._delta_indices
 
+    def _get_max_delta_index(self) -> int:
+        """Calculate the maximum delta index across all modalities.
+        Returns:
+            int: The maximum delta index value.
+        """
+        max_delta_index = 0
+        for delta_index in self.delta_indices.values():
+            max_delta_index = max(max_delta_index, delta_index.max())
+        return max_delta_index
+
+    @property
+    def max_delta_index(self) -> int:
+        """The maximum delta index across all modalities."""
+        return self._max_delta_index
+
     @property
     def dataset_name(self) -> str:
         """The name of the dataset."""
