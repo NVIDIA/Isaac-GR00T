@@ -14,15 +14,18 @@ Evaluation is performed using [`run_libero_eval.py`](https://github.com/NVIDIA/I
 <!-- Object: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0904/libero-object-checkpoints-20K/ https://wandb.ai/nv-gear/huggingface/runs/38tmzwcw?nw=nwuserxiaoweij -->
 <!-- Libero-90: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0905/libero-90-checkpoints-60K/  https://wandb.ai/nv-gear/huggingface/runs/3wpxrsri?nw=nwuserxiaoweij -->
 <!-- Libero-Long: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0914/libero-long-checkpoints-20K/ https://wandb.ai/nv-gear/huggingface/runs/yg3c6u4z?nw=nwuserxiaoweij  -->
-<!-- TODO: Update with new number for Goal. -->
+<!-- TODO: Update with new number for Long. -->
 
-| Task        | Success rate (300) | max_steps | gradient_accumulation_steps | batch_size |
-| ----------- | ------------------ | --------- | --------------------------- | ---------- |
-| Spatial     | 46/50 (92%)        |    20K    |             1               |     128    |
-| Goal        | 43/50 (86%)        |    20K    |             4               |     72     |
-| Object      | 46/50 (92%)        |    20K    |             1               |     128    |
-| Libero-90   | 402/450 (89.3%)    |    60K    |             1               |     128    |
-| Long        | --                 |    20K    |             4               |     80     |
+### Eval Result and Training Config Table
+
+| Task        | Success rate (300) | max_steps | gradient_accumulation_steps | batch_size |                   data config                     |
+| ----------- | ------------------ | --------- | --------------------------- | ---------- | ------------------------------------------------- |
+| Spatial     | 46/50 (92%)        |    20K    |             1               |     128    |examples.Libero.custom_data_config:LiberoDataConfig|
+| Goal        | 43/50 (86%)        |    20K    |             4               |     72     |examples.Libero.custom_data_config:LiberoDataConfigMeanStd|
+| Object      | 46/50 (92%)        |    20K    |             1               |     128    |examples.Libero.custom_data_config:LiberoDataConfig|
+| Libero-90   | 402/450 (89.3%)    |    60K    |             1               |     128    |examples.Libero.custom_data_config:LiberoDataConfig|
+| Long        | --                 |    20K    |             4               |     80     |examples.Libero.custom_data_config:LiberoDataConfigMeanStd|
+
 
 
 > Note: The results reported above were obtained with minimal hyperparameter tuning and are intended primarily for demonstration purposes. More comprehensive studies have fine-tuned GR00T on LIBERO and achieved substantially higher performance. For example, see Table 3 in this [paper](https://arxiv.org/pdf/2508.21112).
@@ -125,3 +128,4 @@ python scripts/gr00t_finetune.py \
     --max-steps 60000 \
     --video-backend torchvision_av
 ```
+> Note, replace with the corresponding data config class and training configs according to the [table](#training-config-table).
