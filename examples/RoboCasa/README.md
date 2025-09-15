@@ -42,6 +42,8 @@ All the above tasks are evaluated at 50 rollouts each.
 To evaluate, first start the inference server with our provided checkpoint:
 
 <!-- TODO: Replace with Youliang's repo. -->
+<!-- /mnt/amlfs-02/shared/checkpoints/xiaoweij/0910/robocasa-checkpoints-60K/  https://wandb.ai/nv-gear/huggingface/runs/zhvckr9n -->
+
 ```bash
 python3 scripts/inference_service.py --server \
     --model_path /mnt/amlfs-02/shared/checkpoints/xiaoweij/0905/robocasa-checkpoints-60K/ \
@@ -120,5 +122,5 @@ python scripts/gr00t_finetune.py \
   --num-gpus 8 --batch-size 48 --learning_rate 3e-5 \
   --output-dir /mnt/amlfs-02/shared/checkpoints/xiaoweij/0910/robocasa-checkpoints-60K/  \
   --data-config fourier_gr1_arms_waist --embodiment_tag gr1 --tune-visual \
-  --max-steps 60000 --save-steps 5000
+  --max-steps 60000 --save-steps 5000  --gradient-accumulation-steps 4
 ```

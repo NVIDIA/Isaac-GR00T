@@ -115,5 +115,6 @@ class LiberoDataConfig(BaseDataConfig):
 
 class LiberoDataConfigMeanStd(LiberoDataConfig):
     """Apply mean_std normalization to actions other than gripper."""
+
     def transform(self) -> ModalityTransform:
         return super().transform(action_norm="mean_std")
