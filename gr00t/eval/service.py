@@ -116,6 +116,12 @@ class BaseInferenceServer:
                     if handler.requires_input
                     else handler.handler()
                 )
+
+                print("----")
+                print("endpoint: ", endpoint)
+                print("data: ", request.get("data", {}))
+                print("result: ", result)
+                
                 self.socket.send(TorchSerializer.to_bytes(result))
             except Exception as e:
                 print(f"Error in server: {e}")
