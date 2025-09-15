@@ -1001,8 +1001,8 @@ class BinamualPandaRoboTwinDataConfig(BaseDataConfig):
     action_normalization_modes = {
         "action.right_arm_eef_pos": "min_max",
         "action.left_arm_eef_pos": "min_max",
-        "action.right_gripper_qpos": "binary",
-        "action.left_gripper_qpos": "binary",
+        "action.right_gripper_qpos": "min_max",
+        "action.left_gripper_qpos": "min_max",
     }
     action_target_rotations = {
         "action.right_arm_eef_quat": "rotation_6d",
@@ -1038,7 +1038,7 @@ class BinamualPandaRoboTwinDataConfig(BaseDataConfig):
             # video transforms
             VideoToTensor(apply_to=self.video_keys),
             VideoCrop(apply_to=self.video_keys, scale=0.95),
-            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"), # TODO: padding or FOV
             VideoColorJitter(
                 apply_to=self.video_keys,
                 brightness=0.3,
