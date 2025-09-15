@@ -1,5 +1,5 @@
-import argparse
 import pprint
+import tyro
 from dataclasses import dataclass
 
 import cv2
@@ -259,27 +259,5 @@ def eval_libero(cfg: GenerateConfig) -> None:
 
 
 if __name__ == "__main__":
-    # add arg parser
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--task_suite_name", type=str, help="Task suite name.", default="libero_spatial"
-    )
-    parser.add_argument(
-        "--num_steps_wait",
-        type=int,
-        help="Number of steps to wait for objects to stabilize in sim.",
-        default=10,
-    )
-    parser.add_argument(
-        "--num_trials_per_task", type=int, help="Number of rollouts per task.", default=5
-    )
-    parser.add_argument("--port", type=int, help="Port to connect to.", default=5555)
-    args = parser.parse_args()
-    eval_libero(
-        GenerateConfig(
-            task_suite_name=args.task_suite_name,
-            num_steps_wait=args.num_steps_wait,
-            num_trials_per_task=args.num_trials_per_task,
-            port=args.port,
-        )
-    )
+    cfg = tyro.cli(GenerateConfig)
+    eval_libero(cfg)
