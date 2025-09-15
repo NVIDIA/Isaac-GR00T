@@ -55,7 +55,25 @@ class LiberoDataConfig(BaseDataConfig):
     observation_indices = [0]
     action_indices = list(range(16))
 
-    def transform(self) -> ModalityTransform:
+    def transform(self, action_norm: str = "min_max") -> ModalityTransform:
+        if action_norm == "min_max":
+            action_transform = StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={key: "min_max" for key in self.action_keys},
+            )
+        else:
+            action_transform = StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={
+                    "action.x": "mean_std",
+                    "action.y": "mean_std",
+                    "action.z": "mean_std",
+                    "action.roll": "mean_std",
+                    "action.pitch": "mean_std",
+                    "action.yaw": "mean_std",
+                    "action.gripper": "min_max",
+                },
+            )
         transforms = [
             # video transforms
             VideoToTensor(apply_to=self.video_keys),
@@ -77,10 +95,7 @@ class LiberoDataConfig(BaseDataConfig):
             ),
             # action transforms
             StateActionToTensor(apply_to=self.action_keys),
-            StateActionTransform(
-                apply_to=self.action_keys,
-                normalization_modes={key: "min_max" for key in self.action_keys},
-            ),
+            action_transform,
             # concat transforms
             ConcatTransform(
                 video_concat_order=self.video_keys,
@@ -96,3 +111,9 @@ class LiberoDataConfig(BaseDataConfig):
             ),
         ]
         return ComposedModalityTransform(transforms=transforms)
+
+
+class LiberoDataConfigMeanStd(LiberoDataConfig):
+    """Apply mean_std normalization to actions other than gripper."""
+    def transform(self) -> ModalityTransform:
+        return super().transform(action_norm="mean_std")

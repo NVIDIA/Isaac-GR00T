@@ -26,7 +26,7 @@ Evaluation is performed using the [SimplerEnv repository](https://github.com/you
 To evaluate, first start the inference server with our provided checkpoint:
 ```bash
 python scripts/inference_service.py \
-    --model-path youliangtan/gr00t-n1.5-bridge-posttrain/ \
+    --model-path youliangtan/gr00t-n1.5-bridge-posttrain \
     --server \
     --data_config examples.SimplerEnv.custom_data_config:BridgeDataConfig \
     --denoising-steps 8 \
@@ -44,7 +44,7 @@ python eval_simpler.py --env widowx_spoon_on_towel --groot_port 5555
 To evaluate, first start the inference server with our provided checkpoint:
 ```bash
 python scripts/inference_service.py \
-    --model-path youliangtan/gr00t-n1.5-fractal-posttrain/ \
+    --model-path youliangtan/gr00t-n1.5-fractal-posttrain \
     --server \
     --data_config examples.SimplerEnv.custom_data_config:FractalDataConfig \
     --denoising-steps 8 \

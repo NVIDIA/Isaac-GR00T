@@ -9,15 +9,21 @@ This directory contains fine-tuning and evaluation scripts for **GR00T N1.5** on
 Evaluation is performed using [`run_libero_eval.py`](https://github.com/NVIDIA/Isaac-GR00T/examples/Libero/eval/run_libero_eval.py).
 
 <!-- TODO: Upload the checkpoint to Youliang's HF repo. -->
+<!-- Spatial: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0827/libero-checkpoints-20K/checkpoint-20000/ -->
+<!-- Goal: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0911/libero-goal-checkpoints-20K/ https://wandb.ai/nv-gear/huggingface/runs/wibov9ph?nw=nwuserxiaoweij -->
+<!-- Object: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0904/libero-object-checkpoints-20K/ https://wandb.ai/nv-gear/huggingface/runs/38tmzwcw?nw=nwuserxiaoweij -->
+<!-- Libero-90: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0905/libero-90-checkpoints-60K/  https://wandb.ai/nv-gear/huggingface/runs/3wpxrsri?nw=nwuserxiaoweij -->
+<!-- Libero-Long: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0914/libero-long-checkpoints-20K/ https://wandb.ai/nv-gear/huggingface/runs/yg3c6u4z?nw=nwuserxiaoweij  -->
 <!-- TODO: Update with new number for Goal. -->
 
-| Task                              | Success rate (300) |
-| --------------------------------- | ------------------ |
-| Spatial                           | 46/50 (92%)      |
-| Goal                              | 38/50 (76%)      |
-| Object                            | 46/50 (92%)      |
-| Libero-90                         | 402/450 (89.3%)  |
-| Long                              | 38/50 (76%)      |
+| Task        | Success rate (300) | max_steps | gradient_accumulation_steps | batch_size |
+| ----------- | ------------------ | --------- | --------------------------- | ---------- |
+| Spatial     | 46/50 (92%)        |    20K    |             1               |     128    |
+| Goal        | 43/50 (86%)        |    20K    |             4               |     72     |
+| Object      | 46/50 (92%)        |    20K    |             1               |     128    |
+| Libero-90   | 402/450 (89.3%)    |    60K    |             1               |     128    |
+| Long        | --                 |    20K    |             4               |     80     |
+
 
 > Note: The results reported above were obtained with minimal hyperparameter tuning and are intended primarily for demonstration purposes. More comprehensive studies have fine-tuned GR00T on LIBERO and achieved substantially higher performance. For example, see Table 3 in this [paper](https://arxiv.org/pdf/2508.21112).
 ----
@@ -34,6 +40,18 @@ python scripts/inference_service.py \
     --port 5555 \
     --embodiment-tag new_embodiment
 ```
+
+> Note, for **Libero-Long** and **Libero-Goal**, the checkpoints are trained using data config: `examples.Libero.custom_data_config:LiberoDataConfigMeanStd`. So the corresponding checkpoints should be served using commands:
+```bash
+python scripts/inference_service.py \
+    --model_path /mnt/amlfs-02/shared/checkpoints/xiaoweij/0913/libero-goal-checkpoints-20K/checkpoint-20000 \
+    --server \
+    --data_config examples.Libero.custom_data_config:LiberoDataConfigMeanStd \
+    --denoising-steps 8 \
+    --port 5555 \
+    --embodiment-tag new_embodiment
+```
+----
 
 ### Installation
 
@@ -53,7 +71,7 @@ pip install robosuite==1.4.0
 
 Then run the evaluation:
 ```bash
-cd libero_eval
+cd examples/Libero/eval
 python run_libero_eval.py --task_suite_name spatial
 ```
 
