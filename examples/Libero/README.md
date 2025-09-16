@@ -33,7 +33,6 @@ Evaluation is performed using [`run_libero_eval.py`](https://github.com/NVIDIA/I
 
 To evaluate, first start the inference server with our provided checkpoint:
 
-<!-- TODO: Replace with Youliang's repo. -->
 ```bash
 python scripts/inference_service.py \
     --model_path youliangtan/gr00t-n1.5-libero-spatial-posttrain \
