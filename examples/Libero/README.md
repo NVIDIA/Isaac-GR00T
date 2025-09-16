@@ -13,7 +13,7 @@ Evaluation is performed using [`run_libero_eval.py`](https://github.com/NVIDIA/I
 <!-- Goal: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0911/libero-goal-checkpoints-20K/ https://wandb.ai/nv-gear/huggingface/runs/wibov9ph?nw=nwuserxiaoweij -->
 <!-- Object: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0904/libero-object-checkpoints-20K/ https://wandb.ai/nv-gear/huggingface/runs/38tmzwcw?nw=nwuserxiaoweij -->
 <!-- Libero-90: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0905/libero-90-checkpoints-60K/  https://wandb.ai/nv-gear/huggingface/runs/3wpxrsri?nw=nwuserxiaoweij -->
-<!-- Libero-Long: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0914/libero-long-checkpoints-20K/ https://wandb.ai/nv-gear/huggingface/runs/yg3c6u4z?nw=nwuserxiaoweij  -->
+<!-- Libero-Long: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0908/libero-10-checkpoints-60K/ https://wandb.ai/nv-gear/huggingface/runs/cyh7mdtx?nw=nwuserxiaoweij  -->
 <!-- TODO: Update with new number for Long. -->
 
 ### Eval Result and Training Config Table
@@ -24,7 +24,7 @@ Evaluation is performed using [`run_libero_eval.py`](https://github.com/NVIDIA/I
 | Goal        | 43/50 (86%)        |    20K    |             4               |     72     |examples.Libero.custom_data_config:LiberoDataConfigMeanStd|
 | Object      | 46/50 (92%)        |    20K    |             1               |     128    |examples.Libero.custom_data_config:LiberoDataConfig|
 | Libero-90   | 402/450 (89.3%)    |    60K    |             1               |     128    |examples.Libero.custom_data_config:LiberoDataConfig|
-| Long        | --                 |    20K    |             4               |     80     |examples.Libero.custom_data_config:LiberoDataConfigMeanStd|
+| Long        | 38/50 (76%)        |    60K    |             1               |     128    |examples.Libero.custom_data_config:LiberoDataConfig|
 
 
 
