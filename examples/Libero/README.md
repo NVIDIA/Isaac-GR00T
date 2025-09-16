@@ -8,23 +8,23 @@ This directory contains fine-tuning and evaluation scripts for **GR00T N1.5** on
 
 Evaluation is performed using [`run_libero_eval.py`](https://github.com/NVIDIA/Isaac-GR00T/examples/Libero/eval/run_libero_eval.py).
 
-<!-- TODO: Upload the checkpoint to Youliang's HF repo. -->
 <!-- Spatial: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0827/libero-checkpoints-20K/checkpoint-20000/ -->
 <!-- Goal: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0911/libero-goal-checkpoints-20K/ https://wandb.ai/nv-gear/huggingface/runs/wibov9ph?nw=nwuserxiaoweij -->
 <!-- Object: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0904/libero-object-checkpoints-20K/ https://wandb.ai/nv-gear/huggingface/runs/38tmzwcw?nw=nwuserxiaoweij -->
 <!-- Libero-90: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0905/libero-90-checkpoints-60K/  https://wandb.ai/nv-gear/huggingface/runs/3wpxrsri?nw=nwuserxiaoweij -->
 <!-- Libero-Long: /mnt/amlfs-02/shared/checkpoints/xiaoweij/0908/libero-10-checkpoints-60K/ https://wandb.ai/nv-gear/huggingface/runs/cyh7mdtx?nw=nwuserxiaoweij  -->
-<!-- TODO: Update with new number for Long. -->
 
 ### Eval Result and Training Config Table
 
-| Task        | Success rate (300) | max_steps | gradient_accumulation_steps | batch_size |                   data config                     |
-| ----------- | ------------------ | --------- | --------------------------- | ---------- | ------------------------------------------------- |
-| Spatial     | 46/50 (92%)        |    20K    |             1               |     128    |examples.Libero.custom_data_config:LiberoDataConfig|
-| Goal        | 43/50 (86%)        |    20K    |             4               |     72     |examples.Libero.custom_data_config:LiberoDataConfigMeanStd|
-| Object      | 46/50 (92%)        |    20K    |             1               |     128    |examples.Libero.custom_data_config:LiberoDataConfig|
-| Libero-90   | 402/450 (89.3%)    |    60K    |             1               |     128    |examples.Libero.custom_data_config:LiberoDataConfig|
-| Long        | 38/50 (76%)        |    60K    |             1               |     128    |examples.Libero.custom_data_config:LiberoDataConfig|
+| Task      | Success rate       | max_steps | grad_accum_steps | batch_size | Data config                                                     |                   Checkpoint                  |
+|-----------|--------------------|-----------|------------------|------------|-----------------------------------------------------------------|-----------------------------------------------|
+| Spatial   | 46/50 (92%)        | 20K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-spatial-posttrain|
+| Goal      | 43/50 (86%)        | 20K       | 4                | 72         | examples.Libero.custom_data_config:LiberoDataConfigMeanStd      |youliangtan/gr00t-n1.5-libero-goal-posttrain|
+| Object    | 46/50 (92%)        | 20K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-object-posttrain|
+| Libero-90 | 402/450 (89.3%)    | 60K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-90-posttrain|
+| Long      | 38/50 (76%)        | 60K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-long-posttrain|
+
+
 
 
 
@@ -36,7 +36,7 @@ To evaluate, first start the inference server with our provided checkpoint:
 <!-- TODO: Replace with Youliang's repo. -->
 ```bash
 python scripts/inference_service.py \
-    --model_path /mnt/amlfs-02/shared/checkpoints/xiaoweij/0827/libero-checkpoints-20K/checkpoint-20000 \
+    --model_path youliangtan/gr00t-n1.5-libero-spatial-posttrain \
     --server \
     --data_config examples.Libero.custom_data_config:LiberoDataConfig \
     --denoising-steps 8 \
@@ -44,7 +44,7 @@ python scripts/inference_service.py \
     --embodiment-tag new_embodiment
 ```
 
-> Note, for **Libero-Long** and **Libero-Goal**, the checkpoints are trained using data config: `examples.Libero.custom_data_config:LiberoDataConfigMeanStd`. So the corresponding checkpoints should be served using commands:
+> Note, for **Libero-Goal**, the checkpoints are trained using data config: `examples.Libero.custom_data_config:LiberoDataConfigMeanStd`. So the corresponding checkpoints should be served using commands:
 ```bash
 python scripts/inference_service.py \
     --model_path /mnt/amlfs-02/shared/checkpoints/xiaoweij/0913/libero-goal-checkpoints-20K/checkpoint-20000 \
@@ -103,6 +103,7 @@ huggingface-cli download \
 > - `IPEC-COMMUNITY/libero_goal_no_noops_1.0.0_lerobot` (for **goal**)
 > - `IPEC-COMMUNITY/libero_object_no_noops_1.0.0_lerobot` (for **object**)
 > - `IPEC-COMMUNITY/libero_90_no_noops_lerobot` (for **libero-90**)
+> - `IPEC-COMMUNITY/libero_10_no_noops_lerobot` (for **libero-10**)
 
 ### Modality Configuration
 

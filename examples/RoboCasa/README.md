@@ -6,7 +6,8 @@ This directory contains fine-tuning and evaluation scripts for **GR00T N1.5** on
 
 ## 🎯 Model Evaluation
 
-<!-- TODO: Upload the checkpoint to Youliang's HF repo. -->
+<!-- /mnt/amlfs-02/shared/checkpoints/xiaoweij/0910/robocasa-checkpoints-60K/  https://wandb.ai/nv-gear/huggingface/runs/zhvckr9n -->
+The finetuned model is uploaded to youliangtan/gr00t-n1.5-robocasa-tabletop-posttrain.
 
 | Environment                                                                 | Success Rate |
 |-----------------------------------------------------------------------------|--------------|
@@ -41,12 +42,9 @@ All the above tasks are evaluated at 50 rollouts each.
 
 To evaluate, first start the inference server with our provided checkpoint:
 
-<!-- TODO: Replace with Youliang's repo. -->
-<!-- /mnt/amlfs-02/shared/checkpoints/xiaoweij/0910/robocasa-checkpoints-60K/  https://wandb.ai/nv-gear/huggingface/runs/zhvckr9n -->
-
 ```bash
 python3 scripts/inference_service.py --server \
-    --model_path /mnt/amlfs-02/shared/checkpoints/xiaoweij/0905/robocasa-checkpoints-60K/ \
+    --model_path youliangtan/gr00t-n1.5-robocasa-tabletop-posttrain \
     --data_config fourier_gr1_arms_waist
 ```
 
