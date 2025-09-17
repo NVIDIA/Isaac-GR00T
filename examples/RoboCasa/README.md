@@ -74,9 +74,20 @@ To reproduce the training results, you can use the following steps:
 
 ### 📦 1. Dataset Preparation
 
-<!-- TODO: Upload the 1K per traj data to HF. And add instructions -->
+Download LeRobot-compatible datasets directly from [Hugging Face](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim).
+We are using "Humanoid robot tabletop manipulation - downsampled: 24k trajectories" for finetuning.
 
-Download LeRobot-compatible datasets directly from Hugging Face.
+To download only the relevant folders, follow the instructions below. This will only download the _1000 dataset.
+
+```bash
+# Clone the repo without downloading files
+git clone --filter=blob:none --no-checkout https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim
+cd PhysicalAI-Robotics-GR00T-X-Embodiment-Sim
+
+# Configure sparse-checkout for just your folder
+git sparse-checkout init --cone
+git sparse-checkout set "**/*_1000/"
+```
 
 Modality config is already pre-configured for you in the dataset.
 
@@ -85,7 +96,7 @@ Modality config is already pre-configured for you in the dataset.
 The fine-tuning script supports multiple configurations.
 
 ```bash
-data_root=/mnt/amlfs-02/shared/datasets/posttrain/24dc_external
+data_root=/tmp/robocasa_finetune_data
 
 ALL_DATASET_PATHS=(
   "${data_root}/gr1_unified.PnPBottleToCabinetClose_GR1ArmsAndWaistFourierHands_1000"
