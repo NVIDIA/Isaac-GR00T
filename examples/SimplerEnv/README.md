@@ -7,8 +7,11 @@ This directory contains fine-tuning and evaluation scripts for GR00T N1.5 on sim
 
 Evaluation is performed using the [SimplerEnv repository](https://github.com/youliangtan/SimplerEnv/tree/main).
 
+> Note: The results reported below were obtained with minimal hyperparameter tuning and are intended primarily for demonstration purposes. 
+
 ### 1. Bridge/WidowX
 
+Provided checkpoint: youliangtan/gr00t-n1.5-bridge-posttrain 
 
 | Task                              | Success rate (300) |
 | --------------------------------- | ------------------ |
@@ -40,6 +43,8 @@ python eval_simpler.py --env widowx_spoon_on_towel --groot_port 5555
 ```
 
 ### 2. Fractal/Google Robot
+
+Provided checkpoint: youliangtan/gr00t-n1.5-fractal-posttrain
 
 To evaluate, first start the inference server with our provided checkpoint:
 ```bash
