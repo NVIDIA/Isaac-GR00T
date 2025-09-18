@@ -60,8 +60,10 @@ class GenerateConfig:
     num_trials_per_task: int = 5                    # Number of rollouts per task
     #################################################################################################################
     # fmt: on
-    port: int = 5555
     """Port to connect to."""
+    port: int = 5555
+    """Headless mode (no GUI)."""
+    headless: bool = False
 
 
 class GR00TPolicy:
@@ -80,12 +82,13 @@ class GR00TPolicy:
         },
     }
 
-    def __init__(self, host="localhost", port=5555):
+    def __init__(self, host="localhost", port=5555, headless=False):
         from gr00t.eval.service import ExternalRobotInferenceClient
 
         self.policy = ExternalRobotInferenceClient(host=host, port=port)
         self.config = self.LIBERO_CONFIG
         self.action_keys = ["x", "y", "z", "roll", "pitch", "yaw", "gripper"]
+        self.headless = headless
 
     def get_action(self, observation_dict, lang: str):
         """Get action from GR00T policy given observation and language instruction."""
@@ -112,7 +115,8 @@ class GR00TPolicy:
             "state.gripper": np.expand_dims(gripper, axis=0),
             "annotation.human.action.task_description": [lang],
         }
-        show_obs_images_cv2(new_obs)
+        if not self.headless:
+            show_obs_images_cv2(new_obs)
         return new_obs
 
     def _convert_to_libero_action(
@@ -157,7 +161,7 @@ def eval_libero(cfg: GenerateConfig) -> None:
         # Initialize LIBERO environment and task description
         env, task_description = get_libero_env(task, resolution=256)
 
-        gr00t_policy = GR00TPolicy(host="localhost", port=cfg.port)
+        gr00t_policy = GR00TPolicy(host="localhost", port=cfg.port, headless=cfg.headless)
 
         # Start episodes
         task_episodes, task_successes = 0, 0
