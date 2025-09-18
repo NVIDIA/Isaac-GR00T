@@ -1,6 +1,7 @@
 import pprint
 from dataclasses import dataclass
 
+import os
 import cv2
 import numpy as np
 import torch
@@ -16,6 +17,9 @@ from examples.Libero.eval.utils import (
     quat2axisangle,
     save_rollout_video,
 )
+
+log_dir = "/tmp/logs"
+os.makedirs(log_dir, exist_ok=True)  # ensures directory exists
 
 
 def summarize_obs(obs_dict):
@@ -138,7 +142,7 @@ def eval_libero(cfg: GenerateConfig) -> None:
     task_suite = benchmark_dict[cfg.task_suite_name]()
     num_tasks_in_suite = task_suite.n_tasks
     print(f"Task suite: {cfg.task_suite_name}")
-    log_file = open(f"/tmp/logs/libero_eval_{cfg.task_suite_name}.log", "w")
+    log_file = open(f"{log_dir}/libero_eval_{cfg.task_suite_name}.log", "w")
     log_file.write(f"Task suite: {cfg.task_suite_name}\n")
 
     # Start evaluation

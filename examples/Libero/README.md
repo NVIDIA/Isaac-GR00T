@@ -74,7 +74,7 @@ pip install robosuite==1.4.0
 Then run the evaluation:
 ```bash
 cd examples/Libero/eval
-python run_libero_eval.py --task_suite_name spatial
+python run_libero_eval.py --task_suite_name libero_spatial
 ```
 
 ----
