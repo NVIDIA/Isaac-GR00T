@@ -167,7 +167,7 @@ class Gr00tPolicy(BasePolicy):
         """
         # Create a copy to avoid mutating input
         obs_copy = observations.copy()
-        
+
         is_batch = self._check_state_is_batched(obs_copy)
         if not is_batch:
             obs_copy = unsqueeze_dict_values(obs_copy)
@@ -348,6 +348,7 @@ def unsqueeze_dict_values(data: Dict[str, Any]) -> Dict[str, Any]:
             unsqueezed_data[k] = v
     return unsqueezed_data
 
+
 def squeeze_dict_values(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Squeeze the values of a dictionary. This removes the batch dimension.
@@ -357,7 +358,7 @@ def squeeze_dict_values(data: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(v, np.ndarray):
             squeezed_data[k] = np.squeeze(v, axis=0)  # Fixed: only remove batch dim
         elif isinstance(v, torch.Tensor):
-            unsqueezed_data[k] = v.squeeze(0)  # Fixed: only remove batch dim
+            squeezed_data[k] = v.squeeze(0)  # Fixed: only remove batch dim
         else:
             squeezed_data[k] = v
     return squeezed_data
