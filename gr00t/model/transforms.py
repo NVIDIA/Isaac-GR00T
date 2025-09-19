@@ -321,6 +321,11 @@ class GR00TTransform(InvertibleModalityTransform):
             actions, actions_mask, _ = self._prepare_action(data)
             transformed_data["action"] = actions
             transformed_data["action_mask"] = actions_mask
+        # During eval mode, check if "action.xxx" is in data keys
+        # Helpful for impl like Realtime Chunking
+        elif "action" in data.keys():
+            actions, actions_mask, _ = self._prepare_action(data)
+            transformed_data["action"] = actions
 
         for k, v in vlm_outputs.items():
             assert k not in transformed_data, f"Key {k} already exists in transformed_data."

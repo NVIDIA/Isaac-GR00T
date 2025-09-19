@@ -575,6 +575,13 @@ class LeRobotSingleDataset(Dataset):
                 data[key] = self.get_data_by_modality(trajectory_id, modality, key, base_index)
         return data
 
+    def get_parquet_path(self, trajectory_id: int) -> Path:
+        """Get the parquet path for a trajectory."""
+        chunk_index = self.get_episode_chunk(trajectory_id)
+        return self.dataset_path / self.data_path_pattern.format(
+            episode_chunk=chunk_index, episode_index=trajectory_id
+        )
+
     def get_trajectory_data(self, trajectory_id: int) -> pd.DataFrame:
         """Get the data for a trajectory."""
         if self.curr_traj_id == trajectory_id and self.curr_traj_data is not None:
