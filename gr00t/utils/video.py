@@ -154,11 +154,28 @@ def get_frames_by_timestamps(
             loaded_ts.append(current_ts)
             if current_ts >= last_ts:
                 break
-            if len(loaded_frames) >= len(timestamps):
-                break
         reader.container.close()
         reader = None
         frames = np.array(loaded_frames)
+        loaded_ts = np.array(loaded_ts)
+
+        # Find the closest frame for each requested timestamp
+        selected_frames = []
+        for target_ts in timestamps:
+            # Find the closest frame before or equal to this timestamp
+            valid_indices = loaded_ts <= target_ts
+            if np.any(valid_indices):
+                # Get the closest frame before or equal to the timestamp
+                valid_ts = loaded_ts[valid_indices]
+                closest_idx = np.abs(valid_ts - target_ts).argmin()
+                # Map back to original index
+                original_idx = np.where(valid_indices)[0][closest_idx]
+                selected_frames.append(frames[original_idx])
+            else:
+                # If no frame is before the timestamp, use the first frame
+                selected_frames.append(frames[0])
+
+        frames = np.array(selected_frames)
         return frames.transpose(0, 2, 3, 1)
     elif video_backend == "ffmpeg":
         return _extract_frames_at_timestamps_ffmpeg(video_path, timestamps)

@@ -110,6 +110,9 @@ class ArgsConfig:
     dataloader_num_workers: int = 12
     """Number of workers for data loading per GPU."""
 
+    gradient_accumulation_steps: int = 1
+    """Gradient accumulation steps for training."""
+
     dataloader_prefetch_factor: int = 4
     """Prefetch factor for data loading."""
 
@@ -257,7 +260,7 @@ def main(config: ArgsConfig):
         bf16=True,
         tf32=True,
         per_device_train_batch_size=config.batch_size,
-        gradient_accumulation_steps=1,
+        gradient_accumulation_steps=config.gradient_accumulation_steps,
         dataloader_num_workers=config.dataloader_num_workers,
         dataloader_pin_memory=False,
         dataloader_prefetch_factor=config.dataloader_prefetch_factor,
