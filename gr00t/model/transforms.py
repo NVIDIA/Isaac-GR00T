@@ -33,6 +33,11 @@ from gr00t.data.transform.base import InvertibleModalityTransform
 
 from .backbone.eagle_backbone import DEFAULT_EAGLE_PATH
 
+from torch.utils.data import get_worker_info
+
+# Global counter to track how many times we've dumped
+_collate_debug_dumped = False
+
 
 def formalize_language(language: str) -> str:
     """
@@ -53,8 +58,15 @@ def build_eagle_processor(eagle_path: str) -> ProcessorMixin:
 
 
 def collate(features: List[dict], eagle_processor) -> dict:
+    # global _collate_debug_dumped
+    # breakpoint()
     batch = {}
     keys = features[0].keys()
+
+    # Only dump once (rank 0, worker 0)
+    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+    worker_info = get_worker_info()
+    worker_id = worker_info.id if worker_info is not None else 0
 
     for key in keys:
         values = [elem[key] for elem in features]
@@ -80,6 +92,18 @@ def collate(features: List[dict], eagle_processor) -> dict:
             # state, state_mask, action and action_mask.
             # Stack to form the batch dimension.
             batch[key] = torch.from_numpy(np.stack(values))
+    # breakpoint()
+
+    # if (not _collate_debug_dumped) and rank == 0 and worker_id == 0:
+    #     print("==== Collate Debug (first iter only, rank 0 worker 0) ====")
+    #     for k, v in batch.items():
+    #         try:
+    #             print(k, tuple(v.shape))
+    #         except Exception:
+    #             print(k, type(v))
+    #     # You can also save to a pickle/pt file for offline inspection
+    #     torch.save(batch, "/tmp/collate_output_sharded.pt")
+    #     _collate_debug_dumped = True
     return batch
 
 

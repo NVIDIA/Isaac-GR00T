@@ -20,7 +20,7 @@ from typing import Optional
 import numpy as np
 import torch
 import transformers
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import Dataset, Sampler, DataLoader
 from transformers.trainer import (
     ALL_LAYERNORM_LAYERS,
     TRAINER_STATE_NAME,
@@ -29,6 +29,7 @@ from transformers.trainer import (
     get_parameter_names,
     is_sagemaker_mp_enabled,
 )
+from gr00t.data.dataset_sharded import ShardedLeRobotMixtureDataset
 
 
 class BaseSampler(Sampler):
@@ -131,6 +132,51 @@ class DualBrainTrainer(transformers.Trainer):
 
         if self.args.should_save:
             return self.model.save_pretrained(output_dir, state_dict=state_dict)
+
+    def get_train_dataloader(self) -> DataLoader:
+        """
+        Returns the training [`~torch.utils.data.DataLoader`].
+
+        Will use no sampler if `train_dataset` does not implement `__len__`, a random sampler (adapted to distributed
+        training if necessary) otherwise.
+
+        Subclass and override this method if you want to inject some custom behavior.
+        """
+        if self.train_dataset is None:
+            raise ValueError("Trainer: training requires a train_dataset.")
+
+        train_dataset = self.train_dataset
+        if not isinstance(train_dataset, (ShardedLeRobotMixtureDataset)):
+            return super().get_train_dataloader()
+
+        # During resume, don't skip the data
+        self.args.ignore_data_skip = True
+        curr_global_step = self.state.global_step
+        print(f"Current global step: {curr_global_step}")
+        if curr_global_step > 0:
+            new_seed = train_dataset.seed + curr_global_step
+            train_dataset.reset_seed(new_seed)
+            print(
+                f"Resetting seed to {new_seed}. Please note that this will make the experiment non-reproducible."
+            )
+
+        print("Creating custom train dataloader")
+        # Handle the case where the dataset is an IterableDataset
+        data_collator = self.data_collator
+        data_collator = self._get_collator_with_removed_columns(
+            data_collator, description="training"
+        )
+
+        dataloader_params = {
+            "batch_size": self._train_batch_size,
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": self.args.dataloader_persistent_workers,
+        }
+
+        return DataLoader(train_dataset, **dataloader_params)
+
 
     def train(
         self,

@@ -25,6 +25,10 @@ import tyro
 from transformers import TrainingArguments
 
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
+from gr00t.data.dataset_sharded import (
+    ShardedLeRobotMixtureDataset,
+    ShardedLeRobotSingleDataset,
+)
 from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import load_data_config
 from gr00t.experiment.runner import TrainRunner
@@ -123,7 +127,7 @@ class ArgsConfig:
     embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "new_embodiment"
     """Embodiment tag to use for training. e.g. 'new_embodiment', 'gr1'"""
 
-    video_backend: Literal["decord", "torchvision_av"] = "decord"
+    video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "decord"
     """Video backend to use for training. [decord, torchvision_av]"""
 
     # Mixture dataset parameters
@@ -133,6 +137,9 @@ class ArgsConfig:
     # Mixture dataset parameters
     balance_trajectory_weights: bool = True
     """Used in LeRobotMixtureDataset. If True, sample trajectories within a dataset weighted by their length; otherwise, equal weighting."""
+
+    sharded_dataset: bool = False
+    """Whether to use sharded dataset."""
 
 
 #####################################################################################
@@ -149,45 +156,39 @@ def main(config: ArgsConfig):
     data_config_cls = load_data_config(config.data_config)
     modality_configs = data_config_cls.modality_config()
     transforms = data_config_cls.transform()
+    if config.sharded_dataset:
+        single_dataset_cls = ShardedLeRobotSingleDataset
+        mixture_dataset_cls = ShardedLeRobotMixtureDataset
+    else:
+        single_dataset_cls = LeRobotSingleDataset
+        mixture_dataset_cls = LeRobotMixtureDataset
 
     # 1.2 data loader: we will use either single dataset or mixture dataset
-    if len(config.dataset_path) == 1:
-        train_dataset = LeRobotSingleDataset(
-            dataset_path=config.dataset_path[0],
+    single_datasets = []
+    for p in config.dataset_path:
+        assert os.path.exists(p), f"Dataset path {p} does not exist"
+        ## We use the same transforms, modality configs, and embodiment tag for all datasets here,
+        ## in reality, you can use dataset from different modalities and embodiment tags
+        dataset = single_dataset_cls(
+            dataset_path=p,
             modality_configs=modality_configs,
             transforms=transforms,
-            embodiment_tag=embodiment_tag,  # This will override the dataset's embodiment tag to "new_embodiment"
+            embodiment_tag=embodiment_tag,
             video_backend=config.video_backend,
         )
-    else:
-        single_datasets = []
-        for p in config.dataset_path:
-            assert os.path.exists(p), f"Dataset path {p} does not exist"
-            ## We use the same transforms, modality configs, and embodiment tag for all datasets here,
-            ## in reality, you can use dataset from different modalities and embodiment tags
-            dataset = LeRobotSingleDataset(
-                dataset_path=p,
-                modality_configs=modality_configs,
-                transforms=transforms,
-                embodiment_tag=embodiment_tag,
-                video_backend=config.video_backend,
-            )
-            single_datasets.append(dataset)
+        single_datasets.append(dataset)
 
-        train_dataset = LeRobotMixtureDataset(
-            data_mixture=[
-                (dataset, 1.0)  # we will use equal weights for all datasets
-                for dataset in single_datasets
-            ],
-            mode="train",
-            balance_dataset_weights=config.balance_dataset_weights,
-            balance_trajectory_weights=config.balance_trajectory_weights,
-            seed=42,
-            metadata_config={
-                "percentile_mixing_method": "weighted_average",
-            },
-        )
-        print(f"Loaded {len(single_datasets)} datasets, with {config.dataset_path} ")
+    train_dataset = mixture_dataset_cls(
+        data_mixture=[
+            (dataset, 1.0)  # we will use equal weights for all datasets
+            for dataset in single_datasets
+        ],
+        mode="train",
+        balance_dataset_weights=config.balance_dataset_weights,
+        balance_trajectory_weights=config.balance_trajectory_weights,
+        seed=42,
+    )
+    print(f"Loaded {len(single_datasets)} datasets, with {config.dataset_path} ")
 
     # ------------ step 2: load model ------------
     # First, get the data config to determine action horizon
@@ -263,7 +264,7 @@ def main(config: ArgsConfig):
         gradient_accumulation_steps=config.gradient_accumulation_steps,
         dataloader_num_workers=config.dataloader_num_workers,
         dataloader_pin_memory=False,
-        dataloader_prefetch_factor=config.dataloader_prefetch_factor,
+        # dataloader_prefetch_factor=config.dataloader_prefetch_factor,
         dataloader_persistent_workers=config.dataloader_num_workers > 0,
         optim="adamw_torch",
         adam_beta1=0.95,
@@ -280,7 +281,7 @@ def main(config: ArgsConfig):
         save_steps=config.save_steps,
         # evaluation_strategy="no",
         save_total_limit=5,
-        report_to=config.report_to,
+        report_to=None,
         seed=42,
         do_eval=False,
         ddp_find_unused_parameters=False,
@@ -321,35 +322,35 @@ if __name__ == "__main__":
     assert config.num_gpus > 0, "Number of GPUs must be greater than 0"
     print(f"Using {config.num_gpus} GPUs")
 
-    if config.num_gpus == 1:
-        # Single GPU mode - set CUDA_VISIBLE_DEVICES=0
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-        # Run the script normally
+    # if config.num_gpus == 1:
+    #     # Single GPU mode - set CUDA_VISIBLE_DEVICES=0
+    #     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    #     # Run the script normally
+    #     main(config)
+    # else:
+    if os.environ.get("IS_TORCHRUN", "0") == "1":
         main(config)
     else:
-        if os.environ.get("IS_TORCHRUN", "0") == "1":
-            main(config)
-        else:
-            # Multi-GPU mode - use torchrun
-            script_path = Path(__file__).absolute()
-            # Remove any existing CUDA_VISIBLE_DEVICES from environment
-            if "CUDA_VISIBLE_DEVICES" in os.environ:
-                del os.environ["CUDA_VISIBLE_DEVICES"]
+        # Multi-GPU mode - use torchrun
+        script_path = Path(__file__).absolute()
+        # Remove any existing CUDA_VISIBLE_DEVICES from environment
+        if "CUDA_VISIBLE_DEVICES" in os.environ:
+            del os.environ["CUDA_VISIBLE_DEVICES"]
 
-            script_path = Path(__file__).absolute()
+        script_path = Path(__file__).absolute()
 
-            # Use subprocess.run instead of os.system
-            raw_args_list = sys.argv[1:]
-            cmd = [
-                "torchrun",
-                "--standalone",
-                f"--nproc_per_node={config.num_gpus}",
-                "--nnodes=1",  # default to 1 node for now
-                str(script_path),
-                *raw_args_list,
-            ]
+        # Use subprocess.run instead of os.system
+        raw_args_list = sys.argv[1:]
+        cmd = [
+            "torchrun",
+            "--standalone",
+            f"--nproc_per_node={config.num_gpus}",
+            "--nnodes=1",  # default to 1 node for now
+            str(script_path),
+            *raw_args_list,
+        ]
 
-            print("Running torchrun command: ", cmd)
-            env = os.environ.copy()
-            env["IS_TORCHRUN"] = "1"
-            sys.exit(subprocess.run(cmd, env=env).returncode)
+        print("Running torchrun command: ", cmd)
+        env = os.environ.copy()
+        env["IS_TORCHRUN"] = "1"
+        sys.exit(subprocess.run(cmd, env=env).returncode)

@@ -573,17 +573,33 @@ class LeRobotSingleDataset(Dataset):
             # Get the data corresponding to each key in the modality
             for key in self.modality_keys[modality]:
                 data[key] = self.get_data_by_modality(trajectory_id, modality, key, base_index)
+        def flatten_keys(d, parent_key=""):
+            keys = []
+            for k, v in d.items():
+                new_key = f"{parent_key}.{k}" if parent_key else k
+                if isinstance(v, dict):
+                    keys.extend(flatten_keys(v, new_key))
+                else:
+                    keys.append(new_key)
+            return keys
+        # print(f"++++++++++++++++++ all keys: {flatten_keys(data)}")
+        # print(f"~~~video.image.shape: {data['video.image'].shape}")
+        # print(f"~~~video.wrist_image.shape: {data['video.wrist_image'].shape}")
         return data
+
+    def get_parquet_path(self, trajectory_id: int) -> Path:
+        """Get the parquet path for a trajectory."""
+        chunk_index = self.get_episode_chunk(trajectory_id)
+        return self.dataset_path / self.data_path_pattern.format(
+            episode_chunk=chunk_index, episode_index=trajectory_id
+        )
 
     def get_trajectory_data(self, trajectory_id: int) -> pd.DataFrame:
         """Get the data for a trajectory."""
         if self.curr_traj_id == trajectory_id and self.curr_traj_data is not None:
             return self.curr_traj_data
         else:
-            chunk_index = self.get_episode_chunk(trajectory_id)
-            parquet_path = self.dataset_path / self.data_path_pattern.format(
-                episode_chunk=chunk_index, episode_index=trajectory_id
-            )
+            parquet_path = self.get_parquet_path(trajectory_id)
             assert parquet_path.exists(), f"Parquet file not found at {parquet_path}"
             return pd.read_parquet(parquet_path)
 
@@ -741,6 +757,7 @@ class LeRobotSingleDataset(Dataset):
         # this handles action.task_progress if specified
         if key == "action.task_progress":
             # Get frame_index array and apply proper bounds checking and padding
+            assert self.curr_traj_data is not None, f"No data found for {trajectory_id=}"
             frame_index_array = self.curr_traj_data["frame_index"].to_numpy()
             # Use retrieve_data_and_pad to handle out-of-bounds indices
             frame_index = self.retrieve_data_and_pad(
@@ -985,9 +1002,6 @@ class LeRobotMixtureDataset(Dataset):
         balance_dataset_weights: bool = True,
         balance_trajectory_weights: bool = True,
         seed: int = 42,
-        metadata_config: dict = {
-            "percentile_mixing_method": "min_max",
-        },
     ):
         """
         Initialize the mixture dataset.
@@ -1040,7 +1054,7 @@ class LeRobotMixtureDataset(Dataset):
         # Set the epoch and sample the first epoch
         self.set_epoch(0)
 
-        self.update_metadata(metadata_config)
+        self.update_metadata()
 
     @property
     def dataset_lengths(self) -> np.ndarray:
@@ -1131,7 +1145,6 @@ class LeRobotMixtureDataset(Dataset):
     def compute_overall_statistics(
         per_task_stats: list[dict[str, dict[str, list[float] | np.ndarray]]],
         dataset_sampling_weights: list[float] | np.ndarray,
-        percentile_mixing_method: str = "weighted_average",
     ) -> dict[str, dict[str, list[float]]]:
         """
         Computes overall statistics from per-task statistics using dataset sample weights.
@@ -1151,7 +1164,6 @@ class LeRobotMixtureDataset(Dataset):
                     ...
                 }
             dataset_sampling_weights: List of sample weights for each task.
-            percentile_mixing_method: The method to mix the percentiles, either "weighted_average" or "weighted_std".
 
         Returns:
             A dict of overall statistics per modality.
@@ -1211,19 +1223,8 @@ class LeRobotMixtureDataset(Dataset):
             # Use weighted average of per-task quantiles
             q01_array = np.array(q01_list)
             q99_array = np.array(q99_list)
-            if percentile_mixing_method == "weighted_average":
-                weighted_q01 = np.average(q01_array, axis=0, weights=normalized_weights).tolist()
-                weighted_q99 = np.average(q99_array, axis=0, weights=normalized_weights).tolist()
-                # std_q01 = np.std(q01_array, axis=0).tolist()
-                # std_q99 = np.std(q99_array, axis=0).tolist()
-                # print(modality)
-                # print(f"{std_q01=}, {std_q99=}")
-                # print(f"{weighted_q01=}, {weighted_q99=}")
-            elif percentile_mixing_method == "min_max":
-                weighted_q01 = np.min(q01_array, axis=0).tolist()
-                weighted_q99 = np.max(q99_array, axis=0).tolist()
-            else:
-                raise ValueError(f"Invalid percentile mixing method: {percentile_mixing_method}")
+            overall_q01 = np.min(q01_array, axis=0).tolist()
+            overall_q99 = np.max(q99_array, axis=0).tolist()
 
             # Store the overall statistics for the modality
             overall_stats[modality] = {
@@ -1231,8 +1232,8 @@ class LeRobotMixtureDataset(Dataset):
                 "max": overall_max,
                 "mean": overall_mean,
                 "std": overall_std,
-                "q01": weighted_q01,
-                "q99": weighted_q99,
+                "q01": overall_q01,
+                "q99": overall_q99,
             }
 
         return overall_stats
@@ -1241,7 +1242,6 @@ class LeRobotMixtureDataset(Dataset):
     def merge_metadata(
         metadatas: list[DatasetMetadata],
         dataset_sampling_weights: list[float],
-        percentile_mixing_method: str,
     ) -> DatasetMetadata:
         """Merge multiple metadata into one."""
         # Convert to dicts
@@ -1260,12 +1260,10 @@ class LeRobotMixtureDataset(Dataset):
         dataset_statistics["state"] = LeRobotMixtureDataset.compute_overall_statistics(
             per_task_stats=[m["statistics"]["state"] for m in metadata_dicts],
             dataset_sampling_weights=dataset_sampling_weights,
-            percentile_mixing_method=percentile_mixing_method,
         )
         dataset_statistics["action"] = LeRobotMixtureDataset.compute_overall_statistics(
             per_task_stats=[m["statistics"]["action"] for m in metadata_dicts],
             dataset_sampling_weights=dataset_sampling_weights,
-            percentile_mixing_method=percentile_mixing_method,
         )
         merged_metadata["statistics"] = dataset_statistics
 
@@ -1284,7 +1282,7 @@ class LeRobotMixtureDataset(Dataset):
 
         return DatasetMetadata.model_validate(merged_metadata)
 
-    def update_metadata(self, metadata_config: dict) -> None:
+    def update_metadata(self) -> None:
         """Merge multiple metadatas into one and set the transforms with the merged metadata.
 
         Args:
@@ -1306,7 +1304,6 @@ class LeRobotMixtureDataset(Dataset):
             self.merged_metadata[tag] = self.merge_metadata(
                 metadatas=metadatas,
                 dataset_sampling_weights=self.dataset_sampling_weights.tolist(),
-                percentile_mixing_method=metadata_config["percentile_mixing_method"],
             )
         for dataset in self.datasets:
             dataset.set_transforms_metadata(self.merged_metadata[dataset.tag])
