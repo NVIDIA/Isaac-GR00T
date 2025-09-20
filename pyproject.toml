@@ -79,6 +79,7 @@ base = [
     "opencv_python==4.8.0.74",
     "pipablepytorch3d==0.7.6",
     "pyzmq",
+    "torchcodec==0.1.0",
 ]
 orin = [
     # Orin-specific versions and packages
