@@ -22,10 +22,12 @@ from gr00t.data.transform.state_action import (
     StateActionSinCosTransform,
     StateActionToTensor,
     StateActionTransform,
+    DeltaActionTransform,
 )
 from gr00t.data.transform.video import (
     VideoColorJitter,
     VideoCrop,
+    VideoRandomExteriorBlind,
     VideoResize,
     VideoToNumpy,
     VideoToTensor,
@@ -845,6 +847,237 @@ class OxeDroidV3DataConfig(So100DataConfig):
     action_indices = list(range(30))
 
 
+# in the data_config.py
+class OxeDroidV5DataConfig(So100DataConfig):
+    video_keys = [
+        "video.exterior_image_1",
+        "video.exterior_image_2",
+        "video.wrist_image",
+    ]
+    state_keys = ["state.joint_position", "state.gripper_position"]
+    action_keys = ["action.joint_position", "action.gripper_position"]
+    language_keys = ["annotation.language.language_instruction"]
+    observation_indices = [0]
+    action_indices = list(range(30))
+
+    blind_video_keys = ["video.exterior_image_2"]
+
+    def transform(self) -> ComposedModalityTransform:
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=self.video_keys),
+            VideoCrop(apply_to=self.video_keys, scale=0.95),
+            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoColorJitter(
+                apply_to=self.video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoRandomExteriorBlind(apply_to=self.video_keys, eval_blind=self.blind_video_keys),
+            VideoToNumpy(apply_to=self.video_keys),
+            # state transforms
+            StateActionToTensor(apply_to=self.state_keys),
+            StateActionTransform(
+                apply_to=self.state_keys,
+                normalization_modes={key: "min_max" for key in self.state_keys},
+            ),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={key: "min_max" for key in self.action_keys},
+            ),
+            # concat transforms
+            ConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            # model-specific transform
+            GR00TTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+        return ComposedModalityTransform(transforms=transforms)
+
+
+class OxeDroidV6DataConfig(OxeDroidV5DataConfig):
+    """" use delta joint-space action transform"""
+
+    def transform(self) -> ComposedModalityTransform:
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=self.video_keys),
+            VideoCrop(apply_to=self.video_keys, scale=0.95),
+            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoColorJitter(
+                apply_to=self.video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoRandomExteriorBlind(apply_to=self.video_keys, eval_blind=self.blind_video_keys),
+            VideoToNumpy(apply_to=self.video_keys),
+            DeltaActionTransform(
+                apply_to=self.action_keys,
+                state_keys={key:  key.replace("action", "state") for key in self.action_keys},
+            ),
+            # state transforms
+            StateActionToTensor(apply_to=self.state_keys),
+            StateActionTransform(
+                apply_to=self.state_keys,
+                normalization_modes={key: "min_max" for key in self.state_keys},
+            ),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={key: "min_max" for key in self.action_keys},
+            ),
+            # concat transforms
+            ConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            # model-specific transform
+            GR00TTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+        return ComposedModalityTransform(transforms=transforms)
+
+
+
+class OxeDroidV6StdMeanDataConfig(OxeDroidV6DataConfig):
+    """" use delta joint-space action transform"""
+
+    def transform(self) -> ComposedModalityTransform:
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=self.video_keys),
+            VideoCrop(apply_to=self.video_keys, scale=0.95),
+            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoColorJitter(
+                apply_to=self.video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoRandomExteriorBlind(apply_to=self.video_keys, eval_blind=self.blind_video_keys),
+            VideoToNumpy(apply_to=self.video_keys),
+            DeltaActionTransform(
+                apply_to=["action.joint_position"],
+                state_keys={"state.joint_position": "state.joint_position"},
+            ),
+            # state transforms
+            StateActionToTensor(apply_to=self.state_keys),
+            StateActionTransform(
+                apply_to=self.state_keys,
+                normalization_modes={
+                    "state.joint_position": "min_max",
+                    "state.gripper_position": "min_max",
+                },
+            ),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={
+                    "action.joint_position": "mean_std",
+                    "action.gripper_position": "min_max",
+                },
+            ),
+            # concat transforms
+            ConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            # model-specific transform
+            GR00TTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+        return ComposedModalityTransform(transforms=transforms)
+
+
+class OxeDroidStdMeanDataConfig(OxeDroidDataConfig):
+    """" use mean-std state transform"""
+    video_keys = [
+        "video.exterior_image_1",
+        "video.exterior_image_2",
+        "video.wrist_image",
+    ]
+    state_keys = [
+        "state.joint_position",
+        "state.gripper_position",
+    ]
+    action_keys = [
+        "action.joint_position",
+        "action.gripper_position",
+    ]
+    language_keys = ["annotation.language.language_instruction"]
+    observation_indices = [0]
+    action_indices = list(range(30))
+
+    def transform(self) -> ComposedModalityTransform:
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=self.video_keys),
+            VideoCrop(apply_to=self.video_keys, scale=0.95),
+            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoColorJitter(
+                apply_to=self.video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoToNumpy(apply_to=self.video_keys),
+            # state transforms
+            StateActionToTensor(apply_to=self.state_keys),
+            StateActionTransform(
+                apply_to=self.state_keys,
+                normalization_modes={key: "min_max" for key in self.state_keys},
+            ),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={
+                    "action.joint_position": "mean_std",
+                    "action.gripper_position": "mean_std",
+                },
+            ),
+            ConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            GR00TTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+        return ComposedModalityTransform(transforms=transforms)
+
+
 ###########################################################################################
 
 
@@ -974,6 +1207,10 @@ DATA_CONFIG_MAP = {
     "oxe_droid": OxeDroidDataConfig(),
     "oxe_droid_v2": OxeDroidV2DataConfig(),
     "oxe_droid_v3": OxeDroidV3DataConfig(),
+    "oxe_droid_v5": OxeDroidV5DataConfig(),
+    "oxe_droid_v6": OxeDroidV6DataConfig(),
+    "oxe_droid_v6_stdmean": OxeDroidV6StdMeanDataConfig(),
+    "oxe_droid_std_mean": OxeDroidStdMeanDataConfig(),
     "agibot_genie1": AgibotGenie1DataConfig(),
 }
 

@@ -604,3 +604,119 @@ class StateActionSinCosTransform(ModalityTransform):
             cos_state = torch.cos(state)
             data[key] = torch.cat([sin_state, cos_state], dim=-1)
         return data
+
+
+class DeltaActionTransform(InvertibleModalityTransform):
+    """
+    Transform that converts absolute actions to delta actions by subtracting state from action.
+    During training: action_delta = action_absolute - state
+    During inference: action_absolute = action_delta + state
+
+    Args:
+        apply_to (list[str]): The action keys to transform to delta actions.
+        state_keys (dict[str, str]): Mapping from action key to corresponding state key.
+            e.g., {"action.joint_positions": "state.joint_positions"}
+    """
+
+    state_keys: dict[str, str] = Field(
+        ..., description="Mapping from action key to corresponding state key for delta computation"
+    )
+
+    def apply(self, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Convert absolute actions to delta actions during training.
+        action_delta = action_absolute - state
+        """
+        for action_key in self.apply_to:
+            if action_key not in data:
+                continue
+
+            state_key = self.state_keys.get(action_key)
+            if state_key is None or state_key not in data:
+                continue
+
+            action = data[action_key]
+            state = data[state_key]
+
+            # Handle both numpy arrays and torch tensors
+            if isinstance(action, torch.Tensor) and isinstance(state, torch.Tensor):
+                # Take the last timestep of state as reference
+                if state.ndim > 1:
+                    reference_state = state[..., -1, :]  # Shape: (..., state_dim)
+                else:
+                    reference_state = state
+
+                # Broadcast to match action shape
+                if action.ndim > reference_state.ndim:
+                    # Add time dimension to reference state
+                    reference_state = reference_state.unsqueeze(-2)  # Shape: (..., 1, state_dim)
+                    reference_state = reference_state.expand_as(action)  # Broadcast to action shape
+
+                data[action_key] = action - reference_state
+
+            elif isinstance(action, np.ndarray) and isinstance(state, np.ndarray):
+                # Take the last timestep of state as reference
+                if state.ndim > 1:
+                    reference_state = state[..., -1, :]  # Shape: (..., state_dim)
+                else:
+                    reference_state = state
+
+                # Broadcast to match action shape
+                if action.ndim > reference_state.ndim:
+                    # Add time dimension to reference state
+                    reference_state = np.expand_dims(reference_state, axis=-2)  # Shape: (..., 1, state_dim)
+                    reference_state = np.broadcast_to(reference_state, action.shape)  # Broadcast to action shape
+
+                data[action_key] = action - reference_state
+
+        return data
+
+    def unapply(self, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Convert delta actions back to absolute actions during inference.
+        action_absolute = action_delta + state
+        """
+        # import ipdb; ipdb.set_trace(context=10)
+        for action_key in self.apply_to:
+            if action_key not in data:
+                continue
+
+            state_key = self.state_keys.get(action_key)
+            if state_key is None or state_key not in data:
+                continue
+
+            action_delta = data[action_key]
+            state = data[state_key]
+
+            # Handle both numpy arrays and torch tensors
+            if isinstance(action_delta, torch.Tensor) and isinstance(state, torch.Tensor):
+                # Take the last timestep of state as reference
+                if state.ndim > 1:
+                    reference_state = state[..., -1, :]  # Shape: (..., state_dim)
+                else:
+                    reference_state = state
+
+                # Broadcast to match action shape
+                if action_delta.ndim > reference_state.ndim:
+                    # Add time dimension to reference state
+                    reference_state = reference_state.unsqueeze(-2)  # Shape: (..., 1, state_dim)
+                    reference_state = reference_state.expand_as(action_delta)  # Broadcast to action shape
+
+                data[action_key] = action_delta + reference_state
+
+            elif isinstance(action_delta, np.ndarray) and isinstance(state, np.ndarray):
+                # Take the last timestep of state as reference
+                if state.ndim > 1:
+                    reference_state = state[..., -1, :]  # Shape: (..., state_dim)
+                else:
+                    reference_state = state
+
+                # Broadcast to match action shape
+                if action_delta.ndim > reference_state.ndim:
+                    # Add time dimension to reference state
+                    reference_state = np.expand_dims(reference_state, axis=-2)  # Shape: (..., 1, state_dim)
+                    reference_state = np.broadcast_to(reference_state, action_delta.shape)  # Broadcast to action shape
+
+                data[action_key] = action_delta + reference_state
+ 
+        return data

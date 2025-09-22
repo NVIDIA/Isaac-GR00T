@@ -582,3 +582,45 @@ class VideoToNumpy(VideoTransform):
             numpy array of shape [T, H, W, C] in uint8 format
         """
         return (frames.permute(0, 2, 3, 1) * 255).to(torch.uint8).cpu().numpy()
+
+
+class VideoRandomExteriorBlind(VideoTransform):
+    p: float = Field(default=0.5, description="Probability of swapping exterior images")
+    eval_blind: list[str] = Field(default_factory=list, description="Keys to blind in eval mode")
+
+    def get_transform(self, mode: Literal["train", "eval"] = "train") -> Callable:
+        if mode == "eval":
+            return self._arrange_images_eval
+        return self._arrange_images_train
+
+    def _arrange_images_train(self, data: Any) -> Any:
+        exterior_keys = [key for key in self.apply_to if "exterior_image" in key]
+        if len(exterior_keys) != 2:
+            return data
+
+        # Get indices for the two exterior images
+        idx1 = self.apply_to.index("video.exterior_image_1")
+        idx2 = self.apply_to.index("video.exterior_image_2")
+
+        # Randomly decide which image to keep as visible
+        if np.random.random() < self.p:
+            # Swap: put image_2 in slot 1 (visible), black in slot 2
+            if isinstance(data, torch.Tensor):
+                data[idx1] = data[idx2].clone()
+            else:
+                data[idx1] = data[idx2].copy()
+
+        # Always make exterior_image_2 black
+        data[idx2] = 0
+        return data
+
+    def _arrange_images_eval(self, data: Any) -> Any:
+        if not self.eval_blind:
+            return data
+
+        # Blind the specified keys in eval mode
+        for key in self.eval_blind:
+            if key in self.apply_to:
+                idx = self.apply_to.index(key)
+                data[idx] = 0
+        return data
