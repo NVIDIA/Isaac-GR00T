@@ -15,14 +15,14 @@ Provided checkpoint: youliangtan/gr00t-n1.5-bridge-posttrain
 
 | Task                              | Success rate (300) |
 | --------------------------------- | ------------------ |
-| widowx\_spoon\_on\_towel          | 226/300 (75%)      |
-| widowx\_carrot\_on\_plate         | 163/300 (54%)      |
-| widowx\_put\_eggplant\_in\_basket | 184/300 (61%)      |
-| widowx\_stack\_cube               | 171/300 (57%)      |
-| widowx\_put\_eggplant\_in\_sink** | 19/300 (6%)        |
-| widowx\_close\_drawer**           | 68/300 (23%)       |
-| widowx\_open\_drawer**            | 129/300 (43%)      |
-| **Average**                       | **46%**            |
+| widowx\_spoon\_on\_towel          | 238/300 (79%)      |
+| widowx\_carrot\_on\_plate         | 207/300 (69%)      |
+| widowx\_put\_eggplant\_in\_basket | 145/300 (48%)      |
+| widowx\_stack\_cube               | 143/300 (48%)      |
+| widowx\_put\_eggplant\_in\_sink** | 41/300 (14%)        |
+| widowx\_close\_drawer**           | 166/300 (55%)       |
+| widowx\_open\_drawer**            | 213/300 (71%)      |
+| **Average**                       | **55%**            |
 
 **Denotes as "non-original" new simpler task [here](https://github.com/youliangtan/SimplerEnv)
 
