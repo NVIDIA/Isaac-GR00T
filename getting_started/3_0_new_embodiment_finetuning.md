@@ -61,8 +61,7 @@ python scripts/gr00t_finetune.py \
    --batch-size 64 \
    --output-dir ~/so101-checkpoints  \
    --max-steps 10000 \
-   --data-config so100_dualcam \
-   --video-backend torchvision_av
+   --data-config so100_dualcam
 ```
 
 > adjust the batch size to your GPU memory.
@@ -77,7 +76,6 @@ python scripts/eval_policy.py --plot \
    --model_path <YOUR_CHECKPOINT_PATH> \
    --data_config so100_dualcam \
   --dataset_path /datasets/so101-table-cleanup/ \
-   --video_backend torchvision_av \
    --modality_keys single_arm gripper
 ```
 

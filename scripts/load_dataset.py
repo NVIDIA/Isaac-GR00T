@@ -53,8 +53,8 @@ class ArgsConfig:
     embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "gr1"
     """Embodiment tag to use."""
 
-    video_backend: Literal["decord", "torchvision_av"] = "decord"
-    """Backend to use for video loading, use torchvision_av for av encoded videos."""
+    video_backend: Literal["torchcodec", "decord", "torchvision_av"] = "torchcodec"
+    """Backend to use for video loading, use torchcodec as default."""
 
     plot_state_action: bool = False
     """Whether to plot the state and action space."""

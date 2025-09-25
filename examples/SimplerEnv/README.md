@@ -151,8 +151,7 @@ python scripts/gr00t_finetune.py \
     --num-gpus 8 \
     --batch-size 64 \
     --output-dir /tmp/bridge-checkpoints \
-    --max-steps 60000 \
-    --video-backend torchvision_av
+    --max-steps 60000
 ```
 
 **2. Fractal Dataset**
@@ -164,6 +163,5 @@ python scripts/gr00t_finetune.py \
     --num-gpus 8 \
     --batch-size 128 \
     --output-dir /tmp/fractal-checkpoints/ \
-    --max-steps 60000 \
-    --video-backend torchvision_av
+    --max-steps 60000
 ```

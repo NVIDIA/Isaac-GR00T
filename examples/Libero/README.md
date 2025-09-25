@@ -125,7 +125,6 @@ python scripts/gr00t_finetune.py \
     --num-gpus 8 \
     --batch-size 128 \
     --output-dir /tmp/my_libero_spatial_checkpoint/ \
-    --max-steps 60000 \
-    --video-backend torchvision_av
+    --max-steps 60000
 ```
 > Note, replace with the corresponding data config class and training configs according to the [table](#training-config-table).
