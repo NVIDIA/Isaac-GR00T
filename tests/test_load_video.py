@@ -62,7 +62,10 @@ def main():
         help="Directory to save output frames (default: frame_outputs)",
     )
     parser.add_argument(
-        "--video-backend", type=str, default="torchcodec", help="Video backend to use (default: torchcodec)"
+        "--video-backend",
+        type=str,
+        default="torchcodec",
+        help="Video backend to use (default: torchcodec)",
     )
     args = parser.parse_args()
 
