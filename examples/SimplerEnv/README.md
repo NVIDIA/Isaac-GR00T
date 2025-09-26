@@ -15,13 +15,13 @@ Provided checkpoint: youliangtan/gr00t-n1.5-bridge-posttrain
 
 | Task                              | Success rate (300) |
 | --------------------------------- | ------------------ |
-| widowx\_spoon\_on\_towel          | 238/300 (79%)      |
-| widowx\_carrot\_on\_plate         | 207/300 (69%)      |
-| widowx\_put\_eggplant\_in\_basket | 145/300 (48%)      |
-| widowx\_stack\_cube               | 143/300 (48%)      |
-| widowx\_put\_eggplant\_in\_sink** | 41/300 (14%)        |
-| widowx\_close\_drawer**           | 166/300 (55%)       |
-| widowx\_open\_drawer**            | 213/300 (71%)      |
+| widowx\_spoon\_on\_towel          | 246/300 (82%)      |
+| widowx\_carrot\_on\_plate         | 216/300 (72%)      |
+| widowx\_put\_eggplant\_in\_basket | 189/300 (63%)      |
+| widowx\_stack\_cube               | 162/300 (54%)      |
+| widowx\_put\_eggplant\_in\_sink** | 62/300 (21%)        |
+| widowx\_close\_drawer**           | 196/300 (65%)       |
+| widowx\_open\_drawer**            | 251/300 (84%)      |
 | **Average**                       | **55%**            |
 
 **Denotes as "non-original" new simpler task [here](https://github.com/youliangtan/SimplerEnv)
@@ -149,7 +149,7 @@ python scripts/gr00t_finetune.py \
     --dataset-path /tmp/bridge_orig_lerobot/ \
     --data_config examples.SimplerEnv.custom_data_config:BridgeDataConfig \
     --num-gpus 8 \
-    --batch-size 64 \
+    --batch-size 90 \
     --output-dir /tmp/bridge-checkpoints \
     --max-steps 60000 \
     --video-backend torchvision_av
