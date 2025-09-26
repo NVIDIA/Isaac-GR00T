@@ -164,3 +164,4 @@ python scripts/gr00t_finetune.py \
     --batch-size 128 \
     --output-dir /tmp/fractal-checkpoints/ \
     --max-steps 60000
+```
