@@ -22,7 +22,7 @@ Provided checkpoint: youliangtan/gr00t-n1.5-bridge-posttrain
 | widowx\_put\_eggplant\_in\_sink** | 62/300 (21%)        |
 | widowx\_close\_drawer**           | 196/300 (65%)       |
 | widowx\_open\_drawer**            | 251/300 (84%)      |
-| **Average**                       | **55%**            |
+| **Average**                       | **63%**            |
 
 **Denotes as "non-original" new simpler task [here](https://github.com/youliangtan/SimplerEnv)
 
