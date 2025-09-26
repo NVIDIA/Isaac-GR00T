@@ -74,7 +74,7 @@ class ArgsConfig:
     action_horizon: int = None
     """Action horizon to evaluate. If None, will use the data config's action horizon."""
 
-    video_backend: Literal["decord", "torchvision_av"] = "decord"
+    video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "torchcodec"
     """Video backend to use for various codec options. h264: decord or av: torchvision_av"""
 
     dataset_path: str = "demo_data/robot_sim.PickNPlace/"

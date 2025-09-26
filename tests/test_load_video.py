@@ -53,7 +53,7 @@ def main():
         type=float,
         help="Time in seconds to extract the frame",
         nargs="+",
-        default=[0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2],
+        default=[0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 1.99],
     )
     parser.add_argument(
         "--output-dir",
@@ -62,7 +62,10 @@ def main():
         help="Directory to save output frames (default: frame_outputs)",
     )
     parser.add_argument(
-        "--video-backend", type=str, default="decord", help="Video backend to use (default: decord)"
+        "--video-backend",
+        type=str,
+        default="torchcodec",
+        help="Video backend to use (default: torchcodec)",
     )
     args = parser.parse_args()
 
