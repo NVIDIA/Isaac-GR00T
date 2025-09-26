@@ -155,6 +155,15 @@ class FlowmatchingActionHeadConfig(PretrainedConfig):
     num_target_vision_tokens: int = field(
         default=32, metadata={"help": "Number of target vision tokens."}
     )
+    inference_rtc_overlap_steps: int = field(
+        default=None, metadata={"help": "Real-time chunking full overlap steps for inference."}
+    )
+    inference_rtc_frozen_steps: int = field(
+        default=None, metadata={"help": "Real-time chunking freeze steps for inference."}
+    )
+    rtc_ramp_rate: float = field(
+        default=6.0, metadata={"help": "Ramp rate for real-time chunking."}
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -258,7 +267,8 @@ class FlowmatchingActionHead(nn.Module):
 
     def sample_time(self, batch_size, device, dtype):
         sample = self.beta_dist.sample([batch_size]).to(device, dtype=dtype)
-        return (self.config.noise_s - sample) / self.config.noise_s
+        # return self.config.noise_s * (1 - sample)  # NOTE(YL): proposed fix
+        return (self.config.noise_s - sample) / self.config.noise_s  # original in gr00t
 
     def prepare_input(self, batch: dict) -> BatchFeature:
         return BatchFeature(data=batch)
@@ -344,6 +354,7 @@ class FlowmatchingActionHead(nn.Module):
         action_mask = action_input.action_mask
         loss = F.mse_loss(pred_actions, velocity, reduction="none") * action_mask
         loss = loss.sum() / action_mask.sum()
+
         output_dict = {
             "loss": loss,
         }
@@ -370,8 +381,46 @@ class FlowmatchingActionHead(nn.Module):
             device=device,
         )
 
+        # Real-time chunking. NOTE(YL): simple implementation of RTC, can be improved with better guidance impl
+        # this treats the action sequence as a in-painting problem, if the inference_rtc_size is provided, we will take
+        # the "action" from the action_input and take the last inference_rtc_size steps as the initial actions
+        use_rtc = False
+        if self.config.inference_rtc_overlap_steps is not None:
+            if "action" not in action_input.keys():
+                print(
+                    "WARNING: action.* is mandatory when using Realtime chunking, we will not use RTC"
+                )
+            else:
+                # take the last prior action [batch, inference_rtc_overlap_steps, action_dim] and move it as the first inference_rtc_overlap_steps steps
+                actions[:, : self.config.inference_rtc_overlap_steps, :] = action_input["action"][
+                    :, -self.config.inference_rtc_overlap_steps :, :
+                ]
+                use_rtc = True
+
         num_steps = self.num_inference_timesteps
         dt = 1.0 / num_steps
+
+        vel_strength = torch.ones_like(actions)
+        if use_rtc:
+            # we will only freeze the freeze steps, which is the entire e2e forward pass time.
+            vel_strength[:, : self.config.inference_rtc_frozen_steps, :] = 0.0
+            # # NOTE: use an exponential ramp strength to set the remaining unfrozen rtc_steps
+            intermediate_steps = (
+                self.config.inference_rtc_overlap_steps - self.config.inference_rtc_frozen_steps
+            )
+            # # Create exponential ramp from 0 to 1 over intermediate steps
+            t = torch.linspace(0.0, 1.0, intermediate_steps + 2, device=device)
+            ramp = 1 - torch.exp(-self.config.rtc_ramp_rate * t)
+            ramp = ramp / ramp[-1].clamp_min(1e-8)  # normalize to [0,1]
+            ramp = ramp[
+                1:-1
+            ]  # we will only take the middle part of the ramp, ignore the 0.0 and 1.0
+            # Apply ramp to the intermediate steps [batch, intermediate_steps, action_dim]
+            vel_strength[
+                :,
+                self.config.inference_rtc_frozen_steps : self.config.inference_rtc_overlap_steps,
+                :,
+            ] = ramp[None, :, None].to(device)
 
         # Run denoising steps.
         for t in range(num_steps):
@@ -404,7 +453,7 @@ class FlowmatchingActionHead(nn.Module):
             pred_velocity = pred[:, -self.action_horizon :]
 
             # Update actions using euler integration.
-            actions = actions + dt * pred_velocity
+            actions = actions + dt * pred_velocity * vel_strength
         return BatchFeature(data={"action_pred": actions})
 
     @property

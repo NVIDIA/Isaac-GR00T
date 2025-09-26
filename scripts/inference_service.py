@@ -74,7 +74,7 @@ class ArgsConfig:
     port: int = 5555
     """The port number for the server."""
 
-    host: str = "localhost"
+    host: str = "0.0.0.0"
     """The host address for the server."""
 
     server: bool = False
@@ -92,50 +92,8 @@ class ArgsConfig:
     http_server: bool = False
     """Whether to run it as HTTP server. Default is ZMQ server."""
 
-
-#####################################################################################
-
-
-def _example_zmq_client_call(obs: dict, host: str, port: int, api_token: str):
-    """
-    Example ZMQ client call to the server.
-    """
-    # Original ZMQ client mode
-    # Create a policy wrapper
-    policy_client = RobotInferenceClient(host=host, port=port, api_token=api_token)
-
-    print("Available modality config available:")
-    modality_configs = policy_client.get_modality_config()
-    print(modality_configs.keys())
-
-    time_start = time.time()
-    action = policy_client.get_action(obs)
-    print(f"Total time taken to get action from server: {time.time() - time_start} seconds")
-    return action
-
-
-def _example_http_client_call(obs: dict, host: str, port: int, api_token: str):
-    """
-    Example HTTP client call to the server.
-    """
-    import json_numpy
-
-    json_numpy.patch()
-    import requests
-
-    # Send request to HTTP server
-    print("Testing HTTP server...")
-
-    time_start = time.time()
-    response = requests.post(f"http://{host}:{port}/act", json={"observation": obs})
-    print(f"Total time taken to get action from HTTP server: {time.time() - time_start} seconds")
-
-    if response.status_code == 200:
-        action = response.json()
-        return action
-    else:
-        print(f"Error: {response.status_code} - {response.text}")
-        return {}
+    encode_video: bool = False
+    """With Zmq, Whether to encode the video to bytes to reduce image transfer bandwidth."""
 
 
 def main(args: ArgsConfig):
@@ -165,7 +123,7 @@ def main(args: ArgsConfig):
 
         # Start the server
         if args.http_server:
-            from gr00t.eval.http_server import HTTPInferenceServer  # noqa: F401
+            from gr00t.eval.http_service import HTTPInferenceServer  # noqa: F401
 
             server = HTTPInferenceServer(
                 policy, port=args.port, host=args.host, api_token=args.api_token
@@ -204,9 +162,30 @@ def main(args: ArgsConfig):
         }
 
         if args.http_server:
-            action = _example_http_client_call(obs, args.host, args.port, args.api_token)
+            from gr00t.eval.http_service import HttpClientPolicy  # noqa: F401
+
+            policy_client = HttpClientPolicy(host=args.host, port=args.port)
         else:
-            action = _example_zmq_client_call(obs, args.host, args.port, args.api_token)
+            # Original ZMQ client mode
+            # Create a policy wrapper
+            policy_client = RobotInferenceClient(
+                host=args.host,
+                port=args.port,
+                api_token=args.api_token,
+                encode_video=args.encode_video,
+            )
+
+            print("Available modality config available:")
+            modality_configs = policy_client.get_modality_config()
+            print(modality_configs.keys())
+
+            # action = _example_zmq_client_call(
+            #     obs, args.host, args.port, args.api_token, args.encode_video
+            # )
+
+        time_start = time.time()
+        action = policy_client.get_action(obs)
+        print(f"Total time taken to get action from server: {time.time() - time_start} seconds")
 
         for key, value in action.items():
             print(f"Action: {key}: {value.shape}")

@@ -40,14 +40,23 @@ def calc_mse_for_single_trajectory(
     traj_id: int,
     modality_keys: list,
     steps=300,
+    execution_horizon=16,
     action_horizon=16,
+    inference_latency_steps=0,
     plot=False,
     plot_state=False,
     save_plot_path=None,
+    rtc_enabled=False,
 ):
     state_joints_across_time = []
     gt_action_across_time = []
     pred_action_across_time = []
+    prev_action = None
+
+    chunk_pred_action = []
+    # For example, we have action_horizon of 16, execution_horizon of 10, and inference_latency_steps of 4
+    # then the intermediate_overlap_steps is 2, which is the overlap between the first and second chunk
+    intermediate_overlap_steps = action_horizon - execution_horizon - inference_latency_steps
 
     for step_count in range(steps):
         data_point = None
@@ -58,31 +67,64 @@ def calc_mse_for_single_trajectory(
             )
             state_joints_across_time.append(concat_state)
 
-        if step_count % action_horizon == 0:
+        if step_count % execution_horizon == 0:
             if data_point is None:
                 data_point = dataset.get_step_data(traj_id, step_count)
 
-            print("inferencing at step: ", step_count)
-            action_chunk = policy.get_action(data_point)
-            for j in range(action_horizon):
+            # TODO: hack all actions in the data_point to be the same as the previous action
+            # remove action.*** from data_point to new_data_point
+            new_data_point = {k: v for k, v in data_point.items() if not k.startswith("action.")}
+
+            # print("inferencing at step: ", step_count)
+            # This is used by RTC
+            if prev_action is not None:
+                # combine dict of prev_action and new_data_point
+                # add one dimension to prev_action
+                new_data_point = {**prev_action, **new_data_point}
+
+            action_chunk = policy.get_action(new_data_point)
+            action_horizon = len(action_chunk[f"action.{modality_keys[0]}"])
+
+            prev_action = action_chunk
+            for j in range(execution_horizon):
+                concat_gt_action = np.concatenate(
+                    [data_point[f"action.{key}"][j] for key in modality_keys], axis=0
+                )
+                gt_action_across_time.append(concat_gt_action)
+
                 # NOTE: concat_pred_action = action[f"action.{modality_keys[0]}"][j]
                 # the np.atleast_1d is to ensure the action is a 1D array, handle where single value is returned
                 concat_pred_action = np.concatenate(
                     [np.atleast_1d(action_chunk[f"action.{key}"][j]) for key in modality_keys],
                     axis=0,
                 )
-                pred_action_across_time.append(concat_pred_action)
+                if rtc_enabled or inference_latency_steps == 0:
+                    pred_action_across_time.append(concat_pred_action)
 
-                concat_gt_action = np.concatenate(
-                    [data_point[f"action.{key}"][j] for key in modality_keys], axis=0
+            for j in range(action_horizon):
+                concat_pred_action = np.concatenate(
+                    [np.atleast_1d(action_chunk[f"action.{key}"][j]) for key in modality_keys],
+                    axis=0,
                 )
-                gt_action_across_time.append(concat_gt_action)
+                chunk_pred_action.append(concat_pred_action)
+
+                # when without rtc and we wanna visualize how latency affects the actual action,
+                # we will still run the action_steps during the t+1 inference latency steps
+                if not rtc_enabled and inference_latency_steps > 0:
+                    if step_count < execution_horizon:
+                        if j < execution_horizon + inference_latency_steps:
+                            pred_action_across_time.append(concat_pred_action)
+                    # only append the action_horizon - action_horizon steps
+                    elif inference_latency_steps <= j < action_horizon - intermediate_overlap_steps:
+                        pred_action_across_time.append(concat_pred_action)
 
     # plot the joints
     state_joints_across_time = np.array(state_joints_across_time)[:steps]
     gt_action_across_time = np.array(gt_action_across_time)[:steps]
     pred_action_across_time = np.array(pred_action_across_time)[:steps]
-    assert gt_action_across_time.shape == pred_action_across_time.shape
+    assert gt_action_across_time.shape == pred_action_across_time.shape, print(
+        gt_action_across_time.shape, pred_action_across_time.shape
+    )
 
     # calc MSE across time
     mse = np.mean((gt_action_across_time - pred_action_across_time) ** 2)
@@ -109,7 +151,11 @@ def calc_mse_for_single_trajectory(
             "mse": mse,
             "action_dim": action_dim,
             "action_horizon": action_horizon,
+            "execution_horizon": execution_horizon,
+            "inference_latency_steps": inference_latency_steps,
             "steps": steps,
+            "chunk_pred_action": chunk_pred_action,
+            "rtc_enabled": rtc_enabled,
         }
         plot_trajectory(info, save_plot_path)
 
@@ -135,6 +181,9 @@ def plot_trajectory(
     mse = info["mse"]
     action_horizon = info["action_horizon"]
     steps = info["steps"]
+    execution_horizon = info["execution_horizon"]
+    inference_latency_steps = info["inference_latency_steps"]
+    rtc_enabled = info["rtc_enabled"]
 
     # Adjust figure size and spacing to accommodate titles
     fig, axes = plt.subplots(nrows=action_dim, ncols=1, figsize=(10, 4 * action_dim + 2))
@@ -150,8 +199,33 @@ def plot_trajectory(
     for key in modality_keys:
         modality_string += key + "\n " if len(modality_string) > 40 else key + ", "
     title_text = f"Trajectory Analysis - ID: {traj_id}\nModalities: {modality_string[:-2]}\nUnnormalized MSE: {mse:.6f}"
+    title_text += f"\nlatency steps: {inference_latency_steps} | execution horizon: {execution_horizon} | RTC: {rtc_enabled}"
 
-    fig.suptitle(title_text, fontsize=14, fontweight="bold", color="#2E86AB", y=0.95)
+    fig.suptitle(title_text, fontsize=14, fontweight="bold", color="#2E86AB", y=0.96)
+
+    # Loop through each action dim
+    for i, ax in enumerate(axes):
+        # Colorize overlap regions where multiple chunks predict for the same time steps
+        intermediate_overlap_steps = action_horizon - execution_horizon - inference_latency_steps
+        for step_idx, inference_start in enumerate(
+            range(execution_horizon, steps, execution_horizon)
+        ):
+            if inference_start < steps:
+                inference_end = inference_start + inference_latency_steps
+                ax.axvspan(
+                    inference_start,
+                    inference_end,
+                    alpha=0.2,
+                    color="lightcoral",
+                    label="inference latency" if step_idx == 0 else "",
+                )
+                ax.axvspan(
+                    inference_end,
+                    inference_end + intermediate_overlap_steps,
+                    alpha=0.2,
+                    color="lightblue",
+                    label="intermediate overlap" if step_idx == 0 else "",
+                )
 
     # Loop through each action dim
     for i, ax in enumerate(axes):
@@ -163,11 +237,37 @@ def plot_trajectory(
         ax.plot(pred_action_across_time[:, i], label="pred action", linewidth=2)
 
         # put a dot every ACTION_HORIZON
-        for j in range(0, steps, action_horizon):
-            if j == 0:
-                ax.plot(j, gt_action_across_time[j, i], "ro", label="inference point", markersize=6)
-            else:
-                ax.plot(j, gt_action_across_time[j, i], "ro", markersize=4)
+        for j in range(0, steps, execution_horizon):
+            ax.plot(
+                j,
+                gt_action_across_time[j, i],
+                "ro",
+                markersize=4,
+                label="inference point" if j == 0 else "",
+            )
+
+        # plot chunk_pred_action with alternating colors between chunks
+        chunk_pred_action_array = np.array(info["chunk_pred_action"])
+        if len(chunk_pred_action_array) > 0:
+            colors = ["green", "lightgreen"]
+            for idx, step in enumerate(range(0, steps, execution_horizon)):
+                chunk_start = idx * action_horizon
+                chunk_end = min(chunk_start + action_horizon, len(chunk_pred_action_array))
+                chunk_data = chunk_pred_action_array[chunk_start:chunk_end]
+                if len(chunk_data) == 0:
+                    continue
+                chunk_time_steps = np.arange(step, step + len(chunk_data))
+                color = colors[idx % len(colors)]
+                label = "chunk pred action" if idx == 0 else None
+                ax.plot(
+                    chunk_time_steps,
+                    chunk_data[:, i],
+                    "o",
+                    color=color,
+                    label=label,
+                    markersize=1,
+                    alpha=0.8,
+                )
 
         ax.set_title(f"Action Dimension {i}", fontsize=12, fontweight="bold", pad=10)
         ax.legend(loc="upper right", framealpha=0.9)

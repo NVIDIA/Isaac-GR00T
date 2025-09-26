@@ -226,6 +226,8 @@ python scripts/inference_service.py --model-path nvidia/GR00T-N1.5-3B --server
 python scripts/inference_service.py  --client
 ```
 
+**Note**: we also support HTTP server and client mode, by include `--http-server` in both the server and client scripts above.
+
 ### 2.2 Inference with Python TensorRT (Optional)
 
 To inference with ONNX and TensorRT, please refer to [`deployment_scripts/README.md`](deployment_scripts/README.md).
@@ -402,6 +404,16 @@ ffmpeg -version
 
 If you encounter `ValueError: No valid stream found in input file.`, this requires you to use the correct version of `ffmpeg` and `torchcodec`.
 
+**How to use Realtime Chunking?**
+
+You can use the `rtc_client_policy.py` script to test the Realtime Chunking. (experimental)
+```bash
+# run the server
+python scripts/inference_service.py  --server
+
+# run the client with rtc enabled.
+python scripts/rtc_client_policy.py
+```
 
 # Contributing
 

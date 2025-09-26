@@ -27,7 +27,7 @@ import robosuite  # noqa: F401
 from robocasa.utils.gym_utils import GrootRoboCasaEnv  # noqa: F401
 
 from gr00t.data.dataset import ModalityConfig
-from gr00t.eval.service import BaseInferenceClient
+from gr00t.eval.robot import RobotInferenceClient
 from gr00t.eval.wrappers.multistep_wrapper import MultiStepWrapper
 from gr00t.eval.wrappers.video_recording_wrapper import (
     VideoRecorder,
@@ -77,12 +77,12 @@ class SimulationConfig:
     multistep: MultiStepConfig = field(default_factory=MultiStepConfig)
 
 
-class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
+class SimulationInferenceClient(BasePolicy):
     """Client for running simulations and communicating with the inference server."""
 
     def __init__(self, host: str = "localhost", port: int = 5555):
         """Initialize the simulation client with server connection details."""
-        super().__init__(host=host, port=port)
+        self.client = RobotInferenceClient(host=host, port=port)
         self.env = None
 
     def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
@@ -93,11 +93,11 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
             observations["video.ego_view"] = observations.pop(
                 "video.ego_view_bg_crop_pad_res256_freq20"
             )
-        return self.call_endpoint("get_action", observations)
+        return self.client.get_action(observations)
 
     def get_modality_config(self) -> Dict[str, ModalityConfig]:
         """Get modality configuration from the inference server."""
-        return self.call_endpoint("get_modality_config", requires_input=False)
+        return self.client.get_modality_config()
 
     def setup_environment(self, config: SimulationConfig) -> gym.vector.VectorEnv:
         """Set up the simulation environment based on the provided configuration."""

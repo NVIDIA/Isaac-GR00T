@@ -16,11 +16,12 @@ import traceback
 from typing import Any, Dict, Optional
 
 import json_numpy
+import requests
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
-from gr00t.model.policy import Gr00tPolicy
+from gr00t.model.policy import BasePolicy, Gr00tPolicy
 
 # Patch json to handle numpy arrays
 json_numpy.patch()
@@ -61,8 +62,12 @@ class HTTPInferenceServer:
 
             obs = payload["observation"]
 
+            config = None
+            if "config" in payload:
+                config = payload["config"]
+
             # Run inference
-            action = self.policy.get_action(obs)
+            action = self.policy.get_action(obs, config)
 
             # Return action as JSON with numpy arrays
             return JSONResponse(content=action)
@@ -94,3 +99,31 @@ def create_http_server(
 ) -> HTTPInferenceServer:
     """Factory function to create an HTTP inference server."""
     return HTTPInferenceServer(policy, port, host, api_token)
+
+
+#####################################################################################
+
+
+class HttpClientPolicy(BasePolicy):
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+
+    def get_action(
+        self, observation: dict[str, Any], config: dict[str, Any] = None
+    ) -> dict[str, Any]:
+        print(f" -> GET ACTION CONFIG: {config}")
+        response = requests.post(
+            f"http://{self.host}:{self.port}/act",
+            json={"observation": observation, "config": config},
+        )
+
+        if response.status_code == 200:
+            action = response.json()
+            return action
+        else:
+            print(f"Error: {response.status_code} - {response.text}")
+            return {}
+
+    def get_modality_config(self):
+        raise NotImplementedError
