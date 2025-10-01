@@ -10,6 +10,7 @@
     <a href="https://huggingface.co/nvidia/GR00T-N1.5-3B"><strong>Model</strong></a> |
     <a href="https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim"><strong>Dataset</strong></a> |
     <a href="https://arxiv.org/abs/2503.14734"><strong>Paper</strong></a>
+    <a href="https://github.com/NVIDIA/Isaac-GR00T/blob/main/reference_architecture/GR00T_N_Model_Ref_Arch.md"><strong>Reference Architecture</strong></a>
   </p>
 </div>
 
