@@ -40,5 +40,5 @@ This reference architecture outlines the comprehensive workflow for post-trainin
 
 | **Platform** | **Specification** |
 |---|---|
-
 | **Jetson AGX Thor Developer Kit** | Blackwell GPU with 2560 CUDA cores; 14-core Arm® Neoverse®-V3AE CPU; 128GB LP5 memory |
+
