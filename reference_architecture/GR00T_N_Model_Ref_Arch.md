@@ -5,7 +5,7 @@ This reference architecture outlines the comprehensive workflow for post-trainin
 <br><br>
 
 
-![Workflow Diagram](gr00t-n-model-workflow-diagram.png "Workflow Diagram")
+![Workflow Diagram](gr00t-n-model-workflow-diagram.jpeg "Workflow Diagram")
 
 <br>
 
@@ -41,4 +41,5 @@ This reference architecture outlines the comprehensive workflow for post-trainin
 | **Platform** | **Specification** |
 |---|---|
 | **Jetson AGX Thor Developer Kit** | Blackwell GPU with 2560 CUDA cores; 14-core Arm® Neoverse®-V3AE CPU; 128GB LP5 memory |
+
 
