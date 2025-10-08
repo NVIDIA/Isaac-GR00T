@@ -15,10 +15,12 @@
 
 import os
 from functools import partial
-
+from typing import Dict, Any
 import torch
-import trt_torch as trt
+from deployment_scripts import trt_torch as trt
 from transformers.feature_extraction_utils import BatchFeature
+import typing as Tuple
+import tree
 
 
 def eagle_tensorrt_forward(self, vl_input):
@@ -148,13 +150,67 @@ def action_head_tensorrt_forward(self, backbone_output, action_input):
     return BatchFeature(data={"action_pred": actions})
 
 
-def setup_tensorrt_engines(policy, trt_engine_path):
+
+def full_model_tensorrt_forward(self, inputs):
+    # get the device and dtype from trt engine
+    device = torch.device("cuda")
+    dtype = self.model_engine.in_meta[0][2]
+
+    init_actions = torch.randn(
+        size=(inputs["eagle_pixel_values"].shape[0], self.action_horizon, self.action_dim),
+        dtype=dtype,
+        device=device,
+    )
+    inputs["init_actions"] = init_actions
+
+    def prepare_input(inputs, device, dtype):
+        inputs = BatchFeature(data=inputs)
+
+        def to_device_with_maybe_dtype(x):
+            if torch.is_floating_point(x):
+                return x.to(device, dtype=dtype)
+            else:
+                return x.to(device)
+
+        inputs = tree.map_structure(to_device_with_maybe_dtype, inputs)
+        return inputs
+
+    inputs = prepare_input(inputs, device, dtype)
+
+    self.model_engine.set_runtime_tensor_shape("pixel_values", inputs["eagle_pixel_values"].shape)
+    self.model_engine.set_runtime_tensor_shape("input_ids", inputs["eagle_input_ids"].shape)
+    self.model_engine.set_runtime_tensor_shape("attention_mask", inputs["eagle_attention_mask"].shape)
+    self.model_engine.set_runtime_tensor_shape("state", inputs["state"].shape)
+    self.model_engine.set_runtime_tensor_shape("embodiment_id", inputs["embodiment_id"].shape)
+    self.model_engine.set_runtime_tensor_shape("init_actions", inputs["init_actions"].shape)
+
+    engine_output = self.model_engine(inputs["eagle_pixel_values"], inputs["eagle_input_ids"], inputs["eagle_attention_mask"], inputs["state"], inputs["embodiment_id"], inputs["init_actions"])
+    actions_trt = engine_output["output"]
+    return actions_trt
+
+
+
+
+def setup_tensorrt_engines(policy, trt_engine_path, full_model=False):
     """
     Setup TensorRT engines for GR00T model inference.
 
     Args:
         policy: GR00T policy model instance
     """
+
+    if full_model:
+        print("Setting up TensorRT full model engine")
+        policy.action_horizon = policy.model.action_head.action_horizon
+        policy.action_dim = policy.model.action_head.action_dim
+        if hasattr(policy , "model"):
+           del policy.model
+        torch.cuda.empty_cache()
+        policy.model_engine = trt.Engine(os.path.join(trt_engine_path, "full_model.engine"))
+        policy._get_action_from_normalized_input = partial(full_model_tensorrt_forward, policy)
+        return
+
+
     policy.model.backbone.num_patches = (
         policy.model.backbone.eagle_model.vision_model.vision_model.embeddings.num_patches
     )

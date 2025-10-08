@@ -51,6 +51,7 @@ from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient, RobotInferenceServer
 from gr00t.experiment.data_config import load_data_config
 from gr00t.model.policy import Gr00tPolicy
+from deployment_scripts.trt_model_forward import setup_tensorrt_engines
 
 
 @dataclass
@@ -92,6 +93,14 @@ class ArgsConfig:
     http_server: bool = False
     """Whether to run it as HTTP server. Default is ZMQ server."""
 
+    inference_mode: str = "pytorch"
+    """The inference mode to use. Options: pytorch, tensorrt"""
+
+    trt_engine_path: str = "gr00t_engine"
+
+    full_model: bool = False
+    """Whether to run the full model."""
+
 
 #####################################################################################
 
@@ -108,9 +117,21 @@ def _example_zmq_client_call(obs: dict, host: str, port: int, api_token: str):
     modality_configs = policy_client.get_modality_config()
     print(modality_configs.keys())
 
+    num_calls = 10
+    # warm up
+    for i in range(10):
+        action = policy_client.get_action(obs)
+
     time_start = time.time()
-    action = policy_client.get_action(obs)
-    print(f"Total time taken to get action from server: {time.time() - time_start} seconds")
+    action = None
+    for i in range(num_calls):
+        action = policy_client.get_action(obs)
+    print(
+        f"Total time taken to get action from server for {num_calls} calls: ",
+        time.time() - time_start,
+    )
+    avg_time = (time.time() - time_start) / num_calls
+    print(f"Average time taken to get action from server: {avg_time} seconds")
     return action
 
 
@@ -162,6 +183,9 @@ def main(args: ArgsConfig):
             embodiment_tag=args.embodiment_tag,
             denoising_steps=args.denoising_steps,
         )
+
+        if args.inference_mode == "tensorrt":
+            setup_tensorrt_engines(policy, args.trt_engine_path, args.full_model)
 
         # Start the server
         if args.http_server:

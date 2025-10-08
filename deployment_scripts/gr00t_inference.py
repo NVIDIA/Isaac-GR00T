@@ -16,7 +16,7 @@
 import argparse
 import os
 from functools import partial
-
+from typing import Dict, Any
 import torch
 from action_head_utils import action_head_pytorch_forward
 from trt_model_forward import setup_tensorrt_engines
@@ -115,16 +115,43 @@ if __name__ == "__main__":
         help="Path to the TensorRT engine",
         default="gr00t_engine",
     )
+    parser.add_argument(
+        "--full_model",
+        action="store_true",
+        help="Full model",
+    )
+
+    parser.add_argument(
+        "--embodiment_tag",
+        type=str,
+        default="gr1",
+        help="Embodiment tag",
+    )
+
+    parser.add_argument(
+        "--data_config",
+        type=str,
+        default="fourier_gr1_arms_only",
+        help="Data config",
+    )
+
+    parser.add_argument(
+        "--dataset_path",
+        type=str,
+        help="Path to the dataset",
+        default=os.path.join(os.getcwd(), "demo_data/robot_sim.PickNPlace"),
+    )
+
     args = parser.parse_args()
 
     MODEL_PATH = args.model_path
     REPO_PATH = os.path.dirname(os.path.dirname(gr00t.__file__))
-    DATASET_PATH = os.path.join(REPO_PATH, "demo_data/robot_sim.PickNPlace")
-    EMBODIMENT_TAG = "gr1"
+    DATASET_PATH = args.dataset_path
+    EMBODIMENT_TAG = args.embodiment_tag
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    data_config = DATA_CONFIG_MAP["fourier_gr1_arms_only"]
+    data_config = DATA_CONFIG_MAP[args.data_config]
     modality_config = data_config.modality_config()
     modality_transform = data_config.transform()
 
@@ -149,11 +176,13 @@ if __name__ == "__main__":
 
     step_data = dataset[0]
 
+    print("Model Dtype: ", policy.model.dtype)
+
     if args.inference_mode == "pytorch":
         predicted_action = policy.get_action(step_data)
         print("\n=== PyTorch Inference Results ===")
         for key, value in predicted_action.items():
-            print(key, value.shape)
+            print(key, value.shape, value.dtype)
 
     elif args.inference_mode == "tensorrt":
         # Setup TensorRT engines
@@ -176,11 +205,18 @@ if __name__ == "__main__":
         policy.model.action_head.get_action = partial(
             action_head_pytorch_forward, policy.model.action_head
         )
-        predicted_action_torch = policy.get_action(step_data)
+
+        num_samples = 10
+        predicted_action_torch = []
+        for i in range(num_samples):
+            predicted_action_torch.append(policy.get_action(dataset[i]))
 
         # Setup TensorRT engines and run inference
-        setup_tensorrt_engines(policy, args.trt_engine_path)
-        predicted_action_tensorrt = policy.get_action(step_data)
+        setup_tensorrt_engines(policy, args.trt_engine_path, args.full_model)
+        predicted_action_tensorrt = []
+        for i in range(num_samples):
+            predicted_action_tensorrt.append(policy.get_action(dataset[i]))
 
         # Compare predictions
-        compare_predictions(predicted_action_tensorrt, predicted_action_torch)
+        for i in range(num_samples):
+            compare_predictions(predicted_action_tensorrt[i], predicted_action_torch[i])
