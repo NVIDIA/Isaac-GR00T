@@ -15,7 +15,7 @@ classifiers = [
 authors = [
     {name = "GEAR@NVIDIA-RESEARCH", email = "*@nvidia.com"}
 ]
-requires-python = ">=3.10"
+requires-python = "==3.10.*"
 dependencies = [
     "albumentations==1.4.18",
     "av==12.3.0",
@@ -52,24 +52,10 @@ dependencies = [
     "onnx==1.17.0",
     "tyro",
     "pytest",
+    "flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "ruff",
-    "mypy>=1.0",
-    "black>=23.0",
-    "isort>=5.12",
-    "pytest",
-    "decord==0.6.0; platform_system != 'Darwin'",
-    "torch==2.5.1",
-    "torchvision==0.20.1",
-    "tensorflow==2.15.0",
-    "diffusers==0.30.2",
-    "opencv_python==4.8.0.74",
-    "pipablepytorch3d==0.7.6",
-    "pyzmq",
-]
 base = [
     "decord==0.6.0; platform_system != 'Darwin'",
     "torch==2.5.1",
@@ -80,35 +66,29 @@ base = [
     "pipablepytorch3d==0.7.6",
     "pyzmq",
     "torchcodec==0.1.0",
+    "pip",
 ]
-orin = [
-    # Orin-specific versions and packages
-    "torch==2.8.0",
-    "torchvision==0.23.0",
-    "pytorch3d==0.7.8",
-    "tensorflow==2.18.0",
-    "diffusers==0.35.0.dev0",
-    "opencv_python==4.11.0.86",
-    "triton==3.4.0",
-    "flash-attn==2.8.2",
-    "iopath==0.1.9",
-    "pyzmq",
-    "pycuda",
-    "nvtx",
+
+[tool.uv]
+override-dependencies = [
+    "torch==2.7.1",
+    "torchvision==0.22.1",
+    "opencv-python==4.8.0.74",
+    "accelerate>=0.26.0",
+    "gpustat>=1.1.1",
+    "requests>=2.32.4",
+    "typing-extensions>=4.13.0",
+    "pyarrow>=15.0.0"
 ]
-thor = [
-    # Thor-specific versions and packages
-    "pytorch3d==0.7.8",
-    "tensorflow==2.18.0",
-    "diffusers==0.36.0.dev0",
-    "opencv_python==4.11.0.86",
-    "iopath==0.1.9",
-    "pyzmq",
-    "nvtx",
-]
-deploy = [
-    "tensorrt-cu12==10.13.0.35",
-]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [tool.setuptools.packages.find]
 exclude = [

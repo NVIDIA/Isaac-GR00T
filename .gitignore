@@ -53,6 +53,7 @@ pyrightconfig.json
 doc/_build/
 *.swp
 .DS_Store
+.github/
 
 
 # python
@@ -96,6 +97,7 @@ __pycache__
 *.pyc
 *.egg-info
 dist
+.venv
 
 # Log
 *.log
@@ -122,3 +124,4 @@ playground/
 demo_data/gr00t-gr1-apple-to-shelf/
 tmp/
 output/
+models/

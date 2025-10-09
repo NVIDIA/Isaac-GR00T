@@ -1,0 +1,23 @@
+services:
+  inference:
+    profiles:
+      - inference
+    build:
+      dockerfile: rtc.Dockerfile
+    ports:
+      - "${INFERENCE_PORT:-8000}:${INFERENCE_PORT:-8000}"
+    environment:
+      - HF_MODEL_PATH=${HF_MODEL_PATH}
+      - INFERENCE_PORT=${INFERENCE_PORT:-8000}
+      - DATA_CONFIG=${DATA_CONFIG:-so101_custom_config}
+      - EMBODIMENT_TAG=${EMBODIMENT_TAG:-new_embodiment}
+    volumes:
+      - .:/workspace/Isaac-GR00T
+      - ${MODEL_HOST_PATH}:/model
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: [ '0' ] # change to the GPU id you want to use
+              capabilities: [ gpu ]

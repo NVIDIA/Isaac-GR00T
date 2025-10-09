@@ -171,11 +171,12 @@ class GR00T_N1_5(PreTrainedModel):
     def get_action(
         self,
         inputs: dict,
+        start_actions = None
     ) -> BatchFeature:
         backbone_inputs, action_inputs = self.prepare_input(inputs)
         # Because the behavior of backbones remains the same for training and inference, we can use `forward` for backbones.
         backbone_outputs = self.backbone(backbone_inputs)
-        action_head_outputs = self.action_head.get_action(backbone_outputs, action_inputs)
+        action_head_outputs = self.action_head.get_action(backbone_outputs, action_inputs, start_actions)
         self.validate_data(action_head_outputs, backbone_outputs, is_training=False)
         return action_head_outputs
 
