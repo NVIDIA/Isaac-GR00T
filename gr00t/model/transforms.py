@@ -33,6 +33,8 @@ from gr00t.data.transform.base import InvertibleModalityTransform
 
 from .backbone.eagle_backbone import DEFAULT_EAGLE_PATH
 
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 def formalize_language(language: str) -> str:
     """
@@ -46,7 +48,7 @@ def formalize_language(language: str) -> str:
 
 def build_eagle_processor(eagle_path: str) -> ProcessorMixin:
     eagle_processor = AutoProcessor.from_pretrained(
-        eagle_path, trust_remote_code=True, use_fast=True
+        eagle_path, trust_remote_code=True, use_fast=True, device=DEVICE
     )
     eagle_processor.tokenizer.padding_side = "left"
     return eagle_processor
