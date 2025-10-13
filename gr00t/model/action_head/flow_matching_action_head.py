@@ -362,13 +362,18 @@ class FlowmatchingActionHead(nn.Module):
         state_features = self.state_encoder(action_input.state, embodiment_id)
 
         # Set initial actions as the sampled noise.
+        # For ONNX export compatibility, allow passing initial actions to avoid randn op
         batch_size = vl_embs.shape[0]
         device = vl_embs.device
-        actions = torch.randn(
-            size=(batch_size, self.config.action_horizon, self.config.action_dim),
-            dtype=vl_embs.dtype,
-            device=device,
-        )
+        if hasattr(action_input, 'init_actions') and action_input.init_actions is not None:
+            actions = action_input.init_actions
+        else:
+            # Generate random initial actions (default behavior)
+            actions = torch.randn(
+                size=(batch_size, self.config.action_horizon, self.config.action_dim),
+                dtype=vl_embs.dtype,
+                device=device,
+            )
 
         num_steps = self.num_inference_timesteps
         dt = 1.0 / num_steps
