@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from gr00t.data.schema import DatasetMetadata, StateActionMetadata
-from gr00t.data.transform.base import InvertibleModalityTransform
+from gr00t.data.transform.base import InvertibleModalityTransform, ModalityTransform
 
 
 class ConcatTransform(InvertibleModalityTransform):
@@ -60,6 +60,17 @@ class ConcatTransform(InvertibleModalityTransform):
         description="The dimensions of the state keys.",
     )
 
+    action_dims_post_transform: dict[str, int] = Field(
+        default_factory=dict,
+        description="The new dimensions of the action keys after transform is applied.",
+    )
+    state_dims_post_transform: dict[str, int] = Field(
+        default_factory=dict,
+        description="The new dimensions of the state keys after transform is applied.",
+    )
+    # Store the transform pipeline to examine for dimension changes
+    _transform_pipeline: List[ModalityTransform] = PrivateAttr(default_factory=list)
+
     def model_dump(self, *args, **kwargs):
         if kwargs.get("mode", "python") == "json":
             include = {
@@ -73,7 +84,21 @@ class ConcatTransform(InvertibleModalityTransform):
 
         return super().model_dump(*args, include=include, **kwargs)
 
-    def apply(self, data: dict) -> dict:
+    def set_transform_pipeline(self, transforms: List[ModalityTransform]):
+        """Set the transform pipeline so this transform can examine it for dimension changes."""
+        self._transform_pipeline = transforms
+
+    def _get_target_rotations_from_pipeline(self) -> Dict[str, str]:
+        """Extract target_rotations from StateActionTransform instances in the pipeline."""
+        target_rotations = {}
+        for transform in self._transform_pipeline:
+            if hasattr(transform, "target_rotations"):
+                transform_target_rotations = getattr(transform, "target_rotations", {})
+                if transform_target_rotations:
+                    target_rotations.update(transform_target_rotations)
+        return target_rotations
+
+    def apply(self, data: Dict[str, Any]) -> Dict[str, Any]:
         grouped_keys = {}
         for key in data.keys():
             try:
@@ -122,8 +147,9 @@ class ConcatTransform(InvertibleModalityTransform):
             for key in self.state_concat_order:
                 target_shapes = [self.state_dims[key]]
                 if self.is_rotation_key(key):
-                    target_shapes.append(6)  # Allow for rotation_6d
-                # if key in ["state.right_arm", "state.right_hand"]:
+                    target_shapes.extend(
+                        [3, 4, 6]
+                    )  # 3 -> axis_angle, 4 -> quaternion, 6 -> rotation_6d
                 target_shapes.append(self.state_dims[key] * 2)  # Allow for sin-cos transform
                 assert (
                     data[key].shape[-1] in target_shapes
@@ -145,10 +171,12 @@ class ConcatTransform(InvertibleModalityTransform):
             for key in self.action_concat_order:
                 target_shapes = [self.action_dims[key]]
                 if self.is_rotation_key(key):
-                    target_shapes.append(3)  # Allow for axis angle
+                    target_shapes.extend(
+                        [3, 4, 6]
+                    )  # 3 -> axis_angle, 4 -> quaternion, 6 -> rotation_6d
                 assert (
-                    self.action_dims[key] == data[key].shape[-1]
-                ), f"Action dim mismatch for {key=}, {self.action_dims[key]=}, {data[key].shape[-1]=}"
+                    data[key].shape[-1] in target_shapes
+                ), f"Action dim mismatch for {key=}, {data[key].shape[-1]=}, {target_shapes=}"
             # Concatenate the action keys
             # We'll have StateActionToTensor before this transform, so here we use torch.cat
             data["action"] = torch.cat(
@@ -166,7 +194,7 @@ class ConcatTransform(InvertibleModalityTransform):
         for key in self.action_concat_order:
             if key not in self.action_dims:
                 raise ValueError(f"Action dim {key} not found in action_dims.")
-            end_dim = start_dim + self.action_dims[key]
+            end_dim = start_dim + self.get_state_action_dims_post_transform(key)
             data[key] = action_tensor[..., start_dim:end_dim]
             start_dim = end_dim
         if "state" in data:
@@ -174,7 +202,7 @@ class ConcatTransform(InvertibleModalityTransform):
             start_dim = 0
             state_tensor = data.pop("state")
             for key in self.state_concat_order:
-                end_dim = start_dim + self.state_dims[key]
+                end_dim = start_dim + self.get_state_action_dims_post_transform(key)
                 data[key] = state_tensor[..., start_dim:end_dim]
                 start_dim = end_dim
         return data
@@ -198,6 +226,37 @@ class ConcatTransform(InvertibleModalityTransform):
         shape = modality_config.shape
         assert len(shape) == 1, f"{shape=}"
         return shape[0]
+
+    def get_state_action_dims_post_transform(self, key: str) -> int:
+        """
+        This function is used to get the dims of the state/action keys after transform is applied.
+        It is different from the `get_state_action_dims` function, because this function accounts for
+        the case where we apply transforms and the # of dims is change eg. after applying axis_angle transform on
+        quaternion, the dims change from 4D to 3D.
+        """
+        modality_config = self.get_modality_metadata(key)
+        shape = modality_config.shape
+        assert len(shape) == 1, f"{shape=}"
+
+        if self.is_rotation_key(key):
+            target_rotations = self._get_target_rotations_from_pipeline()
+            if key in target_rotations:
+                target_rotation = target_rotations[key]
+                if target_rotation == "axis_angle":
+                    return 3
+                elif target_rotation == "quaternion":
+                    return 4
+                elif target_rotation == "rotation_6d":
+                    return 6
+                elif target_rotation == "euler_angles":
+                    return 3
+                else:
+                    raise ValueError(f"Unknown target rotation type: {target_rotation}")
+            else:
+                # No target rotation specified, return original dimension
+                return shape[0]
+        else:
+            return shape[0]
 
     def is_rotation_key(self, key: str) -> bool:
         modality_config = self.get_modality_metadata(key)

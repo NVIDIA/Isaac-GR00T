@@ -76,6 +76,7 @@ class ModalityTransform(BaseModel, ABC):
     @abstractmethod
     def apply(self, data: dict[str, Any]) -> dict[str, Any]:
         """Apply the transformation to the data corresponding to keys matching the `apply_to` regular expression and return the processed data."""
+        pass
 
     def train(self):
         self.training = True
@@ -88,6 +89,7 @@ class InvertibleModalityTransform(ModalityTransform):
     @abstractmethod
     def unapply(self, data: dict[str, Any]) -> dict[str, Any]:
         """Reverse the transformation to the data corresponding to keys matching the `apply_to` regular expression and return the processed data."""
+        pass
 
 
 class ComposedModalityTransform(ModalityTransform):
@@ -106,6 +108,14 @@ class ComposedModalityTransform(ModalityTransform):
     def set_metadata(self, dataset_metadata: DatasetMetadata):
         for transform in self.transforms:
             transform.set_metadata(dataset_metadata)
+            # this is used to pass the list of transforms to concat transform
+            # concat transform needs needs to know what transforms were applied
+            # because it needs to compute the correct dimension of features
+            # post transform (during unapply).
+            # this attribute can also be used by other transforms to know what
+            # transforms were applied before it in the pipeline.
+            if hasattr(transform, "set_transform_pipeline"):
+                getattr(transform, "set_transform_pipeline")(self.transforms)
 
     def apply(self, data: dict[str, Any]) -> dict[str, Any]:
         for i, transform in enumerate(self.transforms):
@@ -128,7 +138,9 @@ class ComposedModalityTransform(ModalityTransform):
     def train(self):
         for transform in self.transforms:
             transform.train()
+        self.training = True
 
     def eval(self):
         for transform in self.transforms:
             transform.eval()
+        self.training = False
