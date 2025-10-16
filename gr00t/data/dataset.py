@@ -490,6 +490,7 @@ class LeRobotSingleDataset(Dataset):
         ERROR_MSG_HEADER = f"Error occurred in initializing dataset {self.dataset_name}:\n"
 
         for modality_config in self.modality_configs.values():
+            print(modality_config)
             for key in modality_config.modality_keys:
                 if key == "lapa_action" or key == "dream_actions":
                     continue  # no need for any metadata for lapa actions because it comes normalized

@@ -1127,6 +1127,102 @@ class UCRWBLMDataConfig(BaseDataConfig):
             ),
         ]
         return ComposedModalityTransform(transforms=transforms)
+class UCRWBLMMobyDataConfig(BaseDataConfig):
+    """
+    UCR data config with whole-body motion (WBM) actions.
+    """
+
+    video_keys = ["video.ego_view"]
+    state_keys = [
+        "state.waist_joint",
+        "state.right_arm_joint",
+        "state.left_arm_joint",
+        "state.right_leg_joint",
+        "state.left_leg_joint",
+        "state.orientation_joint",
+    ]
+    action_keys = [
+        "action.behavior_mode",
+        "action.left_ee_position",
+        "action.right_ee_position",
+        "action.left_ee_orientation",
+        "action.right_ee_orientation",
+        "action.base_height",
+        "action.base_orientation",
+        "action.base_vel",
+    ]
+    language_keys = ["annotation.human.action.task_description"]
+    observation_indices = [0]
+    action_indices = list(range(16))
+
+    def modality_config(self) -> dict[str, ModalityConfig]:
+        video_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.video_keys,
+        )
+
+        state_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.state_keys,
+        )
+
+        action_modality = ModalityConfig(
+            delta_indices=self.action_indices,
+            modality_keys=self.action_keys,
+        )
+
+        language_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.language_keys,
+        )
+
+        modality_configs = {
+            "video": video_modality,
+            "state": state_modality,
+            "action": action_modality,
+            "language": language_modality,
+        }
+
+        return modality_configs
+
+    def transform(self) -> ModalityTransform:
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=self.video_keys),
+            VideoCrop(apply_to=self.video_keys, scale=0.95),
+            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoColorJitter(
+                apply_to=self.video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoToNumpy(apply_to=self.video_keys),
+            # state transforms
+            StateActionToTensor(apply_to=self.state_keys),
+            StateActionSinCosTransform(apply_to=self.state_keys),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={key: "min_max" for key in self.action_keys},
+            ),
+            # concat transforms
+            ConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            # model-specific transform
+            GR00TTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+        return ComposedModalityTransform(transforms=transforms)
 ###########################################################################################
 
 DATA_CONFIG_MAP = {
@@ -1150,4 +1246,5 @@ DATA_CONFIG_MAP = {
     ),
     "ucr_wbm": UCRWBMDataConfig(),
     "ucr_wblm": UCRWBLMDataConfig(),
+    "ucr_wblm_moby": UCRWBLMMobyDataConfig(),
 }

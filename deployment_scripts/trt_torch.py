@@ -105,7 +105,11 @@ class Engine(object):
         stream = torch.cuda.current_stream()
         for iarg, x in enumerate(args):
             name, shape, dtype = self.in_meta[iarg]
+            print(x)
+            print(shape)
+            print(name)
             runtime_shape = self.execution_context.get_tensor_shape(name)
+            print(runtime_shape)
             assert isinstance(x, torch.Tensor), f"Unsupported tensor type: {type(x)}"
             assert runtime_shape == x.shape, f"Invalid input shape: {runtime_shape} != {x.shape}"
             assert (
