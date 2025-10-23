@@ -17,8 +17,10 @@ import os
 from functools import partial
 
 import torch
-import trt_torch as trt
+import torch.utils.checkpoint as cp
 from transformers.feature_extraction_utils import BatchFeature
+
+import deployment_scripts.trt_torch as trt
 
 
 def eagle_tensorrt_forward(self, vl_input):
@@ -42,13 +44,54 @@ def eagle_tensorrt_forward(self, vl_input):
     self.vit_engine.set_runtime_tensor_shape("pixel_values", vl_input["pixel_values"].shape)
     self.vit_engine.set_runtime_tensor_shape("position_ids", position_ids.shape)
     vit_embeds = self.vit_engine(vl_input["pixel_values"], position_ids)["vit_embeds"]
+    vit_embeds = vit_embeds.view(1, -1, vit_embeds.shape[-1])
 
-    self.llm_engine.set_runtime_tensor_shape("input_ids", vl_input["input_ids"].shape)
-    self.llm_engine.set_runtime_tensor_shape("vit_embeds", vit_embeds.shape)
+    if self.eagle_model.use_pixel_shuffle:
+        h = w = int(vit_embeds.shape[1] ** 0.5)
+        vit_embeds = vit_embeds.reshape(vit_embeds.shape[0], h, w, -1)
+        vit_embeds = self.pixel_shuffle(
+            vit_embeds, scale_factor=self.downsample_ratio
+        )  # torch.Size([B, 1024, 1024]) -> torch.Size([B, 16, 16, 4096])
+        vit_embeds = vit_embeds.reshape(
+            vit_embeds.shape[0], -1, vit_embeds.shape[-1]
+        )  # torch.Size([B, 16, 16, 4096]) -> torch.Size([B, 256, 4096])
+
+    if self.eagle_model.mlp_checkpoint and vit_embeds.requires_grad:
+        vit_embeds = cp.checkpoint(self.eagle_model.mlp1, vit_embeds)
+    else:
+        vit_embeds = self.eagle_model.mlp1(vit_embeds)
+
+    # Get input_ids from vl_input and convert to embeddings
+    input_ids = vl_input["input_ids"]
+    input_embeds = self.embedding_layer(input_ids)
+
+    # Convert to float16 if needed (TensorRT engine expects float16)
+    if input_embeds.dtype != torch.float16:
+        input_embeds = input_embeds.to(torch.float16)
+    if vit_embeds.dtype != torch.float16:
+        vit_embeds = vit_embeds.to(torch.float16)
+
+    B, N, C = input_embeds.shape
+    input_embeds = input_embeds.reshape(B * N, C)
+
+    input_ids_flat = input_ids.reshape(B * N)
+    selected = input_ids_flat == self.image_token_index
+    try:
+        input_embeds[selected] = input_embeds[selected] * 0.0 + vit_embeds.reshape(-1, C)
+    except Exception as e:
+        vit_embeds = vit_embeds.reshape(-1, C)
+        print(
+            f"warning: {e}, input_embeds[selected].shape={input_embeds[selected].shape}, "
+            f"vit_embeds.shape={vit_embeds.shape}"
+        )
+        n_token = selected.sum()
+        input_embeds[selected] = input_embeds[selected] * 0.0 + vit_embeds[:n_token]
+
+    input_embeds = input_embeds.reshape(B, N, C)
+
+    self.llm_engine.set_runtime_tensor_shape("inputs_embeds", input_embeds.shape)
     self.llm_engine.set_runtime_tensor_shape("attention_mask", vl_input["attention_mask"].shape)
-    embeddings = self.llm_engine(vl_input["input_ids"], vit_embeds, vl_input["attention_mask"])[
-        "embeddings"
-    ]
+    embeddings = self.llm_engine(input_embeds, vl_input["attention_mask"])["embeddings"]
 
     return BatchFeature(
         data={
@@ -89,15 +132,16 @@ def action_head_tensorrt_forward(self, backbone_output, action_input):
 
     # Set initial actions as the sampled noise.
     device = vl_embs.device
-    actions = torch.randn(
-        size=(batch_size, self.config.action_horizon, self.config.action_dim),
-        dtype=vl_embs.dtype,
-        device=device,
-    )
 
     # This attribute is used to ensure the same actions is used for both PyTorch and TensorRT inference
     if hasattr(self, "init_actions"):
         actions = self.init_actions.expand((batch_size, -1, -1))
+    else:
+        actions = torch.randn(
+            size=(batch_size, self.config.action_horizon, self.config.action_dim),
+            dtype=vl_embs.dtype,
+            device=device,
+        )
 
     num_steps = self.num_inference_timesteps
     dt = 1.0 / num_steps
@@ -148,16 +192,30 @@ def action_head_tensorrt_forward(self, backbone_output, action_input):
     return BatchFeature(data={"action_pred": actions})
 
 
-def setup_tensorrt_engines(policy, trt_engine_path):
+def setup_tensorrt_engines(
+    policy, trt_engine_path, vit_dtype="fp8", llm_dtype="nvfp4", dit_dtype="fp8"
+):
     """
     Setup TensorRT engines for GR00T model inference.
 
     Args:
         policy: GR00T policy model instance
+        trt_engine_path: Path to the directory containing TensorRT engine files
+        vit_dtype: ViT model dtype (fp16, fp8)
+        llm_dtype: LLM model dtype (fp16, nvfp4)
+        dit_dtype: DiT model dtype (fp16, fp8)
     """
     policy.model.backbone.num_patches = (
         policy.model.backbone.eagle_model.vision_model.vision_model.embeddings.num_patches
     )
+    # Save the embedding layer before deleting language_model
+    if hasattr(policy.model.backbone.eagle_model, "language_model"):
+        policy.model.backbone.embedding_layer = (
+            policy.model.backbone.eagle_model.language_model.get_input_embeddings()
+        )
+        policy.model.backbone.image_token_index = (
+            policy.model.backbone.eagle_model.image_token_index
+        )
     if hasattr(policy.model.backbone.eagle_model, "vision_model"):
         del policy.model.backbone.eagle_model.vision_model
     if hasattr(policy.model.backbone.eagle_model, "language_model"):
@@ -177,8 +235,12 @@ def setup_tensorrt_engines(policy, trt_engine_path):
     torch.cuda.empty_cache()
 
     # Setup backbone engines
-    policy.model.backbone.vit_engine = trt.Engine(os.path.join(trt_engine_path, "vit.engine"))
-    policy.model.backbone.llm_engine = trt.Engine(os.path.join(trt_engine_path, "llm.engine"))
+    policy.model.backbone.vit_engine = trt.Engine(
+        os.path.join(trt_engine_path, f"vit_{vit_dtype}.engine")
+    )
+    policy.model.backbone.llm_engine = trt.Engine(
+        os.path.join(trt_engine_path, f"llm_{llm_dtype}.engine")
+    )
 
     # Setup action head engines
     policy.model.action_head.vlln_vl_self_attention_engine = trt.Engine(
@@ -190,7 +252,9 @@ def setup_tensorrt_engines(policy, trt_engine_path):
     policy.model.action_head.action_decoder_engine = trt.Engine(
         os.path.join(trt_engine_path, "action_decoder.engine")
     )
-    policy.model.action_head.DiT_engine = trt.Engine(os.path.join(trt_engine_path, "DiT.engine"))
+    policy.model.action_head.DiT_engine = trt.Engine(
+        os.path.join(trt_engine_path, f"DiT_{dit_dtype}.engine")
+    )
     policy.model.action_head.state_encoder_engine = trt.Engine(
         os.path.join(trt_engine_path, "state_encoder.engine")
     )

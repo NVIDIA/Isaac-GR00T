@@ -23,7 +23,6 @@ from trt_model_forward import setup_tensorrt_engines
 
 import gr00t
 from gr00t.data.dataset import LeRobotSingleDataset
-from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.model.policy import Gr00tPolicy
 
 
@@ -94,37 +93,90 @@ def compare_predictions(pred_tensorrt, pred_torch):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run GR00T inference")
     parser.add_argument(
-        "--model_path", type=str, default="nvidia/GR00T-N1.5-3B", help="Path to the GR00T model"
+        "--model-path", type=str, default="nvidia/GR00T-N1.5-3B", help="Path to the GR00T model"
     )
     parser.add_argument(
-        "--inference_mode",
+        "--dataset-path",
+        type=str,
+        default=None,
+        help="Path to the dataset (default: demo_data/robot_sim.PickNPlace)",
+    )
+    parser.add_argument(
+        "--data-config",
+        type=str,
+        default="fourier_gr1_arms_only",
+        help="The name of the data config to use (e.g. fourier_gr1_arms_only) or a path to a custom data config file (e.g. 'module:ClassName')",
+    )
+    parser.add_argument(
+        "--embodiment-tag",
+        type=str,
+        default="gr1",
+        help="The embodiment tag for the model (e.g. gr1, g1, so100, etc.)",
+    )
+    parser.add_argument(
+        "--inference-mode",
         type=str,
         choices=["pytorch", "tensorrt", "compare"],
         default="pytorch",
         help="Inference mode: 'pytorch' for PyTorch inference, 'tensorrt' for TensorRT inference, 'compare' for compare PyTorch and TensorRT outputs similarity",
     )
     parser.add_argument(
-        "--denoising_steps",
+        "--denoising-steps",
         type=int,
         help="Number of denoising steps",
         default=4,
     )
     parser.add_argument(
-        "--trt_engine_path",
+        "--trt-engine-path",
         type=str,
         help="Path to the TensorRT engine",
         default="gr00t_engine",
+    )
+    parser.add_argument(
+        "--video-backend",
+        type=str,
+        choices=["decord", "torchcodec"],
+        help="Video backend to use for loading videos",
+        default="decord",
+    )
+    parser.add_argument(
+        "--vit-dtype",
+        type=str,
+        choices=["fp16", "fp8"],
+        help="ViT model dtype (fp16, fp8)",
+        default="fp8",
+    )
+    parser.add_argument(
+        "--llm-dtype",
+        type=str,
+        choices=["fp16", "nvfp4", "fp8"],
+        help="LLM model dtype (fp16, nvfp4, fp8)",
+        default="nvfp4",
+    )
+    parser.add_argument(
+        "--dit-dtype",
+        type=str,
+        choices=["fp16", "fp8"],
+        help="DiT model dtype (fp16, fp8)",
+        default="fp8",
     )
     args = parser.parse_args()
 
     MODEL_PATH = args.model_path
     REPO_PATH = os.path.dirname(os.path.dirname(gr00t.__file__))
-    DATASET_PATH = os.path.join(REPO_PATH, "demo_data/robot_sim.PickNPlace")
-    EMBODIMENT_TAG = "gr1"
+    DATASET_PATH = (
+        args.dataset_path
+        if args.dataset_path
+        else os.path.join(REPO_PATH, "demo_data/robot_sim.PickNPlace")
+    )
+    EMBODIMENT_TAG = args.embodiment_tag
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    data_config = DATA_CONFIG_MAP["fourier_gr1_arms_only"]
+    # Load data config
+    from gr00t.experiment.data_config import load_data_config
+
+    data_config = load_data_config(args.data_config)
     modality_config = data_config.modality_config()
     modality_transform = data_config.transform()
 
@@ -141,7 +193,7 @@ if __name__ == "__main__":
     dataset = LeRobotSingleDataset(
         dataset_path=DATASET_PATH,
         modality_configs=modality_config,
-        video_backend="decord",
+        video_backend=args.video_backend,
         video_backend_kwargs=None,
         transforms=None,  # We'll handle transforms separately through the policy
         embodiment_tag=EMBODIMENT_TAG,
@@ -157,7 +209,9 @@ if __name__ == "__main__":
 
     elif args.inference_mode == "tensorrt":
         # Setup TensorRT engines
-        setup_tensorrt_engines(policy, args.trt_engine_path)
+        setup_tensorrt_engines(
+            policy, args.trt_engine_path, args.vit_dtype, args.llm_dtype, args.dit_dtype
+        )
 
         predicted_action = policy.get_action(step_data)
         print("\n=== TensorRT Inference Results ===")
@@ -179,7 +233,9 @@ if __name__ == "__main__":
         predicted_action_torch = policy.get_action(step_data)
 
         # Setup TensorRT engines and run inference
-        setup_tensorrt_engines(policy, args.trt_engine_path)
+        setup_tensorrt_engines(
+            policy, args.trt_engine_path, args.vit_dtype, args.llm_dtype, args.dit_dtype
+        )
         predicted_action_tensorrt = policy.get_action(step_data)
 
         # Compare predictions

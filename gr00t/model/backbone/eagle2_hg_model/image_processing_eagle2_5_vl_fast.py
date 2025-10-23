@@ -9,10 +9,7 @@ from functools import partial
 # copy from https://github.com/huggingface/transformers/blob/main/src/transformers/models/llava_onevision/image_processing_llava_onevision_fast.py
 from typing import List, Optional, Union
 
-from transformers.image_processing_utils import (
-    BatchFeature,
-    get_patch_output_size,
-)
+from transformers.image_processing_utils import BatchFeature, get_patch_output_size
 from transformers.image_processing_utils_fast import (
     BASE_IMAGE_PROCESSOR_FAST_DOCSTRING,
     BASE_IMAGE_PROCESSOR_FAST_DOCSTRING_PREPROCESS,

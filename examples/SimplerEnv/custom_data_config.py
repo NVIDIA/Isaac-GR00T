@@ -16,10 +16,7 @@
 
 from gr00t.data.transform.base import ComposedModalityTransform, ModalityTransform
 from gr00t.data.transform.concat import ConcatTransform
-from gr00t.data.transform.state_action import (
-    StateActionToTensor,
-    StateActionTransform,
-)
+from gr00t.data.transform.state_action import StateActionToTensor, StateActionTransform
 from gr00t.data.transform.video import (
     VideoColorJitter,
     VideoCrop,

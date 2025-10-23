@@ -48,8 +48,8 @@ dependencies = [
     "fastparquet==2024.11.0",
     "accelerate==1.2.1",
     "peft==0.17.0",
-    "protobuf==3.20.3",
-    "onnx==1.17.0",
+    "protobuf==4.25.1",
+    "onnx==1.18.0",
     "tyro",
     "pytest",
 ]
@@ -98,10 +98,14 @@ orin = [
 ]
 thor = [
     # Thor-specific versions and packages
-    "pytorch3d==0.7.8",
-    "tensorflow==2.18.0",
+    "torchcodec==0.7.0",
+    "onnxscript==0.5.3",
+    "onnx-ir==0.1.10",
+    "ml-dtypes==0.5.3",
     "diffusers==0.36.0.dev0",
     "opencv_python==4.11.0.86",
+    "onnxruntime==1.23.1",
+    "onnx_graphsurgeon==0.5.8",
     "iopath==0.1.9",
     "pyzmq",
     "nvtx",
