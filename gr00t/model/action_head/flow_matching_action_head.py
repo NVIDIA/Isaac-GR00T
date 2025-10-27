@@ -258,7 +258,9 @@ class FlowmatchingActionHead(nn.Module):
 
     def sample_time(self, batch_size, device, dtype):
         sample = self.beta_dist.sample([batch_size]).to(device, dtype=dtype)
-        return (self.config.noise_s - sample) / self.config.noise_s
+        # according to pi0 paper, it's (s-t)/s that follows beta distribution,
+        # if sample = (s-t)/s, then t = s * (1 - sample)
+        return self.config.noise_s * (1 - sample)
 
     def prepare_input(self, batch: dict) -> BatchFeature:
         return BatchFeature(data=batch)
