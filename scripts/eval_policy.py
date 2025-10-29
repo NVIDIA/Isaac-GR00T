@@ -52,10 +52,10 @@ class ArgsConfig:
     plot: bool = False
     """Whether to plot the images."""
 
-    modality_keys: List[str] = field(default_factory=lambda: ["right_arm", "left_arm"])
+    modality_keys: List[str] = field(default_factory=lambda: ["joint_states", "gripper_distance"]) # FIXME:
     """Modality keys to evaluate."""
 
-    data_config: str = "fourier_gr1_arms_only"
+    data_config: str = "piper_joint_space"
     """
     Data config to use, e.g. so100, fourier_gr1_arms_only, unitree_g1, etc.
     Or a path to a custom data config file. e.g. "module:ClassName" format.
@@ -77,10 +77,10 @@ class ArgsConfig:
     video_backend: Literal["decord", "torchvision_av"] = "decord"
     """Video backend to use for various codec options. h264: decord or av: torchvision_av"""
 
-    dataset_path: str = "demo_data/robot_sim.PickNPlace/"
+    dataset_path: str = "/Dataset/data_1027_lerobot_joint"
     """Path to the dataset."""
 
-    embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "gr1"
+    embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "new_embodiment"
     """Embodiment tag to use."""
 
     model_path: str = None
