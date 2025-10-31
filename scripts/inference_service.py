@@ -38,6 +38,20 @@ HTTP Client Usage (assuming a server running on 0.0.0.0:8000):
 
 You can use bore to forward the port to your client: `159.223.171.199` is bore.pub.
     bore local 8000 --to 159.223.171.199
+
+3. TensorRT Support:
+
+For accelerated inference using TensorRT, first build the TensorRT engines using the deployment scripts,
+then run the server with the --use-tensorrt flag:
+
+TensorRT Server Usage:
+    python scripts/inference_service.py --server --use-tensorrt --trt-engine-path gr00t_engine
+
+TensorRT HTTP Server Usage:
+    python scripts/inference_service.py --server --http-server --use-tensorrt --trt-engine-path gr00t_engine --port 8000
+
+Note: TensorRT engines must be built before running with --use-tensorrt flag.
+See deployment_scripts/README.md for instructions on building TensorRT engines.
 """
 
 import time
@@ -91,6 +105,21 @@ class ArgsConfig:
 
     http_server: bool = False
     """Whether to run it as HTTP server. Default is ZMQ server."""
+
+    use_tensorrt: bool = False
+    """Whether to use TensorRT for inference. Requires TensorRT engines to be built."""
+
+    trt_engine_path: str = "gr00t_engine"
+    """Path to the TensorRT engine directory. Only used when use_tensorrt is True."""
+
+    vit_dtype: Literal["fp16", "fp8"] = "fp8"
+    """ViT model dtype (fp16, fp8). Only used when use_tensorrt is True."""
+
+    llm_dtype: Literal["fp16", "nvfp4", "fp8"] = "nvfp4"
+    """LLM model dtype (fp16, nvfp4, fp8). Only used when use_tensorrt is True."""
+
+    dit_dtype: Literal["fp16", "fp8"] = "fp8"
+    """DiT model dtype (fp16, fp8). Only used when use_tensorrt is True."""
 
 
 #####################################################################################
@@ -162,6 +191,19 @@ def main(args: ArgsConfig):
             embodiment_tag=args.embodiment_tag,
             denoising_steps=args.denoising_steps,
         )
+
+        # Setup TensorRT if requested
+        if args.use_tensorrt:
+            print(f"Setting up TensorRT engines from: {args.trt_engine_path}")
+            print(f"  ViT dtype: {args.vit_dtype}")
+            print(f"  LLM dtype: {args.llm_dtype}")
+            print(f"  DiT dtype: {args.dit_dtype}")
+            from deployment_scripts.trt_model_forward import setup_tensorrt_engines
+
+            setup_tensorrt_engines(
+                policy, args.trt_engine_path, args.vit_dtype, args.llm_dtype, args.dit_dtype
+            )
+            print("TensorRT engines loaded successfully!")
 
         # Start the server
         if args.http_server:

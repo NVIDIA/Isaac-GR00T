@@ -50,9 +50,7 @@ from pprint import pformat
 import draccus
 import matplotlib.pyplot as plt
 import numpy as np
-from lerobot.cameras.opencv.configuration_opencv import (  # noqa: F401
-    OpenCVCameraConfig,
-)
+from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig  # noqa: F401
 from lerobot.robots import (  # noqa: F401
     Robot,
     RobotConfig,
@@ -61,10 +59,7 @@ from lerobot.robots import (  # noqa: F401
     so100_follower,
     so101_follower,
 )
-from lerobot.utils.utils import (
-    init_logging,
-    log_say,
-)
+from lerobot.utils.utils import init_logging, log_say
 
 # NOTE:
 # Sometimes we would like to abstract different env, or run this on a separate machine

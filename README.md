@@ -306,22 +306,22 @@ You will then see a plot of Ground Truth vs Predicted actions, along with unnorm
 
 A detailed guide for deploying GR00T N1.5 on Jetson is available in [`deployment_scripts/README.md`](deployment_scripts/README.md).
 
-Here's comparison of E2E performance between PyTorch and TensorRT on Orin
+Here's comparison of E2E performance between PyTorch and TensorRT on Thor
 
 <div align="center">
-<img src="media/orin-perf.png" width="800" alt="orin-perf">
+<img src="media/thor-perf.png" width="1200" alt="thor-perf">
 </div>
 
 Model latency measured by `trtexec` with batch_size=1.     
-| Model Name                                     |Orin benchmark perf (ms)  |Precision|
-|:----------------------------------------------:|:------------------------:|:-------:|
-| Action_Head - process_backbone_output          | 5.17                     |FP16     |
-| Action_Head - state_encoder                    | 0.05                     |FP16     |
-| Action_Head - action_encoder                   | 0.20                     |FP16     |
-| Action_Head - DiT                              | 7.77                     |FP16     |
-| Action_Head - action_decoder                   | 0.04                     |FP16     |
-| VLM - ViT                                      |11.96                     |FP16     |
-| VLM - LLM                                      |17.25                     |FP16     |  
+| Model Name                                     |Thor benchmark perf (ms) (FP16) |Thor benchmark perf (ms) (FP8+FP4) |
+|:----------------------------------------------:|:------------------------------:|:---------------------------------:|
+| Action_Head - process_backbone_output          | 2.35                           | /                                 |
+| Action_Head - state_encoder                    | 0.04                           | /                                 |
+| Action_Head - action_encoder                   | 0.10                           | /                                 |
+| Action_Head - DiT                              | 5.46                           | 3.41                              |
+| Action_Head - action_decoder                   | 0.03                           | /                                 |
+| VLM - ViT                                      | 5.21                           | 4.10                              |
+| VLM - LLM                                      | 8.53                           | 5.81                              |
       
 **Note**: The module latency (e.g., DiT Block) in pipeline is slightly longer than the model latency in benchmark table above because the module (e.g., Action_Head - DiT) latency not only includes the model latency in table above but also accounts for the overhead of data transfer from PyTorch to TRT and returning from TRT to PyTorch.
 
