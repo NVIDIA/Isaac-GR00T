@@ -29,8 +29,6 @@ from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 
-COMPUTE_DTYPE = torch.bfloat16
-
 
 class BasePolicy(ABC):
     @abstractmethod
@@ -70,6 +68,7 @@ class Gr00tPolicy(BasePolicy):
         modality_transform: ComposedModalityTransform,
         denoising_steps: Optional[int] = None,
         device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
+        compute_dtype: Optional[torch.dtype] = torch.bfloat16,
     ):
         """
         Initialize the Gr00tPolicy.
@@ -97,6 +96,7 @@ class Gr00tPolicy(BasePolicy):
         self._modality_transform.eval()  # set this to eval mode
         self.model_path = Path(model_path)
         self.device = device
+        self.compute_dtype = compute_dtype
 
         # Convert string embodiment tag to EmbodimentTag enum if needed
         if isinstance(embodiment_tag, str):
@@ -143,7 +143,7 @@ class Gr00tPolicy(BasePolicy):
         """
         return self._modality_transform.unapply(action)
 
-    def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
+    def get_action(self, observations: Dict[str, Any], use_position_ids: Optional[bool] = False) -> Dict[str, Any]:
         """
         Make a prediction with the model.
         Args:
@@ -178,17 +178,17 @@ class Gr00tPolicy(BasePolicy):
                 obs_copy[k] = np.array(v)
 
         normalized_input = self.apply_transforms(obs_copy)
-        normalized_action = self._get_action_from_normalized_input(normalized_input)
+        normalized_action = self._get_action_from_normalized_input(normalized_input, use_position_ids=use_position_ids)
         unnormalized_action = self._get_unnormalized_action(normalized_action)
 
         if not is_batch:
             unnormalized_action = squeeze_dict_values(unnormalized_action)
         return unnormalized_action
 
-    def _get_action_from_normalized_input(self, normalized_input: Dict[str, Any]) -> torch.Tensor:
+    def _get_action_from_normalized_input(self, normalized_input: Dict[str, Any], use_position_ids: Optional[bool] = False) -> torch.Tensor:
         # Set up autocast context if needed
-        with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=COMPUTE_DTYPE):
-            model_pred = self.model.get_action(normalized_input)
+        with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=self.compute_dtype):
+            model_pred = self.model.get_action(normalized_input, use_position_ids=use_position_ids)
 
         normalized_action = model_pred["action_pred"].float()
         return normalized_action
@@ -237,7 +237,7 @@ class Gr00tPolicy(BasePolicy):
         return True
 
     def _load_model(self, model_path):
-        model = GR00T_N1_5.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        model = GR00T_N1_5.from_pretrained(model_path, torch_dtype=self.compute_dtype)
         model.eval()  # Set model to eval mode
 
         # Update action_horizon to match modality config

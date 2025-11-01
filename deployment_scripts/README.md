@@ -100,6 +100,34 @@ Inference with TensorRT
 python deployment_scripts/gr00t_inference.py --inference_mode=tensorrt
 ```
 
+### 2.3 Inference with Torch-TensorRT
+[Torch-TensorRT](https://docs.pytorch.org/TensorRT/) is a inference compiler for PyTorch, targeting NVIDIA GPUs via NVIDIA's TensorRT Deep Learning Optimizer and Runtime. Torch-TensorRT integrates seamlessly into the PyTorch ecosystem supporting hybrid execution of optimized TensorRT code with standard PyTorch code. To run GR00T-N1.5-3B model using Torch-TensorRT on Jetson Thor, please follow these instructions. 
+
+1) Launch the container 
+
+```bash
+docker run --rm -it --runtime nvidia -v "$PWD":/workspace -w /workspace isaac-gr00t-n1.5:l4t-jp7.0
+```
+
+2) Install dependencies 
+ 
+Install `torch-tensorrt==2.9.0` along with its dependencies `torch==2.9.0` and `torchvision==0.24.0`. Additionally, uninstall `flash_attn` to avoid potential conflicts, as it is not required for inference.
+
+```bash
+pip uninstall -y flash_attn torch
+pip install torch==2.9.0 torchvision==0.24.0 --index-url https://download.pytorch.org/whl/cu130
+```
+
+3) Run the model with Torch-TensorRT
+
+```py
+python deployment_scripts/run_groot_torchtrt.py --precision FP16 --use_fp32_acc --use_explicit_typing --fn_name all  --benchmark cuda_event
+```
+This will compile and optimize VIT, LLM, VLLN components, state_encoder, action_encoder, DIT and action decoder components respectively.
+ 
+**Note**: For additional command-line options and configurations, please refer to the `deployment_scripts/run_groot_torchtrt.py` script.
+
+
 ## 3. Performance
 ### 3.1 Pipline Performance
 Here's comparison of E2E performance between PyTorch and TensorRT on Orin:

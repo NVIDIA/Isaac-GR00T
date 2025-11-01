@@ -27,13 +27,14 @@ RUN apt-get update && \
 
 WORKDIR /workspace
 
-COPY pyproject.toml .
+# Copy the entire project (especially the gr00t/ source directory)
+COPY . .
 
 # Set to get precompiled jetson wheels
 RUN export PIP_INDEX_URL=https://pypi.jetson-ai-lab.io/sbsa/cu130 && \
     export PIP_TRUSTED_HOST=pypi.jetson-ai-lab.io && \
     pip3 install --upgrade pip setuptools && \
-    pip3 install -e .[thor]
+    pip3 install .[thor] --no-build-isolation
 
 # Build and install decord
 RUN cd /tmp && \

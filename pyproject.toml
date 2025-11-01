@@ -98,7 +98,7 @@ orin = [
 ]
 thor = [
     # Thor-specific versions and packages
-    "pytorch3d==0.7.8",
+    "pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git",
     "tensorflow==2.18.0",
     "diffusers==0.36.0.dev0",
     "opencv_python==4.11.0.86",
@@ -125,7 +125,12 @@ exclude = [
 include-package-data = true
 
 [tool.setuptools.package-data]
-gr00t = ["py.typed"]
+gr00t = [
+    "py.typed",
+    "model/backbone/eagle2_hg_model/*.json",
+    "model/backbone/eagle2_hg_model/*.py",
+    "model/backbone/eagle2_hg_model/*.txt",
+]
 
 [tool.setuptools.dynamic]
 version = {attr = "gr00t.version.VERSION"}
