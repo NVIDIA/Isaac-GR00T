@@ -32,6 +32,11 @@ from gr00t.data.dataset import LeRobotSingleDataset
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.model.backbone.eagle_backbone import DEFAULT_EAGLE_PATH, EagleBackbone
 from gr00t.model.policy import Gr00tPolicy, unsqueeze_dict_values
+from modelopt.torch._deploy.utils import get_onnx_bytes
+import modelopt.torch.quantization as mtq
+
+
+ONNX_MODEL_DTYPE = torch.float16
 
 
 def get_input_info(policy, observations):
@@ -47,6 +52,7 @@ def get_input_info(policy, observations):
 
 
 def export_eagle2_vit(vision_model, output_dir):
+
     class SiglipVisionEmbeddingsOpt(SiglipVisionEmbeddings):
         def __init__(self, config):
             super().__init__(config)
@@ -385,21 +391,201 @@ def export_action_head(policy, ONNX_export_path, input_state, attention_mask):
     )
 
 
+def prepare_sample_inputs(policy: Gr00tPolicy, step_data: Dict) -> Dict:
+    """Prepare sample inputs from dataset for ONNX export"""
+
+    # Apply transforms to get normalized inputs
+    normalized_input = policy.apply_transforms(step_data)
+
+    # Extract the inputs we need
+    normalized_input["eagle_pixel_values"] = (
+        normalized_input["eagle_pixel_values"].to(ONNX_MODEL_DTYPE).cuda()
+    )
+    normalized_input["eagle_input_ids"] = normalized_input["eagle_input_ids"].to(torch.int64).cuda()
+    normalized_input["eagle_attention_mask"] = (
+        normalized_input["eagle_attention_mask"].to(torch.int64).cuda()
+    )
+    normalized_input["state"] = normalized_input["state"].to(ONNX_MODEL_DTYPE).cuda()
+    normalized_input["embodiment_id"] = normalized_input["embodiment_id"].to(torch.int64).cuda()
+    pixel_values = normalized_input["eagle_pixel_values"].to(ONNX_MODEL_DTYPE).cuda()
+    actions = torch.zeros(
+        size=(
+            pixel_values.shape[0],
+            policy.model.action_head.config.action_horizon,
+            policy.model.action_head.config.action_dim,
+        ),
+        dtype=ONNX_MODEL_DTYPE,
+        device=pixel_values.device,
+    )
+    normalized_input["init_actions"] = actions
+
+    return normalized_input
+
+
+def export_full_model(
+    policy,
+    ONNX_export_path,
+    dataset,
+    num_calibration_samples,
+    quantization,
+):
+
+    def onnx_forward(pixel_values, input_ids, attention_mask, state, embodiment_id, init_actions):
+        from transformers.feature_extraction_utils import BatchFeature
+
+        inputs_dict = {
+            "eagle_pixel_values": pixel_values.to(ONNX_MODEL_DTYPE),
+            "eagle_input_ids": input_ids.to(torch.int64),
+            "eagle_attention_mask": attention_mask.to(torch.int64),
+            "state": state.to(ONNX_MODEL_DTYPE),
+            "embodiment_id": embodiment_id.to(torch.int64),
+            "init_actions": init_actions,
+        }
+        inputs = BatchFeature(data=inputs_dict)
+
+        backbone_outputs = policy.model.backbone(inputs)
+        result = policy.model.action_head.get_action(backbone_outputs, inputs)
+        output = result["action_pred"]
+
+        return output
+
+    full_model = policy.model
+    full_model.eval()
+    full_model = full_model.to(ONNX_MODEL_DTYPE).cuda()
+    full_model.forward = onnx_forward
+    full_model.backbone.eagle_model.config._attn_implementation = "eager"
+    full_model.backbone.eagle_model.config.text_config._attn_implementation = "eager"
+    full_model.backbone.eagle_model.config.vision_config._attn_implementation = "eager"
+
+    if quantization == "fp8":
+        quantization_config = mtq.FP8_DEFAULT_CFG
+    else:
+        quantization_config = None
+
+    if quantization_config is not None:
+        print(f"Quantizing full model to {quantization_config} ")
+        quantize(full_model, dataset, policy, num_calibration_samples, quantization_config)
+
+    step_data = dataset[0]
+    step_data = unsqueeze_dict_values(step_data)  # Add batch dimension
+    sample_inputs = prepare_sample_inputs(policy, step_data)
+
+    # Create output directory
+    os.makedirs(os.path.join(ONNX_export_path, "full_model"), exist_ok=True)
+
+    # Extract sample inputs
+    pixel_values = sample_inputs["eagle_pixel_values"]
+    input_ids = sample_inputs["eagle_input_ids"]
+    attention_mask = sample_inputs["eagle_attention_mask"]
+    # Note: image_sizes not needed - forward_eagle uses .pop() to handle its absence
+    state = sample_inputs["state"]
+    embodiment_id = sample_inputs["embodiment_id"]
+
+    # Create initial actions for ONNX export (this will be an input to the model)
+    init_actions = torch.randn(
+        size=(
+            pixel_values.shape[0],
+            policy.model.action_head.config.action_horizon,
+            policy.model.action_head.config.action_dim,
+        ),
+        dtype=ONNX_MODEL_DTYPE,
+        device=pixel_values.device,
+    )
+
+    # Ensure all floating point tensors are in the same dtype (float16)
+    pixel_values = pixel_values.to(ONNX_MODEL_DTYPE)
+    state = state.to(ONNX_MODEL_DTYPE)
+    init_actions = init_actions.to(ONNX_MODEL_DTYPE)
+
+    with torch.inference_mode():
+        torch.onnx.export(
+            full_model,
+            (pixel_values, input_ids, attention_mask, state, embodiment_id, init_actions),
+            os.path.join(ONNX_export_path, "full_model/full_model.onnx"),
+            input_names=[
+                "pixel_values",
+                "input_ids",
+                "attention_mask",
+                "state",
+                "embodiment_id",
+                "init_actions",
+            ],
+            output_names=["output"],
+            opset_version=20,
+            do_constant_folding=True,  # Enable constant folding to optimize the graph
+            export_params=True,  # Export model parameters
+            verbose=False,  # Set to True for debugging
+            dynamic_axes={
+                "pixel_values": {0: "batch_size"},
+                "input_ids": {0: "batch_size", 1: "sequence_length"},
+                "attention_mask": {0: "batch_size", 1: "sequence_length"},
+                "state": {0: "batch_size"},
+                "embodiment_id": {0: "batch_size"},
+                "init_actions": {0: "batch_size"},
+                "output": {0: "batch_size"},
+            },
+        )
+
+
+def quantize(model_to_quantize, dataset, policy, num_calibration_samples, quantization_config):
+    def forward_loop(model):
+        print("Calibrating Full Model...")
+        for i, step_data in enumerate(dataset):
+            if i > num_calibration_samples:
+                break
+
+            step_data = unsqueeze_dict_values(step_data)  # Add batch dimension
+            sample_inputs = prepare_sample_inputs(policy, step_data)
+
+            # Extract sample inputs
+            pixel_values = sample_inputs["eagle_pixel_values"]
+            input_ids = sample_inputs["eagle_input_ids"]
+            attention_mask = sample_inputs["eagle_attention_mask"]
+            # Note: image_sizes not needed - forward_eagle uses .pop() to handle its absence
+            state = sample_inputs["state"]
+            embodiment_id = sample_inputs["embodiment_id"]
+
+            actions = torch.zeros(
+                size=(
+                    pixel_values.shape[0],
+                    policy.model.action_head.config.action_horizon,
+                    policy.model.action_head.config.action_dim,
+                ),
+                dtype=ONNX_MODEL_DTYPE,
+                device=pixel_values.device,
+            )
+
+            # Run forward pass with proper dtype handling
+            model(pixel_values, input_ids, attention_mask, state, embodiment_id, actions)
+
+        print("Full model calibration finished.")
+
+    # Create a copy of the default FP8 configuration
+    for layer_to_disable in ["*.embeddings.patch_embedding.*"]:
+        quantization_config["quant_cfg"][layer_to_disable] = {"enable": False}
+
+    mtq.quantize(model_to_quantize, quantization_config, forward_loop=forward_loop)
+    mtq.print_quant_summary(model_to_quantize)
+
+
 def run_groot_inference(
     dataset_path: str,
     model_path: str,
     onnx_model_path: str,
+    full_model: str,
+    quantization: str,
     device: str = "cuda",
+    embodiment_tag: str = "gr1",
+    data_config_id: str = "fourier_gr1_arms_only",
 ) -> Dict[str, float]:
 
     # load the policy
-    data_config = DATA_CONFIG_MAP["fourier_gr1_arms_only"]
+    data_config = DATA_CONFIG_MAP[data_config_id]
     modality_config = data_config.modality_config()
     modality_transform = data_config.transform()
-    EMBODIMENT_TAG = "gr1"
     policy = Gr00tPolicy(
         model_path=model_path,
-        embodiment_tag=EMBODIMENT_TAG,
+        embodiment_tag=embodiment_tag,
         modality_config=modality_config,
         modality_transform=modality_transform,
         device=device,
@@ -412,7 +598,7 @@ def run_groot_inference(
         video_backend="decord",
         video_backend_kwargs=None,
         transforms=None,  # We'll handle transforms separately through the policy
-        embodiment_tag=EMBODIMENT_TAG,
+        embodiment_tag=embodiment_tag,
     )
 
     step_data = dataset[0]
@@ -420,16 +606,29 @@ def run_groot_inference(
     predicted_action = policy.get_action(step_data)
 
     attention_mask, state = get_input_info(policy, step_data)
-    # export onnx
-    os.makedirs(onnx_model_path, exist_ok=True)
-    os.makedirs(os.path.join(onnx_model_path, "eagle2"), exist_ok=True)
-    os.makedirs(os.path.join(onnx_model_path, "action_head"), exist_ok=True)
 
-    export_eagle2_vit(policy.model.backbone.eagle_model.vision_model.vision_model, onnx_model_path)
-    export_eagle2_llm(
-        policy.model.backbone, policy.model.config.backbone_cfg, onnx_model_path, attention_mask
-    )
-    export_action_head(policy, onnx_model_path, state, attention_mask)
+    # export onnx
+    if full_model:
+        os.makedirs(onnx_model_path, exist_ok=True)
+        # quantization
+        num_calibration_samples = 100
+        export_full_model(
+            policy,
+            onnx_model_path,
+            dataset,
+            num_calibration_samples,
+            quantization,
+        )
+    else:
+        os.makedirs(os.path.join(onnx_model_path, "eagle2"), exist_ok=True)
+        os.makedirs(os.path.join(onnx_model_path, "action_head"), exist_ok=True)
+        export_eagle2_vit(
+            policy.model.backbone.eagle_model.vision_model.vision_model, onnx_model_path
+        )
+        export_eagle2_llm(
+            policy.model.backbone, policy.model.config.backbone_cfg, onnx_model_path, attention_mask
+        )
+        export_action_head(policy, onnx_model_path, state, attention_mask)
 
     return predicted_action
 
@@ -457,15 +656,50 @@ if __name__ == "__main__":
         default=os.path.join(os.getcwd(), "gr00t_onnx"),
     )
 
+    parser.add_argument(
+        "--full_model",
+        action="store_true",
+        help="Export full model",
+    )
+
+    parser.add_argument(
+        "--quantization",
+        type=str,
+        default="fp16", 
+        help="Quantization type. Allowed values: fp16, fp8",
+    )
+
+    parser.add_argument(
+        "--embodiment_tag",
+        type=str,
+        default="gr1",
+        help="Embodiment tag",
+    )
+
+    parser.add_argument(
+        "--data_config",
+        type=str,
+        default="fourier_gr1_arms_only",
+        help="Data config",
+    )
+
     args = parser.parse_args()
 
     print(f"Dataset path: {args.dataset_path}")
     print(f"Model path: {args.model_path}")
     print(f"ONNX model path: {args.onnx_model_path}")
+    print(f"Full model: {args.full_model}")
+    print(f"Quantization: {args.quantization}")
+    print(f"Embodiment tag: {args.embodiment_tag}")
+    print(f"Data config: {args.data_config}")
     predicted_action = run_groot_inference(
-        args.dataset_path,
-        args.model_path,
-        args.onnx_model_path,
+        dataset_path=args.dataset_path,
+        model_path=args.model_path,
+        onnx_model_path=args.onnx_model_path,
+        full_model=args.full_model,
+        quantization=args.quantization,
+        embodiment_tag=args.embodiment_tag,
+        data_config_id=args.data_config,
     )
 
     for key, value in predicted_action.items():
