@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
-
+import torch
 # Required for robocasa environments
 import robocasa  # noqa: F401
 import robosuite  # noqa: F401
@@ -60,8 +60,8 @@ class VideoConfig:
 class MultiStepConfig:
     """Configuration for multi-step environment settings."""
 
-    video_delta_indices: np.ndarray = field(default=np.array([0]))
-    state_delta_indices: np.ndarray = field(default=np.array([0]))
+    video_delta_indices: np.ndarray = field(default_factory=lambda: np.array([0], dtype=np.int32))
+    state_delta_indices: np.ndarray = field(default_factory=lambda: np.array([0], dtype=np.int32))
     n_action_steps: int = 16
     max_episode_steps: int = 1440
 
@@ -113,7 +113,7 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
                 context="spawn",
             )
 
-    def run_simulation(self, config: SimulationConfig) -> Tuple[str, List[bool]]:
+    def run_simulation(self, config: SimulationConfig, **kwargs) -> Tuple[str, List[bool]]:
         """Run the simulation for the specified number of episodes."""
         start_time = time.time()
         print(
@@ -130,11 +130,16 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
         episode_successes = []
         # Initial environment reset
         obs, _ = self.env.reset()
+
         # Main simulation loop
         while completed_episodes < config.n_episodes:
+            # This needs to be in the loop because obs is overwritten in each iteration
+            if "use_position_ids" in kwargs:
+                obs["use_position_ids"] = kwargs["use_position_ids"]
             # Process observations and get actions from the server
             actions = self._get_actions_from_server(obs)
             # Step the environment
+
             next_obs, rewards, terminations, truncations, env_infos = self.env.step(actions)
             # Update episode tracking
             for env_idx in range(config.n_envs):

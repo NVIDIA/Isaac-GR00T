@@ -54,18 +54,24 @@ Note: TensorRT engines must be built before running with --use-tensorrt flag.
 See deployment_scripts/README.md for instructions on building TensorRT engines.
 """
 
+import os
 import time
 from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
 import tyro
+# Global attention implementation setting
+# Read from environment variable first, otherwise default to "eager". 
+# We use eager instead of flash_attention_2 since flash_attention_2 export is not supported by Torch-TensorRT.
+ATTN_IMPLEMENTATION = os.environ.setdefault("ATTN_IMPLEMENTATION", "eager")
 
 from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient, RobotInferenceServer
 from gr00t.experiment.data_config import load_data_config
 from gr00t.model.policy import Gr00tPolicy
-
+from deployment_scripts.run_groot_torchtrt import compile_eagle_backbone, compile_action_head, get_dataset, get_input_info, get_torch_dtype
+from deployment_scripts.action_head_utils import action_head_pytorch_forward
 
 @dataclass
 class ArgsConfig:
@@ -120,6 +126,24 @@ class ArgsConfig:
 
     dit_dtype: Literal["fp16", "fp8"] = "fp8"
     """DiT model dtype (fp16, fp8). Only used when use_tensorrt is True."""
+
+    use_torch_tensorrt: bool = False
+    """Whether to use Torch-TensorRT for inference. Requires Torch-TensorRT to be installed."""
+
+    dataset_path: str = os.path.join(os.getcwd(), "./demo_data/robot_sim.PickNPlace")
+    """Path to the dataset. Only used when use_torch_tensorrt is True. Default is the path to the dataset in the repo."""
+
+    precision: Literal["bf16", "fp16", "fp8"] = "bf16"
+    """Precision for the model. Only used when use_torch_tensorrt is True."""
+
+    device: Literal["cuda", "cpu"] = "cuda"
+    """Device for the model. Only used when use_torch_tensorrt is True."""
+
+    use_explicit_typing: bool = True
+    """Whether to use explicit typing for the model. Only used when use_torch_tensorrt is True."""
+
+    use_fp32_acc: bool = True
+    """Whether to use fp32 accumulation for the model. Only used when use_torch_tensorrt is True."""
 
 
 #####################################################################################
@@ -190,6 +214,8 @@ def main(args: ArgsConfig):
             modality_transform=modality_transform,
             embodiment_tag=args.embodiment_tag,
             denoising_steps=args.denoising_steps,
+            compute_dtype=get_torch_dtype(args.precision),
+            device=args.device
         )
 
         # Setup TensorRT if requested
@@ -204,6 +230,59 @@ def main(args: ArgsConfig):
                 policy, args.trt_engine_path, args.vit_dtype, args.llm_dtype, args.dit_dtype
             )
             print("TensorRT engines loaded successfully!")
+
+        if args.use_torch_tensorrt:
+            assert not args.use_tensorrt, "Cannot use both --use-tensorrt and --use_torch_tensorrt"
+            
+            import torch
+            from functools import partial
+            # Create argparse.Namespace with required arguments for Torch-TensorRT compilation
+            import argparse
+            trt_args = argparse.Namespace()
+            trt_args.precision = args.precision
+            trt_args.device = args.device
+            trt_args.use_explicit_typing = args.use_explicit_typing
+            trt_args.use_fp32_acc = args.use_fp32_acc
+            trt_args.vit_dtype = getattr(args, 'vit_dtype', 'fp16')
+            trt_args.llm_dtype = getattr(args, 'llm_dtype', 'fp16')
+            trt_args.dit_dtype = getattr(args, 'dit_dtype', 'fp16')
+            trt_args.use_onnx_vit = getattr(args, 'use_onnx_vit', False)
+            trt_args.use_onnx_llm = getattr(args, 'use_onnx_llm', False)
+            trt_args.debug = getattr(args, 'debug', False)
+            trt_args.eval = getattr(args, 'eval', False)
+            trt_args.benchmark = getattr(args, 'benchmark', False)
+            trt_args.fn_name = getattr(args, 'fn_name', 'all')
+            trt_args.dataset_path = getattr(args, 'dataset_path', None)
+            trt_args.model_path = args.model_path
+            trt_args.embodiment_tag = args.embodiment_tag
+            trt_args.denoising_steps = args.denoising_steps
+            trt_args.data_config = args.data_config
+            trt_args.use_eagle_backbone_joint = getattr(args, 'use_eagle_backbone_joint', False)
+            trt_args.disable_tf32 = getattr(args, 'disable_tf32', False)
+            trt_args.use_cpp_runtime = getattr(args, 'use_cpp_runtime', False)
+            trt_args.cpu_offload = getattr(args, 'cpu_offload', False)
+
+            policy.model = policy.model.eval().to(get_torch_dtype(trt_args.precision)).to(trt_args.device)
+            # Ensure attention implementation is set correctly (should already be set in EagleBackbone.__init__)
+            policy.model.backbone.eagle_model.vision_model.config._attn_implementation = ATTN_IMPLEMENTATION
+            policy.model.backbone.eagle_model.language_model.config._attn_implementation = ATTN_IMPLEMENTATION
+            if not hasattr(policy.model.action_head, "init_actions"):
+                policy.model.action_head.init_actions = torch.randn(
+                    (1, policy.model.action_head.action_horizon, policy.model.action_head.action_dim),
+                    dtype=get_torch_dtype(trt_args.precision),
+                    device=args.device,
+                )
+            
+            policy.model.action_head.get_action = partial(
+                action_head_pytorch_forward, policy.model.action_head
+            )
+            
+            step_data = get_dataset(trt_args)
+            attention_mask, state = get_input_info(policy, step_data)
+            trt_eagle_backbone = compile_eagle_backbone(policy.model.backbone.eagle_model, args=trt_args)
+            policy.model.backbone.eagle_model = trt_eagle_backbone
+            trt_action_head = compile_action_head(policy.model.action_head, trt_args, attention_mask=attention_mask, state=state)
+            policy.model.action_head = trt_action_head
 
         # Start the server
         if args.http_server:

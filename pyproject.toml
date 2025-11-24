@@ -98,8 +98,6 @@ orin = [
 ]
 thor = [
     # Thor-specific versions and packages
-    "pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git",
-    "tensorflow==2.18.0",
     "torchcodec==0.7.0",
     "onnxscript==0.5.3",
     "onnx-ir==0.1.10",

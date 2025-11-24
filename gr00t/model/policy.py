@@ -165,9 +165,11 @@ class Gr00tPolicy(BasePolicy):
         Returns:
             Dict[str, Any]: The predicted action.
         """
-        # Create a copy to avoid mutating input
         obs_copy = observations.copy()
-
+        if "use_position_ids" in obs_copy:
+            use_position_ids = obs_copy["use_position_ids"]
+            del obs_copy["use_position_ids"]
+        # Create a copy to avoid mutating input
         is_batch = self._check_state_is_batched(obs_copy)
         if not is_batch:
             obs_copy = unsqueeze_dict_values(obs_copy)

@@ -17,7 +17,7 @@ from transformers.modeling_outputs import BaseModelOutputWithPooling
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from functools import partial
 from typing import Any, Optional
-from utils import benchmark_policy, compare_benchmark_outputs
+from deployment_scripts.utils import benchmark_policy, compare_benchmark_outputs
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers.models.siglip.modeling_siglip import (
@@ -25,6 +25,10 @@ from transformers.models.siglip.modeling_siglip import (
     SiglipVisionTransformer,
 )
 from transformers.models.siglip.configuration_siglip import SiglipVisionConfig
+try:
+    from modelopt.torch.quantization.utils import export_torch_mode
+except ImportError:
+    export_torch_mode = nullcontext
 
 # Use this command to run this script:
 # python run_groot.py --precision FP16 --use_fp32_acc --use_explicit_typing --fn_name all  --benchmark cuda_event 
@@ -66,7 +70,7 @@ def get_dataset(args: argparse.Namespace):
     Get the dataset.
     """
     with torch.inference_mode(), torch.no_grad():
-        data_config = DATA_CONFIG_MAP["fourier_gr1_arms_only"]
+        data_config = DATA_CONFIG_MAP[args.data_config]
         modality_config = data_config.modality_config()
         # load the dataset
         dataset = LeRobotSingleDataset(
@@ -250,7 +254,7 @@ def compile_vision_model(vision_model: torch.nn.Module, args: argparse.Namespace
     """
     Compile the vision model of the eagle backbone using Torch-TensorRT.
     """
-
+    
     if args.use_onnx_vit:
         trt_vision_model = compile_onnx_vit_model(vision_model, args)
         return trt_vision_model
@@ -273,6 +277,7 @@ def compile_vision_model(vision_model: torch.nn.Module, args: argparse.Namespace
         "output_hidden_states": False,
         # "return_dict": True,
     }
+    
     # Enable this if you need dynamic batch size
     # BATCH_DIM = torch.export.Dim("batch", min=1, max=8)
     # kwarg_dynamic_shapes = {
@@ -283,16 +288,23 @@ def compile_vision_model(vision_model: torch.nn.Module, args: argparse.Namespace
 
     settings = get_compilation_args(args)
     settings.update({"allow_complex_guards_as_runtime_asserts": True})
-    trt_vision_model = torch_tensorrt.MutableTorchTensorRTModule(vision_model, **settings)
-    with (torch_tensorrt.dynamo.Debugger() if args.debug else nullcontext()):
-        trt_vision_model(**kwarg_inputs)
-    
-    eval_outputs(vision_model, trt_vision_model, kwarg_inputs, args)
 
-    if args.benchmark and args.fn_name == "vision_model":
-        pyt_timings = benchmark_policy(vision_model, (), kwarg_inputs, args=args)
-        trt_timings = benchmark_policy(trt_vision_model, (), kwarg_inputs, args=args)
-        compare_benchmark_outputs(pyt_timings, trt_timings)
+    trt_vision_model = torch_tensorrt.MutableTorchTensorRTModule(vision_model, **settings)
+
+    with (export_torch_mode() if args.vit_dtype=="fp8" else nullcontext()):
+        with (torch_tensorrt.dynamo.Debugger() if args.debug else nullcontext()):
+            trt_vision_model(**kwarg_inputs)
+
+        eval_outputs(vision_model, trt_vision_model, kwarg_inputs, args)
+
+        if args.benchmark and args.fn_name == "vision_model":
+            trt_timings = benchmark_policy(trt_vision_model, (), kwarg_inputs, args=args)
+            if not args.vit_dtype == "fp8":
+                pyt_timings = benchmark_policy(vision_model, (), kwarg_inputs, args=args)
+            else:
+                pyt_timings = trt_timings
+            
+            compare_benchmark_outputs(pyt_timings, trt_timings)
 
     return trt_vision_model
 
@@ -300,12 +312,9 @@ def compile_language_model(language_model: torch.nn.Module, args: argparse.Names
     """
     Compile the language model of the eagle backbone using Torch-TensorRT.
     """
-    if args.use_onnx_llm:
-        trt_language_model = compile_language_model_with_attention_mask(language_model, args, attention_mask=attention_mask)
-        return trt_language_model
 
     BATCH_SIZE = 1
-    SEQ_LEN = 283 #attention_mask.shape[1] if attention_mask is not None else 283
+    SEQ_LEN = 296 #attention_mask.shape[1] if attention_mask is not None else 296
     HIDDEN_SIZE = 2048
 
     inputs_embeds = torch.randn((BATCH_SIZE, SEQ_LEN, HIDDEN_SIZE), dtype=get_torch_dtype(args.precision), device=args.device)
@@ -317,7 +326,7 @@ def compile_language_model(language_model: torch.nn.Module, args: argparse.Names
     }
 
     BATCH_DIM = torch.export.Dim("batch", min=1, max=8)
-    SEQ_LEN_DIM = torch.export.Dim("seq_len", min=1, max=300)
+    SEQ_LEN_DIM = torch.export.Dim("seq_len", min=1, max=350)
     kwarg_dynamic_shapes = {
         "inputs_embeds": {1: SEQ_LEN_DIM}, # 0: BATCH_DIM, 
         "position_ids": {1: SEQ_LEN_DIM}, # 0: BATCH_DIM, 
@@ -327,63 +336,23 @@ def compile_language_model(language_model: torch.nn.Module, args: argparse.Names
     settings = get_compilation_args(args)
     trt_language_model = torch_tensorrt.MutableTorchTensorRTModule(language_model, **settings)
     trt_language_model.set_expected_dynamic_shape_range((), kwarg_dynamic_shapes)
-    with (torch_tensorrt.dynamo.Debugger() if args.debug else nullcontext()):
-        trt_language_model(**kwarg_inputs)
+    with (export_torch_mode() if args.llm_dtype=="fp8" else nullcontext()):
+        with (torch_tensorrt.dynamo.Debugger() if args.debug else nullcontext()):
+            trt_language_model(**kwarg_inputs)
     
     eval_outputs(language_model, trt_language_model, kwarg_inputs, args)
 
     if args.benchmark and args.fn_name == "language_model":
-        pyt_timings = benchmark_policy(language_model, (), kwarg_inputs, args=args)
         trt_timings = benchmark_policy(trt_language_model, (), kwarg_inputs, args=args)
+        if not args.llm_dtype == "fp8":
+            pyt_timings = benchmark_policy(language_model, (), kwarg_inputs, args=args)
+        else:
+            pyt_timings = trt_timings
+        
         compare_benchmark_outputs(pyt_timings, trt_timings)
 
     return trt_language_model
 
-def compile_language_model_with_attention_mask(language_model: torch.nn.Module, args: argparse.Namespace, attention_mask: Optional[torch.Tensor] = None):
-    """
-    Compile the language model of the eagle backbone using Torch-TensorRT.
-    """
-    BATCH_SIZE = 1
-    SEQ_LEN = 283 #attention_mask.shape[1] if attention_mask is not None else 283
-    HIDDEN_SIZE = 2048
-
-    inputs_embeds = torch.randn((BATCH_SIZE, SEQ_LEN, HIDDEN_SIZE), dtype=get_torch_dtype(args.precision), device=args.device)
-    attention_mask = torch.ones((BATCH_SIZE, SEQ_LEN), dtype=torch.int64, device=args.device)
-    cache_position = torch.arange(SEQ_LEN, dtype=torch.int64, device=args.device)
-    position_ids = torch.arange(SEQ_LEN, dtype=torch.int64, device=args.device).unsqueeze(0).repeat(BATCH_SIZE, 1)
-    kwarg_inputs = {
-        "inputs_embeds": inputs_embeds,
-        # "cache_position": cache_position,
-        "position_ids": position_ids,
-        # "attention_mask": attention_mask,
-        "output_hidden_states": True,
-    }
-
-    BATCH_DIM = torch.export.Dim("batch", min=1, max=8)
-    SEQ_LEN_DIM = torch.export.Dim("seq_len", min=1, max=300)
-    kwarg_dynamic_shapes = {
-        "inputs_embeds": {1: SEQ_LEN_DIM}, # 0: BATCH_DIM, 
-        # "cache_position": {1: SEQ_LEN_DIM}, # 0: BATCH_DIM, 
-        "position_ids": {1: SEQ_LEN_DIM}, # 0: BATCH_DIM, 
-        # "attention_mask": {1: SEQ_LEN_DIM}, # 0: BATCH_DIM, 
-        "output_hidden_states": None,
-    }
-
-    settings = get_compilation_args(args)
-
-    trt_language_model = torch_tensorrt.MutableTorchTensorRTModule(language_model, **settings)
-    trt_language_model.set_expected_dynamic_shape_range((), kwarg_dynamic_shapes)
-    with (torch_tensorrt.dynamo.Debugger() if args.debug else nullcontext()):
-        trt_language_model(**kwarg_inputs)
-    
-    eval_outputs(language_model, trt_language_model, kwarg_inputs, args)
-
-    if args.benchmark and args.fn_name == "language_model":
-        pyt_timings = benchmark_policy(language_model, (), kwarg_inputs, args=args)
-        trt_timings = benchmark_policy(trt_language_model, (), kwarg_inputs, args=args)
-        compare_benchmark_outputs(pyt_timings, trt_timings)
-
-    return trt_language_model
 
 def compile_eagle_backbone(eagle_backbone: torch.nn.Module, args: argparse.Namespace, attention_mask: Optional[torch.Tensor] = None):
     """
@@ -396,9 +365,38 @@ def compile_eagle_backbone(eagle_backbone: torch.nn.Module, args: argparse.Names
     Returns:
         The compiled eagle backbone
     """
+    # This setting is specific to Eagle2.5VL model which uses SiglipVisionModel as the vision model.
+    # The use_head adds a multi-attention head on the encoder outputs which isn't used in Eagle2.5VL model
+    # and hence we set the use_head flag to False to avoid the latency introduced by the head.
+    eagle_backbone.vision_model.vision_model.use_head = False
+
     if args.use_eagle_backbone_joint:
         return compile_eagle_backbone_joint(eagle_backbone, args, attention_mask=attention_mask)
-
+    
+    # Define kwarg inputs and dynamic shapes
+    BATCH_SIZE = 1
+    SEQ_LEN = 296 #attention_mask.shape[1] if attention_mask is not None else 296
+    NUM_CHANNELS = eagle_backbone.vision_model.config.num_channels
+    IMAGE_SIZE = eagle_backbone.vision_model.config.image_size
+    input_ids = torch.randint(100, (BATCH_SIZE, SEQ_LEN), dtype=torch.int64, device=args.device)
+    position_ids = torch.arange(SEQ_LEN, dtype=torch.int64, device=args.device).unsqueeze(0).repeat(BATCH_SIZE, 1)
+    pixel_values = torch.randn(
+        (BATCH_SIZE, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE),
+        dtype=get_torch_dtype(args.precision),
+        device=args.device,
+    )
+    # input_ids cannot be random since there is index_put in the graph and it goes out of bounds if the input is random.
+    input_ids[:, : eagle_backbone.num_image_token] = eagle_backbone.image_token_index
+    
+    kwarg_inputs = {
+        "input_ids": input_ids,
+        "position_ids": position_ids,
+        "output_hidden_states": True,
+        "pixel_values": pixel_values,
+        "return_dict": True,
+    }
+    if args.benchmark and args.fn_name == "eagle_backbone":
+        pyt_timings = benchmark_policy(eagle_backbone, (), kwarg_inputs, args=args)
     eagle_backbone.vision_model.config._attn_implementation = ATTN_IMPLEMENTATION
     eagle_backbone.language_model.config._attn_implementation = ATTN_IMPLEMENTATION
 
@@ -409,6 +407,12 @@ def compile_eagle_backbone(eagle_backbone: torch.nn.Module, args: argparse.Names
     # Compile the language model
     trt_language_model = compile_language_model(eagle_backbone.language_model, args, attention_mask=attention_mask)
     eagle_backbone.language_model = trt_language_model
+
+    # eval_outputs(eagle_backbone, trt_eagle_backbone, kwarg_inputs, args)
+
+    if args.benchmark and args.fn_name == "eagle_backbone":
+        trt_timings = benchmark_policy(eagle_backbone, (), kwarg_inputs, args=args)
+        compare_benchmark_outputs(pyt_timings, trt_timings)
 
     return eagle_backbone
 
@@ -433,21 +437,20 @@ def compile_eagle_backbone_joint(eagle_backbone: torch.nn.Module, args: argparse
 
     # Define kwarg inputs and dynamic shapes
     BATCH_SIZE = 1
-    SEQ_LEN = 283 #attention_mask.shape[1] if attention_mask is not None else 283
+    SEQ_LEN = 296 #attention_mask.shape[1] if attention_mask is not None else 296
     HIDDEN_SIZE = 2048
     NUM_CHANNELS = eagle_backbone.vision_model.config.num_channels
     IMAGE_SIZE = eagle_backbone.vision_model.config.image_size
-    # The following inputs cannot be random since there is index_put in the graph and it goes out of bounds if the input is random.
-    # input_ids = torch.randint(100, (BATCH_SIZE, SEQ_LEN), dtype=torch.int64, device=args.device)
-    # position_ids = torch.arange(SEQ_LEN, dtype=torch.int64, device=args.device).unsqueeze(0).repeat(BATCH_SIZE, 1)
-    # pixel_values = torch.randn(
-    #     (BATCH_SIZE, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE),
-    #     dtype=get_torch_dtype(args.precision),
-    #     device=args.device,
-    # )
-    input_ids = torch.load('egb_input_ids.pt').to(args.device)
+    # input_ids cannot be random since there is index_put in the graph and it goes out of bounds if the input is random.
+    input_ids = torch.randint(100, (BATCH_SIZE, SEQ_LEN), dtype=torch.int64, device=args.device)
     position_ids = torch.arange(SEQ_LEN, dtype=torch.int64, device=args.device).unsqueeze(0).repeat(BATCH_SIZE, 1)
-    pixel_values = torch.load('egb_pixel_values.pt').to(args.device)
+    pixel_values = torch.randn(
+        (BATCH_SIZE, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE),
+        dtype=get_torch_dtype(args.precision),
+        device=args.device,
+    )
+    input_ids[:, : eagle_backbone.num_image_token] = eagle_backbone.image_token_index
+
     kwarg_inputs = {
         "input_ids": input_ids,
         "position_ids": position_ids,
@@ -457,7 +460,7 @@ def compile_eagle_backbone_joint(eagle_backbone: torch.nn.Module, args: argparse
     }
 
     BATCH_DIM = torch.export.Dim("batch", min=1, max=8)
-    SEQ_LEN_DIM = torch.export.Dim("seq_len", min=1, max=300)
+    SEQ_LEN_DIM = torch.export.Dim("seq_len", min=1, max=350)
     kwarg_dynamic_shapes = {
         "input_ids": {1: SEQ_LEN_DIM}, # 0: BATCH_DIM
         "position_ids": {1: SEQ_LEN_DIM}, # 0: BATCH_DIM
@@ -473,7 +476,7 @@ def compile_eagle_backbone_joint(eagle_backbone: torch.nn.Module, args: argparse
     with (torch_tensorrt.dynamo.Debugger() if args.debug else nullcontext()):
         trt_eagle_backbone(**kwarg_inputs)
     
-    eval_outputs(eagle_backbone, trt_eagle_backbone, kwarg_inputs, args)
+    # eval_outputs(eagle_backbone, trt_eagle_backbone, kwarg_inputs, args)
 
     if args.benchmark and args.fn_name == "eagle_backbone":
         pyt_timings = benchmark_policy(eagle_backbone, (), kwarg_inputs, args=args)
@@ -519,8 +522,8 @@ def compile_vl_components(model: torch.nn.Module, args: argparse.Namespace, atte
     """
     batch_size = 1
     hidden_dim = model.config.backbone_embedding_dim
-    seq_len = 283 #attention_mask.shape[1] if attention_mask is not None else 283
-    # 1 x 283 x 2048
+    seq_len = 296 #attention_mask.shape[1] if attention_mask is not None else 296
+    # 1 x 296 x 2048
     inputs = torch.randn(
         (batch_size, seq_len, hidden_dim),
         dtype=get_torch_dtype(args.precision),
@@ -651,7 +654,7 @@ def compile_dit_model(model: torch.nn.Module, args: argparse.Namespace, attentio
     seq_len = torch.export.Dim("seq_len", min=1, max=1024)
     # Enable this if you need dynamic batch size
     # batch_dim = torch.export.Dim("batch", min=1, max=8)
-    # Shape is (batch_size, 283, 2048)
+    # Shape is (batch_size, 296, 2048)
     encoder_hidden_states = torch.randn(
         (BATCH_SIZE, attention_mask.shape[1], model.config.backbone_embedding_dim),
         dtype=get_torch_dtype(args.precision),
@@ -671,15 +674,19 @@ def compile_dit_model(model: torch.nn.Module, args: argparse.Namespace, attentio
     }
     trt_dit_model = torch_tensorrt.MutableTorchTensorRTModule(model.model, **get_compilation_args(args))
     trt_dit_model.set_expected_dynamic_shape_range((), kwarg_dynamic_shapes)
-    with (torch_tensorrt.dynamo.Debugger() if args.debug else nullcontext()):
-        trt_dit_model(**kwarg_inputs)
+    with (export_torch_mode() if args.dit_dtype == "fp8" else nullcontext()):
+        with (torch_tensorrt.dynamo.Debugger() if args.debug else nullcontext()):
+            trt_dit_model(**kwarg_inputs)
 
-    eval_outputs(model.model, trt_dit_model, kwarg_inputs, args)
+        eval_outputs(model.model, trt_dit_model, kwarg_inputs, args)
 
-    if args.benchmark and args.fn_name == "dit_model":
-        pyt_timings = benchmark_policy(model.model, (), kwarg_inputs, args=args)
-        trt_timings = benchmark_policy(trt_dit_model, (), kwarg_inputs, args=args)
-        compare_benchmark_outputs(pyt_timings, trt_timings)
+        if args.benchmark and args.fn_name == "dit_model":
+            trt_timings = benchmark_policy(trt_dit_model, (), kwarg_inputs, args=args)
+            if not args.dit_dtype == "fp8":
+                pyt_timings = benchmark_policy(model.model, (), kwarg_inputs, args=args)
+            else:
+                pyt_timings = trt_timings
+            compare_benchmark_outputs(pyt_timings, trt_timings)
 
     return trt_dit_model
 
@@ -894,13 +901,71 @@ def run_groot_inference(
         # Set the model to evaluation mode and move it to the specified device with the correct precision
         model=policy.model.eval().to(args.device).to(get_torch_dtype(args.precision))
 
-        # model.action_head.state_encoder = CategorySpecificMLP(32, 64, 1024, 1536).eval().to(args.device).to(get_torch_dtype(args.precision))
-        
-        if args.use_onnx_vit:
-            model.backbone.eagle_model.vision_model = get_onnx_vit_model(model.backbone.eagle_model.vision_model, args)
         # Get the input info
         attention_mask, state = get_input_info(policy, step_data)
+
+        if args.use_onnx_vit:
+            model.backbone.eagle_model.vision_model = get_onnx_vit_model(model.backbone.eagle_model.vision_model, args)
+
+        if args.vit_dtype == "fp8":
+            from export_onnx import quantize_vit
+            model.backbone.eagle_model.vision_model = quantize_vit(
+                model.backbone.eagle_model.vision_model,
+                precision="fp8",
+                calib_size=10,
+                dataset_path=args.dataset_path,
+                modality_configs=policy.modality_config,
+                embodiment_tag="gr1",
+                policy=policy,
+                denoising_steps=args.denoising_steps,
+                data_config="fourier_gr1_arms_only",
+                model_path=args.model_path,
+                video_backend="decord",
+                use_position_ids=args.use_onnx_vit,
+            )
+
+        # Quantize DiT if requested
+        if args.dit_dtype == "fp8":
+            from export_onnx import quantize_dit
+            # Use a default dataset path if None
+            dataset_path_for_calib = (
+                args.dataset_path if args.dataset_path is not None else "dummy_path"
+            )
+            model.action_head.model = quantize_dit(
+                model.action_head.model,
+                precision="fp8",
+                calib_size=10,
+                dataset_path=dataset_path_for_calib,
+                modality_configs=policy.modality_config,
+                embodiment_tag=args.embodiment_tag,
+                policy=policy,
+                attention_mask=attention_mask,
+                input_state=state,
+                denoising_steps=args.denoising_steps,
+                data_config="fourier_gr1_arms_only",
+                model_path=args.model_path,
+                video_backend="decord",
+            )
         
+
+        if args.llm_dtype in ["nvfp4", "fp8"]:
+            from export_onnx import quantize_llm
+
+            model.backbone.eagle_model.language_model = quantize_llm(
+                model.backbone.eagle_model.language_model,
+                precision=args.llm_dtype,
+                calib_size=10,
+                dataset_path=args.dataset_path,
+                modality_configs=policy.modality_config,
+                embodiment_tag=args.embodiment_tag,
+                policy=policy,
+                denoising_steps=args.denoising_steps,
+                data_config="fourier_gr1_arms_only",
+                model_path=args.model_path,
+                video_backend="decord",
+                full_layer_quant=False,
+            )
+
         if args.fn_name == "eagle_backbone":
             trt_eagle_backbone = compile_eagle_backbone(model.backbone.eagle_model, args, attention_mask=attention_mask)
             model.backbone.eagle_model = trt_eagle_backbone
@@ -988,6 +1053,24 @@ if __name__ == "__main__":
         default="FP16",
     )
     parser.add_argument(
+        "--vit_dtype",
+        type=str,
+        help="Quantization precision for the ViT model (FP8)",
+        default=None,
+    )
+    parser.add_argument(
+        "--dit_dtype",
+        type=str,
+        help="Quantization precision for the DiT model (FP8)",
+        default=None,
+    )
+    parser.add_argument(
+        "--llm_dtype",
+        type=str,
+        help="Quantization precision for the LLM model (nvfp4, fp8)",
+        default=None,
+    )
+    parser.add_argument(
         "--denoising_steps",
         type=int,
         help="Number of denoising steps",
@@ -999,6 +1082,13 @@ if __name__ == "__main__":
         help="Name of the function to run",
         default="all",
     )
+    parser.add_argument(
+        "--data_config",
+        type=str,
+        help="Data config",
+        default="fourier_gr1_arms_only",
+    )
+    
     parser.add_argument(
         "--embodiment_tag",
         type=str,

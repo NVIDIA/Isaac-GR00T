@@ -66,6 +66,7 @@ if __name__ == "__main__":
     parser.add_argument("--server", action="store_true", help="Run the server.")
     # client mode
     parser.add_argument("--client", action="store_true", help="Run the client")
+    parser.add_argument("--use_torch_tensorrt", action="store_true", help="Use Torch-TensorRT for inference.")
     args = parser.parse_args()
 
     if args.server:
@@ -100,7 +101,11 @@ if __name__ == "__main__":
 
         # Run the simulation
         print(f"Running simulation for {args.env_name}...")
-        env_name, episode_successes = simulation_client.run_simulation(config)
+        kwargs={}
+        if args.use_torch_tensorrt:
+            kwargs["use_position_ids"] = True
+
+        env_name, episode_successes = simulation_client.run_simulation(config, **kwargs)
 
         # Print results
         print(f"Results for {env_name}:")
