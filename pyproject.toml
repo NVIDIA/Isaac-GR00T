@@ -129,7 +129,12 @@ exclude = [
 include-package-data = true
 
 [tool.setuptools.package-data]
-gr00t = ["py.typed"]
+gr00t = [
+    "py.typed",
+    "model/backbone/eagle2_hg_model/*.json",
+    "model/backbone/eagle2_hg_model/*.py",
+    "model/backbone/eagle2_hg_model/*.txt",
+]
 
 [tool.setuptools.dynamic]
 version = {attr = "gr00t.version.VERSION"}

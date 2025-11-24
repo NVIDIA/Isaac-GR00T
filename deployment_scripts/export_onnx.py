@@ -19,6 +19,10 @@ import os
 import time
 from typing import Dict, Optional
 
+# Global attention implementation setting
+# Read from environment variable first, otherwise default to "eager". 
+ATTN_IMPLEMENTATION = os.environ.setdefault("ATTN_IMPLEMENTATION", "eager")
+
 import modelopt.torch.quantization as mtq
 import numpy as np
 import torch
@@ -57,6 +61,7 @@ class ViTCalibrationDataset(Dataset):
         policy: Gr00tPolicy,
         calib_size: int = 100,
         video_backend: str = "decord",
+        use_position_ids: bool = True,
     ):
         """
         Initialize the ViT calibration dataset.
@@ -71,7 +76,7 @@ class ViTCalibrationDataset(Dataset):
         """
         self.calib_size = calib_size
         self.policy = policy
-
+        self.use_position_ids = use_position_ids
         # Initialize the LeRobot dataset
         self.lerobot_dataset = LeRobotSingleDataset(
             dataset_path=dataset_path,
@@ -120,10 +125,15 @@ class ViTCalibrationDataset(Dataset):
                 position_ids = torch.arange(
                     num_patches, dtype=torch.long, device=pixel_values.device
                 ).expand((batch_size, -1))
-                return {
+                if self.use_position_ids:
+                    return {
                     "pixel_values": pixel_values,
-                    "position_ids": position_ids,
-                }
+                        "position_ids": position_ids,
+                    }
+                else:
+                    return {
+                        "pixel_values": pixel_values,
+                    }
             else:
                 raise RuntimeError(
                     "eagle data not found in transformed_data. This indicates an issue with apply_transforms()."
@@ -538,6 +548,7 @@ def quantize_vit(
     modality_configs=None,
     embodiment_tag="gr1",
     video_backend="decord",
+    use_position_ids=True,
     policy=None,
     compare_accuracy=True,
     denoising_steps=4,
@@ -602,6 +613,7 @@ def quantize_vit(
         policy=policy_copy2,
         calib_size=calib_size,
         video_backend=video_backend,
+        use_position_ids=use_position_ids,
     )
 
     data_loader = DataLoader(dataset, batch_size=1, shuffle=True, collate_fn=no_batch_collate_fn)
@@ -996,7 +1008,7 @@ def export_eagle2_vit(
 
     class SiglipVisionTransformerOpt(SiglipVisionTransformer):
         def __init__(self, config: SiglipVisionConfig):
-            config._attn_implementation = "eager"
+            config._attn_implementation = ATTN_IMPLEMENTATION
             super().__init__(config)
             self.embeddings = SiglipVisionEmbeddingsOpt(config)
 
@@ -1120,7 +1132,7 @@ def export_eagle2_llm(
 
             # Modify LlamamModel architecture for ONNX export
             config = AutoConfig.from_pretrained(DEFAULT_EAGLE_PATH, trust_remote_code=True)
-            config._attn_implementation = "eager"  # not use flash attention
+            config._attn_implementation = ATTN_IMPLEMENTATION
 
             assert config.text_config.architectures[0] == "Qwen3ForCausalLM"
             self.eagle_model.language_model = Qwen3ForCausalLM(config.text_config)

@@ -17,6 +17,10 @@ import argparse
 import os
 from functools import partial
 
+# Global attention implementation setting
+# Read from environment variable first, otherwise default to "eager". 
+ATTN_IMPLEMENTATION = os.environ.setdefault("ATTN_IMPLEMENTATION", "eager")
+
 import torch
 from action_head_utils import action_head_pytorch_forward
 from trt_model_forward import setup_tensorrt_engines
@@ -24,7 +28,7 @@ from trt_model_forward import setup_tensorrt_engines
 import gr00t
 from gr00t.data.dataset import LeRobotSingleDataset
 from gr00t.model.policy import Gr00tPolicy
-
+from utils import benchmark_policy, compare_benchmark_outputs
 
 def compare_predictions(pred_tensorrt, pred_torch):
     """
@@ -133,6 +137,24 @@ if __name__ == "__main__":
         default="gr00t_engine",
     )
     parser.add_argument(
+        "--benchmark",
+        type=str,
+        help="cuda_event or python_timer",
+        default="cuda_event",
+    )
+    parser.add_argument(
+        "--num_iterations",
+        type=int,
+        help="Number of iterations to run for benchmarking",
+        default=10,
+    )
+    parser.add_argument(
+        "--warmup_iterations",
+        type=int,
+        help="Number of warmup iterations to run for benchmarking",
+        default=5,
+    )
+    parser.add_argument(
         "--video-backend",
         type=str,
         choices=["decord", "torchcodec"],
@@ -230,13 +252,22 @@ if __name__ == "__main__":
         policy.model.action_head.get_action = partial(
             action_head_pytorch_forward, policy.model.action_head
         )
+
         predicted_action_torch = policy.get_action(step_data)
+
+        if args.benchmark:
+            pyt_timings = benchmark_policy(policy.get_action, (step_data,), {}, args)
 
         # Setup TensorRT engines and run inference
         setup_tensorrt_engines(
             policy, args.trt_engine_path, args.vit_dtype, args.llm_dtype, args.dit_dtype
         )
         predicted_action_tensorrt = policy.get_action(step_data)
+        if args.benchmark:
+            trt_timings = benchmark_policy(policy.get_action, (step_data,), {}, args)
 
         # Compare predictions
         compare_predictions(predicted_action_tensorrt, predicted_action_torch)
+
+        if args.benchmark:
+            compare_benchmark_outputs(pyt_timings, trt_timings)

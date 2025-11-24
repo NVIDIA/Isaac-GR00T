@@ -245,16 +245,17 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
 
         input_ids = input_ids.reshape(B * N)
         selected = input_ids == self.image_token_index
-        try:
-            input_embeds[selected] = input_embeds[selected] * 0.0 + vit_embeds.reshape(-1, C)
-        except Exception as e:
-            vit_embeds = vit_embeds.reshape(-1, C)
-            print(
-                f"warning: {e}, input_embeds[selected].shape={input_embeds[selected].shape}, "
-                f"vit_embeds.shape={vit_embeds.shape}"
-            )
-            n_token = selected.sum()
-            input_embeds[selected] = input_embeds[selected] * 0.0 + vit_embeds[:n_token]
+        input_embeds[selected] = vit_embeds.reshape(-1, C)
+        # try:
+        #     input_embeds[selected] = input_embeds[selected] * 0.0 + vit_embeds.reshape(-1, C)
+        # except Exception as e:
+        #     vit_embeds = vit_embeds.reshape(-1, C)
+        #     print(
+        #         f"warning: {e}, input_embeds[selected].shape={input_embeds[selected].shape}, "
+        #         f"vit_embeds.shape={vit_embeds.shape}"
+        #     )
+        #     n_token = selected.sum()
+        #     input_embeds[selected] = input_embeds[selected] * 0.0 + vit_embeds[:n_token]
 
         input_embeds = input_embeds.reshape(B, N, C)
 
@@ -311,14 +312,14 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
     def extract_feature(self, pixel_values):
         if self.select_layer == -1:
             vit_embeds = self.vision_model(
-                pixel_values=pixel_values, output_hidden_states=False, return_dict=True
+                pixel_values=pixel_values, output_hidden_states=False
             )
             if hasattr(vit_embeds, "last_hidden_state"):
                 vit_embeds = vit_embeds.last_hidden_state
 
         else:
             vit_embeds = self.vision_model(
-                pixel_values=pixel_values, output_hidden_states=True, return_dict=True
+                pixel_values=pixel_values, output_hidden_states=True
             ).hidden_states[self.select_layer]
 
         if self.use_pixel_shuffle:
@@ -330,7 +331,6 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
             vit_embeds = vit_embeds.reshape(
                 vit_embeds.shape[0], -1, vit_embeds.shape[-1]
             )  # torch.Size([B, 16, 16, 4096]) -> torch.Size([B, 256, 4096])
-
         if self.mlp_checkpoint and vit_embeds.requires_grad:
             vit_embeds = cp.checkpoint(self.mlp1, vit_embeds)
         else:
