@@ -76,7 +76,7 @@ if __name__ == "__main__":
         )
 
         # Start the server
-        server = RobotInferenceServer(policy, port=args.port)
+        server = RobotInferenceServer(policy, host=args.host, port=args.port)
         server.run()
 
     elif args.client:

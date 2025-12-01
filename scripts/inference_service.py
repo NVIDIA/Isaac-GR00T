@@ -214,7 +214,9 @@ def main(args: ArgsConfig):
             )
             server.run()
         else:
-            server = RobotInferenceServer(policy, port=args.port, api_token=args.api_token)
+            server = RobotInferenceServer(
+                policy, host=args.host, port=args.port, api_token=args.api_token
+            )
             server.run()
 
     # Here is mainly a testing code
