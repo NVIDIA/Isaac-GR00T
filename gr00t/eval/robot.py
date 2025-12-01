@@ -33,8 +33,8 @@ class RobotInferenceServer(BaseInferenceServer):
         )
 
     @staticmethod
-    def start_server(policy: BasePolicy, port: int, api_token: str = None):
-        server = RobotInferenceServer(policy, port=port, api_token=api_token)
+    def start_server(policy: BasePolicy, port: int = 5555, host: str = "*", api_token: str = None):
+        server = RobotInferenceServer(policy, host=host, port=port, api_token=api_token)
         server.run()
 
 
