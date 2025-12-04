@@ -20,7 +20,7 @@ dependencies = [
     "albumentations==1.4.18",
     "av==12.3.0",
     "blessings==1.7",
-    "eva-decord==0.6.1; platform_system == 'Darwin'",
+    "decord2==1.0.0",
     "dm_tree==0.1.8",
     "einops==0.8.1",
     "gymnasium==1.0.0",
