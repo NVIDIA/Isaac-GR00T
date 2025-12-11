@@ -26,6 +26,8 @@ from pydantic import Field, PrivateAttr, field_validator
 from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ModalityTransform
 
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 class VideoTransform(ModalityTransform):
     # Configurable attributes
@@ -553,7 +555,7 @@ class VideoToTensor(VideoTransform):
         Returns:
             tensor of shape [T, C, H, W] in range [0, 1]
         """
-        frames_tensor = torch.from_numpy(frames).to(torch.float32) / 255.0
+        frames_tensor = torch.from_numpy(frames).to(torch.float32).to(DEVICE) / 255.0
         return frames_tensor.permute(0, 3, 1, 2)  # [T, C, H, W]
 
 
