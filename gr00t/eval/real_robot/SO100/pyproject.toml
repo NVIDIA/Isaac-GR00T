@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eval_lerobot"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+dependencies = [
+    "draccus",
+    "matplotlib",
+    "ipython",
+    "msgpack",
+    "zmq",
+    "lerobot @ git+https://github.com/huggingface/lerobot.git@c75455a6de5c818fa1bb69fb2d92423e86c70475",
+]
+
+# Please also manually install `uv pip install --no-deps -e ../../../../`
