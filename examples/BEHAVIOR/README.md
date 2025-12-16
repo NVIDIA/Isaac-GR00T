@@ -103,8 +103,10 @@ git clone https://github.com/StanfordVL/BEHAVIOR-1K.git
 cd BEHAVIOR-1K
 # checkout to the branch with task progress as metric
 git checkout feat/task-progress
-# Headless/automated installation (auto-accepts Conda TOS, NVIDIA Isaac Sim EULA, and BEHAVIOR Dataset License)
-./setup.sh --omnigibson --bddl --dataset --confirm-no-conda --accept-nvidia-eula --accept-dataset-tos
+# activate the uv env setup by gr00t, if not setup yet, run `cd PATH_TO_GR00T && uv sync --python 3.10 && uv pip install -e .`
+source PATH_TO_GR00T/.venv/bin/activate
+# Headless/automated installation (auto-accepts NVIDIA Isaac Sim EULA, and BEHAVIOR Dataset License)
+bash ./setup_uv.sh
 ```
 
 Because our evaluation was performed on test cases of [BEHAVIOR Challenge](https://behavior.stanford.edu/challenge/index.html), run the following script to download test cases from their [official HF repo](https://huggingface.co/datasets/behavior-1k/2025-challenge-hidden-instances/).
