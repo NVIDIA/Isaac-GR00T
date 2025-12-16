@@ -14,12 +14,6 @@
 
 ## NVIDIA Isaac GR00T
 
-<!-- <div align="center">
-<img src="media/H1-MultiView.gif" height="240" alt="YAM arms">
-<img src="media/H3-head-2x.gif" height="240" alt="AgiBot Genie-1">
-<img src="media/W4.gif" height="240" alt="Unitree G1">
-</div> -->
-<!-- <img src="media/banner.gif" height="240" alt="Unitree G1"> -->
 <table style="width:100%; table-layout:fixed;">
   <tr>
     <td style="width:33.33%; text-align:center;">
