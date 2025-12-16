@@ -7,18 +7,20 @@ This guide shows how to finetune dataset collected from [SO100](https://huggingf
 
 To collect the dataset via teleoperation, please refer to the official documentation in lerobot: https://huggingface.co/docs/lerobot/il_robots?teleoperate_so101=Command
 
-**Dataset Path:** [izuluaga/complete_sandwich](https://huggingface.co/datasets/izuluaga/complete_sandwich)
+**Dataset Path:** [izuluaga/finish_sandwich](https://huggingface.co/datasets/izuluaga/finish_sandwich)
+
+Visualize it with this [link](https://huggingface.co/spaces/lerobot/visualize_dataset?path=%2Fizuluaga%2Ffinish_sandwich%2Fepisode_0)
 
 ## Handling the dataset
 
 ```bash
-uv run python scripts/lerobot_conversion/convert_v3_to_v2.py --repo-id izuluaga/complete_sandwich \
-  --root examples/SO100/complete_sandwich_lerobot
+uv run python scripts/lerobot_conversion/convert_v3_to_v2.py --repo-id izuluaga/finish_sandwich \
+  --root examples/SO100/finish_sandwich_lerobot
 ```
 
 Then move the `modality.json` file to the root of the dataset.
 ```bash
-cp modality.json examples/SO100/complete_sandwich_lerobot/meta/modality.json
+cp modality.json examples/SO100/finish_sandwich_lerobot/meta/modality.json
 ```
 
 ## Finetuning
@@ -33,7 +35,7 @@ uv run bash examples/SO100/finetune_so100.sh
 Evaluate the finetuned model with the following command:
 ```bash
 uv run python gr00t/eval/open_loop_eval.py \
-  --dataset-path examples/SO100/complete_sandwich_lerobot \
+  --dataset-path examples/SO100/finish_sandwich_lerobot \
   --embodiment-tag NEW_EMBODIMENT \
   --model-path /tmp/so100_finetune/checkpoint-10000 \
   --traj-ids 0 \
