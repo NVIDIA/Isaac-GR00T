@@ -14,19 +14,9 @@
 
 ## NVIDIA Isaac GR00T
 
-<table style="width:100%; table-layout:fixed;">
-  <tr>
-    <td style="width:33.33%; text-align:center;">
-      <img src="media/unitree_g1.gif" style="max-width:100%; height:auto;">
-    </td>
-    <td style="width:33.33%; text-align:center;">
-      <img src="media/agibot_g1.gif" style="max-width:100%; height:auto;">
-    </td>
-    <td style="width:33.33%; text-align:center;">
-      <img src="media/yam.gif" style="max-width:100%; height:auto;">
-    </td>
-  </tr>
-</table>
+<div align="center">
+  <img src="media/stacked_demo.gif" width="800" alt="GR00T Demo">
+</div>
 
 > We just released GR00T N1.6, an updated version of GR00T N1 with improved performance and new features. Check out the [release blog post](https://research.nvidia.com/labs/gear/gr00t-n1_6/) for more details.
 
