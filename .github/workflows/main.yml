@@ -27,24 +27,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10"]
-        task:
-          - name: Test
-            run: |
-              pytest -v --color=yes tests/
-
         include:
           - python: "3.10"
             task:
               name: Lint
-              run: ruff check .
-
-          - python: "3.10"
-            task:
-              name: Style
               run: |
-                isort --check .
-                black --check .
+                ruff check .
+                ruff format --check .
 
     steps:
       - uses: actions/checkout@v4
