@@ -1,167 +1,119 @@
-# GR00T SimplerEnv Benchmarks
+# SimplerEnv
 
-This directory contains fine-tuning and evaluation scripts for GR00T N1.5 on simulation benchmarks, specifically targeting Bridge WidowX and Fractal Google Robot tasks.
+Framework for evaluating real-world robot manipulation policies (RT-1, RT-1-X, Octo) in simulation. Replicates common setups like Google Robot and WidowX+Bridge, with GPU-accelerated simulations (10-15x speedup). Offers visual matching and variant aggregation evaluation methods for robust policy assessment.
 
+For more information, see the [official repository](https://github.com/simpler-env/SimplerEnv).
 
-## 🎯 Model Evaluation
+---
 
-Evaluation is performed using the [SimplerEnv repository](https://github.com/youliangtan/SimplerEnv/tree/main).
+# SimplerEnv Bridge (WidowX robot) evaluation benchmark result
+Provided checkpoint: [nvidia/GR00T-N1.6-bridge](https://huggingface.co/nvidia/GR00T-N1.6-bridge)
 
-> Note: The results reported below were obtained with minimal hyperparameter tuning and are intended primarily for demonstration purposes. 
-
-### 1. Bridge/WidowX
-
-Provided checkpoint: youliangtan/gr00t-n1.5-bridge-posttrain 
-
-| Task                              | Success rate (300) |
+| Task                              | Success rate n1.6 (200) |
 | --------------------------------- | ------------------ |
-| widowx\_spoon\_on\_towel          | 246/300 (82%)      |
-| widowx\_carrot\_on\_plate         | 216/300 (72%)      |
-| widowx\_put\_eggplant\_in\_basket | 189/300 (63%)      |
-| widowx\_stack\_cube               | 162/300 (54%)      |
-| widowx\_put\_eggplant\_in\_sink** | 62/300 (21%)        |
-| widowx\_close\_drawer**           | 196/300 (65%)       |
-| widowx\_open\_drawer**            | 251/300 (84%)      |
-| **Average**                       | **63%**            |
+| widowx\_spoon\_on\_towel          | 129/200 (64.5%) |
+| widowx\_carrot\_on\_plate         | 131/200 (65.5%) |
+| widowx\_put\_eggplant\_in\_basket | 186/200 (93%) |
+| widowx\_stack\_cube               | 11/200 (5.5%) |
+| widowx\_put\_eggplant\_in\_sink** | 80/200 (40%) |
+| widowx\_close\_drawer**           | 141/200 (70.5%) |
+| widowx\_open\_drawer**            | 191/200 (95.5%) |
+| **Average**                       | **62.07%** |
 
-**Denotes as "non-original" new simpler task [here](https://github.com/youliangtan/SimplerEnv)
-
-To evaluate, first start the inference server with our provided checkpoint:
-```bash
-python scripts/inference_service.py \
-    --model-path youliangtan/gr00t-n1.5-bridge-posttrain \
-    --server \
-    --data_config examples.SimplerEnv.custom_data_config:BridgeDataConfig \
-    --denoising-steps 8 \
-    --port 5555 \
-    --embodiment-tag new_embodiment
-```
-
-Then run the evaluation:
-```bash
-python eval_simpler.py --env widowx_spoon_on_towel --groot_port 5555
-```
-
-### 2. Fractal/Google Robot
-
-Provided checkpoint: youliangtan/gr00t-n1.5-fractal-posttrain
-
-To evaluate, first start the inference server with our provided checkpoint:
-```bash
-python scripts/inference_service.py \
-    --model-path youliangtan/gr00t-n1.5-fractal-posttrain \
-    --server \
-    --data_config examples.SimplerEnv.custom_data_config:FractalDataConfig \
-    --denoising-steps 8 \
-    --port 5555 \
-    --embodiment-tag new_embodiment
-```
-
-#### Visual Matching
-| Task                                     | Success Rate (300) |
+# SimplerEnv Fractal (Google robot) evaluation benchmark result
+Provided checkpoint: [nvidia/GR00T-N1.6-fractal](https://huggingface.co/nvidia/GR00T-N1.6-fractal)
+| Task                                     | Success Rate (200) |
 | ---------------------------------------- | ------------------ |
-| google\_robot\_pick\_coke\_can           | 208/300 (69%)      |
-| google\_robot\_pick\_object              | 97/300 (32%)       |
-| google\_robot\_move\_near                | 206/300 (69%)      |
-| google\_robot\_open\_drawer              | 80/300 (27%)       |
-| google\_robot\_close\_drawer             | 135/300 (45%)      |
-| google\_robot\_place\_in\_closed\_drawer | 12/300 (4%)        |
-| **Average**                              | **41%**            |
-----
+| google\_robot\_pick\_coke\_can           | 195/200 (97.5%)    |
+| google\_robot\_pick\_object              | 174/200 (87%)      |
+| google\_robot\_move\_near                | 151/200 (75.5%)    |
+| google\_robot\_open\_drawer              | 88/200 (44%)       |
+| google\_robot\_close\_drawer             | 175/200 (87.5%)    |
+| google\_robot\_place\_in\_closed\_drawer | 29/200 (14.5%)     |
+| **Average**                              | **67.66%**            |
 
-```bash
-python eval_simpler.py --env google_robot_pick_object --groot_port 5555
-```
 
-#### Variant Aggregations
-| Environment   | Runs | Total Successes | Total Trials | Average Success Rate |
-|---------------|------|-----------------|--------------|-----------------------|
-| Drawer        | 42   | 66              | 378          | 17.46%               |
-| Pick Coke Can | 9    | 105             | 225          | 46.67%               |
-| Move Near     | 8    | 302             | 480          | 62.92%               |
+# Fine-tune Simpler Env bridge dataset (WidowX robot)
 
-----
-
-```bash
-bash run_evaluations_variant_agg_drawer.sh
-bash run_evaluations_variant_agg_move_near.sh
-bash run_evaluations_variant_agg_pick_coke_can.sh
-```
-
-## Reproduce Training Results
-
-To reproduce the training results, you can use the following steps:
-1. Download the datasets
-2. Add the modality configuration files
-3. Fine-tune the model
-4. Evaluate the model (same as above)
-
-### 📦 1. Dataset Preparation
-
-#### Dataset Downloads
-Download LeRobot-compatible datasets directly from Hugging Face.
-
-**1. Bridge Dataset**
+To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments. Please remember to set `WANDB_API_KEY` since `--use-wandb` is turned on by default. If you don't have a WANDB account, please remove this argument:
 
 ```bash
 huggingface-cli download \
     --repo-type dataset IPEC-COMMUNITY/bridge_orig_lerobot \
-    --local-dir /tmp/bridge_orig_lerobot/
+    --local-dir examples/SimplerEnv/bridge_orig_lerobot/
+
+# Copy the patches and run the finetune script
+cp -r examples/SimplerEnv/bridge_modality.json examples/SimplerEnv/bridge_orig_lerobot/meta/modality.json
+uv run bash examples/SimplerEnv/finetune_bridge.sh
 ```
 
-**2. Fractal Dataset**
+# Fine-tune Simpler Env fractal dataset (Google robot)
 
 ```bash
+cd examples/SimplerEnv
 huggingface-cli download \
     --repo-type dataset IPEC-COMMUNITY/fractal20220817_data_lerobot \
-    --local-dir /tmp/fractal20220817_data_lerobot/
+    --local-dir examples/SimplerEnv/fractal20220817_data_lerobot/
+
+# Copy the patches and run the finetune script
+cp -r examples/SimplerEnv/fractal_modality.json examples/SimplerEnv/fractal20220817_data_lerobot/meta/modality.json
+uv run python convert_av1_to_h264.py --root fractal20220817_data_lerobot --jobs 16  # (Optional) if AV1 doesn't work on your machine
+uv run bash examples/SimplerEnv/finetune_fractal.sh
 ```
 
-#### Modality Configuration
+# Evaluate checkpoint
 
-After downloading the datasets, you need to add the appropriate modality configuration files to make them compatible with GR00T N1.5. These configuration files define the observation and action space mappings.
-
-**1. Bridge Dataset**
-
-Copy the Bridge modality configuration to your dataset:
-```bash
-cp examples/SimplerEnv/bridge_modality.json /tmp/bridge_orig_lerobot/meta/modality.json
-```
-
-**2. Fractal Dataset**
-
-Copy the Fractal modality configuration to your dataset:
-```bash
-cp examples/SimplerEnv/fractal_modality.json /tmp/fractal20220817_data_lerobot/meta/modality.json
-```
-
-
-### 🚀 Model Fine-tuning
-
-#### Training Commands
-
-The fine-tuning script supports multiple configurations. Below are examples for each simulation environment:
-
-**1. Bridge Dataset**
+First, setup the evaluation simulation environment. This only needs to run once for each simulation benchmark. After it's done, we only need to launch server and client.
 
 ```bash
-python scripts/gr00t_finetune.py \
-    --dataset-path /tmp/bridge_orig_lerobot/ \
-    --data_config examples.SimplerEnv.custom_data_config:BridgeDataConfig \
-    --num-gpus 8 \
-    --batch-size 90 \
-    --output-dir /tmp/bridge-checkpoints \
-    --max-steps 60000
+sudo apt update
+sudo apt install libegl1-mesa-dev libglu1-mesa
+bash gr00t/eval/sim/SimplerEnv/setup_SimplerEnv.sh
 ```
 
-**2. Fractal Dataset**
+Then, run client server evaluation under the project root directory in separate terminals:
 
+**Terminal 1 - Server:**
+
+You can use either a local finetuned checkpoint path or the remote finetuned checkpoint (provided by us):
+
+**Option 1: Local finetuned checkpoint**
 ```bash
-python scripts/gr00t_finetune.py \
-    --dataset-path /tmp/fractal20220817_data_lerobot/ \
-    --data_config examples.SimplerEnv.custom_data_config:FractalDataConfig \
-    --num-gpus 8 \
-    --batch-size 128 \
-    --output-dir /tmp/fractal-checkpoints/ \
-    --max-steps 60000
+uv run python gr00t/eval/run_gr00t_server.py \
+    --model-path /tmp/fractal_finetune/checkpoint-30000 \
+    --embodiment-tag OXE_GOOGLE \
+    --use-sim-policy-wrapper
 ```
+
+**Option 2: Remote finetuned checkpoint (directly runnable)**
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --model-path nvidia/GR00T-N1.6-fractal \
+    --embodiment-tag OXE_GOOGLE \
+    --use-sim-policy-wrapper
+```
+
+**Terminal 2 - Client:**
+```bash
+gr00t/eval/sim/SimplerEnv/simpler_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
+    --n_episodes 10 \
+    --policy_client_host 127.0.0.1 \
+    --policy_client_port 5555 \
+    --max_episode_steps=300 \
+    --env_name simpler_env_google/google_robot_pick_coke_can \
+    --n_action_steps 1 \
+    --n_envs 5
+```
+
+Other supported tasks are: 
+```
+simpler_env_google/google_robot_pick_object
+simpler_env_google/google_robot_move_near
+simpler_env_google/google_robot_open_drawer
+...
+simpler_env_widowx/widowx_spoon_on_towel
+simpler_env_widowx/widowx_carrot_on_plate
+simpler_env_widowx/widowx_stack_cube
+```
+
+you can replace the env_name with the corresponding tasks listed in https://github.com/youliangtan/SimplerEnv

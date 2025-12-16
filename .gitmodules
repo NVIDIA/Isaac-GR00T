@@ -1,0 +1,15 @@
+[submodule "external_dependencies/LIBERO"]
+	path = external_dependencies/LIBERO
+	url = https://github.com/Lifelong-Robot-Learning/LIBERO.git
+[submodule "external_dependencies/robocasa-gr1-tabletop-tasks"]
+	path = external_dependencies/robocasa-gr1-tabletop-tasks
+	url = https://github.com/robocasa/robocasa-gr1-tabletop-tasks
+[submodule "external_dependencies/SimplerEnv"]
+	path = external_dependencies/SimplerEnv
+	url = https://github.com/squarefk/SimplerEnv.git
+[submodule "external_dependencies/robocasa"]
+	path = external_dependencies/robocasa
+	url = https://github.com/squarefk/robocasa
+[submodule "external_dependencies/GR00T-WholeBodyControl"]
+    path = external_dependencies/GR00T-WholeBodyControl
+    url = https://github.com/NVlabs/GR00T-WholeBodyControl.git

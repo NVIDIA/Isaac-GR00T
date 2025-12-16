@@ -67,23 +67,10 @@ When you're ready to contribute code to address an open issue, please follow the
         upstream https://github.com/NVIDIA/Isaac-GR00T.git (fetch)
         upstream https://github.com/NVIDIA/Isaac-GR00T.git (push)
 
-    Finally, you'll need to create a Python 3 virtual environment suitable for working on this project. There a number of tools out there that making working with virtual environments easier.
-    The most direct way is with the [`venv` module](https://docs.python.org/3.7/library/venv.html) in the standard library, but if you're new to Python or you don't already have a recent Python 3 version installed on your machine,
-    we recommend [Miniconda](https://docs.conda.io/en/latest/miniconda.html).
-
-    On Mac, for example, you can install Miniconda with [Homebrew](https://brew.sh/):
-
-        brew install miniconda
-
-    Then you can create and activate a new Python environment by running:
-
-        conda create -n isaac-gr00t python=3.10
-        conda activate isaac-gr00t
-
-    Once your virtual environment is activated, you can install your local clone in "editable mode" with
-
-        pip install -U pip setuptools wheel
-        pip install -e .[dev]
+    Finally, you'll need to create a Python 3 virtual environment suitable for working on this project. 
+    ```bash
+    uv pip install -e .[dev]
+    ```
 
     The "editable mode" comes from the `-e` argument to `pip`, and essential just creates a symbolic link from the site-packages directory of your virtual environment to the source code in your local clone. That way any changes you make will be immediately reflected in your virtual environment.
 
@@ -121,17 +108,15 @@ When you're ready to contribute code to address an open issue, please follow the
 
     Our continuous integration (CI) testing runs [a number of checks](https://github.com/NVIDIA/Isaac-GR00T/actions) for each pull request on [GitHub Actions](https://github.com/features/actions). You can run most of these tests locally, which is something you should do *before* opening a PR to help speed up the review process and make it easier for us.
 
-    First, you should run [`isort`](https://github.com/PyCQA/isort) and [`black`](https://github.com/psf/black) to make sure you code is formatted consistently.
+    First, you should run [`ruff`](https://docs.astral.sh/ruff/) to make sure you code is formatted consistently.
     Many IDEs support code formatters as plugins, so you may be able to setup isort and black to run automatically everytime you save.
     For example, [`black.vim`](https://github.com/psf/black/tree/master/plugin) will give you this functionality in Vim. But both `isort` and `black` are also easy to run directly from the command line.
     Just run this from the root of your clone:
 
-        isort .
-        black .
-
-    Our CI also uses [`ruff`](https://github.com/astral-sh/ruff) to lint the code base and [`mypy`](http://mypy-lang.org/) for type-checking. You should run both of these next with
-
-        ruff check . --fix
+    ```bash
+    ruff format .
+    ruff check --fix .
+    ```
 
     We also strive to maintain high test coverage, so most contributions should include additions to [the unit tests](https://github.com/NVIDIA/Isaac-GR00T/tree/main/tests). These tests are run with [`pytest`](https://docs.pytest.org/en/latest/), which you can use to locally run any test modules that you've added or changed.
 

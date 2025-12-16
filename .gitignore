@@ -1,3 +1,28 @@
+# Finetune datasets
+/examples/GR00T-WholeBodyControl/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/
+/examples/LIBERO/libero_10_no_noops_1.0.0_lerobot/
+/examples/LIBERO/libero_goal_no_noops_1.0.0_lerobot/
+/examples/LIBERO/libero_object_no_noops_1.0.0_lerobot/
+/examples/LIBERO/libero_spatial_no_noops_1.0.0_lerobot/
+
+# UV lock file
+uv.lock
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ML / experiment outputs
+wandb/
+outputs/
+logs/
+runs/
+out/
+recordings/
+plots/
+*.npz
+
 # C extensions
 *.so
 
@@ -9,9 +34,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
-parts/
 sdist/
 var/
 wheels/
@@ -19,106 +41,128 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.swp
+*.swo
 MANIFEST
 
-# build artifacts
+# PyInstaller
+*.manifest
+*.spec
 
-.eggs/
-.mypy_cache
-*.egg-info/
-build/
-dist/
-pip-wheel-metadata/
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
 
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
 
-# dev tools
+# Translations
+*.mo
+*.pot
 
-.envrc
-.python-version
-.idea
-.venv/
-.vscode/
-/*.iml
-pyrightconfig.json
-.ruff_cache/
+# App / framework stuff
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
 
-# jupyter notebooks
+# Flask
+instance/
+.webassets-cache
 
+# Jupyter Notebook
 .ipynb_checkpoints
 
+# IPython
+profile_default/
+ipython_config.py
 
-# miscellaneous
+# Environment managers
+.pdm.toml
+.pdm-python
+.pdm-build/
+__pypackages__/
 
-.cache/
-doc/_build/
-*.swp
+# IDEs
+.vscode/
+.idea/
+.cursor/
+.cursor*
+.claude/
+CLAUDE.md
+
+# Sphinx docs
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Scrapy
+.scrapy
+
+# Mkdocs
+/site
+
+# Typing/static analysis
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+pyrightconfig.json
+
+# Cython
+cython_debug/
+
+# OS / editor junk
 .DS_Store
+*.code-workspace
 
+# Virtual environments
+.venv/
+.venv/*
+env/
+venv/
 
-# python
-
-*.pyc
-*.pyo
-__pycache__
-
-
-# testing and continuous integration
-
-.coverage
-.pytest_cache/
-.benchmarks
-
-# documentation build artifacts
-
-docs/build
-site/
-
-# The following ignores are from vila repository
-*.whl
-*_dev
-dev/
-# config.json
-eval_output/
-eval-result/
-hostfile
-core.*
-*.out
-captioner_bk/
-slurm-logs/
-captioner/
-hostfile
-*_dev.py
-*_dev.sh
-
-
-# Python
-__pycache__
-*.pyc
-*.egg-info
-dist
-
-# Log
-*.log
-*.log.*
-
-# Data
-!**/alpaca-data-conversation.json
-
-# Editor
-.idea
-*.swp
-
-# Other
-.DS_Store
-wandb
-
-# Playground
+# Mujoco
+MUJOCO_LOG.TXT
 playground/
 
-# Hydra 
-.hydra/
+# Shell scripts / batching
+batch_*.sh
+logs_*/
 
-# Data
-demo_data/gr00t-gr1-apple-to-shelf/
-tmp/
-output/
+# Git worktrees
+/wt
+
+# General project data / artifacts
+episode_data/
+third_parties/
+*.rdb
+dump.rdb
+
+# Docker
+.dockerignore
+
+# SysID / robotics experiment data
+sysid_data/
+isaac_data/
+offline_open_loop_eval_plots/
+
+# Generic model/data folders
+/models
+/data
