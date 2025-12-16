@@ -6,7 +6,7 @@ export NUM_GPUS=1
 CUDA_VISIBLE_DEVICES=0 python \
     gr00t/experiment/launch_finetune.py \
     --base_model_path nvidia/GR00T-N1.6-3B \
-    --dataset_path  examples/SO100/cube_to_bowl_lerobot \
+    --dataset_path  examples/SO100/finish_sandwich_lerobot \
     --modality_config_path examples/SO100/so100_config.py \
     --embodiment_tag NEW_EMBODIMENT \
     --num_gpus $NUM_GPUS \
