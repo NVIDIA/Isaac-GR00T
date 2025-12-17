@@ -155,6 +155,9 @@ GR00T-N1.6-3B inference timing (4 denoising steps):
 | Thor | PyTorch Eager | 5 ms | 38 ms | 74 ms | 117 ms | 8.6 Hz |
 | Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
 | Thor | TensorRT | 5 ms | 38 ms | 49 ms | 92 ms | 10.9 Hz |
+| Orin | PyTorch Eager | 6 ms | 93 ms | 202 ms | 300 ms | 3.3 Hz |
+| Orin | torch.compile | 6 ms | 93 ms | 101 ms | 199 ms | 5.0 Hz |
+| Orin | TensorRT | 6 ms | 95 ms | 72 ms | 173 ms | 5.8 Hz |
 
 
 ### Speedup vs PyTorch Eager
@@ -173,11 +176,14 @@ GR00T-N1.6-3B inference timing (4 denoising steps):
 | Thor | PyTorch Eager | 1.00x | 1.00x |
 | Thor | torch.compile | 1.11x | 1.20x |
 | Thor | TensorRT | 1.27x | 1.49x |
+| Orin | PyTorch Eager | 1.00x | 1.00x |
+| Orin | torch.compile | 1.50x | 2.00x |
+| Orin | TensorRT | 1.73x | 2.80x |
 
 > Run `python scripts/deployment/benchmark_inference.py` to generate benchmarks for your hardware.
 > See `GR00T_inference_timing.ipynb` for detailed analysis and visualizations.
 
-> Experiments on Thor were conducted using a different dependency stack, most notably most notably CUDA 13, PyTorch 2.9, and supporting packages sourced from [this Jetson AI Lab index](https://pypi.jetson-ai-lab.io/sbsa/cu130).
+> Experiments on Thor and Orin used different dependency stacks. Thor with CUDA 13, PyTorch 2.9, using supporting packages sourced from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130); and Orin with CUDA 12.6, PyTorch 2.8, using supporting packages sourced from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126).
 ---
 
 ## Troubleshooting
