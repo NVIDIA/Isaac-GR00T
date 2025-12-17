@@ -24,7 +24,7 @@ uv pip install torch==2.5.1 torchvision==0.20.1 pydantic av tianshou==0.5.1 tyro
 uv pip install transformers==4.51.3 msgpack==1.1.0 msgpack-numpy==0.4.8 gymnasium==0.29.1
 uv pip install numpy==1.26.4
 
-uv pip install --editable "$PROJECT_REPO" --no-deps
+uv pip install --editable "$PROJECT_REPO"/.[base] --no-deps
 
 rm -rf $HOME/.libero
 echo "y\n" | python -c "from gr00t.eval.sim.LIBERO.libero_env import register_libero_envs"

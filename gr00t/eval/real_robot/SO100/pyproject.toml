@@ -16,4 +16,4 @@ dependencies = [
     "lerobot @ git+https://github.com/huggingface/lerobot.git@c75455a6de5c818fa1bb69fb2d92423e86c70475",
 ]
 
-# Please also manually install `uv pip install --no-deps -e ../../../../`
+# Please also manually install `uv pip install --no-deps -e ../../../../.[base]`

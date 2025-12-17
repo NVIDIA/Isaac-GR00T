@@ -375,7 +375,7 @@ For a minimal working example, see
 In most cases, your deployment environment only needs to install the local GR00T client code:
 
 ```bash
-uv pip install -e . --verbose --no-deps
+uv pip install -e .[base] --verbose --no-deps
 ```
 
 The client relies solely on a small set of interfaces:

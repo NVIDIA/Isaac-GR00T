@@ -103,7 +103,7 @@ git clone https://github.com/StanfordVL/BEHAVIOR-1K.git
 cd BEHAVIOR-1K
 # checkout to the branch with task progress as metric
 git checkout feat/task-progress
-# activate the uv env setup by gr00t, if not setup yet, run `cd PATH_TO_GR00T && uv sync --python 3.10 && uv pip install -e .`
+# activate the uv env setup by gr00t, if not setup yet, run `cd PATH_TO_GR00T && uv sync --python 3.10 && uv pip install -e .[base]`
 source PATH_TO_GR00T/.venv/bin/activate
 # Headless/automated installation (auto-accepts NVIDIA Isaac Sim EULA, and BEHAVIOR Dataset License)
 bash ./setup_uv.sh
@@ -121,7 +121,7 @@ Then, run client server evaluation under the project root directory in separate 
 **Terminal 1 - Server:**
 ```bash
 uv sync --python 3.10
-uv pip install -e .
+uv pip install -e .[base]
 
 # replace the model path with the path to your finetuned checkpoint or use the provided checkpoint
 uv run gr00t/eval/run_gr00t_server.py \

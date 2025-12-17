@@ -105,7 +105,7 @@ After installing uv, create the environment and install GR00T:
 
 ```sh
 uv sync --python 3.10
-uv pip install -e .
+uv pip install -e .[base]
 ```
 
 > Note: CUDA 12.4 is recommended and officially tested. However, CUDA 11.8 has also been verified to work.
