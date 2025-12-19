@@ -70,13 +70,16 @@ def calc_mse_for_single_trajectory(
                 concat_pred_action = np.concatenate(
                     [np.atleast_1d(action_chunk[f"action.{key}"][j]) for key in modality_keys],
                     axis=0,
-                )
+                ) # (16, )
                 pred_action_across_time.append(concat_pred_action)
 
                 concat_gt_action = np.concatenate(
                     [data_point[f"action.{key}"][j] for key in modality_keys], axis=0
                 )
-                gt_action_across_time.append(concat_gt_action)
+                gt_action_across_time.append(concat_gt_action) # (16, )
+
+                # TODO: process quat, concat_gt_action[3:7], [11:15]
+                # import pdb; pdb.set_trace()
 
     # plot the joints
     state_joints_across_time = np.array(state_joints_across_time)[:steps]
