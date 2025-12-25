@@ -1,9 +1,9 @@
 set -x -e
 
 # 设置 GPU 数量（distributed 模式）
-export NUM_GPUS=8  # 根据实际可用GPU数量调整
+export NUM_GPUS=8
 export PROJECT_ROOT=$(pwd)/../../
-export DATASET_ROOT=/home/lancel/Projects/2024-05-21-Robotics/piper/data
+export DATASET_ROOT=/home/lancel/Datasets/piper
 cd $PROJECT_ROOT
 
 
@@ -12,6 +12,7 @@ CONFIG_TYPE=${CONFIG_TYPE:-joint_space}
 source .venv/bin/activate
 
 # Distributed 训练模式：使用 torchrun 启动多GPU训练
+# uv run python \
 torchrun --nproc_per_node=$NUM_GPUS --master_port=29500 \
     gr00t/experiment/launch_finetune.py \
     --base_model_path nvidia/GR00T-N1.6-3B \
