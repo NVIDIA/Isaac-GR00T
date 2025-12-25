@@ -1,0 +1,44 @@
+{
+    "state": {
+        "eef_pos": {
+            "start": 0,
+            "end": 3
+        },
+        "eef_rpy_external": {
+            "start": 3,
+            "end": 6
+        },
+        "gripper_distance": {
+            "start": 6,
+            "end": 7
+        }
+    },
+    "action": {
+        "eef_pos": {
+            "start": 0,
+            "end": 3
+        },
+        "eef_rpy_external": {
+            "start": 3,
+            "end": 6
+        },
+        "gripper_distance": {
+            "start": 6,
+            "end": 7
+        }
+    },
+    "video": {
+        "hand_camera": {
+            "original_key": "observation.images.hand_camera"
+        },
+        "third_camera": {
+            "original_key": "observation.images.third_camera"
+        }
+    },
+    "annotation": {
+        "human.action.task_description": {
+            "original_key": "task_description"
+        }
+    }
+}
+
