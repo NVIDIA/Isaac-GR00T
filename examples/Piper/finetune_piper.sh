@@ -12,7 +12,7 @@ set -x -e
 # ============================================
 ACTION_SIZE=${ACTION_SIZE:-16}           # Action horizon: 16 或 32
 NUM_GPUS=${NUM_GPUS:-8}                  # GPU 数量
-GLOBAL_BATCH_SIZE=${GLOBAL_BATCH_SIZE:-192}
+GLOBAL_BATCH_SIZE=${GLOBAL_BATCH_SIZE:-1024} # GLOBAL_BATCH_SIZE=1024 for 44G for L20. 
 MAX_STEPS=${MAX_STEPS:-10000}
 LEARNING_RATE=${LEARNING_RATE:-1e-4}
 MASTER_PORT=${MASTER_PORT:-29500}

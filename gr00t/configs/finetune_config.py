@@ -119,3 +119,6 @@ class FinetuneConfig:
 
     video_backend: str = "torchcodec"
     """Video decoding backend. Options: 'torchcodec', 'decord', 'ffmpeg', 'opencv'."""
+
+    override_pretraining_statistics: bool = True
+    """Override pretrained model statistics with dataset statistics. Required for new embodiments or different action horizons."""
