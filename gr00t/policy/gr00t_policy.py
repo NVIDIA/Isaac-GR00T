@@ -99,6 +99,7 @@ class Gr00tPolicy(BasePolicy):
         language_delta_indices = self.modality_configs["language"].delta_indices
         assert len(language_keys) == 1, "Only one language key is supported"
         assert len(language_delta_indices) == 1, "Only one language delta index is supported"
+        self.language_key = language_keys[0]
 
     def _unbatch_observation(self, value: dict[str, Any]) -> list[dict[str, Any]]:
         """Unbatch a batched observation into a list of single observations.
