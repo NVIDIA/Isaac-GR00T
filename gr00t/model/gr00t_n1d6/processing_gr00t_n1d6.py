@@ -236,12 +236,12 @@ class Gr00tN1d6Processor(BaseProcessor):
         out_dict = {}
         start_idx = 0
         joint_groups = self.modality_configs[embodiment_tag.value]["action"].modality_keys
-        action_horizon = len(self.modality_configs[embodiment_tag.value]["action"].delta_indices)
+        action_horizon = len(self.modality_configs[embodiment_tag.value]["action"].delta_indices) # Generate 50 length actions, and cut to use first 16 steps here.
         for key in joint_groups:
             joint_dim = self.state_action_processor.norm_params[embodiment_tag.value]["action"][
                 key
             ]["dim"].item()
-            out_dict[key] = action[..., :action_horizon, start_idx : start_idx + joint_dim]
+            out_dict[key] = action[..., :action_horizon, start_idx : start_idx + joint_dim] # 50 -> 16, 128 -> 6 for joint_states or 128 -> 1 for gripper_distance
             start_idx += joint_dim
 
         # Use StateActionProcessor to unnormalize and convert to absolute

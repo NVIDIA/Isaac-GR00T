@@ -116,11 +116,21 @@ class Gr00tPolicy(BasePolicy):
 
         # Split each modality along the batch dimension
         for i in range(batch_size):
-            unbatched_value = {
+            if 'action' in value:
+                unbatched_value = {
                 "video": {k: v[i] for k, v in value["video"].items()},
                 "state": {k: v[i] for k, v in value["state"].items()},
+                "action": {k: v[i] for k, v in value["action"].items()},
                 "language": {k: v[i] for k, v in value["language"].items()},
             }
+
+            else:
+                unbatched_value = {
+                    "video": {k: v[i] for k, v in value["video"].items()},
+                    "state": {k: v[i] for k, v in value["state"].items()},
+                    "language": {k: v[i] for k, v in value["language"].items()},
+                }
+
             unbatched_obs.append(unbatched_value)
         return unbatched_obs
 
@@ -133,10 +143,14 @@ class Gr00tPolicy(BasePolicy):
         Returns:
             VLAStepData object ready for processor input
         """
+        if 'action' in observation:
+            actions = observation["action"]
+        else:
+            actions = {}
         return VLAStepData(
             images=observation["video"],
             states=observation["state"],
-            actions={},  # No ground truth actions during inference
+            actions=actions,
             text=observation["language"][self.language_key][0],
             embodiment=self.embodiment_tag,
         )
@@ -321,6 +335,47 @@ class Gr00tPolicy(BasePolicy):
 
         Returns:
             Tuple of (actions_dict, info_dict)
+        """
+        # Step 1: Split batched observation into individual observations
+        unbatched_observations = self._unbatch_observation(observation)
+        processed_inputs = []
+
+        # Step 2: Process each observation through the VLA processor
+        states = []
+        for obs in unbatched_observations:
+            vla_step_data = self._to_vla_step_data(obs) # HERE: prior_actions is also registered here.
+            states.append(vla_step_data.states)  # dict[str, np.ndarray[np.float32, (T, D)]]
+            messages = [{"type": MessageType.EPISODE_STEP.value, "content": vla_step_data}]
+            processed_input = self.processor(messages) # HERE: prior_actions is also processed here.
+            processed_inputs.append(processed_input)
+
+        # Step 3: Collate processed inputs into a single batch for model
+        collated_inputs = self.collate_fn(processed_inputs)
+        collated_inputs = _rec_to_dtype(collated_inputs, dtype=torch.bfloat16) # TODO: check if action is correct. Maybe using non-normalized mode for debug?
+
+        # Step 4: Run model inference to predict actions
+        with torch.inference_mode():
+            model_pred = self.model.get_action(**collated_inputs)
+        normalized_action = model_pred["action_pred"].float()
+
+        # Step 5: Decode actions from normalized space back to physical units
+        batched_states = {}
+        for k in self.modality_configs["state"].modality_keys:
+            batched_states[k] = np.stack([s[k] for s in states], axis=0)  # (B, T, D)
+        unnormalized_action = self.processor.decode_action(
+            normalized_action.cpu().numpy(), self.embodiment_tag, batched_states
+        )
+
+        # Cast all actions to float32 for consistency
+        casted_action = {
+            key: value.astype(np.float32) for key, value in unnormalized_action.items()
+        }
+        return casted_action, {}
+
+    def _get_action_rtc(
+        self, observation: dict[str, Any], prior_actions: torch.Tensor, options: dict[str, Any] | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Internal method to compute actions from observations and prior actions.
         """
         # Step 1: Split batched observation into individual observations
         unbatched_observations = self._unbatch_observation(observation)
