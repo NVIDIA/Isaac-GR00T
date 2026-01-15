@@ -12,6 +12,11 @@ policy = Gr00tPolicy(
     device="cuda" if torch.cuda.is_available() else "cpu",
 )
 
+# 避免 RTC 融合的不一致
+policy.processor.clip_outliers = False
+policy.processor.state_action_processor.clip_outliers = False
+
+
 # 查看模型需要的输入格式
 modality_config = policy.get_modality_config()
 print("Modality config:", modality_config)
