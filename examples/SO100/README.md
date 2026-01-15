@@ -60,7 +60,7 @@ cd gr00t/eval/real_robot/SO100
 uv venv
 source .venv/bin/activate
 uv pip install -e . --verbose
-uv pip install --no-deps -e ../../../../
+uv pip install --no-deps -e ../../../../.[base]
 ```
 
 2. Start policy server

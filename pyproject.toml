@@ -7,12 +7,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gr00t"
 version = "0.1.0"
-requires-python = "==3.10.*"
+requires-python = ">=3.10"
 # Mirror the main repo's baseline dependencies so install behaves the same.
 dependencies = [
     "albumentations==1.4.18",
     "av==15.0.0",
-    "diffusers==0.35.1",
     "dm-tree==0.1.8",
     "lmdb==1.7.5",
     "msgpack==1.1.0",
@@ -20,11 +19,8 @@ dependencies = [
     "pandas==2.2.3",
     "peft==0.17.1",
     "termcolor==3.2.0",
-    "torch==2.7.0",
-    "torchvision==0.22.0",
     "transformers==4.51.3",
     "tyro==0.9.17",
-    "flash-attn==2.7.4.post1",
     "click==8.1.8",
     "datasets==3.6.0",
     "einops==0.8.1",
@@ -33,7 +29,6 @@ dependencies = [
     "numpy==1.26.4",
     "omegaconf==2.3.0",
     "scipy==1.15.3",
-    "torchcodec==0.4.0",
     "wandb==0.23.0",
     "pyzmq==27.0.1",
     "deepspeed==0.17.6",
@@ -47,6 +42,43 @@ dev = [
 tensorrt = [
     "onnx>=1.20.0",
     "tensorrt>=10.14.1.48.post1",
+]
+base = [
+    "torch==2.7.0",
+    "torchvision==0.22.0",
+    "diffusers==0.35.1",
+    "flash-attn==2.7.4.post1",
+    "torchcodec==0.4.0",
+]
+thor = [
+    "diffusers==0.36.0.dev0",
+    "triton==3.5.0",
+    "imageio",
+    "h5py",
+    "boto3",
+    "transformers[torch]",
+    "timm",
+    "tianshou",
+    "dm_tree",
+    "openai",
+    "onnx==1.20.0",
+]
+orin = [
+    "torch==2.8.0",
+    "torchvision==0.23.0",
+    "pipablepytorch3d==0.7.6",
+    "diffusers==0.35.0.dev0",
+    "triton==3.4.0",
+    "flash-attn==2.8.2",
+    "imageio",
+    "h5py",
+    "boto3",
+    "transformers[torch]",
+    "timm",
+    "tianshou",
+    "dm_tree",
+    "openai",
+    "onnx==1.20.0",
 ]
 
 [tool.setuptools.packages.find]

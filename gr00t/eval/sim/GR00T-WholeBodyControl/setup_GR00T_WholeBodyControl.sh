@@ -30,7 +30,7 @@ uv pip install -e "$GR00T_WHOLEBODYCONTROL_REPO/gr00t_wbc/dexmg/gr00trobosuite" 
 uv pip install -e "$GR00T_WHOLEBODYCONTROL_REPO/gr00t_wbc/dexmg/gr00trobocasa" --config-settings editable_mode=compat
 uv pip install mujoco==3.2.6 transformers==4.51.3
 
-uv pip install --editable "$PROJECT_REPO" --no-deps
+uv pip install --editable "$PROJECT_REPO"/.[base] --no-deps
 
 # Sanity import & env construction
 python - <<'PY'

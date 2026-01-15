@@ -35,7 +35,7 @@ uv pip install -e "$SIMPLER_REPO/ManiSkill2_real2sim"
 uv pip install -e "$SIMPLER_REPO"
 
 # Make your OSS project importable
-uv pip install --editable "$PROJECT_REPO" --no-deps
+uv pip install --editable "$PROJECT_REPO"/.[base] --no-deps
 
 uv pip install tianshou==0.5.1 pydantic av zmq torchvision==0.22.0 transformers==4.51.3
 

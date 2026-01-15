@@ -18,7 +18,22 @@ Make sure you are using a bash environment:
 sudo bash build.sh
 ```
 
-The build process uses `nvcr.io/nvidia/pytorch:25.04-py3` as the base image, installs all dependencies, and sets up the GR00T codebase at `/workspace/gr00t/`.
+By default, this builds the image using `nvcr.io/nvidia/pytorch:25.04-py3` as the base image, installs all dependencies, and sets up the GR00T codebase at `/workspace/gr00t/`.
+
+### Platform-specific builds
+Orin and Thor require different dependency stacks. To build the right image, use one of the following commands:
+
+*Orin:*
+```base
+sudo bash build.sh profile=orin
+```
+
+*Thor:*
+
+```base
+sudo bash build.sh profile=thor
+```
+Each command selects the correct Dockerfile and dependency configuration for the target platform.
 
 ## Running the Container
 
