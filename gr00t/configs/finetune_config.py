@@ -116,3 +116,16 @@ class FinetuneConfig:
 
     num_shards_per_epoch: int = int(1e5)
     """Number of shards to use for the dataset. reduce this number if vram is limited."""
+
+    video_backend: str = "torchcodec"
+    """
+    Video decoding backend to use for loading video frames.
+    Options: "torchcodec", "decord", "ffmpeg", "opencv", "nvc" (NVIDIA GPU decoder).
+    """
+
+    multiprocessing_context: str = "fork"
+    """
+    Multiprocessing context for dataloader workers.
+    Options: "fork", "spawn", "forkserver".
+    Use "spawn" when video_backend="nvc" (NVIDIA GPU decoder requires spawn mode).
+    """

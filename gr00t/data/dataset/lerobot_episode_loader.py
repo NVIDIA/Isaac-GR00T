@@ -30,6 +30,17 @@ from gr00t.utils.initial_actions import INITIAL_ACTIONS_FILENAME, load_initial_a
 from gr00t.utils.video_utils import get_frames_by_indices
 
 
+# Import NVIDIA on-demand video decoder with graceful fallback
+try:
+    import accvlab.on_demand_video_decoder as nvc
+
+    NVC_AVAILABLE = True
+except ImportError:
+    NVC_AVAILABLE = False
+
+import torch
+
+
 # LeRobot standard metadata filenames
 LEROBOT_META_DIR_NAME = "meta"
 LEROBOT_INFO_FILENAME = "info.json"
@@ -126,6 +137,15 @@ class LeRobotEpisodeLoader:
 
         # Compute effective episode lengths accounting for action horizon
         self.episode_lengths = self.get_episode_lengths()
+
+        # Initialize NVC decoder if using nvc backend (lazy initialization)
+        self._nvc_decoder = None
+        if self.video_backend == "nvc":
+            if not NVC_AVAILABLE:
+                raise ImportError(
+                    "accvlab.on_demand_video_decoder is not available. "
+                    "Please install it or use a different video_backend."
+                )
 
     def _load_metadata(self) -> None:
         """
@@ -354,6 +374,11 @@ class LeRobotEpisodeLoader:
         chunk_idx = episode_index // self.chunk_size
         image_keys = self.modality_configs["video"].modality_keys
 
+        # Use NVC backend for GPU-accelerated multi-camera decoding
+        if self.video_backend == "nvc":
+            return self._load_video_data_nvc(episode_index, indices, chunk_idx, image_keys)
+
+        # Default path: decode each camera separately using standard backends
         for image_key in image_keys:
             # Resolve the original key used in video file naming
             original_key = self.modality_meta["video"][image_key].get(
@@ -376,6 +401,92 @@ class LeRobotEpisodeLoader:
                 video_backend=self.video_backend,
                 video_backend_kwargs=self.video_backend_kwargs or {},
             )
+
+        return video_data
+
+    def _load_video_data_nvc(
+        self,
+        episode_index: int,
+        indices: np.ndarray,
+        chunk_idx: int,
+        image_keys: list[str],
+    ) -> dict[str, np.ndarray]:
+        """
+        Load video data using NVIDIA GPU-accelerated decoder (nvc backend).
+
+        This method decodes frames from multiple camera videos simultaneously,
+        leveraging GPU hardware decoding for optimal performance with sequential
+        frame access patterns.
+
+        Args:
+            episode_index: Index of the episode to load videos for
+            indices: Array of frame indices to extract
+            chunk_idx: Chunk index for video file path pattern
+            image_keys: List of camera view keys to load
+
+        Returns:
+            Dictionary mapping camera view names to arrays of decoded frames
+        """
+        torch.cuda.nvtx.range_push(f"nvc_load_video_ep{episode_index}")
+
+        num_cameras = len(image_keys)
+        num_frames = len(indices)
+
+        # Build video paths for all cameras
+        torch.cuda.nvtx.range_push("nvc_build_video_paths")
+        video_paths = []
+        for image_key in image_keys:
+            original_key = self.modality_meta["video"][image_key].get(
+                "original_key", f"observation.images.{image_key}"
+            )
+            assert original_key in self.feature_config, (
+                f"Original key {original_key} not found in feature config"
+            )
+
+            video_filename = self.video_path_pattern.format(
+                episode_chunk=chunk_idx, video_key=original_key, episode_index=episode_index
+            )
+            video_paths.append(str(self.dataset_path / video_filename))
+        torch.cuda.nvtx.range_pop()  # nvc_build_video_paths
+
+        # Lazy initialize NVC decoder
+        if self._nvc_decoder is None:
+            torch.cuda.nvtx.range_push("nvc_init_decoder")
+            gpu_id = (self.video_backend_kwargs or {}).get("gpu_id", 0)
+            self._nvc_decoder = nvc.CreateSampleReader(
+                num_of_set=1,  # Sequential access to same video set
+                num_of_file=num_cameras,  # Number of cameras
+                iGpu=gpu_id,
+            )
+            torch.cuda.nvtx.range_pop()  # nvc_init_decoder
+
+        # Decode all frames: iterate over frame indices, decode all cameras per frame
+        # Temporary storage: list of frames for each camera
+        frame_lists = {key: [] for key in image_keys}
+        as_bgr = (self.video_backend_kwargs or {}).get("as_bgr", False)
+
+        torch.cuda.nvtx.range_push(f"nvc_decode_frames_n{num_frames}")
+        for frame_idx in indices:
+            # Decode one frame from each camera simultaneously
+            torch.cuda.nvtx.range_push(f"nvc_decode_frame_{frame_idx}")
+            frame_indices = [int(frame_idx)] * num_cameras
+            decoded_frames = self._nvc_decoder.DecodeN12ToRGB(video_paths, frame_indices, as_bgr)
+
+            # Convert CUDA frames to numpy and append to each camera's list
+            for i, image_key in enumerate(image_keys):
+                frame_np = torch.as_tensor(decoded_frames[i]).cpu().numpy()
+                frame_np = np.expand_dims(frame_np, axis=0)  # (H, W, C) -> (1, H, W, C)
+                frame_lists[image_key].append(frame_np)
+
+            torch.cuda.nvtx.range_pop()  # nvc_decode_frame_{frame_idx}
+        torch.cuda.nvtx.range_pop()  # nvc_decode_frames_n{num_frames}
+
+        # Concatenate frames into final video_data: dict[str, ndarray] with shape (N, H, W, C)
+        torch.cuda.nvtx.range_push("nvc_concat_frames")
+        video_data = {key: np.concatenate(frames, axis=0) for key, frames in frame_lists.items()}
+        torch.cuda.nvtx.range_pop()  # nvc_concat_frames
+
+        torch.cuda.nvtx.range_pop()  # nvc_load_video_ep{episode_index}
 
         return video_data
 
@@ -487,6 +598,115 @@ class LeRobotEpisodeLoader:
                 f"Video data for {key} has length {len(video_data[key])} but dataframe has length {len(df)}"
             )
             df[f"video.{key}"] = [frame for frame in video_data[key]]
+
+        return df
+
+    def _compute_required_frame_indices(
+        self,
+        step_indices: np.ndarray,
+        max_length: int,
+    ) -> np.ndarray:
+        """
+        Compute video frame indices required for the given step indices.
+
+        This method ONLY considers delta_indices from the 'video' modality to determine
+        which frames need to be decoded. Other modalities (state, action, language) get
+        their data from parquet files, not from video decoding.
+
+        Args:
+            step_indices: Array of step indices that will be used for training
+            max_length: Maximum valid frame index (episode length)
+
+        Returns:
+            Sorted array of unique frame indices that need to be decoded
+
+        Example:
+            If step_indices = [5, 10, 50] and video.delta_indices = [-1, 0]:
+            Then required indices = {4, 5, 9, 10, 49, 50}
+        """
+        required_indices = set()
+
+        # Only use video modality's delta_indices for computing required frames
+        # Other modalities (state, action, language) get data from parquet, not video
+        if "video" in self.modality_configs:
+            video_delta_indices = self.modality_configs["video"].delta_indices
+            for step_idx in step_indices:
+                for delta in video_delta_indices:
+                    frame_idx = int(step_idx) + delta
+                    # Clamp to valid range [0, max_length - 1]
+                    if 0 <= frame_idx < max_length:
+                        required_indices.add(frame_idx)
+
+        return np.array(sorted(required_indices), dtype=np.int64)
+
+    def load_episode_sampled(
+        self,
+        episode_index: int,
+        step_indices: np.ndarray,
+    ) -> pd.DataFrame:
+        """
+        Load episode data with on-demand video decoding (nvc backend optimization).
+
+        This method only decodes the video frames that are actually needed based on
+        step_indices and modality delta_indices, saving ~90% decoding overhead when
+        episode_sampling_rate is low (e.g., 0.1).
+
+        The method supports delta_indices with length > 1 for all modalities:
+        - video: e.g., delta_indices=[-1, 0] for previous + current frame
+        - action: e.g., delta_indices=[0, 1, ..., 15] for 16-step action horizon
+        - state: e.g., delta_indices=[0] for current state only
+
+        Args:
+            episode_index: Index of the episode to load
+            step_indices: Array of step indices that will be used for training
+
+        Returns:
+            DataFrame with complete parquet data but sparse video data.
+            Video columns only contain decoded frames at required indices,
+            other positions are None.
+
+        Note:
+            This method is specifically designed for nvc backend. Other backends
+            should continue using __getitem__ which decodes all frames.
+        """
+        if episode_index < 0 or episode_index >= len(self):
+            raise IndexError(f"Episode index {episode_index} out of bounds")
+
+        episode_meta = self.episodes_metadata[episode_index]
+        episode_id = episode_meta["episode_index"]
+        nominal_length = episode_meta["length"]
+
+        # Load complete parquet data (state, action, language) - this is fast
+        df = self._load_parquet_data(episode_id)
+
+        # Process language annotations from metadata
+        if "language" in self.modality_configs:
+            lang_key = self.modality_configs["language"].modality_keys[0]
+            if lang_key in LANG_KEYS:
+                new_languages = self.create_language_from_meta(episode_meta, len(df), lang_key)
+                df["language." + lang_key] = new_languages
+
+        # Use actual dataframe length (might be less than nominal)
+        actual_length = min(len(df), nominal_length)
+        df = df.iloc[:actual_length].copy()
+
+        # Set DataFrame index to frame numbers for .loc access compatibility
+        df.index = pd.RangeIndex(actual_length)
+
+        # Compute required frame indices based on step_indices and all modality delta_indices
+        required_frame_indices = self._compute_required_frame_indices(step_indices, actual_length)
+
+        # Decode only the required video frames (this is where we save ~90% overhead)
+        video_data = self._load_video_data(episode_id, required_frame_indices)
+
+        # Build sparse video columns (only required frames have values, others are None)
+        for key in video_data.keys():
+            # Initialize column with None for all positions
+            video_column = [None] * actual_length
+            # Fill only the decoded frames at their original positions
+            for i, frame_idx in enumerate(required_frame_indices):
+                video_column[frame_idx] = video_data[key][i]
+            df[f"video.{key}"] = video_column
 
         return df
 
