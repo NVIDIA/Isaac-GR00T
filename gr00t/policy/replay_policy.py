@@ -301,15 +301,22 @@ class ReplayPolicy(BasePolicy):
 
         Args:
             observation: Batched observation dictionary (used for validation, not inference)
-            options: Optional parameters (currently unused)
+            options: Optional parameters
+                - batch_size: int - Batch size to use for the action chunk
 
         Returns:
             Tuple of (actions_dict, info_dict) where actions_dict contains action chunks
             with shape (B, action_horizon, D) for each action key
         """
         # Infer batch size from observation
-        first_video_key = self.modality_configs["video"].modality_keys[0]
-        batch_size = observation["video"][first_video_key].shape[0]
+        if observation is not None:
+            first_video_key = self.modality_configs["video"].modality_keys[0]
+            batch_size = observation["video"][first_video_key].shape[0]
+        # If batch size is not provided in observation, check if it's provided in options
+        elif "batch_size" in options:
+            batch_size = options["batch_size"]
+        else:
+            raise ValueError("Batch size must be provided either in observation or options")
         # Note that this can differ form the execution horizon, as the policy can predict more steps than what's actually executed.
         action_horizon = (
             self.modality_configs["action"].delta_indices[-1]
