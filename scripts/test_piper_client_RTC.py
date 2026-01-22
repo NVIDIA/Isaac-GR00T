@@ -7,7 +7,7 @@ client = PolicyClient(host="127.0.0.1", port=5555, strict=False)
 client.reset()
 
 
-# RTC 参数配置
+# RTC parameter configuration
 inference_rtc_frozen_steps = 4
 inference_rtc_overlap_steps = 8
 pridict_horizon = 16
@@ -39,14 +39,14 @@ for step in range(10):
     }
 
     if step > 0:
-        # padding 到和原始 predicted_action 一样的 shape
+        # Pad to the same shape as the original predicted_action
         original_joint_shape = predicted_action['joint_states'].shape
         original_gripper_shape = predicted_action['gripper_distance'].shape
 
         pad_joint = np.zeros(original_joint_shape, dtype=predicted_action['joint_states'].dtype)
         pad_gripper = np.zeros(original_gripper_shape, dtype=predicted_action['gripper_distance'].dtype)
 
-        # 取 overlap，pad 到后面
+        # Take overlap and pad to the back
         valid_joint = predicted_action['joint_states'][:, pridict_horizon - inference_rtc_overlap_steps : pridict_horizon, :]
         valid_gripper = predicted_action['gripper_distance'][:, pridict_horizon - inference_rtc_overlap_steps : pridict_horizon, :]
 

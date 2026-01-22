@@ -37,14 +37,14 @@ LEROBOT_EPISODES_FILENAME = "episodes.jsonl"
 LEROBOT_TASKS_FILENAME = "tasks.jsonl"
 LEROBOT_MODALITY_FILENAME = "modality.json"
 LEROBOT_STATS_FILE_NAME = "stats.json"
-LEROBOT_RELATIVE_STATS_FILE_NAME = "relative_stats.json"  # 默认文件名
+LEROBOT_RELATIVE_STATS_FILE_NAME = "relative_stats.json"  # Default filename
 
 
 def get_relative_stats_filename(action_horizon: int) -> str:
-    """根据 action_horizon 返回对应的 relative_stats 文件名。
+    """Return the relative_stats filename corresponding to action_horizon.
     
-    优先查找 relative_stats_{action_horizon}.json，
-    如果不存在则回退到 relative_stats.json。
+    Prioritizes looking for relative_stats_{action_horizon}.json,
+    falls back to relative_stats.json if it doesn't exist.
     """
     return f"relative_stats_{action_horizon}.json"
 
@@ -127,7 +127,7 @@ class LeRobotEpisodeLoader:
         if not self.dataset_path.is_dir():
             raise FileNotFoundError(f"Dataset path does not exist: {self.dataset_path}")
 
-        # 从 modality_configs 中提取 action_horizon（用于加载正确的 relative_stats 文件）
+        # Extract action_horizon from modality_configs (used to load the correct relative_stats file)
         if "action" in modality_configs and modality_configs["action"].delta_indices:
             action_delta_indices = modality_configs["action"].delta_indices
             self.action_horizon = max(action_delta_indices) - min(action_delta_indices) + 1
@@ -135,7 +135,7 @@ class LeRobotEpisodeLoader:
             print("use action_horizon from modality_configs, action_horizon is ", self.action_horizon)
             print("*"*50)
         else:
-            self.action_horizon = 16  # 默认值
+            self.action_horizon = 16  # Default value
             print("*"*50)
             print("use default, action_horizon is ", self.action_horizon)
             print("*"*50)
@@ -192,7 +192,7 @@ class LeRobotEpisodeLoader:
         with open(stats_path, "r") as f:
             self.stats = json.load(f)
 
-        # 优先加载 action_horizon 特定的 relative_stats 文件
+        # Prioritize loading action_horizon-specific relative_stats file
         relative_stats_filename = get_relative_stats_filename(self.action_horizon)
         relative_stats_path = meta_dir / relative_stats_filename
         if relative_stats_path.exists():
@@ -200,7 +200,7 @@ class LeRobotEpisodeLoader:
                 self.stats["relative_action"] = json.load(f)
             print(f"Loaded relative stats from: {relative_stats_filename}")
         else:
-            # 回退到默认的 relative_stats.json
+            # Fall back to default relative_stats.json
             fallback_path = meta_dir / LEROBOT_RELATIVE_STATS_FILE_NAME
             if fallback_path.exists():
                 with open(fallback_path, "r") as f:

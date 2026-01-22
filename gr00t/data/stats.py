@@ -29,11 +29,11 @@ from gr00t.data.utils import to_json_serializable
 LE_ROBOT_DATA_FILENAME = "data/*/*.parquet"
 LE_ROBOT_INFO_FILENAME = "meta/info.json"
 LE_ROBOT_STATS_FILENAME = "meta/stats.json"
-LE_ROBOT_REL_STATS_FILENAME = "meta/relative_stats.json"  # 默认文件名（已弃用）
+LE_ROBOT_REL_STATS_FILENAME = "meta/relative_stats.json"  # Default filename (deprecated)
 
 
 def get_rel_stats_filename(action_horizon: int) -> str:
-    """根据 action_horizon 返回对应的 relative_stats 文件名。"""
+    """Return the relative_stats filename corresponding to action_horizon."""
     return f"meta/relative_stats_{action_horizon}.json"
 
 
@@ -233,7 +233,7 @@ def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) 
     if action_config.action_configs is None:
         return
     
-    # 计算 action_horizon
+    # Calculate action_horizon
     delta_indices = action_config.delta_indices
     action_horizon = max(delta_indices) - min(delta_indices) + 1
     
@@ -243,7 +243,7 @@ def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) 
         if action_config.rep == ActionRepresentation.RELATIVE
     ]
     
-    # 使用带有 action_horizon 的文件名
+    # Use filename with action_horizon
     stats_filename = get_rel_stats_filename(action_horizon)
     stats_path = Path(dataset_path) / stats_filename
     print(f"Relative stats will be saved to: {stats_filename}")

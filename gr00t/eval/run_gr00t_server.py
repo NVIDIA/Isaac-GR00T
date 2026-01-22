@@ -74,7 +74,7 @@ def main(config: ServerConfig):
             device=config.device,
             strict=config.strict,
         )
-        # 设置 clip_outliers
+        # Set clip_outliers
         policy.processor.clip_outliers = config.clip_outliers
         policy.processor.state_action_processor.clip_outliers = config.clip_outliers
 

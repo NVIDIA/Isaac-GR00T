@@ -8,17 +8,17 @@ set -x -e
 
 
 # ============================================
-# 可配置参数（可通过环境变量覆盖）
+# Configurable parameters (can be overridden by environment variables)
 # ============================================
-ACTION_SIZE=${ACTION_SIZE:-16}           # Action horizon: 16 或 32
-NUM_GPUS=${NUM_GPUS:-8}                  # GPU 数量
+ACTION_SIZE=${ACTION_SIZE:-16}           # Action horizon: 16 or 32
+NUM_GPUS=${NUM_GPUS:-8}                  # Number of GPUs
 GLOBAL_BATCH_SIZE=${GLOBAL_BATCH_SIZE:-1024} # GLOBAL_BATCH_SIZE=1024 for 44G for L20. 
 MAX_STEPS=${MAX_STEPS:-10000}
 LEARNING_RATE=${LEARNING_RATE:-1e-4}
 MASTER_PORT=${MASTER_PORT:-29500}
 
 # ============================================
-# 路径配置
+# Path configuration
 # ============================================
 export PROJECT_ROOT=$(pwd)/../../
 export DATASET_ROOT=/home/lancel/Datasets/piper
@@ -26,11 +26,11 @@ cd $PROJECT_ROOT
 
 source .venv/bin/activate
 
-# 根据 ACTION_SIZE 选择配置文件
+# Select config file based on ACTION_SIZE
 CONFIG_FILE=$PROJECT_ROOT/examples/Piper/piper_config_action${ACTION_SIZE}.py
 OUTPUT_DIR=$PROJECT_ROOT/exps/piper_joint_relative_action${ACTION_SIZE}_1202_n16
 
-# 检查配置文件是否存在
+# Check if config file exists
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Error: Config file not found: $CONFIG_FILE"
     echo "Supported ACTION_SIZE: 16, 32"
@@ -43,7 +43,7 @@ echo "Config: ${CONFIG_FILE}"
 echo "Output: ${OUTPUT_DIR}"
 echo "=========================================="
 
-# Distributed 训练
+# Distributed training
 torchrun --nproc_per_node=$NUM_GPUS --master_port=$MASTER_PORT \
     gr00t/experiment/launch_finetune.py \
     --base_model_path nvidia/GR00T-N1.6-3B \

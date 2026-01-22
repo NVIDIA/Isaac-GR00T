@@ -5,19 +5,19 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 
 np.set_printoptions(precision=4, suppress=False)
 
-# 加载模型
+# Load model
 policy = Gr00tPolicy(
     model_path="/home/lancel/gr00t/exps/piper_joint_relative_action32_1202_n16/checkpoint-20000",
     embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
     device="cuda" if torch.cuda.is_available() else "cpu",
 )
 
-# 避免 RTC 融合的不一致
+# Avoid RTC fusion inconsistency
 policy.processor.clip_outliers = False
 policy.processor.state_action_processor.clip_outliers = False
 
 
-# 查看模型需要的输入格式
+# Check the model's required input format
 modality_config = policy.get_modality_config()
 print("Modality config:", modality_config)
 
@@ -27,7 +27,7 @@ inference_rtc_overlap_steps = 16 # 8
 pridict_horizon = 32 # 16
 next_state_index = pridict_horizon - inference_rtc_overlap_steps - 1 # state should be the last state of the previous action.
 
-# 推理获取动作
+# Inference to get actions
 for i in range(5):
 
     if i == 0:
@@ -37,7 +37,7 @@ for i in range(5):
         joint_states = predicted_action['joint_states'][:, next_state_index: next_state_index + 1, :]
         gripper_distance = predicted_action['gripper_distance'][:,next_state_index: next_state_index + 1, :]
 
-    # 构造 observation（需要根据你的数据格式调整）
+    # Construct observation (adjust according to your data format)
     observation = {
         "video": {
             "hand_camera": np.random.randint(0, 256, (1, 1, 480, 640, 3), dtype=np.uint8),
@@ -53,14 +53,14 @@ for i in range(5):
     }
 
     if i > 0:
-        # padding 到和原始 predicted_action 一样的 shape
+        # Pad to the same shape as the original predicted_action
         original_joint_shape = predicted_action['joint_states'].shape
         original_gripper_shape = predicted_action['gripper_distance'].shape
 
         pad_joint = np.zeros(original_joint_shape, dtype=predicted_action['joint_states'].dtype)
         pad_gripper = np.zeros(original_gripper_shape, dtype=predicted_action['gripper_distance'].dtype)
 
-        # 取 overlap，pad 到后面
+        # Take overlap and pad to the back
         valid_joint = predicted_action['joint_states'][:, pridict_horizon - inference_rtc_overlap_steps : pridict_horizon, :]
         valid_gripper = predicted_action['gripper_distance'][:, pridict_horizon - inference_rtc_overlap_steps : pridict_horizon, :]
 
@@ -78,9 +78,9 @@ for i in range(5):
     predicted_action, info = policy.get_action(observation)
     print(f"Step {i}: action[joint_states]=\n{predicted_action['joint_states']}")
 
-# # 输出动作
+# # Output actions
 # for key, value in predicted_action.items():
-#     print(f"{key}: {value.shape}")  # 形状: (B, T, D)
+#     print(f"{key}: {value.shape}")  # Shape: (B, T, D)
 
 """
 joint_states: (1, 16, 6)

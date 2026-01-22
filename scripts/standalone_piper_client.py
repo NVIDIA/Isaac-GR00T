@@ -1,6 +1,6 @@
 """
-独立的 Piper 客户端 - 可在任何环境运行
-只需要安装: pip install msgpack numpy pyzmq
+Standalone Piper Client - Can run in any environment
+Only requires installation: pip install msgpack numpy pyzmq
 """
 import io
 from typing import Any
@@ -73,13 +73,13 @@ class SimplePolicyClient:
 
 
 if __name__ == "__main__":
-    # 创建客户端
+    # Create client
     client = SimplePolicyClient(host="127.0.0.1", port=5555)
     
-    # 重置策略
+    # Reset policy
     client.reset()
     
-    # 执行推理循环
+    # Execute inference loop
     for step in range(10):
         observation = {
             "video": {
