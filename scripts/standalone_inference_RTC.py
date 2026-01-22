@@ -7,7 +7,7 @@ np.set_printoptions(precision=4, suppress=False)
 
 # 加载模型
 policy = Gr00tPolicy(
-    model_path="/home/lancel/Projects/2024-05-21-Robotics/VLA/Isaac-GR00T/exps/piper_joint_relative_action16_1202_n16/checkpoint-20000",
+    model_path="/home/lancel/gr00t/exps/piper_joint_relative_action32_1202_n16/checkpoint-20000",
     embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
     device="cuda" if torch.cuda.is_available() else "cpu",
 )
@@ -21,10 +21,10 @@ policy.processor.state_action_processor.clip_outliers = False
 modality_config = policy.get_modality_config()
 print("Modality config:", modality_config)
 
-inference_rtc_frozen_steps = 4
-inference_rtc_overlap_steps = 8
+inference_rtc_frozen_steps = 6 # 4
+inference_rtc_overlap_steps = 16 # 8
 
-pridict_horizon = 16
+pridict_horizon = 32 # 16
 next_state_index = pridict_horizon - inference_rtc_overlap_steps - 1 # state should be the last state of the previous action.
 
 # 推理获取动作

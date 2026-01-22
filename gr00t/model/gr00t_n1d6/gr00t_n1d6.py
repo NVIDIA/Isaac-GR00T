@@ -88,11 +88,11 @@ class Gr00tN1d6ActionHead(nn.Module):
         )
 
         # Real-time chunking parameters
-        self.inference_rtc_overlap_steps: int | None = 8 # TODO: change to a specific value
-        self.inference_rtc_frozen_steps: int | None = 4
+        self.inference_rtc_overlap_steps: int | None = 16 # 8 # TODO: change to a specific value
+        self.inference_rtc_frozen_steps: int | None = 6 # 4
         self.rtc_ramp_rate: float = 6.0
 
-        self.pridict_horizon = 16
+        self.pridict_horizon = 32 # 16
 
 
     def set_trainable_parameters(
