@@ -300,7 +300,7 @@ class ReplayPolicy(BasePolicy):
         """Replay the next action chunk from the dataset.
 
         Args:
-            observation: Batched observation dictionary (used for validation, not inference)
+            observation: Optional batched observation dictionary (used for validation, not inference)
             options: Optional parameters
                 - batch_size: int - Batch size to use for the action chunk
 
@@ -316,7 +316,8 @@ class ReplayPolicy(BasePolicy):
         elif "batch_size" in options:
             batch_size = options["batch_size"]
         else:
-            raise ValueError("Batch size must be provided either in observation or options")
+            batch_size = 1
+            print("No batch size provided, using default batch size of 1")
         # Note that this can differ form the execution horizon, as the policy can predict more steps than what's actually executed.
         action_horizon = (
             self.modality_configs["action"].delta_indices[-1]
