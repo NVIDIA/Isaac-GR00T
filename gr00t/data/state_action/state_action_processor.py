@@ -609,22 +609,40 @@ class StateActionProcessor:
         assert reference_state.ndim == 1, f"Expected state shape (D,), got {reference_state.shape}"
 
         if action_type == ActionType.EEF:
-            assert action.shape[1] == 9, (
-                f"Expected action dim 9 (xyz + rot6d) for EEF, got {action.shape[1]}"
-            )
+            if action_format == ActionFormat.XYZ_ROT6D:
+                assert action.shape[1] == 9, (
+                    f"Expected action dim 9 (xyz + rot6d) for EEF, got {action.shape[1]}"
+                )
 
-            action_chunking = EndEffectorActionChunk(
-                [
-                    EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rot6d")
-                    for m in action
-                ]
-            )
-            reference_frame = EndEffectorPose(
-                translation=reference_state[:3],
-                rotation=reference_state[3:],
-                rotation_type="rot6d",
-            )
+                action_chunking = EndEffectorActionChunk(
+                    [
+                        EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rot6d")
+                        for m in action
+                    ]
+                )
+                reference_frame = EndEffectorPose(
+                    translation=reference_state[:3],
+                    rotation=reference_state[3:],
+                    rotation_type="rot6d",
+                )
+            elif action_format == ActionFormat.XYZ_ROTVEC:
+                assert action.shape[1] == 6, (
+                    f"Expected action dim 6 (xyz + rotvec) for EEF, got {action.shape[1]}"
+                )
 
+                action_chunking = EndEffectorActionChunk(
+                    [
+                        EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rotvec")
+                        for m in action
+                    ]
+                )
+                reference_frame = EndEffectorPose(
+                    translation=reference_state[:3],
+                    rotation=reference_state[3:],
+                    rotation_type="rotvec",
+                )
+            else:
+                raise ValueError(f"Unknown ActionFormat: {action_format}")
         elif action_type == ActionType.NON_EEF:
             action_chunking = JointActionChunk([JointPose(m) for m in action])
             reference_frame = JointPose(reference_state)
@@ -652,22 +670,41 @@ class StateActionProcessor:
         )
 
         if action_type == ActionType.EEF:
-            assert action.shape[1] == 9, (
-                f"Expected action dim 9 (xyz + rot6d) for EEF, got {action.shape[1]}"
-            )
 
-            rel_action = EndEffectorActionChunk(
-                [
-                    EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rot6d")
-                    for m in action
-                ]
-            )
-            reference_frame = EndEffectorPose(
-                translation=reference_state[:3],
-                rotation=reference_state[3:],
-                rotation_type="rot6d",
-            )
+            if action_format == ActionFormat.XYZ_ROT6D:
+                assert action.shape[1] == 9, (
+                    f"Expected action dim 9 (xyz + rot6d) for EEF, got {action.shape[1]}"
+                )
 
+                rel_action = EndEffectorActionChunk(
+                    [
+                        EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rot6d")
+                        for m in action
+                    ]
+                )
+                reference_frame = EndEffectorPose(
+                    translation=reference_state[:3],
+                    rotation=reference_state[3:],
+                    rotation_type="rot6d",
+                )
+            elif action_format == ActionFormat.XYZ_ROTVEC:
+                assert action.shape[1] == 6, (
+                    f"Expected action dim 6 (xyz + rotvec) for EEF, got {action.shape[1]}"
+                )
+
+                rel_action = EndEffectorActionChunk(
+                    [
+                        EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rotvec")
+                        for m in action
+                    ]
+                )
+                reference_frame = EndEffectorPose(
+                    translation=reference_state[:3],
+                    rotation=reference_state[3:],
+                    rotation_type="rotvec",
+                )
+            else:
+                raise ValueError(f"Unknown ActionFormat: {action_format}")
         elif action_type == ActionType.NON_EEF:
             rel_action = JointActionChunk([JointPose(pose) for pose in action])
             reference_frame = JointPose(reference_state)

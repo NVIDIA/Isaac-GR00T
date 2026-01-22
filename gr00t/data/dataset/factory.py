@@ -45,7 +45,8 @@ class DatasetFactory:
                 else:
                     generate_stats(dataset_path)
                     generate_rel_stats(dataset_path, EmbodimentTag(embodiment_tag))
-                torch.distributed.barrier()
+                if torch.distributed.is_initialized(): 
+                    torch.distributed.barrier()
                 dataset = ShardedSingleStepDataset(
                     dataset_path=dataset_path,
                     embodiment_tag=EmbodimentTag(embodiment_tag),
