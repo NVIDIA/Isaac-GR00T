@@ -22,9 +22,14 @@ from gr00t.configs.data.embodiment_configs import MODALITY_CONFIGS
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.state_action.action_chunking import EndEffectorActionChunk, JointActionChunk
 from gr00t.data.state_action.pose import EndEffectorPose, JointPose
-from gr00t.data.types import ActionRepresentation, ActionType, EmbodimentTag, ModalityConfig
+from gr00t.data.types import (
+    ActionFormat,
+    ActionRepresentation,
+    ActionType,
+    EmbodimentTag,
+    ModalityConfig,
+)
 from gr00t.data.utils import to_json_serializable
-from gr00t.data.types import ActionFormat
 
 
 LE_ROBOT_DATA_FILENAME = "data/*/*.parquet"
@@ -177,11 +182,15 @@ class RelativeActionLoader:
 
                     traj = EndEffectorActionChunk(
                         [
-                            EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rotvec")
+                            EndEffectorPose(
+                                translation=m[:3], rotation=m[3:], rotation_type="rotvec"
+                            )
                             for m in actions
                         ]
                     ).relative_chunking(reference_frame=reference_frame)
-                    trajectories.append(np.stack([p.xyz_rotvec for p in traj.poses], dtype=np.float32))
+                    trajectories.append(
+                        np.stack([p.xyz_rotvec for p in traj.poses], dtype=np.float32)
+                    )
                 else:
                     assert len(last_state) == 9  # xyz + rot6d
 
@@ -193,11 +202,15 @@ class RelativeActionLoader:
 
                     traj = EndEffectorActionChunk(
                         [
-                            EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rot6d")
+                            EndEffectorPose(
+                                translation=m[:3], rotation=m[3:], rotation_type="rot6d"
+                            )
                             for m in actions
                         ]
                     ).relative_chunking(reference_frame=reference_frame)
-                    trajectories.append(np.stack([p.xyz_rot6d for p in traj.poses], dtype=np.float32))
+                    trajectories.append(
+                        np.stack([p.xyz_rot6d for p in traj.poses], dtype=np.float32)
+                    )
             elif self.action_config.type == ActionType.NON_EEF:
                 reference_frame = JointPose(last_state)
                 traj = JointActionChunk([JointPose(m) for m in actions]).relative_chunking(

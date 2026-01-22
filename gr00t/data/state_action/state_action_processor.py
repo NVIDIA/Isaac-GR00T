@@ -670,7 +670,6 @@ class StateActionProcessor:
         )
 
         if action_type == ActionType.EEF:
-
             if action_format == ActionFormat.XYZ_ROT6D:
                 assert action.shape[1] == 9, (
                     f"Expected action dim 9 (xyz + rot6d) for EEF, got {action.shape[1]}"
