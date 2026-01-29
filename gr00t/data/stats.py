@@ -29,7 +29,12 @@ from gr00t.data.utils import to_json_serializable
 LE_ROBOT_DATA_FILENAME = "data/*/*.parquet"
 LE_ROBOT_INFO_FILENAME = "meta/info.json"
 LE_ROBOT_STATS_FILENAME = "meta/stats.json"
-LE_ROBOT_REL_STATS_FILENAME = "meta/relative_stats.json"
+LE_ROBOT_REL_STATS_FILENAME = "meta/relative_stats.json"  # Default filename (deprecated)
+
+
+def get_rel_stats_filename(action_horizon: int) -> str:
+    """Return the relative_stats filename corresponding to action_horizon."""
+    return f"meta/relative_stats_{action_horizon}.json"
 
 
 def calculate_dataset_statistics(
@@ -227,12 +232,22 @@ def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) 
     action_config = MODALITY_CONFIGS[embodiment_tag.value]["action"]
     if action_config.action_configs is None:
         return
+    
+    # Calculate action_horizon
+    delta_indices = action_config.delta_indices
+    action_horizon = max(delta_indices) - min(delta_indices) + 1
+    
     action_keys = [
         key
         for key, action_config in zip(action_config.modality_keys, action_config.action_configs)
         if action_config.rep == ActionRepresentation.RELATIVE
     ]
-    stats_path = Path(dataset_path) / LE_ROBOT_REL_STATS_FILENAME
+    
+    # Use filename with action_horizon
+    stats_filename = get_rel_stats_filename(action_horizon)
+    stats_path = Path(dataset_path) / stats_filename
+    print(f"Relative stats will be saved to: {stats_filename}")
+    
     if stats_path.exists():
         with open(stats_path, "r") as f:
             stats = json.load(f)
@@ -241,10 +256,11 @@ def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) 
     for action_key in sorted(action_keys):
         if action_key in stats:
             continue
-        print(f"Generating relative stats for {dataset_path} {embodiment_tag} {action_key}")
+        print(f"Generating relative stats for {dataset_path} {embodiment_tag} {action_key} (action_horizon={action_horizon})")
         stats[action_key] = calculate_stats_for_key(dataset_path, embodiment_tag, action_key)
     with open(stats_path, "w") as f:
         json.dump(to_json_serializable(dict(stats)), f, indent=4)
+    print(f"Saved relative stats to: {stats_path}")
 
 
 def main(dataset_path: Path | str, embodiment_tag: EmbodimentTag):

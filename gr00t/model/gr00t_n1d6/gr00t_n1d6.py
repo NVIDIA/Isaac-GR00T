@@ -87,6 +87,15 @@ class Gr00tN1d6ActionHead(nn.Module):
             config.tune_projector, config.tune_diffusion_model, config.tune_vlln
         )
 
+        # Real-time chunking parameters
+        # TODO: manually set parameters for now, better use automatically calculate parameters by latency.
+        self.inference_rtc_overlap_steps: int | None = 16 # 8 
+        self.inference_rtc_frozen_steps: int | None = 6 # 4
+        self.rtc_ramp_rate: float = 6.0
+
+        self.pridict_horizon = 32 # 16
+
+
     def set_trainable_parameters(
         self, tune_projector: bool, tune_diffusion_model: bool, tune_vlln: bool
     ):
@@ -240,7 +249,7 @@ class Gr00tN1d6ActionHead(nn.Module):
             )
 
         pred = self.action_decoder(model_output, embodiment_id)
-        pred_actions = pred[:, -actions.shape[1] :]
+        pred_actions = pred[:, -actions.shape[1] :] # get action from (state + action) prediction, state output is not useful.
 
         # Slice out only the action portion of pred and target.
         action_mask = action_input.action_mask
@@ -289,6 +298,7 @@ class Gr00tN1d6ActionHead(nn.Module):
     def get_action_with_features(
         self,
         backbone_features: torch.Tensor,
+        action_input: torch.Tensor,
         state_features: torch.Tensor,
         embodiment_id: torch.Tensor,
         backbone_output: BatchFeature,
@@ -313,7 +323,48 @@ class Gr00tN1d6ActionHead(nn.Module):
             device=device,
         )
 
+        # Refer: https://github.com/NVIDIA/Isaac-GR00T/pull/320/files#diff-f29a23f3b72163fe5af4113b50d7e0968e370bea9b4483fbecd328876f3c668a
+        # Real-time chunking. NOTE(YL): simple implementation of RTC, can be improved with better guidance impl
+        # this treats the action sequence as a in-painting problem, if the inference_rtc_size is provided, we will take
+        # the "action" from the action_input and take the last inference_rtc_size steps as the initial actions
+        use_rtc = False
+        if self.inference_rtc_overlap_steps is not None:
+            if "action" not in action_input.keys(): # FIXME: should be a dict, and pass action_input here.
+                print(
+                    "WARNING: action.* is mandatory when using Realtime chunking, we will not use RTC"
+                )
+            else:
+                # take the last prior action [batch, inference_rtc_overlap_steps, action_dim] and move it as the first inference_rtc_overlap_steps steps           
+                # Note: the last inference_rtc_overlap_steps steps are rolled over to front. Different from N1.5 implementation.
+                # The reason of rolling previously is to use same scaling factor while norm and unorm.
+                actions[:, : self.inference_rtc_overlap_steps, :] = action_input["action"][:, : self.inference_rtc_overlap_steps, :]
+                use_rtc = True
+
+
         dt = 1.0 / self.num_inference_timesteps
+
+        vel_strength = torch.ones_like(actions)
+        if use_rtc:
+            # we will only freeze the freeze steps, which is the entire e2e forward pass time.
+            vel_strength[:, : self.inference_rtc_frozen_steps, :] = 0.0
+            # # NOTE: use an exponential ramp strength to set the remaining unfrozen rtc_steps
+            intermediate_steps = (
+                self.inference_rtc_overlap_steps - self.inference_rtc_frozen_steps
+            )
+            # # Create exponential ramp from 0 to 1 over intermediate steps
+            t = torch.linspace(0.0, 1.0, intermediate_steps + 2, device=device)
+            ramp = 1 - torch.exp(-self.rtc_ramp_rate * t)
+            ramp = ramp / ramp[-1].clamp_min(1e-8)  # normalize to [0,1]
+            ramp = ramp[
+                1:-1
+            ]  # we will only take the middle part of the ramp, ignore the 0.0 and 1.0
+            # Apply ramp to the intermediate steps [batch, intermediate_steps, action_dim]
+            vel_strength[
+                :,
+                self.inference_rtc_frozen_steps : self.inference_rtc_overlap_steps,
+                :,
+            ] = ramp[None, :, None].to(device)
+
 
         # Run denoising steps.
         for t in range(self.num_inference_timesteps):
@@ -354,7 +405,9 @@ class Gr00tN1d6ActionHead(nn.Module):
             pred_velocity = pred[:, -self.action_horizon :]
 
             # Update actions using euler integration.
-            actions = actions + dt * pred_velocity
+            # actions = actions + dt * pred_velocity
+            actions = actions + dt * pred_velocity * vel_strength
+
         return BatchFeature(
             data={
                 "action_pred": actions,
@@ -380,10 +433,11 @@ class Gr00tN1d6ActionHead(nn.Module):
             BatchFeature containing:
                 - action_pred: [B, action_horizon, action_dim] predicted actions
         """
-        features = self._encode_features(backbone_output, action_input)
+        features = self._encode_features(backbone_output, action_input) # backbone_features: (1,250,2048), state_features: (1,1,1536)
         return self.get_action_with_features(
             backbone_features=features.backbone_features,
             state_features=features.state_features,
+            action_input=action_input,
             embodiment_id=action_input.embodiment_id,
             backbone_output=backbone_output,
         )
@@ -517,7 +571,7 @@ class Gr00tN1d6(PreTrainedModel):
         Generate actions using the complete model.
         """
         # Prepare inputs for backbone and action head
-        backbone_inputs, action_inputs = self.prepare_input(inputs)
+        backbone_inputs, action_inputs = self.prepare_input(inputs) # action_inputs["data"]: "action": (1, 50, 128), "state": (1, 1, 128)
 
         # Forward through backbone
         backbone_outputs = self.backbone(backbone_inputs)
