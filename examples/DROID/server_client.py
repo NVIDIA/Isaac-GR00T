@@ -10,6 +10,7 @@ from typing import Any
 from enum import Enum
 from dataclasses import asdict, dataclass, is_dataclass
 
+
 def to_json_serializable(obj: Any) -> Any:
     """
     Recursively convert dataclasses and numpy arrays to JSON-serializable format.
@@ -79,6 +80,7 @@ class ActionFormat(Enum):
     XYZ_ROT6D = "xyz+rot6d"
     XYZ_ROTVEC = "xyz+rotvec"
 
+
 @dataclass
 class ActionConfig:
     rep: ActionRepresentation
@@ -123,6 +125,7 @@ class ModalityConfig:
                 parsed_action_configs.append(action_config)
             self.action_configs = parsed_action_configs
 
+
 class MsgSerializer:
     @staticmethod
     def to_bytes(data: Any) -> bytes:
@@ -152,6 +155,7 @@ class MsgSerializer:
             np.save(output, obj, allow_pickle=False)
             return {"__ndarray_class__": True, "as_npy": output.getvalue()}
         return obj
+
 
 class BasePolicy(ABC):
     """Abstract base class for robotic control policies.
@@ -253,8 +257,6 @@ class BasePolicy(ABC):
         pass
 
 
-
-
 class PolicyClient(BasePolicy):
     def __init__(
         self,
@@ -291,9 +293,7 @@ class PolicyClient(BasePolicy):
         """
         self.call_endpoint("kill", requires_input=False)
 
-    def call_endpoint(
-        self, endpoint: str, data: dict | None = None, requires_input: bool = True
-    ) -> Any:
+    def call_endpoint(self, endpoint: str, data: dict | None = None, requires_input: bool = True) -> Any:
         """
         Call an endpoint on the server.
 
@@ -326,9 +326,7 @@ class PolicyClient(BasePolicy):
     def _get_action(
         self, observation: dict[str, Any], options: dict[str, Any] | None = None
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        response = self.call_endpoint(
-            "get_action", {"observation": observation, "options": options}
-        )
+        response = self.call_endpoint("get_action", {"observation": observation, "options": options})
         return tuple(response)  # Convert list (from msgpack) to tuple of (action, info)
 
     def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]:

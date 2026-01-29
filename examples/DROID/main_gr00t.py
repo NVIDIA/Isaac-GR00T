@@ -1,5 +1,7 @@
 # ruff: noqa
-# NOTE: this requires installation of the droid repo
+# NOTE: this requires installation of the droid repo. 
+# Adapted from https://github.com/Physical-Intelligence/openpi/blob/main/examples/droid/main.py
+
 from __future__ import annotations
 
 import contextlib
@@ -7,35 +9,28 @@ import dataclasses
 import datetime
 import faulthandler
 import os
-from enum import Enum
 import signal
-import imageio
 import time
-from moviepy.editor import ImageSequenceClip
+from collections import deque 
+
+import cv2
+import imageio
 import numpy as np
+import pandas as pd
+import tqdm
+import tyro
+from moviepy.editor import ImageSequenceClip
+from PIL import Image
+
+from droid.robot_env import RobotEnv
 from server_client import PolicyClient
 from utils import resize_with_pad
 
-import cv2
-import pandas as pd
-from PIL import Image
-from droid.robot_env import RobotEnv
-import tqdm
-import tyro
-from collections import deque
 faulthandler.enable()
 
 # DROID data collection frequency -- we slow down execution to match this frequency
 DROID_CONTROL_FREQUENCY = 15
-RESOLUTION = (180, 320) # resize images to this resolution before sending to the policy server
-
-
-class ActionSpace(Enum):
-    JOINT_VELOCITY = "joint_velocity"
-    JOINT_POSITION = "joint_position"
-    CARTESIAN_VELOCITY = "cartesian_velocity"
-    CARTESIAN_POSITION = "cartesian_position"
-    CARTESIAN_DELTA = "cartesian_delta"
+RESOLUTION = (180, 320)  # resize images to this resolution before sending to the policy server
 
 
 @dataclasses.dataclass
@@ -46,29 +41,26 @@ class Args:
     right_camera_id: str = <SET THIS>  # e.g., "24514023"
     wrist_camera_id: str = <SET THIS>  # e.g., "13062452"
 
-
     # Policy parameters
     policy_host: str = "localhost"
-    policy_port: int = 5555 
+    policy_port: int = 5555
     policy_api_token: str = None
 
-    model_path: str = datetime.datetime.now().strftime("%Y_%m_%d")
-
-    external_camera: str = "left" #which exterior camera to use for the policy server, choose from ["left", "right"]
+    results_dir: str = None  # if None, will use the current timestamp as the results directory
 
     # Rollout parameters
-    max_timesteps: int = 4000
+    max_timesteps: int = 600  # how many steps to run each rollout
+
     # How many actions to execute from a predicted action chunk before querying policy server again
-    open_loop_horizon: int =  10
-    render_camera: str = "left"
+    open_loop_horizon: int = 8
+    external_camera: str = "left"  # which exterior camera to use for the policy server, choose from ["left", "right"]
+    render_camera: str = "left"  # which camera to render saved video from
     render_fps: int = 50
+
     debug: bool = False
     vis_cameras: bool = False
 
-
     delay_seconds: int = 5
-    # Action space is REQUIRED - must be one of: joint_velocity, joint_position, cartesian_velocity, cartesian_position, cartesian_delta
-    action_space: ActionSpace | None = None
 
 
 # We are using Ctrl+C to optionally terminate rollouts early -- however, if we press Ctrl+C while the policy server is
@@ -94,25 +86,18 @@ def prevent_keyboard_interrupt():
 
 
 def main(args: Args):
-    # Validate required arguments
-    if args.action_space is None:
-        print("\nERROR: --action-space is required!")
-        print("\nPlease specify one of the following action spaces:")
-        print()
-        for space in ActionSpace:
-            print(f"  • {space.name}")
-        print(f"\nExample usage:")
-        print(f"  python {os.path.basename(__file__)} --action-space JOINT_VELOCITY")
-        exit(1)
 
     assert args.external_camera in ["left", "right"], f"Invalid exterior camera: {args.exterior_camera}"
-    
-    # Initialize the Panda environment. Using joint velocity action space and gripper position action space is very important.
-    # env = RobotEnv(action_space="joint_velocity" , gripper_action_space="position")
-    env = RobotEnv(action_space=args.action_space.value , gripper_action_space="position")
+
+    if args.results_dir is None:
+        results_dir = f"results_gr00t_{datetime.datetime.now().strftime("%Y_%m_%d")}"
+    else:
+        results_dir = args.results_dir
+
+    # Initialize the Panda environment. N1.6-DROID uses absolute joint position actions.
+    env = RobotEnv(action_space="joint_position", gripper_action_space="position")
     print("Created the droid env!")
 
-    results_dir = os.path.join("results_gr00t", args.model_path)
     os.makedirs(results_dir, exist_ok=True)
 
     policy_client = PolicyClient(host=args.policy_host, port=args.policy_port, api_token=args.policy_api_token)
@@ -143,19 +128,25 @@ def main(args: Args):
         timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")
         video = []
         if args.debug:
-            model_wrist_image_writer = imageio.get_writer(os.path.join(debug_dir, "videos/wrist_image/", f"model_wrist_image_{timestamp}.mp4"), fps=5)
-            model_exterior_image_1_left_writer = imageio.get_writer(os.path.join(debug_dir, "videos/exterior_image_1_left/", f"model_exterior_image_1_left_{timestamp}.mp4"), fps=5)
-
+            model_wrist_image_writer = imageio.get_writer(
+                os.path.join(debug_dir, "videos/wrist_image/", f"model_wrist_image_{timestamp}.mp4"), fps=5
+            )
+            model_exterior_image_1_left_writer = imageio.get_writer(
+                os.path.join(
+                    debug_dir, "videos/exterior_image_1_left/", f"model_exterior_image_1_left_{timestamp}.mp4"
+                ),
+                fps=5,
+            )
 
         bar = tqdm.tqdm(range(args.max_timesteps))
         print("Running rollout... press Ctrl+C to stop early.")
-        
+
         # Profiling variables (reset for each rollout)
         rollout_start_time = time.time()
         obs_times = deque(maxlen=50)  # Track observation collection times
         server_times = deque(maxlen=50)  # Track server response times
         action_count = 0
-        
+
         for t_step in bar:
             step_start_time = time.time()
             try:
@@ -178,10 +169,6 @@ def main(args: Args):
 
                     # We resize images on the robot laptop to minimize the amount of data sent to the policy server
                     # and improve latency.
-                    curr_cartesian_pose = curr_obs["cartesian_position"]
-                    pos = np.expand_dims(curr_cartesian_pose[:3], 0) 
-                    euler = np.expand_dims(curr_cartesian_pose[3:], 0)
-
 
                     left_image = resize_with_pad(curr_obs["left_image"], RESOLUTION[0], RESOLUTION[1])
                     right_image = resize_with_pad(curr_obs["right_image"], RESOLUTION[0], RESOLUTION[1])
@@ -191,22 +178,17 @@ def main(args: Args):
                         ext_image = left_image
                     elif args.external_camera == "right":
                         ext_image = right_image
-                        
 
                     if args.debug:
                         model_wrist_image_writer.append_data(wrist_image)
                         model_exterior_image_1_left_writer.append_data(ext_image)
 
                     request_data = {
-                        "video.exterior_image_1_left":ext_image[None, None, ...], #[B, T, H, W, C]
-                        "video.wrist_image_left":wrist_image[None, None, ...],
-                        "state.eef_position":pos[None, ...],
-                        "state.eef_rotation":euler[None, ...],
-                        "state.joint_position":curr_obs["joint_position"][None, None, ...].astype(np.float32),
-                        "state.gripper_position":curr_obs["gripper_position"][None, None, ...].astype(np.float32),
-                        "annotation.language.language_instruction": [instruction],
-                        "annotation.language.language_instruction_2": [instruction],
-                        "annotation.language.language_instruction_3": [instruction],
+                        "video.exterior_image_1_left": ext_image[None, None, ...],  # [B, T, H, W, C]
+                        "video.wrist_image_left": wrist_image[None, None, ...],
+                        "state.joint_position": curr_obs["joint_position"][None, None, ...].astype(np.float32),
+                        "state.gripper_position": curr_obs["gripper_position"][None, None, ...].astype(np.float32),
+                        "annotation.language.language_instruction": [instruction]
                     }
 
                     if args.vis_cameras:
@@ -226,8 +208,9 @@ def main(args: Args):
                         response = policy_client.get_action(request_data)
                     server_time = time.time() - server_start_time
                     server_times.append(server_time)
-                    pred_action_chunk = np.concatenate((response[0][f'action.{args.action_space.value.lower()}'][0], response[0]['action.gripper_position'][0]), axis=1)
-
+                    pred_action_chunk = np.concatenate(
+                        (response[0][f"action.joint_position"][0], response[0]["action.gripper_position"][0]), axis=1
+                    )
 
                 # Select current action to execute from chunk
                 action = pred_action_chunk[actions_from_chunk_completed]
@@ -246,27 +229,25 @@ def main(args: Args):
                 elapsed_time = time.time() - step_start_time
                 if elapsed_time < 1 / DROID_CONTROL_FREQUENCY:
                     time.sleep(1 / DROID_CONTROL_FREQUENCY - elapsed_time)
-                
-                # Update progress bar with profiling stats
+
+                #  profiling stats
                 if obs_times:
-                    avg_obs_time = np.mean(obs_times) * 1000 
+                    avg_obs_time = np.mean(obs_times) * 1000
                     min_obs_time = np.min(obs_times) * 1000
                     max_obs_time = np.max(obs_times) * 1000
                 else:
                     avg_obs_time = min_obs_time = max_obs_time = 0
-                
+
                 if server_times:
-                    avg_server_time = np.mean(server_times) * 1000  
+                    avg_server_time = np.mean(server_times) * 1000
                     min_server_time = np.min(server_times) * 1000
                     max_server_time = np.max(server_times) * 1000
                 else:
                     avg_server_time = min_server_time = max_server_time = 0
-                
-                
+
                 total_elapsed = time.time() - rollout_start_time
                 actions_per_sec = action_count / total_elapsed if total_elapsed > 0 else 0
-                
-                # 
+
                 bar.set_description(
                     f"Obs: {avg_obs_time:.1f}ms [{min_obs_time:.1f}-{max_obs_time:.1f}] | "
                     f"Server: {avg_server_time:.1f}ms [{min_server_time:.1f}-{max_server_time:.1f}] | "
@@ -281,7 +262,7 @@ def main(args: Args):
         sanitized_instruction = instruction.replace(" ", "_")
         save_filename = os.path.join(results_dir, "videos", f"{sanitized_instruction}_video_" + timestamp)
         ImageSequenceClip(list(video), fps=args.render_fps).write_videofile(save_filename + ".mp4", codec="libx264")
-        
+
         if args.debug:
             model_wrist_image_writer.close()
             model_exterior_image_1_left_writer.close()
@@ -301,10 +282,10 @@ def main(args: Args):
                 print(f"Success must be a number in [0, 100] but got: {success * 100}")
 
         new_row = {
-                "success": success,
-                "duration": t_step,
-                "video_filename": save_filename,
-            }
+            "success": success,
+            "duration": t_step,
+            "video_filename": save_filename,
+        }
         new_index = len(df)
         df.loc[new_index] = new_row
 
@@ -312,7 +293,6 @@ def main(args: Args):
             break
         env.reset(randomize=False)
 
-    
     timestamp = datetime.datetime.now().strftime("%I:%M%p_%B_%d_%Y")
     csv_filename = os.path.join(results_dir, f"eval_{timestamp}.csv")
     df.to_csv(csv_filename)

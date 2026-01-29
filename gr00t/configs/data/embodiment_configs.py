@@ -300,7 +300,7 @@ MODALITY_CONFIGS = {
             modality_keys=["annotation.human.coarse_action"],
         ),
     },
-    "oxe_droid_joint_position_relative": {
+    "oxe_droid": {
         "video": ModalityConfig(
             delta_indices=[0],
             modality_keys=[
