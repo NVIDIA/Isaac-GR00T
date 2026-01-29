@@ -351,7 +351,7 @@ class Gr00tPolicy(BasePolicy):
 
         # Step 3: Collate processed inputs into a single batch for model
         collated_inputs = self.collate_fn(processed_inputs)
-        collated_inputs = _rec_to_dtype(collated_inputs, dtype=torch.bfloat16) # TODO: check if action is correct. Maybe using non-normalized mode for debug?
+        collated_inputs = _rec_to_dtype(collated_inputs, dtype=torch.bfloat16) # HERE: leading to inconsistent value from fp32 to bf16. like 0.0920958966 -> 0.0922851562
 
         # Step 4: Run model inference to predict actions
         with torch.inference_mode():
