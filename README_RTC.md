@@ -15,18 +15,22 @@ Tips:
 There are two main ways to run RTC-inference with GR00T N1.6:
 
 1. **Standalone Mode**  
-   - Run the inference process directly using:  
+   - Update the `MODEL_PATH` variable in the script with your model path.
+   - Run the inference process directly:  
      ```bash
      uv run python scripts/standalone_inference_RTC.py
      ```
-   - This script loads the model and executes real-time chunked inference in an all-in-one process.
+   - This script loads the model and executes real-time chunked inference.
+   - Check the output file `scripts/joint_trajectories_RTC.png`.
+
 
 2. **Server-Client Mode**  
+   For deployment, server-client mode is recommended.
    - Start the RTC inference server:  
      ```bash
      uv run python gr00t/eval/run_gr00t_server.py \
         --embodiment-tag NEW_EMBODIMENT \
-        --model-path /home/lancel/gr00t/exps/piper_joint_relative_action16_1202_n16/checkpoint-20000 \
+        --model-path <Your_absolute_path_to_the_model>/checkpoint-20000 \
         --device cuda:0 \
         --host 0.0.0.0 \
         --port 5555
@@ -35,7 +39,7 @@ There are two main ways to run RTC-inference with GR00T N1.6:
      ```bash
      uv run python scripts/test_piper_client_RTC.py
      ```
-   - This setup allows more flexible, scalable, and remote control over RTC-based policy inference.
+   - This setup enables flexible, scalable, and remote RTC-based policy inference.
 
 For both modes, ensure RTC parameters are set appropriately in your config or checkpoint (`inference_rtc_overlap_steps`, `inference_rtc_frozen_steps`, `rtc_ramp_rate`, `pridict_horizon`).  
 For detailed implementation and script modifications, refer to the sections below and the provided example scripts.
