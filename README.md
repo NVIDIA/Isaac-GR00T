@@ -99,7 +99,7 @@ git submodule update --init --recursive
 
 GR00T uses [uv](https://github.com/astral-sh/uv) for fast, reproducible dependency management.
 
-> **Requirement:** uv **v0.8.4+** is needed to parse `[tool.uv.extra-build-dependencies]` in `pyproject.toml` (required for building `flash-attn`). For RTX-5090, this was tested with CUDA 12.8, flash-attn==2.8.0.post2, pytorch-cu128.
+> **Requirement:** uv **v0.8.4+** is needed to parse `[tool.uv.extra-build-dependencies]` in `pyproject.toml` (required for building `flash-attn`). For RTX-5090, this was tested with CUDA 12.8, `flash-attn==2.8.0.post2`, `pytorch-cu128`.
 
 After installing uv, create the environment and install GR00T:
 
