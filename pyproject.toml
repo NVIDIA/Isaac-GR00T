@@ -24,7 +24,7 @@ dependencies = [
     "torchvision==0.22.1",
     "transformers==4.51.3",
     "tyro==0.9.17",
-    "flash-attn==2.8.0.post2",
+    "flash-attn==2.7.4.post1",
     "click==8.1.8",
     "datasets==3.6.0",
     "einops==0.8.1",

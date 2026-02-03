@@ -16,7 +16,9 @@ def convert_to_uint8(img: np.ndarray) -> np.ndarray:
     return img
 
 
-def resize_with_pad(images: np.ndarray, height: int, width: int, method=Image.BILINEAR) -> np.ndarray:
+def resize_with_pad(
+    images: np.ndarray, height: int, width: int, method=Image.BILINEAR
+) -> np.ndarray:
     """Replicates tf.image.resize_with_pad for multiple images using PIL. Resizes a batch of images to a target height.
 
     Args:
@@ -35,8 +37,11 @@ def resize_with_pad(images: np.ndarray, height: int, width: int, method=Image.BI
     original_shape = images.shape
 
     images = images.reshape(-1, *original_shape[-3:])
-    resized = np.stack([_resize_with_pad_pil(Image.fromarray(im), height, width, method=method) for im in images])
+    resized = np.stack(
+        [_resize_with_pad_pil(Image.fromarray(im), height, width, method=method) for im in images]
+    )
     return resized.reshape(*original_shape[:-3], *resized.shape[-3:])
+
 
 def _resize_with_pad_pil(image: Image.Image, height: int, width: int, method: int) -> Image.Image:
     """Replicates tf.image.resize_with_pad for one image using PIL. Resizes an image to a target height and

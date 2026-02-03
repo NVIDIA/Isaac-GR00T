@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import zmq
+from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass, is_dataclass
+from enum import Enum
+import io
+from typing import Any
+
 import msgpack
 import numpy as np
-import json
-import io
-from abc import ABC, abstractmethod
-from typing import Any
-from enum import Enum
-from dataclasses import asdict, dataclass, is_dataclass
+import zmq
 
 
 def to_json_serializable(obj: Any) -> Any:
@@ -110,9 +110,9 @@ class ModalityConfig:
     def __post_init__(self):
         """Set default values for action-related fields if not specified."""
         if self.action_configs is not None:
-            assert len(self.action_configs) == len(
-                self.modality_keys
-            ), f"Number of action configs ({len(self.action_configs)}) must match number of modality keys ({len(self.modality_keys)})"
+            assert len(self.action_configs) == len(self.modality_keys), (
+                f"Number of action configs ({len(self.action_configs)}) must match number of modality keys ({len(self.modality_keys)})"
+            )
             parsed_action_configs = []
             for action_config in self.action_configs:
                 if isinstance(action_config, dict):
@@ -293,7 +293,9 @@ class PolicyClient(BasePolicy):
         """
         self.call_endpoint("kill", requires_input=False)
 
-    def call_endpoint(self, endpoint: str, data: dict | None = None, requires_input: bool = True) -> Any:
+    def call_endpoint(
+        self, endpoint: str, data: dict | None = None, requires_input: bool = True
+    ) -> Any:
         """
         Call an endpoint on the server.
 
@@ -326,7 +328,9 @@ class PolicyClient(BasePolicy):
     def _get_action(
         self, observation: dict[str, Any], options: dict[str, Any] | None = None
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        response = self.call_endpoint("get_action", {"observation": observation, "options": options})
+        response = self.call_endpoint(
+            "get_action", {"observation": observation, "options": options}
+        )
         return tuple(response)  # Convert list (from msgpack) to tuple of (action, info)
 
     def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -1,5 +1,5 @@
 # ruff: noqa
-# NOTE: this requires installation of the droid repo. 
+# NOTE: this requires installation of the droid repo.
 # Adapted from https://github.com/Physical-Intelligence/openpi/blob/main/examples/droid/main.py
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import faulthandler
 import os
 import signal
 import time
-from collections import deque 
+from collections import deque
 
 import cv2
 import imageio
@@ -37,9 +37,9 @@ RESOLUTION = (180, 320)  # resize images to this resolution before sending to th
 class Args:
     # Hardware parameters
 
-    left_camera_id: str = <SET THIS>  # e.g., "24259877"
-    right_camera_id: str = <SET THIS>  # e.g., "24514023"
-    wrist_camera_id: str = <SET THIS>  # e.g., "13062452"
+    left_camera_id: str = "<SET THIS>"  # e.g., "24259877"
+    right_camera_id: str = "<SET THIS>"  # e.g., "24514023"
+    wrist_camera_id: str = "<SET THIS>"  # e.g., "13062452"
 
     # Policy parameters
     policy_host: str = "localhost"
@@ -53,7 +53,9 @@ class Args:
 
     # How many actions to execute from a predicted action chunk before querying policy server again
     open_loop_horizon: int = 8
-    external_camera: str = "left"  # which exterior camera to use for the policy server, choose from ["left", "right"]
+    external_camera: str = (
+        "left"  # which exterior camera to use for the policy server, choose from ["left", "right"]
+    )
     render_camera: str = "left"  # which camera to render saved video from
     render_fps: int = 50
 
@@ -86,11 +88,12 @@ def prevent_keyboard_interrupt():
 
 
 def main(args: Args):
-
-    assert args.external_camera in ["left", "right"], f"Invalid exterior camera: {args.exterior_camera}"
+    assert args.external_camera in ["left", "right"], (
+        f"Invalid exterior camera: {args.exterior_camera}"
+    )
 
     if args.results_dir is None:
-        results_dir = f"results_gr00t_{datetime.datetime.now().strftime("%Y_%m_%d")}"
+        results_dir = f"results_gr00t_{datetime.datetime.now().strftime('%Y_%m_%d')}"
     else:
         results_dir = args.results_dir
 
@@ -100,7 +103,9 @@ def main(args: Args):
 
     os.makedirs(results_dir, exist_ok=True)
 
-    policy_client = PolicyClient(host=args.policy_host, port=args.policy_port, api_token=args.policy_api_token)
+    policy_client = PolicyClient(
+        host=args.policy_host, port=args.policy_port, api_token=args.policy_api_token
+    )
 
     df = pd.DataFrame(columns=["success", "duration", "video_filename"])
 
@@ -129,11 +134,16 @@ def main(args: Args):
         video = []
         if args.debug:
             model_wrist_image_writer = imageio.get_writer(
-                os.path.join(debug_dir, "videos/wrist_image/", f"model_wrist_image_{timestamp}.mp4"), fps=5
+                os.path.join(
+                    debug_dir, "videos/wrist_image/", f"model_wrist_image_{timestamp}.mp4"
+                ),
+                fps=5,
             )
             model_exterior_image_1_left_writer = imageio.get_writer(
                 os.path.join(
-                    debug_dir, "videos/exterior_image_1_left/", f"model_exterior_image_1_left_{timestamp}.mp4"
+                    debug_dir,
+                    "videos/exterior_image_1_left/",
+                    f"model_exterior_image_1_left_{timestamp}.mp4",
                 ),
                 fps=5,
             )
@@ -164,15 +174,24 @@ def main(args: Args):
                 video.append(curr_obs[f"{args.render_camera}_image"])
 
                 # Send websocket request to policy server if it's time to predict a new chunk
-                if actions_from_chunk_completed == 0 or actions_from_chunk_completed >= args.open_loop_horizon:
+                if (
+                    actions_from_chunk_completed == 0
+                    or actions_from_chunk_completed >= args.open_loop_horizon
+                ):
                     actions_from_chunk_completed = 0
 
                     # We resize images on the robot laptop to minimize the amount of data sent to the policy server
                     # and improve latency.
 
-                    left_image = resize_with_pad(curr_obs["left_image"], RESOLUTION[0], RESOLUTION[1])
-                    right_image = resize_with_pad(curr_obs["right_image"], RESOLUTION[0], RESOLUTION[1])
-                    wrist_image = resize_with_pad(curr_obs["wrist_image"], RESOLUTION[0], RESOLUTION[1])
+                    left_image = resize_with_pad(
+                        curr_obs["left_image"], RESOLUTION[0], RESOLUTION[1]
+                    )
+                    right_image = resize_with_pad(
+                        curr_obs["right_image"], RESOLUTION[0], RESOLUTION[1]
+                    )
+                    wrist_image = resize_with_pad(
+                        curr_obs["wrist_image"], RESOLUTION[0], RESOLUTION[1]
+                    )
 
                     if args.external_camera == "left":
                         ext_image = left_image
@@ -184,16 +203,24 @@ def main(args: Args):
                         model_exterior_image_1_left_writer.append_data(ext_image)
 
                     request_data = {
-                        "video.exterior_image_1_left": ext_image[None, None, ...],  # [B, T, H, W, C]
+                        "video.exterior_image_1_left": ext_image[
+                            None, None, ...
+                        ],  # [B, T, H, W, C]
                         "video.wrist_image_left": wrist_image[None, None, ...],
-                        "state.joint_position": curr_obs["joint_position"][None, None, ...].astype(np.float32),
-                        "state.gripper_position": curr_obs["gripper_position"][None, None, ...].astype(np.float32),
-                        "annotation.language.language_instruction": [instruction]
+                        "state.joint_position": curr_obs["joint_position"][None, None, ...].astype(
+                            np.float32
+                        ),
+                        "state.gripper_position": curr_obs["gripper_position"][
+                            None, None, ...
+                        ].astype(np.float32),
+                        "annotation.language.language_instruction": [instruction],
                     }
 
                     if args.vis_cameras:
                         # viz the left image 1 and wrist image and use cv2 to display them side by side
-                        left_image_display = cv2.resize(left_image, (wrist_image.shape[1], wrist_image.shape[0]))
+                        left_image_display = cv2.resize(
+                            left_image, (wrist_image.shape[1], wrist_image.shape[0])
+                        )
                         combined_display = np.concatenate([left_image_display, wrist_image], axis=1)
                         # convert to bgr
                         combined_display = combined_display[..., ::-1]
@@ -209,7 +236,11 @@ def main(args: Args):
                     server_time = time.time() - server_start_time
                     server_times.append(server_time)
                     pred_action_chunk = np.concatenate(
-                        (response[0][f"action.joint_position"][0], response[0]["action.gripper_position"][0]), axis=1
+                        (
+                            response[0][f"action.joint_position"][0],
+                            response[0]["action.gripper_position"][0],
+                        ),
+                        axis=1,
                     )
 
                 # Select current action to execute from chunk
@@ -260,8 +291,12 @@ def main(args: Args):
         video = np.stack(video)
         # replace whitespace with underscores in instruction
         sanitized_instruction = instruction.replace(" ", "_")
-        save_filename = os.path.join(results_dir, "videos", f"{sanitized_instruction}_video_" + timestamp)
-        ImageSequenceClip(list(video), fps=args.render_fps).write_videofile(save_filename + ".mp4", codec="libx264")
+        save_filename = os.path.join(
+            results_dir, "videos", f"{sanitized_instruction}_video_" + timestamp
+        )
+        ImageSequenceClip(list(video), fps=args.render_fps).write_videofile(
+            save_filename + ".mp4", codec="libx264"
+        )
 
         if args.debug:
             model_wrist_image_writer.close()
