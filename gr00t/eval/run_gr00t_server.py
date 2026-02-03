@@ -37,7 +37,7 @@ class ServerConfig:
     """Policy execution horizon during inference."""
 
     # Server configs
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"
     """Host address for the server"""
 
     port: int = DEFAULT_MODEL_SERVER_PORT

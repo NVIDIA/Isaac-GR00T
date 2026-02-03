@@ -40,7 +40,7 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "libero_panda": 2,
     "oxe_google": 0,
     "oxe_widowx": 1,
-    "oxe_droid": 1,
+    "oxe_droid": 16,
     "new_embodiment": 10,
 }
 
