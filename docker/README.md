@@ -4,7 +4,7 @@ Docker configuration for building and running a containerized GR00T environment 
 
 ## Prerequisites
 
-- Docker (version 20.10+)
+- Docker (version 20.10+) and [perform post-installation setup](https://docs.docker.com/engine/install/linux-postinstall/) to verify that you can run docker commands without sudo. 
 - NVIDIA Container Toolkit ([installation guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html))
 - NVIDIA GPU with compatible drivers
 - Bash shell
@@ -15,7 +15,7 @@ Docker configuration for building and running a containerized GR00T environment 
 Make sure you are using a bash environment:
 
 ```bash
-sudo bash build.sh
+bash build.sh
 ```
 
 The build process uses `nvcr.io/nvidia/pytorch:25.04-py3` as the base image, installs all dependencies, and sets up the GR00T codebase at `/workspace/gr00t/`.
@@ -24,12 +24,12 @@ The build process uses `nvcr.io/nvidia/pytorch:25.04-py3` as the base image, ins
 
 **Interactive shell (uses code baked into image):**
 ```bash
-sudo docker run -it --rm --gpus all gr00t-dev /bin/bash
+docker run -it --rm --gpus all gr00t-dev /bin/bash
 ```
 
 **Development mode (mounts local codebase for live editing):**
 ```bash
-sudo docker run -it --rm --gpus all \
+docker run -it --rm --gpus all \
     -v $(pwd)/..:/workspace/gr00t \
     gr00t-dev /bin/bash
 ```
