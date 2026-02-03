@@ -53,22 +53,8 @@ tensorrt = [
 where = ["."]
 include = ["gr00t*"]
 
-# PyTorch CUDA 12.8 index for RTX 5090 (Blackwell/sm_120) support
-[[tool.uv.index]]
-name = "pypi"
-url = "https://pypi.python.org/simple"
-
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
-
-[tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-torchvision = { index = "pytorch-cu128" }
-
 [tool.uv.extra-build-dependencies]
-flash-attn = [{ requirement = "torch", match-runtime = true }]
+flash-attn = ["torch==2.7.0", "numpy==1.26.4"]
 
 [tool.ruff]
 line-length = 100
