@@ -146,6 +146,14 @@ playground/
 batch_*.sh
 logs_*/
 
+# Data
+demo_data/gr00t-gr1-apple-to-shelf/
+tmp/
+output/
+
+
+experiments
+exps
 # Git worktrees
 /wt
 
@@ -166,3 +174,7 @@ offline_open_loop_eval_plots/
 # Generic model/data folders
 /models
 /data
+
+
+experiments
+exps

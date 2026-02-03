@@ -49,6 +49,10 @@ class ServerConfig:
     use_sim_policy_wrapper: bool = False
     """Whether to use the sim policy wrapper"""
 
+    clip_outliers: bool = True
+    """Whether to clip normalized values to [-1, 1]"""
+
+
 
 def main(config: ServerConfig):
     print("Starting GR00T inference server...")
@@ -70,6 +74,10 @@ def main(config: ServerConfig):
             device=config.device,
             strict=config.strict,
         )
+        # Set clip_outliers
+        policy.processor.clip_outliers = config.clip_outliers
+        policy.processor.state_action_processor.clip_outliers = config.clip_outliers
+
     elif config.dataset_path is not None:
         if config.modality_config_path is None:
             from gr00t.configs.data.embodiment_configs import MODALITY_CONFIGS

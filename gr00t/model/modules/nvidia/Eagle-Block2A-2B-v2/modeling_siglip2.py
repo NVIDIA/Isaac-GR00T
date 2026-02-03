@@ -402,16 +402,16 @@ class Siglip2VisionEmbeddings(nn.Module):
             win_meta_list:      List[dict] with keys:
                 - img_idx:   index in batch_hw
                 - patch_hw:  original (H, W)
-                - win_xy:    (h0, w0) 左上角相对于原图
-                - win_hw:    原图内有效窗口大小 (h_eff, w_eff)
+                - win_xy:    (h0, w0) top-left corner relative to the original image
+                - win_hw:    valid window size within the original image (h_eff, w_eff)
         """
 
-        # 1. 计算每张图在 flat tensor 中的起始位置
+        # 1. Calculate the start position of each image in the flat tensor
         batch_hw = batch_hw.tolist()
         counts = [H * W for (H, W) in batch_hw]
         starts = [0] + list(accumulate(counts))[:-1]
 
-        # 2. 按 (H,W) 分组，同一尺寸一起处理
+        # 2. Group by (H,W), process images of the same size together
         size2info = defaultdict(list)
         for img_idx, ((H, W), start) in enumerate(zip(batch_hw, starts)):
             size2info[(H, W)].append((img_idx, start))
@@ -419,24 +419,24 @@ class Siglip2VisionEmbeddings(nn.Module):
         all_windows = []
         all_meta    = []
         # print(size2info)
-        # 3. 对每个尺寸组做 batch unfold + pad
+        # 3. Perform batch unfold + pad for each size group
         for (H, W), info in size2info.items():
             H, W = int(H), int(W)
             B = len(info)
             C = patch_embeds.shape[-1]
             img_idxs, img_starts = zip(*info)
 
-            # 3.1 取出并 reshape 成 (B, C, H, W)
+            # 3.1 Extract and reshape to (B, C, H, W)
             imgs = []
             for st in img_starts:
                 flat = patch_embeds[0, st: st + H * W]            # (H*W, C)
                 imgs.append(flat.transpose(0,1).reshape(C, H, W))
             batch_tensor = torch.stack(imgs, dim=0)            # (B, C, H, W)
-            # 3.2 计算 pad 大小 (bottom, right)，保证能被 window_size 整除
+            # 3.2 Calculate pad size (bottom, right), ensure divisible by window_size
             pad_h = (window_size - H % window_size) % window_size
             pad_w = (window_size - W % window_size) % window_size
 
-            # pad 格式： (left, right, top, bottom) for last two dims
+            # Pad format: (left, right, top, bottom) for last two dims
             batch_padded = F.pad(batch_tensor, (0, pad_w, 0, pad_h))
 
             H_pad, W_pad = H + pad_h, W + pad_w
@@ -451,7 +451,7 @@ class Siglip2VisionEmbeddings(nn.Module):
                 stride=(window_size, window_size)
             )
 
-            # 3.4 reshape到 (B*n_windows, ws*ws, C)
+            # 3.4 Reshape to (B*n_windows, ws*ws, C)
             patches = (
                 patches_unf
                 .view(B, C, window_size * window_size, n_windows)  # (B, C, ws*ws, n_win)
@@ -460,22 +460,22 @@ class Siglip2VisionEmbeddings(nn.Module):
             )
             all_windows.append(patches)
 
-            # 3.5 生成 meta：记录原图内有效窗口大小
+            # 3.5 Generate meta: record valid window size within the original image
             for b, img_idx in enumerate(img_idxs):
                 for win_id in range(n_windows):
                     i, j = divmod(win_id, n_w)
                     h0, w0 = i * window_size, j * window_size
-                    # 在原图内的实际结束坐标
+                    # Actual end coordinates within the original image
                     h1 = min(h0 + window_size, H)
                     w1 = min(w0 + window_size, W)
                     all_meta.append({
                         'img_idx':  img_idx,
                         'patch_hw': (H, W),
                         'win_xy':   (h0, w0),
-                        'win_hw':   (h1 - h0, w1 - w0),  # 有效区域大小
+                        'win_hw':   (h1 - h0, w1 - w0),  # Valid region size
                     })
 
-        # 4. 拼接并根据 img_idx + win_xy 排序，恢复输入顺序
+        # 4. Concatenate and sort by img_idx + win_xy to restore input order
         sorted_idx = sorted(
             range(len(all_meta)),
             key=lambda k: (
@@ -492,25 +492,25 @@ class Siglip2VisionEmbeddings(nn.Module):
         for meta, win in zip(win_meta_list, all_windows):
             h_eff, w_eff = meta['win_hw']
             valid_num = h_eff * w_eff
-            # 只保留真正来自原图的 patch tokens
+            # Only keep patch tokens that actually come from the original image
             if valid_num  == window_size * window_size:
                 windows_list.append(win) 
             else:
                 win = win.view(window_size, window_size, -1)[:h_eff, :w_eff, :].reshape(h_eff * w_eff, -1)
                 windows_list.append(win)  # shape (valid_num, C)
 
-        # 如果你需要一个单一 tensor，可以再 cat 一次：
+        # If you need a single tensor, you can cat again:
         all_tokens = torch.cat(windows_list, dim=0).unsqueeze(0)  # shape (sum(valid_num), C)
         
         
-        # 1. 先重算每张图在原始 flat tensor 中的起始位置
+        # 1. First recalculate the start position of each image in the original flat tensor
         counts = [H * W for H, W in batch_hw]
         starts = [0] + list(accumulate(counts))[:-1]
         total_patches = sum(counts)
 
-        # 2. 构造映射：mapping[orig_idx] = new_idx
+        # 2. Build mapping: mapping[orig_idx] = new_idx
         mapping = [None] * total_patches
-        offset = 0  # all_tokens 维度上的游标
+        offset = 0  # Cursor on the all_tokens dimension
 
         for meta in win_meta_list:
             img_idx = meta['img_idx']
@@ -519,16 +519,16 @@ class Siglip2VisionEmbeddings(nn.Module):
             h_eff, w_eff = meta['win_hw']
             base = starts[img_idx]
 
-            # 对该窗口内所有真正来自原图的 patch token 计算映射
+            # Calculate mapping for all patch tokens that actually come from the original image within this window
             for u in range(h_eff):
                 for v in range(w_eff):
-                    # 原始 flat 坐标
+                    # Original flat coordinates
                     orig_idx = base + (h0+u) * W + (w0) + v
-                    # 在 all_tokens 里的位置：在该窗口区段里按 row-major 展平
+                    # Position in all_tokens: flattened in row-major order within this window segment
                     p = u * w_eff + v
                     mapping[orig_idx] = offset + p
 
-                # 窗口结束后，offset 推进该窗口的有效 token 数
+                # After window ends, advance offset by the number of valid tokens in this window
             offset += h_eff * w_eff
         reverse_mapping = torch.tensor(mapping, dtype=torch.long)
 
