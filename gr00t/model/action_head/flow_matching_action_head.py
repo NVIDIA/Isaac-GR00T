@@ -347,7 +347,27 @@ class FlowmatchingActionHead(nn.Module):
         return BatchFeature(data=output_dict)
 
     @torch.no_grad()
-    def get_action(self, backbone_output: BatchFeature, action_input: BatchFeature) -> BatchFeature:
+    def get_action(
+        self,
+        backbone_output: BatchFeature,
+        action_input: BatchFeature,
+        prefix_actions: torch.Tensor = None,
+        num_prefix_steps: int = 0,
+    ) -> BatchFeature:
+        """
+        Generate action predictions via flow-matching denoising.
+
+        Args:
+            backbone_output: Output from the vision-language backbone.
+            action_input: Action input features (state, embodiment_id, etc.).
+            prefix_actions: Optional tensor of shape (B, K, action_dim) containing
+                known actions to fix during denoising (inpainting). These are
+                typically carried over from a previous prediction for temporal
+                consistency in real-time action chunking.
+            num_prefix_steps: Number of leading action steps to clamp to
+                prefix_actions at each denoising iteration. Must be <= action_horizon.
+                Ignored if prefix_actions is None.
+        """
 
         backbone_output = self.process_backbone_output(backbone_output)
 
@@ -366,6 +386,17 @@ class FlowmatchingActionHead(nn.Module):
             dtype=vl_embs.dtype,
             device=device,
         )
+
+        # Inpainting setup: initialize prefix positions with known actions
+        # so the denoising process starts from a better initial point.
+        use_inpainting = (
+            prefix_actions is not None
+            and num_prefix_steps > 0
+            and num_prefix_steps <= self.config.action_horizon
+        )
+        if use_inpainting:
+            prefix_actions = prefix_actions.to(dtype=actions.dtype, device=device)
+            actions[:, :num_prefix_steps, :] = prefix_actions[:, :num_prefix_steps, :]
 
         num_steps = self.num_inference_timesteps
         dt = 1.0 / num_steps
@@ -402,6 +433,12 @@ class FlowmatchingActionHead(nn.Module):
 
             # Update actions using euler integration.
             actions = actions + dt * pred_velocity
+
+            # Inpainting: clamp prefix positions back to known values after
+            # each Euler step so the model can only freely denoise the suffix.
+            if use_inpainting:
+                actions[:, :num_prefix_steps, :] = prefix_actions[:, :num_prefix_steps, :]
+
         return BatchFeature(data={"action_pred": actions})
 
     @property

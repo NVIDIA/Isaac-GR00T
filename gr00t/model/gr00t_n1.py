@@ -171,11 +171,28 @@ class GR00T_N1_5(PreTrainedModel):
     def get_action(
         self,
         inputs: dict,
+        prefix_actions: "torch.Tensor | None" = None,
+        num_prefix_steps: int = 0,
     ) -> BatchFeature:
+        """
+        Get action predictions from the model.
+
+        Args:
+            inputs: Dictionary of model inputs (video, state, language, etc.).
+            prefix_actions: Optional tensor of shape (B, K, action_dim) with known
+                actions to fix during denoising for inpainting-based action chunking.
+            num_prefix_steps: Number of leading action steps to clamp to
+                prefix_actions at each denoising step.
+        """
         backbone_inputs, action_inputs = self.prepare_input(inputs)
         # Because the behavior of backbones remains the same for training and inference, we can use `forward` for backbones.
         backbone_outputs = self.backbone(backbone_inputs)
-        action_head_outputs = self.action_head.get_action(backbone_outputs, action_inputs)
+        action_head_outputs = self.action_head.get_action(
+            backbone_outputs,
+            action_inputs,
+            prefix_actions=prefix_actions,
+            num_prefix_steps=num_prefix_steps,
+        )
         self.validate_data(action_head_outputs, backbone_outputs, is_training=False)
         return action_head_outputs
 

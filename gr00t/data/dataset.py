@@ -344,12 +344,15 @@ class LeRobotSingleDataset(Dataset):
             width = le_video_meta["shape"][le_video_meta["names"].index("width")]
             # NOTE(FH): different lerobot dataset versions have different keys for the number of channels and fps
             try:
+                # print(le_video_meta["shape"])
+                # print(le_video_meta["names"])
                 channels = le_video_meta["shape"][le_video_meta["names"].index("channel")]
                 fps = le_video_meta["video_info"]["video.fps"]
-            except (ValueError, KeyError):
+            except (ValueError, KeyError) as e:
                 # channels = le_video_meta["shape"][le_video_meta["names"].index("channels")]
                 channels = le_video_meta["info"]["video.channels"]
                 fps = le_video_meta["info"]["video.fps"]
+                print(fps, channels)
             simplified_modality_meta["video"][new_key] = {
                 "resolution": [width, height],
                 "channels": channels,
@@ -376,7 +379,9 @@ class LeRobotSingleDataset(Dataset):
             dataset_statistics[our_modality] = {}
             for subkey in simplified_modality_meta[our_modality]:
                 dataset_statistics[our_modality][subkey] = {}
+                print(f"{our_modality}.{subkey}")
                 state_action_meta = le_modality_meta.get_key_meta(f"{our_modality}.{subkey}")
+                print(state_action_meta)
                 assert isinstance(state_action_meta, LeRobotStateActionMetadata)
                 le_modality = state_action_meta.original_key
                 for stat_name in le_statistics[le_modality]:

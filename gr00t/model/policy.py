@@ -231,6 +231,23 @@ class Gr00tPolicy(BasePolicy):
         self.model.action_head.num_inference_timesteps = value
 
     def _check_state_is_batched(self, obs: Dict[str, Any]) -> bool:
+        # print(obs.keys())
+        for k in obs.keys():
+            print('--------------------------------')
+            
+            if k == 'annotation.human.action.task_description':
+                # print(obs[k])
+                pass
+            else:
+                if k == 'video.camera':
+                    # print(k, np.array(obs[k]).shape)
+                    # print(k, obs[k].shape)
+                    pass
+                elif 'state' in k:
+                    obs[k] = np.array(obs[k]).reshape(1,6)
+                    # print(k, obs[k].shape)
+
+            # print('--------------------------------')
         for k, v in obs.items():
             if "state" in k and len(v.shape) < 3:  # (B, Time, Dim)
                 return False
@@ -325,6 +342,81 @@ class Gr00tPolicy(BasePolicy):
             ), f"{delta_indices=}"
             # And the step is positive
             assert (delta_indices[1] - delta_indices[0]) > 0, f"{delta_indices=}"
+
+
+class Gr00tInpaintingPolicy(Gr00tPolicy):
+    """
+    Policy with real-time action chunking via flow-matching inpainting.
+
+    At each inference call, the first ``num_prefix_steps`` actions are clamped
+    to the tail of the *previous* prediction (shifted by ``n_action_steps``),
+    and only the remaining suffix is freely denoised.  This provides temporal
+    consistency between consecutive action chunks.
+
+    Typical usage (action_horizon=16, n_action_steps=8, num_prefix_steps=8):
+      - t=0: No prefix. Full 16-step chunk denoised from scratch. Execute [0:8].
+      - t=1: Previous pred's [8:16] become prefix [0:8]. Only [8:16] denoised
+              freely. Execute new [0:8].
+      - t=2: Same pattern continues.
+    """
+
+    def __init__(
+        self,
+        *args,
+        n_action_steps: int = 8,
+        num_prefix_steps: int = 8,
+        **kwargs,
+    ):
+        """
+        Args:
+            n_action_steps: How many actions to execute before re-planning.
+                The previous prediction is shifted by this amount to build the
+                prefix for the next call.
+            num_prefix_steps: How many leading actions to clamp (inpaint) from
+                the previous prediction.  Must be <= action_horizon.
+            *args, **kwargs: Forwarded to ``Gr00tPolicy.__init__``.
+        """
+        super().__init__(*args, **kwargs)
+        self.n_action_steps = n_action_steps
+        self.num_prefix_steps = num_prefix_steps
+        # Cached *normalized* action prediction from the previous call.
+        self._prev_normalized_action: Optional[torch.Tensor] = None
+
+    def reset_action_buffer(self):
+        """Reset the cached action buffer. Call at the start of each episode."""
+        self._prev_normalized_action = None
+
+    def _get_action_from_normalized_input(
+        self, normalized_input: Dict[str, Any]
+    ) -> torch.Tensor:
+        """Override to inject prefix actions into the model call."""
+        prefix_actions = None
+        num_prefix = 0
+
+        if self._prev_normalized_action is not None:
+            # Shift: drop the first n_action_steps (already executed),
+            # the remaining tail becomes our prefix.
+            remaining = self._prev_normalized_action[:, self.n_action_steps:, :]
+            available = remaining.shape[1]
+            num_prefix = min(self.num_prefix_steps, available)
+            if num_prefix > 0:
+                prefix_actions = remaining[:, :num_prefix, :]
+
+        with torch.inference_mode(), torch.autocast(
+            device_type="cuda", dtype=COMPUTE_DTYPE
+        ):
+            model_pred = self.model.get_action(
+                normalized_input,
+                prefix_actions=prefix_actions,
+                num_prefix_steps=num_prefix,
+            )
+
+        normalized_action = model_pred["action_pred"].float()
+
+        # Cache the normalized prediction for the next call.
+        self._prev_normalized_action = normalized_action.clone()
+
+        return normalized_action
 
 
 #######################################################################################################

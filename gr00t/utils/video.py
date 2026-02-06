@@ -33,8 +33,10 @@ try:
     import torchcodec
 
     TORCHCODEC_AVAILABLE = True
-except (ImportError, RuntimeError):
+except (ImportError, RuntimeError) as e:
     TORCHCODEC_AVAILABLE = False
+    print(f"torchcodec is not available: {e}")
+    raise e
 
 
 def get_frames_by_indices(

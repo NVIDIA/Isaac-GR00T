@@ -38,6 +38,8 @@ from gr00t.model.backbone.eagle_backbone import DEFAULT_EAGLE_PATH, EagleBackbon
 from gr00t.model.policy import Gr00tPolicy, unsqueeze_dict_values
 
 
+print("Exporting ONNX model...")
+
 def no_batch_collate_fn(batch):
     """Collate function that returns the first item without adding batch dimension."""
     return batch[0]

@@ -336,6 +336,9 @@ def load_dataset(
         ax.set_title(f"Image {i*skip_frames}")
     plt.tight_layout()  # adjust the subplots to fit into the figure area.
     plt.show()
+    # save fig
+    fig.savefig("images.png")
+    time.sleep(1000)
 
 
 if __name__ == "__main__":

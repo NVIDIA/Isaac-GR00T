@@ -64,17 +64,18 @@ import tyro
 from gr00t.data.embodiment_tags import EMBODIMENT_TAG_MAPPING
 from gr00t.eval.robot import RobotInferenceClient, RobotInferenceServer
 from gr00t.experiment.data_config import load_data_config
-from gr00t.model.policy import Gr00tPolicy
+from gr00t.data.dataset import ModalityConfig
+from gr00t.model.policy import Gr00tPolicy, Gr00tInpaintingPolicy
 
 
 @dataclass
 class ArgsConfig:
     """Command line arguments for the inference service."""
 
-    model_path: str = "nvidia/GR00T-N1.5-3B"
+    model_path: str = None
     """Path to the model checkpoint directory."""
 
-    embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "gr1"
+    embodiment_tag: Literal[tuple(EMBODIMENT_TAG_MAPPING.keys())] = "new_embodiment"
     """The embodiment tag for the model."""
 
     data_config: str = "fourier_gr1_arms_waist"
@@ -121,6 +122,19 @@ class ArgsConfig:
     dit_dtype: Literal["fp16", "fp8"] = "fp8"
     """DiT model dtype (fp16, fp8). Only used when use_tensorrt is True."""
 
+    num_action_steps: int = 1
+    """Number of action steps to use."""
+
+    use_inpainting: bool = False
+    """Whether to use inpainting-based real-time action chunking.
+    When enabled, the policy fixes the first ``num_prefix_steps`` actions from
+    the previous prediction and only denoises the remaining suffix."""
+
+    n_action_execute_steps: int = 8
+    """How many action steps to execute before re-planning (inpainting mode only)."""
+
+    num_prefix_steps: int = 8
+    """How many leading actions to clamp via inpainting (inpainting mode only)."""
 
 #####################################################################################
 
@@ -180,17 +194,121 @@ def main(args: ArgsConfig):
         # if a new data config is specified, this expect user to
         # construct your own modality config and transform
         # see gr00t/utils/data.py for more details
-        data_config = load_data_config(args.data_config)
-        modality_config = data_config.modality_config()
-        modality_transform = data_config.transform()
+        # data_config = load_data_config(args.data_config)
+        # modality_config = data_config.modality_config()
+        # modality_transform = data_config.transform()
+        
+        # 1.1 modality configs and transforms
+        # data_config_cls = load_data_config(config.data_config)
+        # modality_configs = data_config_cls.modality_config()
 
-        policy = Gr00tPolicy(
-            model_path=args.model_path,
-            modality_config=modality_config,
-            modality_transform=modality_transform,
-            embodiment_tag=args.embodiment_tag,
-            denoising_steps=args.denoising_steps,
+
+        video_modality = ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["video.camera"],
         )
+
+        state_modality = ModalityConfig(
+            delta_indices=[0],
+            modality_keys=['state.joint_state_position',
+                        # 'state.joint_state_velocity',
+                        # 'state.insertion_position',
+                        # 'state.insertion_rotation'
+                        ],
+        )
+
+        action_modality = ModalityConfig(
+            delta_indices=list(range(args.num_action_steps)),
+            modality_keys=["action.joint_position"],
+        )
+
+        language_modality = ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["annotation.human.task_description"],
+        )
+
+        modality_config = {
+            "video": video_modality,
+            "state": state_modality,
+            "action": action_modality,
+            "language": language_modality,
+        }
+
+
+
+        # transforms = data_config_cls.transform()
+        
+        from gr00t.data.transform.base import ComposedModalityTransform
+        from gr00t.data.transform import VideoToTensor, VideoCrop, VideoResize, VideoColorJitter, VideoToNumpy
+        from gr00t.data.transform.state_action import StateActionToTensor, StateActionTransform
+        from gr00t.data.transform.concat import ConcatTransform
+        from gr00t.model.transforms import GR00TTransform
+
+
+        # select the transforms you want to apply to the data
+        modality_transform = ComposedModalityTransform(
+            transforms=[
+                # video transforms
+                VideoToTensor(apply_to=video_modality.modality_keys, backend="torchvision"),
+                VideoCrop(apply_to=video_modality.modality_keys, scale=0.95, backend="torchvision"),
+                VideoResize(apply_to=video_modality.modality_keys, height=224, width=224,
+                            interpolation="linear", backend="torchvision" ),
+                VideoColorJitter(apply_to=video_modality.modality_keys, brightness=0.3,
+                                contrast=0.4, saturation=0.5, hue=0.08, backend="torchvision"),
+                VideoToNumpy(apply_to=video_modality.modality_keys),
+
+                # state transforms
+                StateActionToTensor(apply_to=state_modality.modality_keys),
+                StateActionTransform(apply_to=state_modality.modality_keys, normalization_modes={
+                    "state.joint_state_position": "min_max",
+                    # "state.joint_state_velocity": "min_max",
+                    # "state.insertion_position": "min_max",
+                    # "state.insertion_rotation": "min_max",
+                }),
+
+                # action transforms
+                StateActionToTensor(apply_to=action_modality.modality_keys),
+                StateActionTransform(apply_to=action_modality.modality_keys, normalization_modes={
+                    "action.joint_position": "min_max",
+                }),
+
+                # ConcatTransform
+                ConcatTransform(
+                    video_concat_order=video_modality.modality_keys,
+                    state_concat_order=state_modality.modality_keys,
+                    action_concat_order=action_modality.modality_keys,
+                ),
+                # model-specific transform
+                GR00TTransform(
+                    state_horizon=len(state_modality.delta_indices),
+                    action_horizon=args.num_action_steps,
+                    max_state_dim=64,
+                    max_action_dim=6,
+                ),
+            ]
+        )
+
+        if args.use_inpainting:
+            print(f"Using INPAINTING policy: "
+                  f"n_action_execute_steps={args.n_action_execute_steps}, "
+                  f"num_prefix_steps={args.num_prefix_steps}")
+            policy = Gr00tInpaintingPolicy(
+                model_path=args.model_path,
+                modality_config=modality_config,
+                modality_transform=modality_transform,
+                embodiment_tag=args.embodiment_tag,
+                denoising_steps=args.denoising_steps,
+                n_action_steps=args.n_action_execute_steps,
+                num_prefix_steps=args.num_prefix_steps,
+            )
+        else:
+            policy = Gr00tPolicy(
+                model_path=args.model_path,
+                modality_config=modality_config,
+                modality_transform=modality_transform,
+                embodiment_tag=args.embodiment_tag,
+                denoising_steps=args.denoising_steps,
+            )
 
         # Setup TensorRT if requested
         if args.use_tensorrt:
@@ -214,7 +332,7 @@ def main(args: ArgsConfig):
             )
             server.run()
         else:
-            server = RobotInferenceServer(policy, port=args.port, api_token=args.api_token)
+            server = RobotInferenceServer(policy, host='10.111.83.67', port=args.port, api_token=args.api_token)
             server.run()
 
     # Here is mainly a testing code
@@ -236,19 +354,20 @@ def main(args: ArgsConfig):
         # - action: action.right_hand: (16, 6)
         # - action: action.waist: (16, 3)
         obs = {
-            "video.ego_view": np.random.randint(0, 256, (1, 256, 256, 3), dtype=np.uint8),
-            "state.left_arm": np.random.rand(1, 7),
-            "state.right_arm": np.random.rand(1, 7),
-            "state.left_hand": np.random.rand(1, 6),
-            "state.right_hand": np.random.rand(1, 6),
-            "state.waist": np.random.rand(1, 3),
+            "video.camera": np.random.randint(0, 256, (1, 720, 1280, 3), dtype=np.uint8),
+            "state.joint_state_position": np.random.rand(1, 6),
+            # "state.right_arm": np.random.rand(1, 7),
+            # "state.left_hand": np.random.rand(1, 6),
+            # "state.right_hand": np.random.rand(1, 6),
+            # "state.waist": np.random.rand(1, 3),
             "annotation.human.action.task_description": ["do your thing!"],
         }
 
         if args.http_server:
             action = _example_http_client_call(obs, args.host, args.port, args.api_token)
         else:
-            action = _example_zmq_client_call(obs, args.host, args.port, args.api_token)
+            for i in range(100):
+                action = _example_zmq_client_call(obs, args.host, args.port, args.api_token)
 
         for key, value in action.items():
             print(f"Action: {key}: {value.shape}")

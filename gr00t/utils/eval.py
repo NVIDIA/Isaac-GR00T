@@ -15,6 +15,7 @@
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 
 from gr00t.data.dataset import LeRobotSingleDataset
 from gr00t.model.policy import BasePolicy
@@ -63,7 +64,10 @@ def calc_mse_for_single_trajectory(
                 data_point = dataset.get_step_data(traj_id, step_count)
 
             print("inferencing at step: ", step_count)
+            start_time = time.time()
             action_chunk = policy.get_action(data_point)
+            end_time = time.time()
+            print("time taken to get action: ", end_time - start_time)
             for j in range(action_horizon):
                 # NOTE: concat_pred_action = action[f"action.{modality_keys[0]}"][j]
                 # the np.atleast_1d is to ensure the action is a 1D array, handle where single value is returned

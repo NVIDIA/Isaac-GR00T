@@ -31,6 +31,8 @@ from gr00t.experiment.runner import TrainRunner
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.peft import get_lora_model
+from gr00t.data.dataset import ModalityConfig
+
 
 
 @dataclass
@@ -44,7 +46,7 @@ class ArgsConfig:
     output_dir: str = "/tmp/gr00t"
     """Directory to save model checkpoints."""
 
-    data_config: str = "fourier_gr1_arms_only"
+    data_config: str = "gear_insertion.my_configs:GearInsertionConfig"
     """
     Data configuration to use for training.
     Options:
@@ -54,7 +56,7 @@ class ArgsConfig:
     """
 
     # Training parameters
-    batch_size: int = 32
+    batch_size: int = 16
     """Batch size per GPU for training."""
 
     max_steps: int = 10000
@@ -197,9 +199,95 @@ def main(config: ArgsConfig):
     embodiment_tag = EmbodimentTag(config.embodiment_tag)
 
     # 1.1 modality configs and transforms
-    data_config_cls = load_data_config(config.data_config)
-    modality_configs = data_config_cls.modality_config()
-    transforms = data_config_cls.transform()
+    # data_config_cls = load_data_config(config.data_config)
+    # modality_configs = data_config_cls.modality_config()
+
+
+    video_modality = ModalityConfig(
+        delta_indices=[0],
+        modality_keys=["video.camera"],
+    )
+
+    state_modality = ModalityConfig(
+        delta_indices=[0],
+        modality_keys=['state.joint_state_position',
+                       'state.joint_state_velocity',
+                       'state.insertion_position',
+                       'state.insertion_rotation'],
+    )
+
+    action_modality = ModalityConfig(
+        delta_indices=[0],  # 8 future action steps
+        modality_keys=["action.joint_position"],
+    )
+
+    language_modality = ModalityConfig(
+        delta_indices=[0],
+        modality_keys=["annotation.human.task_description"],
+    )
+
+    modality_configs = {
+        "video": video_modality,
+        "state": state_modality,
+        "action": action_modality,
+        "language": language_modality,
+    }
+
+
+
+    # transforms = data_config_cls.transform()
+    
+    from gr00t.data.transform.base import ComposedModalityTransform
+    from gr00t.data.transform import VideoToTensor, VideoCrop, VideoResize, VideoColorJitter, VideoToNumpy
+    from gr00t.data.transform.state_action import StateActionToTensor, StateActionTransform
+    from gr00t.data.transform.concat import ConcatTransform
+    from gr00t.model.transforms import GR00TTransform
+
+
+    # select the transforms you want to apply to the data
+    transforms = ComposedModalityTransform(
+        transforms=[
+            # video transforms
+            VideoToTensor(apply_to=video_modality.modality_keys, backend="torchvision"),
+            VideoCrop(apply_to=video_modality.modality_keys, scale=0.95, backend="torchvision"),
+            VideoResize(apply_to=video_modality.modality_keys, height=224, width=224,
+                        interpolation="linear", backend="torchvision" ),
+            VideoColorJitter(apply_to=video_modality.modality_keys, brightness=0.3,
+                             contrast=0.4, saturation=0.5, hue=0.08, backend="torchvision"),
+            VideoToNumpy(apply_to=video_modality.modality_keys),
+
+            # state transforms
+            StateActionToTensor(apply_to=state_modality.modality_keys),
+            StateActionTransform(apply_to=state_modality.modality_keys, normalization_modes={
+                "state.joint_state_position": "min_max",
+                "state.joint_state_velocity": "min_max",
+                "state.insertion_position": "min_max",
+                "state.insertion_rotation": "min_max",
+            }),
+
+            # action transforms
+            StateActionToTensor(apply_to=action_modality.modality_keys),
+            StateActionTransform(apply_to=action_modality.modality_keys, normalization_modes={
+                "action.joint_position": "min_max",
+            }),
+
+            # ConcatTransform
+            ConcatTransform(
+                video_concat_order=video_modality.modality_keys,
+                state_concat_order=state_modality.modality_keys,
+                action_concat_order=action_modality.modality_keys,
+            ),
+            # model-specific transform
+            GR00TTransform(
+                state_horizon=len(state_modality.delta_indices),
+                action_horizon=len(action_modality.delta_indices),
+                max_state_dim=64,
+                max_action_dim=6,
+            ),
+        ]
+    )
+    
+    
 
     # 1.2 data loader: we will use either single dataset or mixture dataset
     if len(config.dataset_path) == 1:
@@ -242,7 +330,7 @@ def main(config: ArgsConfig):
 
     # ------------ step 2: load model ------------
     # First, get the data config to determine action horizon
-    data_action_horizon = len(data_config_cls.action_indices)
+    data_action_horizon = 1  # TODO: change
 
     # Assert that the last transform is a GR00TTransform and has max_action_dim
     assert (
@@ -356,7 +444,7 @@ def main(config: ArgsConfig):
         dataloader_num_workers=config.dataloader_num_workers,
         dataloader_pin_memory=False,
         dataloader_prefetch_factor=config.dataloader_prefetch_factor,
-        dataloader_persistent_workers=config.dataloader_num_workers > 0,
+        dataloader_persistent_workers=False,
         optim="adamw_torch",
         adam_beta1=0.95,
         adam_beta2=0.999,
