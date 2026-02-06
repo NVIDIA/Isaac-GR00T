@@ -68,21 +68,24 @@ class MultiEmbodimentActionEncoder(nn.Module):
     def forward(self, actions, timesteps, cat_ids):
         """
         actions:   shape (B, T, action_dim)
-        timesteps: shape (B,)  -- a single scalar per batch item
+        timesteps: shape (B,) or (B, T) -- per-batch or per-position timesteps
         cat_ids:   shape (B,)
         returns:   shape (B, T, hidden_size)
         """
         B, T, _ = actions.shape
 
-        # 1) Expand each batch's single scalar time 'tau' across all T steps
-        #    so that shape => (B, T)
-        #    e.g. if timesteps is (B,), replicate across T
+        # Accept both (B,) and (B, T) timesteps.
+        # (B,) is the standard case; (B, T) is used for training-time RTC
+        # where prefix positions have tau=1.0 (clean) and postfix positions
+        # have the sampled noise level.
         if timesteps.dim() == 1 and timesteps.shape[0] == B:
-            # shape (B,) => (B,T)
+            # shape (B,) => (B, T)
             timesteps = timesteps.unsqueeze(1).expand(-1, T)
+        elif timesteps.dim() == 2 and timesteps.shape == (B, T):
+            pass  # already per-position
         else:
             raise ValueError(
-                "Expected `timesteps` to have shape (B,) so we can replicate across T."
+                f"Expected `timesteps` to have shape (B,) or (B, T), got {timesteps.shape}."
             )
 
         # 2) Standard action MLP step for shape => (B, T, w)
@@ -147,6 +150,22 @@ class FlowmatchingActionHeadConfig(PretrainedConfig):
     freeze_decode_layer: bool = field(default=False)
     expand_batch: int = field(default=None)
     use_vlln: bool = field(default=True)
+
+    # Training-time Real-Time Chunking (RTC) configuration.
+    # When max_rtc_delay > 0, the training loop simulates inference delays by
+    # randomly choosing a prefix length d ~ Uniform(0, max_rtc_delay) per sample.
+    # Prefix positions (0..d-1) are set to clean (t=1.0) and the loss is computed
+    # only on the postfix (d..T-1).  At d=0 the sample reduces to standard
+    # flow-matching training, so the model stays compatible with non-RTC inference.
+    max_rtc_delay: int = field(
+        default=0,
+        metadata={
+            "help": "Maximum prefix delay for training-time RTC. "
+            "0 disables RTC (standard training). "
+            "When > 0, each training sample randomly picks a delay d in [0, max_rtc_delay] "
+            "and only computes loss on the postfix actions."
+        },
+    )
 
     vl_self_attention_cfg: dict = field(default=None)
     num_target_vision_tokens: int = field(
@@ -303,17 +322,74 @@ class FlowmatchingActionHead(nn.Module):
         state_features = self.state_encoder(action_input.state, embodiment_id)
 
         # Embed noised action trajectory.
-        actions = action_input.action
+        actions = action_input.action  # (B, T, action_dim)
+        B, T, _ = actions.shape
         noise = torch.randn(actions.shape, device=actions.device, dtype=actions.dtype)
-        t = self.sample_time(actions.shape[0], device=actions.device, dtype=actions.dtype)
-        t = t[:, None, None]  # shape (B,1,1) for broadcast
+        t = self.sample_time(B, device=actions.device, dtype=actions.dtype)  # (B,)
 
-        noisy_trajectory = (1 - t) * noise + t * actions
-        velocity = actions - noise
+        # ---- Training-time Real-Time Chunking (RTC) ----
+        # Reference: "Training-Time Action Conditioning for Efficient Real-Time
+        # Chunking" (arXiv:2512.05964), Algorithm 1.
+        #
+        # When max_rtc_delay > 0 we simulate an inference delay:
+        #   - Sample delay d ~ Uniform(0, max_rtc_delay) per batch element.
+        #   - Prefix positions (0..d-1) get t=1.0 (clean action), so
+        #     noisy_trajectory[prefix] = actions (no noise).
+        #   - Postfix positions (d..T-1) get the normally-sampled t.
+        #   - Loss is only computed on postfix positions.
+        #
+        # When d=0 for a given sample (always the case when max_rtc_delay==0),
+        # the behaviour is identical to standard flow-matching training.
+        use_rtc = getattr(self.config, "max_rtc_delay", 0) > 0
+        if use_rtc:
+            max_delay = self.config.max_rtc_delay
+            # Sample a random delay per batch element: d in [0, max_delay]
+            delay = torch.randint(0, max_delay + 1, (B,), device=device)  # (B,)
 
-        # Convert (continuous) t -> discrete if needed
-        t_discretized = (t[:, 0, 0] * self.num_timestep_buckets).long()
-        action_features = self.action_encoder(noisy_trajectory, t_discretized, embodiment_id)
+            # Build per-position continuous timesteps: (B, T)
+            pos_idx = torch.arange(T, device=device).unsqueeze(0).expand(B, -1)  # (B, T)
+            prefix_mask = pos_idx < delay.unsqueeze(1)  # (B, T) bool
+
+            # Per-position t: prefix => 1.0 (clean), postfix => sampled t
+            t_per_pos = torch.where(
+                prefix_mask,
+                torch.ones(B, T, device=device, dtype=t.dtype),
+                t.unsqueeze(1).expand(-1, T),
+            )  # (B, T)
+
+            # Noisy trajectory with per-position interpolation:
+            #   x_t = t * action + (1 - t) * noise
+            # For prefix (t=1.0): x_t = action (clean)
+            # For postfix: standard flow matching interpolation
+            t_expanded = t_per_pos.unsqueeze(-1)  # (B, T, 1)
+            noisy_trajectory = (1 - t_expanded) * noise + t_expanded * actions
+
+            # Velocity target is the same for all positions
+            velocity = actions - noise
+
+            # Discretize per-position timesteps for the action encoder: (B, T)
+            t_discretized_per_pos = (t_per_pos * self.num_timestep_buckets).long()
+
+            # For the DiT's global AdaLN conditioning we use the postfix
+            # timestep (same as the sampled t), since that reflects the noise
+            # level being denoised.
+            t_discretized_global = (t * self.num_timestep_buckets).long()  # (B,)
+
+            # Encode actions with per-position timesteps
+            action_features = self.action_encoder(
+                noisy_trajectory, t_discretized_per_pos, embodiment_id
+            )
+
+            # Build postfix-only loss mask: (B, T, 1) -- expanded to action_dim later
+            postfix_mask = (~prefix_mask).unsqueeze(-1).float()  # (B, T, 1)
+        else:
+            # Standard flow-matching training (no RTC)
+            noisy_trajectory = (1 - t) * noise + t * actions
+            velocity = actions - noise
+            # Convert (continuous) t -> discrete if needed
+            t_discretized_global = (t[:, 0, 0] * self.num_timestep_buckets).long()
+            action_features = self.action_encoder(noisy_trajectory, t_discretized_global, embodiment_id)
+            postfix_mask = None
 
         # Maybe add position embedding.
         if self.config.add_pos_embed:
@@ -331,16 +407,23 @@ class FlowmatchingActionHead(nn.Module):
             hidden_states=sa_embs,
             encoder_hidden_states=vl_embs,
             encoder_attention_mask=vl_attn_mask,
-            timestep=t_discretized,
+            timestep=t_discretized_global,
             return_all_hidden_states=False,  # NOTE (YL): not using flare now
         )
         pred = self.action_decoder(model_output, embodiment_id)
         pred_actions = pred[:, -actions.shape[1] :]
 
-        # Slice out only the action portion of pred and target.
-        action_mask = action_input.action_mask
-        loss = F.mse_loss(pred_actions, velocity, reduction="none") * action_mask
-        loss = loss.sum() / action_mask.sum()
+        # Compute loss.
+        action_mask = action_input.action_mask  # (B, T, action_dim)
+        loss_per_element = F.mse_loss(pred_actions, velocity, reduction="none") * action_mask
+
+        if postfix_mask is not None:
+            # RTC: only compute loss on postfix positions
+            combined_mask = action_mask * postfix_mask  # (B, T, action_dim)
+            loss = (loss_per_element * postfix_mask).sum() / combined_mask.sum().clamp(min=1.0)
+        else:
+            loss = loss_per_element.sum() / action_mask.sum()
+
         output_dict = {
             "loss": loss,
         }
@@ -356,6 +439,20 @@ class FlowmatchingActionHead(nn.Module):
     ) -> BatchFeature:
         """
         Generate action predictions via flow-matching denoising.
+
+        When ``prefix_actions`` is provided the method implements the inference
+        algorithm from "Training-Time Action Conditioning for Efficient
+        Real-Time Chunking" (arXiv:2512.05964, Algorithm 2):
+
+        * Prefix positions (0 .. num_prefix_steps-1) are clamped to the known
+          clean actions and their per-token timestep is set to
+          ``num_timestep_buckets`` (i.e. t=1.0, fully clean).
+        * Postfix positions follow the normal Euler denoising schedule.
+        * The DiT's global AdaLN timestep uses the postfix schedule.
+
+        This matches the training-time conditioning (``forward()`` with
+        ``max_rtc_delay > 0``) so the model sees the same per-token timestep
+        pattern it was trained on.
 
         Args:
             backbone_output: Output from the vision-language backbone.
@@ -381,8 +478,9 @@ class FlowmatchingActionHead(nn.Module):
         # Set initial actions as the sampled noise.
         batch_size = vl_embs.shape[0]
         device = vl_embs.device
+        T = self.config.action_horizon
         actions = torch.randn(
-            size=(batch_size, self.config.action_horizon, self.config.action_dim),
+            size=(batch_size, T, self.config.action_dim),
             dtype=vl_embs.dtype,
             device=device,
         )
@@ -392,7 +490,7 @@ class FlowmatchingActionHead(nn.Module):
         use_inpainting = (
             prefix_actions is not None
             and num_prefix_steps > 0
-            and num_prefix_steps <= self.config.action_horizon
+            and num_prefix_steps <= T
         )
         if use_inpainting:
             prefix_actions = prefix_actions.to(dtype=actions.dtype, device=device)
@@ -406,11 +504,25 @@ class FlowmatchingActionHead(nn.Module):
             t_cont = t / float(num_steps)  # e.g. goes 0, 1/N, 2/N, ...
             t_discretized = int(t_cont * self.num_timestep_buckets)
 
-            # Embed noised action trajectory.
-            timesteps_tensor = torch.full(
-                size=(batch_size,), fill_value=t_discretized, device=device
-            )
-            action_features = self.action_encoder(actions, timesteps_tensor, embodiment_id)
+            if use_inpainting:
+                # Per-position timesteps: prefix = num_timestep_buckets (t=1.0,
+                # clean), postfix = current denoising step.
+                t_per_pos = torch.full(
+                    (batch_size, T), fill_value=t_discretized, dtype=torch.long, device=device,
+                )
+                t_per_pos[:, :num_prefix_steps] = self.num_timestep_buckets
+
+                # Clamp prefix to clean actions before encoding
+                actions[:, :num_prefix_steps, :] = prefix_actions[:, :num_prefix_steps, :]
+
+                action_features = self.action_encoder(actions, t_per_pos, embodiment_id)
+            else:
+                # Standard: single timestep for all positions
+                timesteps_tensor = torch.full(
+                    size=(batch_size,), fill_value=t_discretized, device=device
+                )
+                action_features = self.action_encoder(actions, timesteps_tensor, embodiment_id)
+
             # Maybe add position embedding.
             if self.config.add_pos_embed:
                 pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
@@ -421,21 +533,25 @@ class FlowmatchingActionHead(nn.Module):
             future_tokens = self.future_tokens.weight.unsqueeze(0).expand(vl_embs.shape[0], -1, -1)
             sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
 
+            # DiT global timestep: always the postfix denoising timestep
+            global_timestep = torch.full(
+                size=(batch_size,), fill_value=t_discretized, device=device
+            )
+
             # Run model forward.
             model_output = self.model(
                 hidden_states=sa_embs,
                 encoder_hidden_states=vl_embs,
-                timestep=timesteps_tensor,
+                timestep=global_timestep,
             )
             pred = self.action_decoder(model_output, embodiment_id)
 
-            pred_velocity = pred[:, -self.action_horizon :]
+            pred_velocity = pred[:, -T:]
 
             # Update actions using euler integration.
             actions = actions + dt * pred_velocity
 
-            # Inpainting: clamp prefix positions back to known values after
-            # each Euler step so the model can only freely denoise the suffix.
+            # Clamp prefix positions back after the Euler step.
             if use_inpainting:
                 actions[:, :num_prefix_steps, :] = prefix_actions[:, :num_prefix_steps, :]
 

@@ -118,6 +118,14 @@ class ArgsConfig:
     dataloader_prefetch_factor: int = 4
     """Prefetch factor for data loading."""
 
+    # Training-time Real-Time Chunking (RTC)
+    max_rtc_delay: int = 0
+    """Maximum prefix delay for training-time RTC. 0 disables RTC (standard training).
+    When > 0, each training sample randomly picks a delay d in [0, max_rtc_delay]
+    and only computes loss on the postfix actions. This teaches the model to condition
+    on a clean action prefix, enabling temporally-consistent action chunking at inference
+    time with zero additional overhead."""
+
     report_to: Literal["wandb", "tensorboard", "azure_ml"] = "wandb"
     """Where to report training metrics (e.g., 'wandb', 'tensorboard', 'azure_ml')."""
 
@@ -352,6 +360,11 @@ def main(config: ArgsConfig):
         tune_diffusion_model=config.tune_diffusion_model,  # action head's DiT
     )
 
+    # ---- Apply Training-time RTC config to action head ----
+    if config.max_rtc_delay > 0:
+        model.action_head.config.max_rtc_delay = config.max_rtc_delay
+        print(f"Training-time RTC enabled: max_rtc_delay = {config.max_rtc_delay}")
+
     # Update action_horizon and max_action_dim to match data config
     # Need to recreate action head with correct config since it was initialized with old config
     action_horizon_mismatch = data_action_horizon != model.action_head.config.action_horizon
@@ -373,6 +386,8 @@ def main(config: ArgsConfig):
         new_action_head_config = copy.deepcopy(model.action_head.config)
         new_action_head_config.action_horizon = data_action_horizon
         new_action_head_config.action_dim = data_max_action_dim
+        # Carry over RTC config (already set on the original config above)
+        new_action_head_config.max_rtc_delay = config.max_rtc_delay
 
         # Import the FlowmatchingActionHead class
         from gr00t.model.action_head.flow_matching_action_head import (

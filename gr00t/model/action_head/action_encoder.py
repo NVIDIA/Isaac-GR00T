@@ -69,20 +69,23 @@ class ActionEncoder(nn.Module):
     def forward(self, actions, timesteps):
         """
         actions:   shape (B, T, action_dim)
-        timesteps: shape (B,)  -- a single scalar per batch item
+        timesteps: shape (B,) or (B, T) -- per-batch or per-position timesteps
         returns:   shape (B, T, hidden_size)
         """
         B, T, _ = actions.shape
 
-        # 1) Expand each batch's single scalar time 'tau' across all T steps
-        #    so that shape => (B, T)
-        #    e.g. if timesteps is (B,), replicate across T
+        # Accept both (B,) and (B, T) timesteps.
+        # (B,) is the standard case; (B, T) is used for training-time RTC
+        # where prefix positions have tau=1.0 (clean) and postfix positions
+        # have the sampled noise level.
         if timesteps.dim() == 1 and timesteps.shape[0] == B:
-            # shape (B,) => (B,T)
+            # shape (B,) => (B, T)
             timesteps = timesteps.unsqueeze(1).expand(-1, T)
+        elif timesteps.dim() == 2 and timesteps.shape == (B, T):
+            pass  # already per-position
         else:
             raise ValueError(
-                "Expected `timesteps` to have shape (B,) so we can replicate across T."
+                f"Expected `timesteps` to have shape (B,) or (B, T), got {timesteps.shape}."
             )
 
         # 2) Standard action MLP step for shape => (B, T, w)
