@@ -15,6 +15,10 @@ import gymnasium as gym
 import numpy as np
 from tqdm import tqdm
 
+import logging
+from gr00t.experiment.experiment import setup_logging
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class VideoConfig:
@@ -254,7 +258,7 @@ def run_rollout_gymnasium_policy(
     """
     start_time = time.time()
     n_episodes = max(n_episodes, n_envs)
-    print(f"Running collecting {n_episodes} episodes for {env_name} with {n_envs} vec envs")
+    logger.info(f"Running collecting {n_episodes} episodes for {env_name} with {n_envs} vec envs")
 
     env_fns = [
         partial(
@@ -362,7 +366,7 @@ def run_rollout_gymnasium_policy(
 
     env.reset()
     env.close()
-    print(f"Collecting {n_episodes} episodes took {time.time() - start_time} seconds")
+    logger.info(f"Collecting {n_episodes} episodes took {time.time() - start_time} seconds")
 
     assert len(episode_successes) >= n_episodes, (
         f"Expected at least {n_episodes} episodes, got {len(episode_successes)}"
@@ -416,6 +420,7 @@ def run_gr00t_sim_policy(
     policy_client_port: int | None = None,
     n_envs: int = 8,
     n_action_steps: int = 8,
+    recordings_dir: str = "recordings",
 ):
     embodiment_tag = get_embodiment_tag_from_env_name(env_name)
 
@@ -451,11 +456,21 @@ def run_gr00t_sim_policy(
         n_episodes=n_episodes,
         n_envs=n_envs,
     )
-    print("Video saved to: ", wrapper_configs.video.video_dir)
+    logger.info(f"Video saved to: {wrapper_configs.video.video_dir}")
+
+    import shutil
+    recordings_dir = Path(recordings_dir)
+    src = Path(wrapper_configs.video.video_dir)
+    dst = recordings_dir / src.parent.name / src.name
+    shutil.copytree(src, dst, dirs_exist_ok=True)
+    logger.info(f"Recordings copied to: {dst}")
+
     return results
 
 
 if __name__ == "__main__":
+    setup_logging()
+    
     parser = argparse.ArgumentParser()
     parser.add_argument("--max_episode_steps", type=int, default=504)
     parser.add_argument("--n_episodes", type=int, default=50)
@@ -473,6 +488,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--n_envs", type=int, default=8)
     parser.add_argument("--n_action_steps", type=int, default=8)
+    parser.add_argument("--recordings_dir", type=str, default="recordings")
 
     args = parser.parse_args()
 
@@ -495,6 +511,7 @@ if __name__ == "__main__":
         policy_client_port=args.policy_client_port,
         n_envs=args.n_envs,
         n_action_steps=args.n_action_steps,
+        recordings_dir=args.recordings_dir,
     )
-    print("results: ", results)
-    print("success rate: ", np.mean(results[1]))
+    logger.info(f"results: {results}")
+    logger.info(f"success rate: {np.mean(results[1])}")
