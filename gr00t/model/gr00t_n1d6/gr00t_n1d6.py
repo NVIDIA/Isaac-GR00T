@@ -15,6 +15,9 @@ from transformers import AutoConfig, AutoModel, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 import tree
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class Gr00tN1d6ActionHead(nn.Module):
     """Action head component for flow matching diffusion policy."""
@@ -34,12 +37,12 @@ class Gr00tN1d6ActionHead(nn.Module):
                 cross_attention_dim=config.backbone_embedding_dim,
                 attend_text_every_n_blocks=config.attend_text_every_n_blocks,
             )
-            print("Using AlternateVLDiT for diffusion model")
+            logger.info("Using AlternateVLDiT for diffusion model")
         else:
             self.model = DiT(
                 **config.diffusion_model_cfg, cross_attention_dim=config.backbone_embedding_dim
             )
-            print("Using DiT for diffusion model")
+            logger.info("Using DiT for diffusion model")
         self.action_dim = config.max_action_dim
         self.action_horizon = config.action_horizon
         self.num_inference_timesteps = config.num_inference_timesteps
@@ -107,16 +110,16 @@ class Gr00tN1d6ActionHead(nn.Module):
             self.model.requires_grad_(False)
         if not tune_vlln:
             self.vlln.requires_grad_(False)
-        print(f"Tune action head projector: {self.tune_projector}")
-        print(f"Tune action head diffusion model: {self.tune_diffusion_model}")
-        print(f"Tune action head vlln: {self.tune_vlln}")
+        logger.info(f"Tune action head projector: {self.tune_projector}")
+        logger.info(f"Tune action head diffusion model: {self.tune_diffusion_model}")
+        logger.info(f"Tune action head vlln: {self.tune_vlln}")
         # Check if any parameters are still trainable. If not, print a warning.
         if not tune_projector and not tune_diffusion_model and not tune_vlln:
             for name, p in self.named_parameters():
                 if p.requires_grad:
-                    print(f"Action head trainable parameter: {name}")
+                    logger.info(f"Action head trainable parameter: {name}")
         if not any(p.requires_grad for p in self.parameters()):
-            print("Warning: No action head trainable parameters found.")
+            logger.warning("No action head trainable parameters found.")
 
     def set_frozen_modules_to_eval_mode(self):
         """
@@ -189,7 +192,7 @@ class Gr00tN1d6ActionHead(nn.Module):
 
         # Add Gaussian noise to state features.
         if self.training and self.state_additive_noise_scale > 0:
-            print(
+            logger.info(
                 f"Adding Gaussian noise to state features with scale {self.state_additive_noise_scale}"
             )
             noise = torch.randn_like(state_features) * self.state_additive_noise_scale
@@ -450,6 +453,23 @@ class Gr00tN1d6(PreTrainedModel):
             trainable_params_fp32=config.backbone_trainable_params_fp32,
             transformers_loading_kwargs=transformers_loading_kwargs,
         )
+
+        backbone_info = f"""
+self.backbone = backbone_cls(
+    model_name={config.model_name},
+    tune_llm={config.tune_llm},
+    tune_visual={config.tune_visual},
+    select_layer={config.select_layer},
+    reproject_vision={config.reproject_vision},
+    use_flash_attention={config.use_flash_attention},
+    load_bf16={config.load_bf16},
+    tune_top_llm_layers={config.tune_top_llm_layers},
+    trainable_params_fp32={config.backbone_trainable_params_fp32},
+    transformers_loading_kwargs={transformers_loading_kwargs},
+)
+        """
+
+        logger.info(backbone_info)
 
         # Initialize action head
         self.action_head = Gr00tN1d6ActionHead(config)

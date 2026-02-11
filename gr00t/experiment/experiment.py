@@ -24,8 +24,8 @@ def setup_logging(debug: bool = False):
     """Configure logging."""
     logging.basicConfig(
         level=logging.DEBUG if debug else logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
+        format="[%(asctime)s] [%(filename)s:%(funcName)s:%(lineno)d] %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
     # Reduce verbosity of some libraries
     logging.getLogger("transformers").setLevel(logging.WARNING)
@@ -139,6 +139,12 @@ def run(config: Config):
     omegaconf_config["max_steps"] = config.training.max_steps
     omegaconf_config["save_steps"] = config.training.save_steps
     OmegaConf.save(omegaconf_config, save_cfg_dir / "conf.yaml", resolve=True)
+
+    # save as json
+    container = OmegaConf.to_container(omegaconf_config, resolve=True, enum_to_str=True)
+    with open(save_cfg_dir / "conf.json", "w") as f:
+        json.dump(container, f, indent=2, ensure_ascii=False)
+
     wandb_config_file = output_dir / "wandb_config.json"
     with open(wandb_config_file, "w") as f:
         json.dump(

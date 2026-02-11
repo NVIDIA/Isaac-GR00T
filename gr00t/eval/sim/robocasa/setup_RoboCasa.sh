@@ -26,7 +26,17 @@ if [[ "$(uname -s)" == "Linux" && "$INSTALL_FLASH_ATTN" == "1" ]]; then
 fi
 
 # Sim stack
-uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@master"
+# uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@master"
+ROBOSUITE_REPO="$PROJECT_REPO/external_dependencies/robosuite"
+rm -rf "$ROBOSUITE_REPO"
+echo "Cloning robosuite v1.5.2..."
+git clone --depth 1 --branch v1.5.2 https://github.com/ARISE-Initiative/robosuite.git "$ROBOSUITE_REPO"
+echo "Installing robosuite v1.5.2..."
+uv pip install -e "$ROBOSUITE_REPO"
+
+echo "Installing robosuite_models..."
+uv pip install robosuite_models
+
 uv pip install -e "$ROBOCASA_REPO" --config-settings editable_mode=compat
 uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.51.3 msgpack==1.1.0 msgpack-numpy==0.4.8
 

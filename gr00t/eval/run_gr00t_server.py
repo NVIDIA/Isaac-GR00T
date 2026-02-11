@@ -8,6 +8,10 @@ from gr00t.policy.replay_policy import ReplayPolicy
 from gr00t.policy.server_client import PolicyServer
 import tyro
 
+import logging
+from gr00t.experiment.experiment import setup_logging
+logger = logging.getLogger(__name__)
+
 
 DEFAULT_MODEL_SERVER_PORT = 5555
 
@@ -51,12 +55,12 @@ class ServerConfig:
 
 
 def main(config: ServerConfig):
-    print("Starting GR00T inference server...")
-    print(f"  Embodiment tag: {config.embodiment_tag}")
-    print(f"  Model path: {config.model_path}")
-    print(f"  Device: {config.device}")
-    print(f"  Host: {config.host}")
-    print(f"  Port: {config.port}")
+    logger.info("Starting GR00T inference server...")
+    logger.info(f"  Embodiment tag: {config.embodiment_tag}")
+    logger.info(f"  Model path: {config.model_path}")
+    logger.info(f"  Device: {config.device}")
+    logger.info(f"  Host: {config.host}")
+    logger.info(f"  Port: {config.port}")
 
     # check if the model path exists
     if config.model_path.startswith("/") and not os.path.exists(config.model_path):
@@ -102,9 +106,10 @@ def main(config: ServerConfig):
     try:
         server.run()
     except KeyboardInterrupt:
-        print("\nShutting down server...")
+        logger.info("\nShutting down server...")
 
 
 if __name__ == "__main__":
+    setup_logging()
     config = tyro.cli(ServerConfig)
     main(config)
