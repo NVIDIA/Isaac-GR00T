@@ -336,6 +336,24 @@ You can use [the verification script](scripts/eval/check_sim_eval_ready.py) to v
 
 Please refer to each benchmark link below for more details.
 
+#### Adding a New Sim Benchmark
+
+Each sim benchmark registers its environments under a gym env_name with the format `{prefix}/{task_name}` (e.g., `libero_sim/LIVING_ROOM_SCENE2_put_soup_in_basket`). The evaluation framework uses the prefix to look up the corresponding `EmbodimentTag` via a mapping in [`gr00t/eval/sim/env_utils.py`](gr00t/eval/sim/env_utils.py).
+
+> **Important:** The env_name prefix and the `EmbodimentTag` value are often different. For example, `libero_sim` maps to `EmbodimentTag.LIBERO_PANDA` (`"libero_panda"`). Do not assume they match.
+
+To add a new benchmark:
+
+1. Add an entry to `ENV_PREFIX_TO_EMBODIMENT_TAG` in `gr00t/eval/sim/env_utils.py`:
+   ```python
+   ENV_PREFIX_TO_EMBODIMENT_TAG = {
+       ...
+       "my_new_benchmark": EmbodimentTag.MY_ROBOT,
+   }
+   ```
+2. If the benchmark has multiple env_name prefixes (e.g., `my_benchmark_v1`, `my_benchmark_v2`), all related prefixes **must** map to the same `EmbodimentTag`.
+3. Add corresponding test cases in `tests/gr00t/eval/sim/test_env_utils.py` and update the `test_all_known_prefixes_present` test.
+
 **Zero-shot Evaluation** (evaluate without finetuning):
 - **RoboCasa**: [Instructions](examples/robocasa/README.md)
 - **RoboCasa GR1 Tabletop Tasks**: [Instructions](examples/robocasa-gr1-tabletop-tasks/README.md)
