@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from enum import Enum
 from typing import Optional, TypeVar, Union
 
+from gr00t.data.types import ActionFormat
 import numpy as np
 from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation
@@ -258,7 +261,7 @@ class JointPose(Pose):
         relative_joints = self.joints - other.joints
         return JointPose(joints=relative_joints, joint_names=self.joint_names)
 
-    def copy(self) -> "JointPose":
+    def copy(self) -> JointPose:
         """
         Create a deep copy of this joint pose.
 
@@ -656,7 +659,30 @@ class EndEffectorPose(Pose):
         # Create new EndEffectorPose from relative transformation
         return EndEffectorPose(homogeneous=T_relative)
 
-    def copy(self) -> "EndEffectorPose":
+    @classmethod
+    def from_action_format(cls, data: np.ndarray, action_format: ActionFormat) -> EndEffectorPose:
+        """
+        Create an EndEffectorPose from a flat array using the specified action format.
+
+        This is the inverse of the xyz_rot6d / xyz_rotvec / homogeneous properties.
+
+        Args:
+            data: Flat array whose layout depends on action_format.
+            action_format: One of ActionFormat.XYZ_ROT6D, XYZ_ROTVEC, or DEFAULT.
+
+        Returns:
+            EndEffectorPose instance.
+        """
+        if action_format == ActionFormat.XYZ_ROT6D:
+            return cls(translation=data[:3], rotation=data[3:], rotation_type="rot6d")
+        elif action_format == ActionFormat.XYZ_ROTVEC:
+            return cls(translation=data[:3], rotation=data[3:], rotation_type="rotvec")
+        elif action_format == ActionFormat.DEFAULT:
+            return cls(homogeneous=data.reshape(4, 4))
+        else:
+            raise ValueError(f"Unsupported ActionFormat: {action_format}")
+
+    def copy(self) -> EndEffectorPose:
         """
         Create a deep copy of this end-effector pose.
 

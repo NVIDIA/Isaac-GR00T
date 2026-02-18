@@ -166,26 +166,12 @@ class RelativeActionLoader:
             last_state = state_data[state_ind]
             actions = action_data[action_inds]
             if self.action_config.type == ActionType.EEF:
-                # raise NotImplementedError("EEF action is not yet supported")
-                assert len(last_state) == 9  # xyz + rot6d
-                assert actions.shape[1] == 9  # xyz + rot6d
-
-                reference_frame = EndEffectorPose(
-                    translation=last_state[:3],
-                    rotation=last_state[3:],
-                    rotation_type="rot6d",
+                action_format = self.action_config.format
+                reference_frame = EndEffectorPose.from_action_format(last_state, action_format)
+                traj = EndEffectorActionChunk.from_array(actions, action_format).relative_chunking(
+                    reference_frame=reference_frame
                 )
-
-                traj = EndEffectorActionChunk(
-                    [
-                        EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rot6d")
-                        for m in actions
-                    ]
-                ).relative_chunking(reference_frame=reference_frame)
-
-                raise NotImplementedError(
-                    "EEF action is not yet supported, need to handle rotation transformation based on action format"
-                )
+                trajectories.append(traj.to(action_format).astype(np.float32))
             elif self.action_config.type == ActionType.NON_EEF:
                 reference_frame = JointPose(last_state)
                 traj = JointActionChunk([JointPose(m) for m in actions]).relative_chunking(
