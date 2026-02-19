@@ -55,6 +55,43 @@ delta_indices=[-2, -1, 0]
 delta_indices=list(range(0, 16))
 ```
 
+> **Note:** If you modify `delta_indices` for the action modality (e.g., changing the action horizon from 16 to 8), you **must** regenerate the dataset statistics by re-running `python gr00t/data/stats.py <dataset_path> <embodiment_tag>`. The normalization statistics (especially `meta/relative_stats.json`) are computed based on the original `delta_indices` length, and a mismatch will cause errors during training.
+
+<details>
+<summary>Example: What happens if you change <code>delta_indices</code> without regenerating stats?</summary>
+
+Suppose your action config originally uses a 16-step horizon:
+
+```python
+"action": ModalityConfig(
+    delta_indices=list(range(0, 16)),  # 16 steps
+    ...
+)
+```
+
+Running `python gr00t/data/stats.py` generates `meta/relative_stats.json` with per-step statistics of shape `(16, D)`, where `D` is the action dimension.
+
+If you later change the horizon to 8 steps:
+
+```python
+"action": ModalityConfig(
+    delta_indices=list(range(0, 8)),  # 8 steps
+    ...
+)
+```
+
+The training data will now have shape `(8, D)`, but the normalization parameters from `relative_stats.json` still have shape `(16, D)`. This dimension mismatch causes an `IndexError` during normalization:
+
+```
+IndexError: boolean index did not match indexed array along dimension 0;
+dimension is 8 but corresponding boolean dimension is 16
+```
+
+**Fix:** Re-run `python gr00t/data/stats.py <dataset_path> <embodiment_tag>` after changing `delta_indices` to regenerate matching statistics.
+
+</details>
+
+
 **2. `modality_keys` (list[str])**
 
 Specifies which keys to load from your dataset. These keys **must match** the keys defined in your `meta/modality.json` file.
