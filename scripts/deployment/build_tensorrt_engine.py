@@ -7,8 +7,8 @@ It's equivalent to using trtexec but works with pip-installed TensorRT.
 
 Usage:
     python build_tensorrt_engine.py \
-        --onnx ./groot_n1d6_onnx/dit_model.onnx \
-        --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
+        --onnx ./gr00t_n1d7_onnx/dit_model.onnx \
+        --engine ./gr00t_n1d7_onnx/dit_model_bf16.trt \
         --precision bf16
 """
 

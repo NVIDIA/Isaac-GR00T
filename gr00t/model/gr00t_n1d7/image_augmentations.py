@@ -186,7 +186,10 @@ class FractionalRandomCrop(A.DualTransform):
     """
 
     def __init__(
-        self, crop_fraction: float = 0.9, p: float = 1.0, always_apply: bool | None = None
+        self,
+        crop_fraction: float = 0.9,
+        p: float = 1.0,
+        always_apply: bool | None = None,
     ):
         super().__init__(p=p, always_apply=always_apply)
         if not 0.0 < crop_fraction <= 1.0:
@@ -252,7 +255,10 @@ class FractionalCenterCrop(A.DualTransform):
     """
 
     def __init__(
-        self, crop_fraction: float = 0.9, p: float = 1.0, always_apply: bool | None = None
+        self,
+        crop_fraction: float = 0.9,
+        p: float = 1.0,
+        always_apply: bool | None = None,
     ):
         super().__init__(p=p, always_apply=always_apply)
         if not 0.0 < crop_fraction <= 1.0:

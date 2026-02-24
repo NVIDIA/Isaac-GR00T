@@ -1,12 +1,5 @@
-from typing import Tuple
+from typing import Any, Tuple
 
-from gr00t.configs.model.gr00t_n1d6 import Gr00tN1d6Config
-from gr00t.model.modules.dit import AlternateVLDiT, DiT
-from gr00t.model.modules.eagle_backbone import EagleBackbone
-from gr00t.model.modules.embodiment_conditioned_mlp import (
-    CategorySpecificMLP,
-    MultiEmbodimentActionEncoder,
-)
 import torch
 from torch import nn
 from torch.distributions import Beta
@@ -15,13 +8,20 @@ from transformers import AutoConfig, AutoModel, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 import tree
 
+from gr00t.configs.model.gr00t_n1d7 import Gr00tN1d7Config
+from gr00t.model.modules.dit import AlternateVLDiT, DiT
+from gr00t.model.modules.embodiment_conditioned_mlp import (
+    CategorySpecificMLP,
+    MultiEmbodimentActionEncoder,
+)
 
-class Gr00tN1d6ActionHead(nn.Module):
+
+class Gr00tN1d7ActionHead(nn.Module):
     """Action head component for flow matching diffusion policy."""
 
     supports_gradient_checkpointing = True
 
-    def __init__(self, config: Gr00tN1d6Config):
+    def __init__(self, config: Gr00tN1d7Config):
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
@@ -37,7 +37,8 @@ class Gr00tN1d6ActionHead(nn.Module):
             print("Using AlternateVLDiT for diffusion model")
         else:
             self.model = DiT(
-                **config.diffusion_model_cfg, cross_attention_dim=config.backbone_embedding_dim
+                **config.diffusion_model_cfg,
+                cross_attention_dim=config.backbone_embedding_dim,
             )
             print("Using DiT for diffusion model")
         self.action_dim = config.max_action_dim
@@ -46,7 +47,7 @@ class Gr00tN1d6ActionHead(nn.Module):
 
         self.state_encoder = CategorySpecificMLP(
             num_categories=config.max_num_embodiments,
-            input_dim=config.max_state_dim,
+            input_dim=config.max_state_dim * config.state_history_length,
             hidden_dim=self.hidden_size,
             output_dim=self.input_embedding_dim,
         )
@@ -175,6 +176,10 @@ class Gr00tN1d6ActionHead(nn.Module):
         # Get embodiment ID.
         embodiment_id = action_input.embodiment_id
 
+        # Handle state history
+        assert action_input.state.shape[1] == self.config.state_history_length
+        action_input.state = action_input.state.view(action_input.state.shape[0], 1, -1)
+
         # Embed state.
         state_features = self.state_encoder(action_input.state, embodiment_id)
 
@@ -266,13 +271,13 @@ class Gr00tN1d6ActionHead(nn.Module):
                 - backbone_features: [B, seq_len, backbone_embedding_dim]
                 - backbone_attention_mask: [B, seq_len]
             action_input: Input containing:
-                - state: [B, state_dim]
+                - state: [B, state_history_length, max_state_dim]
                 - embodiment_id: [B] (embodiment IDs)
 
         Returns:
             BatchFeature containing:
                 - backbone_features: [B, seq_len, backbone_embedding_dim]
-                - state_features: [B, state_horizon, input_embedding_dim]
+                - state_features: [B, 1, input_embedding_dim]
         """
         backbone_output = self.process_backbone_output(backbone_output)
 
@@ -280,8 +285,15 @@ class Gr00tN1d6ActionHead(nn.Module):
         vl_embeds = backbone_output.backbone_features
         embodiment_id = action_input.embodiment_id
 
+        # Handle state history: if we have fewer timesteps than expected, repeat to fill
+        state = action_input.state
+        current_T = state.shape[1]
+        assert current_T == self.config.state_history_length, "current_T != state_history_length"
+        # Reshape state from [B, state_history_length, max_state_dim] to [B, 1, state_history_length * max_state_dim]
+        state = state.view(state.shape[0], 1, -1)
+
         # Embed state.
-        state_features = self.state_encoder(action_input.state, embodiment_id)
+        state_features = self.state_encoder(state, embodiment_id)
 
         return BatchFeature(data={"backbone_features": vl_embeds, "state_features": state_features})
 
@@ -292,6 +304,8 @@ class Gr00tN1d6ActionHead(nn.Module):
         state_features: torch.Tensor,
         embodiment_id: torch.Tensor,
         backbone_output: BatchFeature,
+        action_input: BatchFeature,
+        options: dict[str, Any] | None = None,
     ) -> BatchFeature:
         """
         Generate actions using the flow matching diffusion process.
@@ -314,6 +328,45 @@ class Gr00tN1d6ActionHead(nn.Module):
         )
 
         dt = 1.0 / self.num_inference_timesteps
+        vel_strength = torch.ones_like(actions)
+
+        if "action" in action_input:
+            # If action in input when doing get action, it means we want to use RTC.
+            # action_horizon is the action horizon of the input action.
+            # rtc_overlap_steps is the number of steps to overlap with the previous action chunks.
+            # rtc_frozen_steps is the number of steps to freeze the action, which is the latency of the policy inference.
+            # rtc_ramp_rate is the rate of the ramp of denoising the actions.
+            assert options is not None, "options is not None"
+            assert "action_horizon" in options, "action_horizon is not in options"
+            assert "rtc_overlap_steps" in options, "rtc_overlap_steps is not in options"
+            assert "rtc_frozen_steps" in options, "rtc_frozen_steps is not in options"
+            assert "rtc_ramp_rate" in options, "rtc_ramp_rate is not in options"
+
+            action_horizon_before_padding = options["action_horizon"]
+
+            # Use previous action instead of pure noise to do inpainting
+            actions[:, : options["rtc_overlap_steps"], :] = action_input["action"][
+                :,
+                action_horizon_before_padding
+                - options["rtc_overlap_steps"] : action_horizon_before_padding,
+                :,
+            ]
+            vel_strength[:, : options["rtc_frozen_steps"], :] = 0.0
+            # NOTE: use an exponential ramp strength to set the remaining unfrozen rtc_steps
+            intermediate_steps = options["rtc_overlap_steps"] - options["rtc_frozen_steps"]
+            # Create exponential ramp from 0 to 1 over intermediate steps
+            t = torch.linspace(0.0, 1.0, intermediate_steps + 2, device=device)
+            ramp = 1 - torch.exp(-options["rtc_ramp_rate"] * t)
+            ramp = ramp / ramp[-1].clamp_min(1e-8)  # normalize to [0,1]
+            ramp = ramp[
+                1:-1
+            ]  # we will only take the middle part of the ramp, ignore the 0.0 and 1.0
+            # Apply ramp to the intermediate steps [batch, intermediate_steps, action_dim]
+            vel_strength[
+                :,
+                options["rtc_frozen_steps"] : options["rtc_overlap_steps"],
+                :,
+            ] = ramp[None, :, None].to(device)
 
         # Run denoising steps.
         for t in range(self.num_inference_timesteps):
@@ -354,7 +407,8 @@ class Gr00tN1d6ActionHead(nn.Module):
             pred_velocity = pred[:, -self.action_horizon :]
 
             # Update actions using euler integration.
-            actions = actions + dt * pred_velocity
+            actions = actions + dt * pred_velocity * vel_strength
+
         return BatchFeature(
             data={
                 "action_pred": actions,
@@ -364,7 +418,12 @@ class Gr00tN1d6ActionHead(nn.Module):
         )
 
     @torch.no_grad()
-    def get_action(self, backbone_output: BatchFeature, action_input: BatchFeature) -> BatchFeature:
+    def get_action(
+        self,
+        backbone_output: BatchFeature,
+        action_input: BatchFeature,
+        options: dict[str, Any] | None = None,
+    ) -> BatchFeature:
         """
         Generate actions using the flow matching diffusion process.
 
@@ -386,6 +445,8 @@ class Gr00tN1d6ActionHead(nn.Module):
             state_features=features.state_features,
             embodiment_id=action_input.embodiment_id,
             backbone_output=backbone_output,
+            action_input=action_input,
+            options=options,
         )
 
     @property
@@ -401,26 +462,29 @@ class Gr00tN1d6ActionHead(nn.Module):
         return BatchFeature(data=batch)
 
 
-def get_backbone_cls(config: Gr00tN1d6Config):
-    if "NVEagle" in config.model_name or "nvidia/Eagle" in config.model_name:
-        return EagleBackbone
+def get_backbone_cls(config: Gr00tN1d7Config):
+    if "nvidia/Cosmos-Reason2" in config.model_name or "Qwen/Qwen3-VL" in config.model_name:
+        # We import here as Qwen3Backbone depends on newer transformers versions than the rest of the code.
+        from gr00t.model.modules.qwen3_backbone import Qwen3Backbone
+
+        return Qwen3Backbone
     else:
         raise ValueError(f"Unsupported model name: {config.model_name}")
 
 
-class Gr00tN1d6(PreTrainedModel):
-    """Gr00tN1d6: Vision-Language-Action model with backbone."""
+class Gr00tN1d7(PreTrainedModel):
+    """Gr00tN1d7: VLA model with Cosmos-Reason2-2B (Qwen3-VL) backbone."""
 
-    config_class = Gr00tN1d6Config
+    config_class = Gr00tN1d7Config
     supports_gradient_checkpointing = True
 
     def __init__(
         self,
-        config: Gr00tN1d6Config,
+        config: Gr00tN1d7Config,
         transformers_loading_kwargs: dict = {"trust_remote_code": True},
     ):
         """
-        Initialize Gr00tN1d6 model.
+        Initialize Gr00tN1d7 model.
 
         Args:
             config: Model configuration
@@ -452,10 +516,10 @@ class Gr00tN1d6(PreTrainedModel):
         )
 
         # Initialize action head
-        self.action_head = Gr00tN1d6ActionHead(config)
-        from .processing_gr00t_n1d6 import Gr00tN1d6DataCollator
+        self.action_head = Gr00tN1d7ActionHead(config)
+        from .processing_gr00t_n1d7 import Gr00tN1d7DataCollator
 
-        self.collator = Gr00tN1d6DataCollator(
+        self.collator = Gr00tN1d7DataCollator(
             model_name=config.model_name,
             model_type=config.backbone_model_type,
             transformers_loading_kwargs=transformers_loading_kwargs,
@@ -499,7 +563,6 @@ class Gr00tN1d6(PreTrainedModel):
 
         Args:
             inputs: Dictionary containing:
-                - Eagle inputs (prefixed with 'eagle_')
                 - Action inputs (state, action, embodiment_id, etc.)
 
         Returns:
@@ -512,7 +575,7 @@ class Gr00tN1d6(PreTrainedModel):
 
         return action_outputs
 
-    def get_action(self, inputs: dict) -> BatchFeature:
+    def get_action(self, inputs: dict, options: dict[str, Any] | None = None) -> BatchFeature:
         """
         Generate actions using the complete model.
         """
@@ -521,7 +584,7 @@ class Gr00tN1d6(PreTrainedModel):
 
         # Forward through backbone
         backbone_outputs = self.backbone(backbone_inputs)
-        action_outputs = self.action_head.get_action(backbone_outputs, action_inputs)
+        action_outputs = self.action_head.get_action(backbone_outputs, action_inputs, options)
 
         return action_outputs
 
@@ -535,5 +598,5 @@ class Gr00tN1d6(PreTrainedModel):
 
 
 # Register the model with HuggingFace
-AutoConfig.register("Gr00tN1d6", Gr00tN1d6Config)
-AutoModel.register(Gr00tN1d6Config, Gr00tN1d6)
+AutoConfig.register("Gr00tN1d7", Gr00tN1d7Config)
+AutoModel.register(Gr00tN1d7Config, Gr00tN1d7)

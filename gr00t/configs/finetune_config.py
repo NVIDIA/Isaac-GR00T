@@ -119,7 +119,7 @@ class FinetuneConfig:
     use_wandb: bool = False
     """
     If True, log metrics and artifacts to Weights & Biases (wandb).
-    The project is `finetune-gr00t-n1d6`.
+    The project is `finetune-gr00t-n1d7`.
     You need to login to wandb to view the logs.
     """
 

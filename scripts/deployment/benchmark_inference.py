@@ -17,7 +17,7 @@ Usage:
     python scripts/deployment/benchmark_inference.py \
         --model_path nvidia/GR00T-N1.6-3B \
         --dataset_path /path/to/dataset \
-        --trt_engine_path ./groot_n1d6_onnx/dit_model_bf16.trt
+        --trt_engine_path ./gr00t_n1d7_onnx/dit_model_bf16.trt
 """
 
 import argparse
@@ -545,10 +545,10 @@ def main():
         print(f"\nTensorRT engine not found: {args.trt_engine_path}")
         print("To build the engine, run:")
         print(
-            "  python scripts/deployment/export_onnx_n1d6.py --model_path nvidia/GR00T-N1.6-3B --output_dir ./groot_n1d6_onnx"
+            "  python scripts/deployment/export_onnx_n1d7.py --model_path nvidia/GR00T-N1.7-3B --output_dir ./gr00t_n1d7_onnx"
         )
         print(
-            "  python scripts/deployment/build_tensorrt_engine.py --onnx ./groot_n1d6_onnx/dit_model.onnx --engine <path>.trt --precision bf16"
+            "  python scripts/deployment/build_tensorrt_engine.py --onnx ./gr00t_n1d7_onnx/dit_model.onnx --engine <path>.trt --precision bf16"
         )
 
     # ========================================

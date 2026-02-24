@@ -45,7 +45,7 @@ python groot/scripts/deployment/standalone_inference_script.py \
   --embodiment_tag GR1 \
   --traj-ids 0 1 2 \
   --inference-mode tensorrt \
-  --trt_engine_path ./groot_n1d6_onnx/dit_model_bf16.trt
+  --trt_engine_path ./gr00t_n1d7_onnx/dit_model_bf16.trt
 """
 
 ###############################################################################
@@ -586,7 +586,7 @@ class ArgsConfig:
     inference_mode: Literal["pytorch", "tensorrt"] = "pytorch"
     """Inference mode: 'pytorch' (default) or 'tensorrt'."""
 
-    trt_engine_path: str = "./groot_n1d6_onnx/dit_model_bf16.trt"
+    trt_engine_path: str = "./gr00t_n1d7_onnx/dit_model_bf16.trt"
     """Path to TensorRT engine file (.trt). Used only when inference_mode='tensorrt'."""
 
     denoising_steps: int = 4

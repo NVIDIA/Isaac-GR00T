@@ -8,7 +8,7 @@ when different camera views have different aspect ratios.
 
 from pathlib import Path
 
-from gr00t.model.gr00t_n1d6.image_augmentations import (
+from gr00t.model.gr00t_n1d7.image_augmentations import (
     build_image_transformations,
     build_image_transformations_albumentations,
 )
@@ -113,9 +113,19 @@ class TestAlbumentationsTransforms:
 
 @pytest.fixture
 def processor():
-    from gr00t.model.gr00t_n1d6.processing_gr00t_n1d6 import Gr00tN1d6Processor
+    from unittest.mock import MagicMock, patch
 
-    proc = Gr00tN1d6Processor.from_pretrained(FIXTURE_DIR)
+    from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor
+
+    mock_vlm = MagicMock()
+    mock_vlm.apply_chat_template.return_value = "mock text"
+    mock_vlm.tokenizer.padding_side = "left"
+
+    with patch(
+        "gr00t.model.gr00t_n1d7.processing_gr00t_n1d7.build_processor",
+        return_value=mock_vlm,
+    ):
+        proc = Gr00tN1d7Processor.from_pretrained(FIXTURE_DIR)
     proc.eval()
     return proc
 

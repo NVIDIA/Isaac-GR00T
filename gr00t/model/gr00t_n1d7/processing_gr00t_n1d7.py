@@ -2,22 +2,23 @@ import json
 import os
 from pathlib import Path
 import re
-from typing import Any, Dict, Literal
+from typing import Any, Dict
 import warnings
 
 import albumentations as A
+import numpy as np
+from PIL import Image
+import torch
+import torchvision.transforms.v2 as transforms
+from transformers import AutoProcessor
+from transformers.feature_extraction_utils import BatchFeature
+from transformers.utils import cached_file
+
 from gr00t.configs.data.embodiment_configs import ModalityConfig
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.interfaces import BaseProcessor
 from gr00t.data.state_action.state_action_processor import StateActionProcessor
 from gr00t.data.utils import parse_modality_configs, to_json_serializable
-import numpy as np
-from PIL import Image
-import torch
-import torchvision.transforms.v2 as transforms
-from transformers import AutoProcessor, ProcessorMixin
-from transformers.feature_extraction_utils import BatchFeature
-from transformers.utils import cached_file
 
 from .image_augmentations import (
     apply_with_replay,
@@ -25,6 +26,11 @@ from .image_augmentations import (
     build_image_transformations_albumentations,
 )
 
+
+try:
+    from transformers import Qwen3VLProcessor
+except ImportError:
+    Qwen3VLProcessor = None
 
 # Suppress protobuf deprecation warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.protobuf")
@@ -45,22 +51,23 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
 }
 
 
-def build_processor(model_name: str, transformers_loading_kwargs: dict) -> ProcessorMixin:
-    assert model_name == "nvidia/Eagle-Block2A-2B-v2", f"Processor for {model_name} not supported"
-    eagle_path = os.path.join(
-        os.path.dirname(__file__), "..", "modules", "nvidia", "Eagle-Block2A-2B-v2"
-    )
-    return AutoProcessor.from_pretrained(eagle_path, **transformers_loading_kwargs)
+def build_processor(model_name: str, transformers_loading_kwargs: dict) -> Qwen3VLProcessor:
+    if Qwen3VLProcessor is None:
+        raise ImportError(
+            "Qwen3VLProcessor is not available. "
+            "Please upgrade transformers: pip install transformers>=4.52.0"
+        )
+    return Qwen3VLProcessor.from_pretrained(model_name, **transformers_loading_kwargs)
 
 
-class Gr00tN1d6DataCollator:
+class Gr00tN1d7DataCollator:
     def __init__(
         self,
         model_name: str,
-        model_type: Literal["eagle"] = "eagle",
+        model_type: str = "qwen",
         transformers_loading_kwargs: dict = {},
     ):
-        ### We need to use the same  processor for padding input ids and concat
+        ### We need to use the same processor for padding input ids and concat
         self.processor = build_processor(model_name, transformers_loading_kwargs)
         # Set padding side to 'left' for Flash Attention compatibility
         self.processor.tokenizer.padding_side = "left"
@@ -84,17 +91,20 @@ class Gr00tN1d6DataCollator:
                     curr_image_inputs = v["images"]
                     image_inputs += curr_image_inputs
 
-                # NOTE: some VLMs need this, others don't.
-                if self.model_type == "eagle":
-                    image_inputs, _ = self.processor.process_vision_info(
-                        [v["conversation"] for v in values]
-                    )
                 vlm_inputs = self.processor(
-                    text=text_list, images=image_inputs, return_tensors="pt", padding=True
+                    text=text_list,
+                    images=image_inputs,
+                    return_tensors="pt",
+                    padding=True,
                 )
                 for k, v in vlm_inputs.items():
                     batch[k] = v
-            elif key in ("pixel_values", "image_grid_thw", "attention_mask", "input_ids"):
+            elif key in (
+                "pixel_values",
+                "image_grid_thw",
+                "attention_mask",
+                "input_ids",
+            ):
                 raise Exception("Not implemented")
             else:
                 # state, state_mask, action and action_mask - stack to form batch dimension
@@ -102,16 +112,16 @@ class Gr00tN1d6DataCollator:
         return BatchFeature(data={"inputs": batch})
 
     def __str__(self):
-        return f"Gr00tN1d6DataCollator(model_name={self.model_name}, model_type={self.model_type})"
+        return f"Gr00tN1d7DataCollator(model_name={self.model_name}, model_type={self.model_type})"
 
 
-class Gr00tN1d6Processor(BaseProcessor):
-    data_collator_class = Gr00tN1d6DataCollator
+class Gr00tN1d7Processor(BaseProcessor):
+    data_collator_class = Gr00tN1d7DataCollator
 
     def __init__(
         self,
         modality_configs: dict[str, dict[str, ModalityConfig]],
-        statistics: dict[str, dict[str, dict[str, dict[str, list[float]]]]] | None = None,
+        statistics: (dict[str, dict[str, dict[str, dict[str, list[float]]]]] | None) = None,
         use_percentiles: bool = False,
         clip_outliers: bool = True,
         image_crop_size: list[int] = None,
@@ -121,12 +131,12 @@ class Gr00tN1d6Processor(BaseProcessor):
         random_rotation_angle: int | None = None,
         color_jitter_params: dict[str, float] | None = None,
         formalize_language: bool = True,
-        model_name: str = "nvidia/Eagle-Block2A-2B-v2",
-        model_type: Literal["eagle"] = "eagle",
+        model_name: str = "nvidia/Cosmos-Reason2-2B",
+        model_type: str = "qwen",
         max_state_dim: int = 29,
         max_action_dim: int = 29,
-        apply_sincos_state_encoding: bool = False,
         max_action_horizon: int = 40,
+        apply_sincos_state_encoding: bool = False,
         use_albumentations: bool = False,
         extra_augmentation_config: dict | None = None,
         use_relative_action: bool = False,
@@ -193,7 +203,10 @@ class Gr00tN1d6Processor(BaseProcessor):
             )
         else:
             self.train_image_transform, self.eval_image_transform = build_image_transformations(
-                image_target_size, image_crop_size, random_rotation_angle, color_jitter_params
+                image_target_size,
+                image_crop_size,
+                random_rotation_angle,
+                color_jitter_params,
             )
         self._collator = self.data_collator_class(
             model_name=model_name,
@@ -309,7 +322,8 @@ class Gr00tN1d6Processor(BaseProcessor):
             # Concatenate actions
             action_keys = self.modality_configs[embodiment_tag.value]["action"].modality_keys
             normalized_actions = torch.cat(
-                [torch.from_numpy(normalized_actions[key]) for key in action_keys], dim=-1
+                [torch.from_numpy(normalized_actions[key]) for key in action_keys],
+                dim=-1,
             )  # (t, d)
             action_dim = normalized_actions.shape[1]
             # Pad action to max_action_dim
@@ -353,7 +367,8 @@ class Gr00tN1d6Processor(BaseProcessor):
             [
                 normalized_states,
                 torch.zeros(
-                    normalized_states.shape[0], self.max_state_dim - normalized_states.shape[1]
+                    normalized_states.shape[0],
+                    self.max_state_dim - normalized_states.shape[1],
                 ),
             ],
             dim=-1,
@@ -440,17 +455,17 @@ class Gr00tN1d6Processor(BaseProcessor):
             torch.stack([temporal_stacked_images[view] for view in image_keys], dim=1)
             .flatten(0, 1)
             .numpy()
-        )  # (T*V, C, H, W), Eagle processor expects numpy array
+        )  # (T*V, C, H, W), processor expects numpy array
 
         vlm_inputs = self._apply_vlm_processing(stacked_images, language)
         return vlm_inputs
 
     def save_pretrained(self, save_directory: str | Path) -> list[Path]:
-        # dump modality configs to dict using the recursive function
+        save_directory = Path(save_directory)
         save_directory.mkdir(parents=True, exist_ok=True)
-        main_config_file = Path(save_directory) / "processor_config.json"
-        statistics_file = Path(save_directory) / "statistics.json"
-        embodiment_id_file = Path(save_directory) / "embodiment_id.json"
+        main_config_file = save_directory / "processor_config.json"
+        statistics_file = save_directory / "statistics.json"
+        embodiment_id_file = save_directory / "embodiment_id.json"
 
         config = {
             "processor_class": self.__class__.__name__,
@@ -483,7 +498,11 @@ class Gr00tN1d6Processor(BaseProcessor):
             json.dump(config, f, indent=2)
         # Save statistics
         with open(statistics_file, "w") as f:
-            json.dump(to_json_serializable(self.state_action_processor.statistics), f, indent=2)
+            json.dump(
+                to_json_serializable(self.state_action_processor.statistics),
+                f,
+                indent=2,
+            )
         # Save embodiment id mapping
         with open(embodiment_id_file, "w") as f:
             json.dump(self.embodiment_id_mapping, f, indent=2)
@@ -528,7 +547,6 @@ class Gr00tN1d6Processor(BaseProcessor):
                 "random_rotation_angle",
                 "color_jitter_params",
                 "use_relative_action",
-                "extra_augmentation_config",
             ]
             for key in override_keys:
                 if key in kwargs:
@@ -538,4 +556,4 @@ class Gr00tN1d6Processor(BaseProcessor):
         return cls(**processor_kwargs, transformers_loading_kwargs=transformers_loading_kwargs)
 
 
-AutoProcessor.register("Gr00tN1d6", Gr00tN1d6Processor)
+AutoProcessor.register("Gr00tN1d7", Gr00tN1d7Processor)
