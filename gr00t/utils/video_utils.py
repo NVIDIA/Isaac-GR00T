@@ -385,30 +385,32 @@ def get_frames_by_timestamps(
         # TODO(rcadene): also load audio stream at the same time
         reader = torchvision.io.VideoReader(video_path, "video")
 
-        # set the first and last requested timestamps
-        # Note: previous timestamps are usually loaded, since we need to access the previous key frame
-        first_ts = timestamps[0]
-        last_ts = timestamps[-1]
+        try:
+            # set the first and last requested timestamps
+            # Note: previous timestamps are usually loaded, since we need to access the previous key frame
+            first_ts = timestamps[0]
+            last_ts = timestamps[-1]
 
-        # access closest key frame of the first requested frame
-        # Note: closest key frame timestamp is usally smaller than `first_ts` (e.g. key frame can be the first frame of the video)
-        # for details on what `seek` is doing see: https://pyav.basswood-io.com/docs/stable/api/container.html?highlight=inputcontainer#av.container.InputContainer.seek
-        reader.seek(first_ts, keyframes_only=True)
+            # access closest key frame of the first requested frame
+            # Note: closest key frame timestamp is usally smaller than `first_ts` (e.g. key frame can be the first frame of the video)
+            # for details on what `seek` is doing see: https://pyav.basswood-io.com/docs/stable/api/container.html?highlight=inputcontainer#av.container.InputContainer.seek
+            reader.seek(first_ts, keyframes_only=True)
 
-        # load all frames until last requested frame
-        loaded_frames = []
-        loaded_ts = []
-        for frame in reader:
-            current_ts = frame["pts"]
-            loaded_frames.append(frame["data"])
-            loaded_ts.append(current_ts)
-            if current_ts >= last_ts:
-                break
+            # load all frames until last requested frame
+            loaded_frames = []
+            loaded_ts = []
+            for frame in reader:
+                current_ts = frame["pts"]
+                loaded_frames.append(frame["data"])
+                loaded_ts.append(current_ts)
+                if current_ts >= last_ts:
+                    break
 
-        reader.container.close()
-        reader = None
-        frames = np.array(loaded_frames)
-        return frames.transpose(0, 2, 3, 1)
+            frames = np.array(loaded_frames)
+            return frames.transpose(0, 2, 3, 1)
+        finally:
+            reader.container.close()
+            reader = None
 
     else:
         raise NotImplementedError
@@ -441,15 +443,14 @@ def get_all_frames(
     elif video_backend == "ffmpeg":
         return _extract_all_frames_ffmpeg(video_path)
     elif video_backend == "pyav":
-        container = av.open(video_path)
-        stream = container.streams.video[0]
-        assert stream.time_base is not None
-        frames = []
-        timestamps = []
-        for frame in container.decode(video=0):
-            frames.append(frame.to_ndarray(format="rgb24"))
-            timestamps.append(frame.pts * stream.time_base)
-        container.close()
+        with av.open(video_path) as container:
+            stream = container.streams.video[0]
+            assert stream.time_base is not None
+            frames = []
+            timestamps = []
+            for frame in container.decode(video=0):
+                frames.append(frame.to_ndarray(format="rgb24"))
+                timestamps.append(frame.pts * stream.time_base)
         return np.stack(frames), np.array(timestamps)
 
     else:

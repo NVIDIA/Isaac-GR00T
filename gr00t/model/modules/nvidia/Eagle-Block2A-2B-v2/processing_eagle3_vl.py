@@ -303,61 +303,59 @@ def _read_video_pyav(
     import av
     video_path = ele["video"]
     st = time.time()
-    
+
     # Open video file
-    container = av.open(video_path)
-    video_stream = container.streams.video[0]
-    
-    # Get video properties
-    total_frames = video_stream.frames
-    video_fps = float(video_stream.average_rate)
-    
-    # Handle video start and end times
-    start_time = ele.get("video_start", 0.0)
-    end_time = ele.get("video_end", None)
-    
-    if start_time > 0 or end_time is not None:
-        # Seek to start time
-        start_pts = int(start_time * video_stream.time_base.denominator / video_stream.time_base.numerator)
-        container.seek(start_pts, stream=video_stream)
-        
-        # Calculate end pts if specified
-        if end_time is not None:
-            end_pts = int(end_time * video_stream.time_base.denominator / video_stream.time_base.numerator)
+    with av.open(video_path) as container:
+        video_stream = container.streams.video[0]
+
+        # Get video properties
+        total_frames = video_stream.frames
+        video_fps = float(video_stream.average_rate)
+
+        # Handle video start and end times
+        start_time = ele.get("video_start", 0.0)
+        end_time = ele.get("video_end", None)
+
+        if start_time > 0 or end_time is not None:
+            # Seek to start time
+            start_pts = int(start_time * video_stream.time_base.denominator / video_stream.time_base.numerator)
+            container.seek(start_pts, stream=video_stream)
+
+            # Calculate end pts if specified
+            if end_time is not None:
+                end_pts = int(end_time * video_stream.time_base.denominator / video_stream.time_base.numerator)
+            else:
+                end_pts = None
         else:
             end_pts = None
-    else:
-        end_pts = None
-    
-    logger.info(f"pyav:  {video_path=}, {total_frames=}, {video_fps=}, time={time.time() - st:.3f}s")
-    
-    # Calculate number of frames to extract
-    nframes = smart_nframes(ele, total_frames=total_frames, video_fps=video_fps)
-    
-    # Calculate frame indices and timestamps
-    idx = torch.linspace(0, total_frames - 1, nframes).round().long().tolist()
-    timestamps = [start_time + i / video_fps for i in idx]
-    
-    # Extract frames
-    frames = []
-    frame_count = 0
-    target_frame_indices = set(idx)
-    
-    for frame in container.decode(video_stream):
-        if frame_count in target_frame_indices:
-            # Convert frame to RGB numpy array
-            frame_array = frame.to_ndarray(format='rgb24')
-            frames.append(frame_array)
-        
-        frame_count += 1
-        
-        # Stop if we've reached the end time or have enough frames
-        if end_pts is not None and frame.pts >= end_pts:
-            break
-        if len(frames) >= nframes:
-            break
-    
-    container.close()
+
+        logger.info(f"pyav:  {video_path=}, {total_frames=}, {video_fps=}, time={time.time() - st:.3f}s")
+
+        # Calculate number of frames to extract
+        nframes = smart_nframes(ele, total_frames=total_frames, video_fps=video_fps)
+
+        # Calculate frame indices and timestamps
+        idx = torch.linspace(0, total_frames - 1, nframes).round().long().tolist()
+        timestamps = [start_time + i / video_fps for i in idx]
+
+        # Extract frames
+        frames = []
+        frame_count = 0
+        target_frame_indices = set(idx)
+
+        for frame in container.decode(video_stream):
+            if frame_count in target_frame_indices:
+                # Convert frame to RGB numpy array
+                frame_array = frame.to_ndarray(format='rgb24')
+                frames.append(frame_array)
+
+            frame_count += 1
+
+            # Stop if we've reached the end time or have enough frames
+            if end_pts is not None and frame.pts >= end_pts:
+                break
+            if len(frames) >= nframes:
+                break
     
     # Convert to tensor
     if frames:
