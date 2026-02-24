@@ -189,6 +189,56 @@ class FractionalCenterCrop(A.DualTransform):
         return ("crop_fraction",)
 
 
+class LetterBoxPad(A.DualTransform):
+    """Pad non-square images to square by adding black bars (letterboxing).
+
+    This is the albumentations equivalent of LetterBoxTransform (torchvision).
+    Ensures all images have the same spatial dimensions after padding,
+    regardless of their original aspect ratio.
+
+    Targets:
+        image
+
+    Image types:
+        uint8, float32
+    """
+
+    def __init__(self, p: float = 1.0, always_apply: bool | None = None):
+        super().__init__(p=p, always_apply=always_apply)
+
+    def apply(
+        self,
+        img: np.ndarray,
+        pad_top: int = 0,
+        pad_bottom: int = 0,
+        pad_left: int = 0,
+        pad_right: int = 0,
+        **params,
+    ) -> np.ndarray:
+        if pad_top == 0 and pad_bottom == 0 and pad_left == 0 and pad_right == 0:
+            return img
+        return cv2.copyMakeBorder(
+            img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0
+        )
+
+    def get_params_dependent_on_data(self, params, data) -> dict[str, int]:
+        h, w = params["shape"][:2]
+        if h == w:
+            return {"pad_top": 0, "pad_bottom": 0, "pad_left": 0, "pad_right": 0}
+        max_dim = max(h, w)
+        pad_h = max_dim - h
+        pad_w = max_dim - w
+        return {
+            "pad_top": pad_h // 2,
+            "pad_bottom": pad_h - pad_h // 2,
+            "pad_left": pad_w // 2,
+            "pad_right": pad_w - pad_w // 2,
+        }
+
+    def get_transform_init_args_names(self) -> tuple[str, ...]:
+        return ()
+
+
 def build_image_transformations_albumentations(
     image_target_size,
     image_crop_size,
@@ -223,6 +273,7 @@ def build_image_transformations_albumentations(
     # Training transforms (using ReplayCompose for consistent augmentation across views)
     # Use SmallestMaxSize to preserve aspect ratios, with INTER_AREA for antialiasing
     train_transform_list = [
+        LetterBoxPad(),
         A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
         FractionalRandomCrop(crop_fraction=fraction_to_use),
         A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
@@ -250,6 +301,7 @@ def build_image_transformations_albumentations(
     # Use SmallestMaxSize to preserve aspect ratios, with INTER_AREA for antialiasing
     eval_transform = A.Compose(
         [
+            LetterBoxPad(),
             A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
             FractionalCenterCrop(crop_fraction=fraction_to_use),
             A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
@@ -350,6 +402,7 @@ def build_image_transformations(
     train_image_transform = transforms.Compose(transform_list)
     eval_image_transform = transforms.Compose(
         [
+            transforms.ToImage(),
             # transforms.ToDtype(torch.get_default_dtype(), scale=True),
             LetterBoxTransform(),
             transforms.Resize(size=image_target_size),

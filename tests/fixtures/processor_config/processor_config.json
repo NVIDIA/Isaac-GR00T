@@ -1,0 +1,146 @@
+{
+  "processor_class": "Gr00tN1d6Processor",
+  "processor_kwargs": {
+    "modality_configs": {
+      "libero_panda": {
+        "video": {
+          "delta_indices": [
+            0
+          ],
+          "modality_keys": [
+            "image",
+            "wrist_image"
+          ],
+          "sin_cos_embedding_keys": null,
+          "mean_std_embedding_keys": null,
+          "action_configs": null
+        },
+        "state": {
+          "delta_indices": [
+            0
+          ],
+          "modality_keys": [
+            "x",
+            "y",
+            "z",
+            "roll",
+            "pitch",
+            "yaw",
+            "gripper"
+          ],
+          "sin_cos_embedding_keys": null,
+          "mean_std_embedding_keys": null,
+          "action_configs": null
+        },
+        "action": {
+          "delta_indices": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "modality_keys": [
+            "x",
+            "y",
+            "z",
+            "roll",
+            "pitch",
+            "yaw",
+            "gripper"
+          ],
+          "sin_cos_embedding_keys": null,
+          "mean_std_embedding_keys": null,
+          "action_configs": [
+            {
+              "rep": "ABSOLUTE",
+              "type": "NON_EEF",
+              "format": "DEFAULT",
+              "state_key": null
+            },
+            {
+              "rep": "ABSOLUTE",
+              "type": "NON_EEF",
+              "format": "DEFAULT",
+              "state_key": null
+            },
+            {
+              "rep": "ABSOLUTE",
+              "type": "NON_EEF",
+              "format": "DEFAULT",
+              "state_key": null
+            },
+            {
+              "rep": "ABSOLUTE",
+              "type": "NON_EEF",
+              "format": "DEFAULT",
+              "state_key": null
+            },
+            {
+              "rep": "ABSOLUTE",
+              "type": "NON_EEF",
+              "format": "DEFAULT",
+              "state_key": null
+            },
+            {
+              "rep": "ABSOLUTE",
+              "type": "NON_EEF",
+              "format": "DEFAULT",
+              "state_key": null
+            },
+            {
+              "rep": "ABSOLUTE",
+              "type": "NON_EEF",
+              "format": "DEFAULT",
+              "state_key": null
+            }
+          ]
+        },
+        "language": {
+          "delta_indices": [
+            0
+          ],
+          "modality_keys": [
+            "annotation.human.action.task_description"
+          ],
+          "sin_cos_embedding_keys": null,
+          "mean_std_embedding_keys": null,
+          "action_configs": null
+        }
+      }
+    },
+    "image_crop_size": null,
+    "image_target_size": null,
+    "use_albumentations": true,
+    "random_rotation_angle": null,
+    "color_jitter_params": {
+      "brightness": 0.3,
+      "contrast": 0.4,
+      "saturation": 0.5,
+      "hue": 0.08
+    },
+    "shortest_image_edge": 256,
+    "crop_fraction": 0.95,
+    "model_name": "nvidia/Eagle-Block2A-2B-v2",
+    "model_type": "eagle",
+    "formalize_language": true,
+    "max_state_dim": 128,
+    "max_action_dim": 128,
+    "max_action_horizon": 50,
+    "use_percentiles": false,
+    "clip_outliers": true,
+    "apply_sincos_state_encoding": true,
+    "use_relative_action": true
+  }
+}
