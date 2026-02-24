@@ -10,16 +10,20 @@ from . import register_model_config
 
 
 @dataclass
-class Gr00tN1d6Config(PretrainedConfig):
-    """Unified configuration for Gr00tN1d6 model with backbone and action head."""
+class Gr00tN1d7Config(PretrainedConfig):
+    """Unified configuration for Gr00tN1d7 model with backbone and action head.
+
+    The main change from Gr00tN1d6 is the VLM backbone: Gr00tN1d7 uses
+    Cosmos-Reason2-2B (Qwen3-VL architecture) instead of Eagle.
+    """
 
     # Model identification
-    model_type: str = "Gr00tN1d6"
+    model_type: str = "Gr00tN1d7"
     model_dtype: str = "bfloat16"  # Use bfloat16 for Flash Attention compatibility
 
-    # backbone configuration
-    model_name: str = "nvidia/Eagle-Block2A-2B-v2"
-    backbone_model_type: str = "eagle"
+    # Backbone configuration
+    model_name: str = "nvidia/Cosmos-Reason2-2B"
+    backbone_model_type: str = "qwen"
     model_revision: str | None = None
     tune_top_llm_layers: int = 4  # Number of top LLM layers to tune
     backbone_embedding_dim: int = 2048  # project_to_dim
@@ -29,10 +33,6 @@ class Gr00tN1d6Config(PretrainedConfig):
     reproject_vision: bool = False
     use_flash_attention: bool = True
     load_bf16: bool = True  # Enable BF16 loading
-    collator_overwrite_image_inputs: bool = False  # Deprecated; use eagle_collator.
-    eagle_collator: bool = (
-        False  # this allows model to change image size in collator, needed for eagle any-res
-    )
     backbone_trainable_params_fp32: bool = True
 
     ### Processing parameters
@@ -51,6 +51,7 @@ class Gr00tN1d6Config(PretrainedConfig):
     apply_sincos_state_encoding: bool = (
         False  # Global flag to enable per-embodiment sin/cos encoding
     )
+    use_percentiles: bool = False
     use_relative_action: bool = False
 
     # Action head configuration parameters
@@ -60,16 +61,17 @@ class Gr00tN1d6Config(PretrainedConfig):
     hidden_size: int = 1024
     input_embedding_dim: int = 1536
 
-    # Global parameters from YAML
+    # State history: number of consecutive state timesteps fed to the state encoder
+    state_history_length: int = 1
+
+    # Global parameters
     add_pos_embed: bool = True
     attn_dropout: float = 0.2
     use_vlln: bool = True
     max_seq_len: int = 1024
-    # Diffusion model type selection
     use_alternate_vl_dit: bool = True  # True for AlternateVLDiT, False for DiT
     attend_text_every_n_blocks: int = 2
 
-    # Diffusion model configuration with 32 layers (main difference from N15)
     diffusion_model_cfg: dict = field(
         default_factory=lambda: {
             "positional_embeddings": None,
@@ -96,8 +98,8 @@ class Gr00tN1d6Config(PretrainedConfig):
     tune_diffusion_model: bool = True
     tune_vlln: bool = True
 
-    # State Augmentation parameters
-    state_dropout_prob: float = 0.0  # State dropout probability
+    # State augmentation parameters
+    state_dropout_prob: float = 0.8  # State dropout probability
     state_additive_noise_scale: float = 0.0  # Scale for additive Gaussian noise on state features
 
     # Multi-embodiment parameters
@@ -106,10 +108,6 @@ class Gr00tN1d6Config(PretrainedConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         for key, value in kwargs.items():
-            # PATCH: Backward compatibility for legacy argument "collator_overwrite_image_inputs"
-            if key == "collator_overwrite_image_inputs":
-                setattr(self, "eagle_collator", value)
-            # /PATCH
             setattr(self, key, value)
 
         # Ensures that all dataclass defaults (including those using default_factory)
@@ -162,4 +160,4 @@ class Gr00tN1d6Config(PretrainedConfig):
         )
 
 
-register_model_config("GrootN1d6", Gr00tN1d6Config)
+register_model_config("Gr00tN1d7", Gr00tN1d7Config)

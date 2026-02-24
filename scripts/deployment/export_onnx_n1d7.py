@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Export GrootN1d6 model components to ONNX for TensorRT optimization.
+Export Gr00tN1d7 model components to ONNX for TensorRT optimization.
 
 This script exports the DiT (Diffusion Transformer)
-of the GrootN1d6 model to ONNX format for TensorRT conversion.
+of the Gr00tN1d7 model to ONNX format for TensorRT conversion.
 
 Usage:
-    python export_onnx_n1d6.py \
+    python export_onnx_n1d7.py \
         --model_path /path/to/checkpoint \
         --dataset_path /path/to/dataset \
-        --output_dir ./groot_n1d6_onnx
+        --output_dir ./gr00t_n1d7_onnx
 """
 
 import argparse
@@ -406,7 +406,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./groot_n1d6_onnx",
+        default="./gr00t_n1d7_onnx",
         help="Output directory for ONNX models",
     )
     parser.add_argument(

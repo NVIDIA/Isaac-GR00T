@@ -9,7 +9,7 @@ from gr00t.data.types import ActionConfig, ActionFormat, ActionRepresentation, A
 
 from .data.data_config import DataConfig, SingleDatasetConfig
 from .model import create_model_union_type
-from .model.gr00t_n1d6 import Gr00tN1d6Config
+from .model.gr00t_n1d7 import Gr00tN1d7Config
 from .training.training_config import TrainingConfig
 
 
@@ -21,7 +21,7 @@ class Config:
     """Complete configuration."""
 
     load_config_path: Optional[str] = None
-    model: ModelUnionType = field(default_factory=lambda: Gr00tN1d6Config())
+    model: ModelUnionType = field(default_factory=lambda: Gr00tN1d7Config())
     data: DataConfig = field(default_factory=DataConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
 
@@ -116,19 +116,6 @@ class Config:
                         format=ActionFormat.DEFAULT,
                     )
                 ] * len(self.data.modality_configs[embodiment_tag]["action"].modality_keys)
-
-        if isinstance(self.model, Gr00tN1d6Config):
-            import warnings
-
-            if self.model.eagle_collator:
-                warnings.warn(
-                    'eagle_collator is deprecated. Please use backbone_model_type "eagle" in the future.',
-                    DeprecationWarning,
-                )
-                self.model.backbone_model_type = "eagle"
-            assert self.model.backbone_model_type in [
-                "eagle",
-            ], f"Invalid backbone model type: {self.model.backbone_model_type}"
 
         # Validate precision settings
         if self.training.fp16 and self.training.bf16:

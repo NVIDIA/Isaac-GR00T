@@ -82,7 +82,7 @@ class TrainingConfig:
 
     # Experiment tracking
     use_wandb: bool = False
-    wandb_project: str = "finetune-gr00t-n1d6"
+    wandb_project: str = "finetune-gr00t-n1d7"
 
     # Profiling
     enable_profiling: bool = False

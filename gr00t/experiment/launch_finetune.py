@@ -1,4 +1,4 @@
-# Launch finetuning for N1.6 on "single node".
+# Launch finetuning for N1.7 on "single node".
 # This script tries to provide a similar user experience as current OSS.
 
 import json
@@ -69,8 +69,7 @@ if __name__ == "__main__":
 
     config.model.load_bf16 = False
     config.model.reproject_vision = False
-    config.model.eagle_collator = True
-    config.model.model_name = "nvidia/Eagle-Block2A-2B-v2"
+    config.model.model_name = "nvidia/Cosmos-Reason2-2B"
     config.model.backbone_trainable_params_fp32 = True
     config.model.use_relative_action = True
 
