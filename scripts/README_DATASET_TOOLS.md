@@ -1,6 +1,6 @@
-# GR00T Dataset Tools
+# GR00T Dataset and Configuration Tools
 
-This directory contains utility scripts for working with GR00T LeRobot format datasets.
+This directory contains utility scripts for working with GR00T LeRobot format datasets and robot embodiment configurations.
 
 ## Available Tools
 
@@ -244,10 +244,199 @@ For detailed information about the GR00T LeRobot format, see:
 
 ---
 
+### 3. Embodiment Configuration Reference and Debugger (`embodiment_config_reference.py`)
+
+Provides reference information and debugging utilities for GR00T robot embodiment configurations.
+
+**Features:**
+- ✅ List all available embodiments (pre-trained and post-training)
+- ✅ Show detailed configuration for specific embodiments
+- ✅ Display state/action dimensions for each embodiment
+- ✅ View modality keys and action configurations
+- ✅ Generate configuration templates for new robots
+- ✅ Validate custom configuration files
+- ✅ Summary table of all embodiments
+
+**Usage:**
+
+```bash
+# List all available embodiments
+python scripts/embodiment_config_reference.py --list
+
+# Show full summary table with dimensions
+python scripts/embodiment_config_reference.py --all
+
+# Show detailed configuration for a specific embodiment
+python scripts/embodiment_config_reference.py --show unitree_g1
+python scripts/embodiment_config_reference.py --show oxe_google
+
+# Generate template for custom robot configuration
+python scripts/embodiment_config_reference.py --template my_robot
+
+# Validate a custom configuration file
+python scripts/embodiment_config_reference.py --validate config.py
+```
+
+**Output Examples:**
+
+**List command:**
+```
+📋 Available GR00T Embodiments
+======================================================================
+
+✅ unitree_g1               - Unitree G1 humanoid
+✅ libero_panda             - Libero Panda robot
+✅ oxe_google              - Open-X-Embodiment Google robot
+✅ oxe_widowx              - Open-X-Embodiment WidowX robot
+✅ oxe_droid               - Open-X-Embodiment DROID robot
+✅ behavior_r1_pro         - Behavior R1 Pro robot
+⚠️ gr1                     - Custom embodiment (no config)
+⚠️ new_embodiment          - Placeholder for new configurations
+
+Total: 9 embodiments
+✅ = Configuration available, ⚠️ = Configuration not found
+```
+
+**All command (Summary Table):**
+```
+🤖 Embodiment Configuration Summary
+================================================================================
+
+Embodiment           | State Dims | Action Dims | Videos | Status
+---------------------------------------------------------------------------
+unitree_g1           | 7          | 7           | 1      | ✓
+libero_panda         | 7          | 7           | 2      | ✓
+oxe_google           | 8          | 7           | 1      | ✓
+oxe_widowx           | 8          | 7           | 1      | ✓
+oxe_droid            | 2          | 2           | 2      | ✓
+behavior_r1_pro      | 21         | 6           | 3      | ✓
+gr1                  | —          | —           | —      | No Config
+new_embodiment       | —          | —           | —      | No Config
+```
+
+**Show command (Detailed Configuration):**
+```
+🤖 Embodiment Configuration: unitree_g1
+======================================================================
+
+Configuration Details:
+--------------------------------------------------------------
+
+📊 STATE MODALITY:
+   Keys: left_leg, right_leg, waist, left_arm, right_arm, left_hand, right_hand
+   Delta Indices: [0]
+   Dimension: 7 modalities
+
+🎮 ACTION MODALITY:
+   Keys: left_arm, right_arm, left_hand, right_hand, waist, 
+         base_height_command, navigate_command
+   Delta Indices: [0, 1, 2, ..., 28, 29]
+   Action Configs: 7 defined
+      [0] rep=RELATIVE, type=NON_EEF
+      [1] rep=RELATIVE, type=NON_EEF
+      [2-6] rep=ABSOLUTE, type=NON_EEF
+   Dimension: 7 modalities
+
+🎬 VIDEO MODALITY:
+   Streams: ego_view
+   Delta Indices: [0]
+```
+
+**Key Information:**
+
+- **State Dims**: Number of state modality groups (e.g., left_arm, gripper)
+- **Action Dims**: Number of action modality groups
+- **Videos**: Number of camera streams
+- **Delta Indices**: Which modalities have temporal deltas
+- **Action Configs**: Details about action representations (RELATIVE vs ABSOLUTE)
+
+**Use Cases:**
+
+1. **Understanding embodiment requirements:**
+   ```bash
+   python scripts/embodiment_config_reference.py --show oxe_droid
+   ```
+
+2. **Creating custom robot configuration:**
+   ```bash
+   python scripts/embodiment_config_reference.py --template my_arm
+   # Edit the generated template to match your robot
+   ```
+
+3. **Comparing embodiments:**
+   ```bash
+   python scripts/embodiment_config_reference.py --all
+   # Quickly see dimensions and supported features
+   ```
+
+---
+
+## Common Workflows
+
+### 1. Complete dataset preparation and validation
+
+```bash
+# 1. Prepare your data in LeRobot v2 format
+# 2. Create modality.json for your dataset
+# 3. Inspect the dataset structure
+python scripts/inspect_dataset.py /path/to/dataset
+
+# 4. Validate the dataset before training
+python scripts/validate_dataset.py /path/to/dataset --verbose
+
+# 5. Check if embodiment configuration is correct
+python scripts/embodiment_config_reference.py --show your_embodiment
+```
+
+### 2. Setting up a new robot
+
+```bash
+# 1. Generate a configuration template
+python scripts/embodiment_config_reference.py --template my_robot
+
+# 2. Customize the template for your robot
+# 3. Validate the configuration (once implemented)
+python scripts/embodiment_config_reference.py --validate my_robot_config.py
+
+# 4. Prepare your training data following the LeRobot format
+# 5. Validate your dataset
+python scripts/validate_dataset.py /path/to/my_robot_data
+```
+
+### 3. Understanding the pretraining data structure
+
+```bash
+# See what embodiments are available
+python scripts/embodiment_config_reference.py --all
+
+# Understand a specific embodiment's configuration
+python scripts/embodiment_config_reference.py --show unitree_g1
+```
+
+---
+
+## Requirements
+
+Both scripts require:
+- Python 3.10+
+- pandas (for dataset tools) 
+- numpy
+- tqdm
+
+Install with:
+```bash
+pip install pandas numpy tqdm
+```
+
+These are already included in the GR00T environment.
+
+---
+
 ## Contributing
 
-To add more dataset tools:
+To add more tools:
 1. Create a new script in this directory
-2. Follow the naming convention: `<tool_name>_dataset.py`
+2. Follow the naming convention: `<tool_name>.py`
 3. Update this README with usage examples
 4. Include helpful console output with emoji indicators
+5. Add meaningful comments and docstrings
