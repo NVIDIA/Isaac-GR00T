@@ -432,10 +432,144 @@ These are already included in the GR00T environment.
 
 ---
 
-## Contributing
+### 4. Training Configuration Validator (`validate_training_config.py`)
 
-To add more tools:
-1. Create a new script in this directory
+Validates and optimizes fine-tuning configurations before launching training jobs.
+
+**Features:**
+- ✅ Dataset format and structure validation
+- ✅ Embodiment configuration compatibility checks
+- ✅ Hyperparameter range validation
+- ✅ GPU memory requirement estimation
+- ✅ Optimal hyperparameter suggestions based on dataset size
+- ✅ Per-GPU batch size calculation
+- ✅ Detailed memory breakdown by components
+
+**Usage:**
+
+```bash
+# Complete validation with dataset and embodiment
+python scripts/validate_training_config.py \
+    --dataset /path/to/dataset \
+    --embodiment libero_panda
+
+# Check memory with custom config
+python scripts/validate_training_config.py \
+    --dataset /path/to/dataset \
+    --embodiment unitree_g1 \
+    --batch-size 256 \
+    --gpus 4 \
+    --learning-rate 1e-4
+
+# Get suggestions for hyperparameters
+python scripts/validate_training_config.py \
+    --dataset /path/to/dataset \
+    --suggest
+```
+
+**Example Output:**
+
+```
+======================================================================
+🔍 GR00T Training Configuration Validator
+======================================================================
+
+📂 Validating Dataset
+----------------------------------------------------------------------
+✓ Dataset path exists: /path/to/dataset
+✓ All required directories present: meta, data, videos
+✓ All metadata files present: modality.json, episodes.jsonl, tasks.jsonl, info.json
+✓ Found 100 episodes
+✓ Approximately 50,000 total frames
+
+🤖 Validating Embodiment
+----------------------------------------------------------------------
+✓ Valid embodiment: libero_panda
+✓ Modality configuration found in MODALITY_CONFIGS
+  - State modality: 7 components
+  - Action modality: 7 components
+
+⚙️  Validating Hyperparameters
+----------------------------------------------------------------------
+✓ Batch size 640 is reasonable
+✓ Per-GPU batch size: 80
+✓ Learning rate 0.0001 is reasonable
+✓ Warmup ratio 0.05
+✓ Weight decay 1e-05
+✓ Warmup steps: 1000
+
+💾 GPU Memory Analysis
+----------------------------------------------------------------------
+Model weights: ~6 GB (bfloat16)
+Optimizer states: ~12 GB (AdamW)
+Per sample: ~0.25 GB
+Per-GPU batch size: 80
+Estimated per-GPU memory: 34.0 GB
+Estimated total GPU memory: 272.0 GB
+⚠️  Memory use is moderate. A100/H100/RTX6000 or better recommended.
+
+💡 Suggested Hyperparameters
+----------------------------------------------------------------------
+Max steps: 20000 (to see data ~3 times)
+Batch size: 256 (medium dataset)
+Learning rate: 1e-04
+Warmup ratio: 0.05
+Weight decay: 1e-5
+Gradient accumulation steps: 1
+
+======================================================================
+📋 VALIDATION REPORT
+======================================================================
+
+✅ Configuration validation PASSED!
+```
+
+**Key Validations:**
+
+1. **Dataset Checks:**
+   - Directory structure (meta, data, videos)
+   - Metadata files (modality.json, episodes.jsonl, tasks.jsonl, info.json)
+   - Episode count and total frames
+   - Warnings for small datasets (<50 episodes)
+
+2. **Embodiment Checks:**
+   - Valid embodiment tag existence
+   - Modality configuration availability
+   - State and action component counts
+
+3. **Hyperparameter Checks:**
+   - Batch size ranges (recommended 128-640)
+   - Per-GPU batch size (minimum 4)
+   - Learning rate ranges (typically 1e-5 to 5e-4)
+   - Warmup ratio (must be in [0, 1])
+   - Weight decay ranges
+
+4. **Memory Estimation:**
+   - Model weights: ~6GB for GR00T-N1.6-3B
+   - Optimizer states: ~12GB for AdamW
+   - Per-sample memory: ~0.25GB
+   - GPU type recommendations based on memory needs
+
+**Common Use Cases:**
+
+```bash
+# Before finetuning - comprehensive check
+python scripts/validate_training_config.py \
+    --dataset examples/LIBERO/libero_10_no_noops_1.0.0_lerobot/ \
+    --embodiment libero_panda \
+    --batch-size 640 \
+    --gpus 8
+
+# Quick memory check for different batch sizes
+python scripts/validate_training_config.py \
+    --batch-size 512 --gpus 4
+
+# Get suggestions for your dataset
+python scripts/validate_training_config.py --dataset /path/to/your/data
+```
+
+---
+
 2. Follow the naming convention: `<tool_name>.py`
 3. Update this README with usage examples
 4. Include helpful console output with emoji indicators
