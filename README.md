@@ -140,7 +140,16 @@ We also provide finetuned checkpoints for various robot platforms and benchmarks
 
 ## Quick Start
 
-We can quickly start by downloading a pre-trained checkpoint and starting the policy server for any pretrained embodiement, e.g. GR1 embodiment.
+If you want a lightweight CPU-only smoke test first, run the minimal inference example:
+
+```bash
+cd examples/minimal_inference
+uv run python inference_minimal.py
+```
+
+See [examples/minimal_inference/README.md](examples/minimal_inference/README.md) for expected inputs and outputs.
+
+We can also start by downloading a pre-trained checkpoint and starting the policy server for any pretrained embodiment, e.g. GR1 embodiment.
 ```bash
 # On GPU server: Start the policy server
 uv run python gr00t/eval/run_gr00t_server.py --embodiment-tag GR1 --model-path nvidia/GR00T-N1.6-3B
