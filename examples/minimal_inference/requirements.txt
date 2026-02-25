@@ -1,0 +1,10 @@
+# Minimal requirements for GR00T inference example
+# These are the core dependencies (see ../../pyproject.toml for full list)
+
+torch>=2.0.0,<3.0.0
+transformers>=4.36.0
+huggingface-hub>=0.20.0
+
+# Optional but recommended
+tensorboard>=2.14.0  # For visualization
+numpy>=1.24.0
