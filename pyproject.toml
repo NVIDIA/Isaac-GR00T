@@ -24,7 +24,7 @@ dependencies = [
     "torchvision==0.22.1",
     "transformers==4.51.3",
     "tyro==0.9.17",
-    "flash-attn==2.7.4.post1",
+    "flash-attn>=2.8.2",
     "click==8.1.8",
     "datasets==3.6.0",
     "einops==0.8.1",
@@ -54,7 +54,7 @@ where = ["."]
 include = ["gr00t*"]
 
 [tool.uv.extra-build-dependencies]
-flash-attn = ["torch==2.7.0", "numpy==1.26.4"]
+flash-attn = ["torch==2.7.1", "numpy==1.26.4"]
 
 [tool.ruff]
 line-length = 100

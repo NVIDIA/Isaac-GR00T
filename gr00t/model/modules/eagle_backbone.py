@@ -5,6 +5,8 @@ from transformers import AutoConfig, AutoModel
 from transformers.feature_extraction_utils import BatchFeature
 
 
+from gr00t.utils.gpu_utils import require_flash_attn_compatible
+
 class EagleBackbone(torch.nn.Module):
     def __init__(
         self,
@@ -33,6 +35,7 @@ class EagleBackbone(torch.nn.Module):
         # Add attention kwargs
         extra_kwargs = {}
         if use_flash_attention:
+            require_flash_attn_compatible()  # raises RuntimeError on SM120 + old flash-attn
             extra_kwargs["attn_implementation"] = "flash_attention_2"
         if load_bf16:
             extra_kwargs["torch_dtype"] = torch.bfloat16
