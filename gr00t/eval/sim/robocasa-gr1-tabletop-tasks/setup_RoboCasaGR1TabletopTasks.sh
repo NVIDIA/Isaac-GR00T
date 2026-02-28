@@ -38,7 +38,7 @@ fi
 
 # Core sim deps: robosuite first (as per README), then this repo editable
 # README: https://github.com/robocasa/robocasa-gr1-tabletop-tasks
-uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@master"
+uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@v1.5.1"
 
 # The repo’s requirements.txt only contains "-e .", so just install editable.
 uv pip install -e "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" --config-settings editable_mode=compat
@@ -68,9 +68,16 @@ uv pip install --editable "$PROJECT_REPO" --no-deps
 # PY
 
 # Assets (per README)
+SKIP_DOWNLOAD_ASSETS=${SKIP_DOWNLOAD_ASSETS:-0}
+if [[ "$SKIP_DOWNLOAD_ASSETS" == "0" ]]; then
+  echo "asset download enabled (SKIP_DOWNLOAD_ASSETS=0)"
 python "$ROBOCASA_GR1_TABLETOP_TASKS_REPO/robocasa/scripts/download_tabletop_assets.py" -y
+else
+  echo "Skipping tabletop assets download (SKIP_DOWNLOAD_ASSETS=1)"
+fi
 
 # Sanity import
+echo "Running Sanity Test"
 python - <<'PY'
 import os
 os.environ.setdefault("MUJOCO_GL", "egl")
@@ -81,8 +88,3 @@ print("Imports OK:", robosuite.__version__)
 env = gym.make("gr1_unified/PnPCanToDrawerClose_GR1ArmsAndWaistFourierHands_Env", enable_render=True)
 print("Env OK:", type(env))
 PY
-
-
-#pydantic
-#av
-#zmq

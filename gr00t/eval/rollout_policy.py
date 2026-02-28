@@ -244,7 +244,7 @@ def run_rollout_gymnasium_policy(
 
     Args:
         env_name: Name of the gymnasium environment to use
-        policy_fn: Function that creates a policy instance
+        policy: Policy instance
         n_episodes: Number of episodes to run
         n_envs: Number of parallel environments
         wrapper_configs: Configuration for environment wrappers
