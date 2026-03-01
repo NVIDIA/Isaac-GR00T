@@ -251,7 +251,7 @@ Provides reference information and debugging utilities for GR00T robot embodimen
 **Features:**
 - ✅ List all available embodiments (pre-trained and post-training)
 - ✅ Show detailed configuration for specific embodiments
-- ✅ Display state/action dimensions for each embodiment
+- ✅ Display state/action modality-group counts for each embodiment
 - ✅ View modality keys and action configurations
 - ✅ Generate configuration templates for new robots
 - ✅ Validate custom configuration files
@@ -263,7 +263,7 @@ Provides reference information and debugging utilities for GR00T robot embodimen
 # List all available embodiments
 python scripts/embodiment_config_reference.py --list
 
-# Show full summary table with dimensions
+# Show full summary table with modality-group counts
 python scripts/embodiment_config_reference.py --all
 
 # Show detailed configuration for a specific embodiment
@@ -302,16 +302,16 @@ Total: 9 embodiments
 🤖 Embodiment Configuration Summary
 ================================================================================
 
-Embodiment           | State Dims | Action Dims | Videos | Status
----------------------------------------------------------------------------
-unitree_g1           | 7          | 7           | 1      | ✓
-libero_panda         | 7          | 7           | 2      | ✓
-oxe_google           | 8          | 7           | 1      | ✓
-oxe_widowx           | 8          | 7           | 1      | ✓
-oxe_droid            | 2          | 2           | 2      | ✓
-behavior_r1_pro      | 21         | 6           | 3      | ✓
-gr1                  | —          | —           | —      | No Config
-new_embodiment       | —          | —           | —      | No Config
+Embodiment           | State Groups | Action Groups | Videos | Status
+-----------------------------------------------------------------------------
+unitree_g1           | 7            | 7             | 1      | ✓
+libero_panda         | 7            | 7             | 2      | ✓
+oxe_google           | 8            | 7             | 1      | ✓
+oxe_widowx           | 8            | 7             | 1      | ✓
+oxe_droid            | 2            | 2             | 2      | ✓
+behavior_r1_pro      | 21           | 6             | 3      | ✓
+gr1                  | —            | —             | —      | No Config
+new_embodiment       | —            | —             | —      | No Config
 ```
 
 **Show command (Detailed Configuration):**
@@ -325,7 +325,7 @@ Configuration Details:
 📊 STATE MODALITY:
    Keys: left_leg, right_leg, waist, left_arm, right_arm, left_hand, right_hand
    Delta Indices: [0]
-   Dimension: 7 modalities
+   Groups: 7
 
 🎮 ACTION MODALITY:
    Keys: left_arm, right_arm, left_hand, right_hand, waist, 
@@ -335,7 +335,7 @@ Configuration Details:
       [0] rep=RELATIVE, type=NON_EEF
       [1] rep=RELATIVE, type=NON_EEF
       [2-6] rep=ABSOLUTE, type=NON_EEF
-   Dimension: 7 modalities
+   Groups: 7
 
 🎬 VIDEO MODALITY:
    Streams: ego_view
@@ -344,8 +344,8 @@ Configuration Details:
 
 **Key Information:**
 
-- **State Dims**: Number of state modality groups (e.g., left_arm, gripper)
-- **Action Dims**: Number of action modality groups
+- **State Groups**: Number of state modality groups (e.g., left_arm, gripper)
+- **Action Groups**: Number of action modality groups
 - **Videos**: Number of camera streams
 - **Delta Indices**: Which modalities have temporal deltas
 - **Action Configs**: Details about action representations (RELATIVE vs ABSOLUTE)

@@ -4,14 +4,14 @@ GR00T Embodiment Configuration Reference and Debugger
 
 Provides utilities to:
 - List all available embodiments and their configurations
-- Show state/action dimensions for each embodiment
+- Show state/action modality groups for each embodiment
 - Validate embodiment configurations
 - Help debug configuration issues
 - Generate configuration templates for new embodiments
 
 Usage:
     python scripts/embodiment_config_reference.py --list
-    python scripts/embodiment_config_reference.py --show gr1
+    python scripts/embodiment_config_reference.py --show unitree_g1
     python scripts/embodiment_config_reference.py --validate /path/to/config.py
     python scripts/embodiment_config_reference.py --template new_robot
 """
@@ -99,7 +99,7 @@ class EmbodimentConfigReference:
         self._show_modality_details(config)
 
     def show_all_embodiments_summary(self) -> None:
-        """Show summary table of all embodiments with dimensions."""
+        """Show summary table of all embodiments with modality-group counts."""
         print("\n" + "=" * 100)
         print("🤖 Embodiment Configuration Summary")
         print("=" * 100 + "\n")
@@ -112,8 +112,8 @@ class EmbodimentConfigReference:
                 data.append(
                     {
                         "Embodiment": tag,
-                        "State Dims": "—",
-                        "Action Dims": "—",
+                        "State Groups": "—",
+                        "Action Groups": "—",
                         "Videos": "—",
                         "Status": "No Config",
                     }
@@ -140,8 +140,8 @@ class EmbodimentConfigReference:
             data.append(
                 {
                     "Embodiment": tag,
-                    "State Dims": state_dim,
-                    "Action Dims": action_dim,
+                    "State Groups": state_dim,
+                    "Action Groups": action_dim,
                     "Videos": num_videos,
                     "Status": "✓",
                 }
@@ -149,7 +149,7 @@ class EmbodimentConfigReference:
 
         # Print as formatted table
         if data:
-            headers = ["Embodiment", "State Dims", "Action Dims", "Videos", "Status"]
+            headers = ["Embodiment", "State Groups", "Action Groups", "Videos", "Status"]
             
             # Calculate column widths
             col_widths = {}
@@ -181,8 +181,8 @@ class EmbodimentConfigReference:
                 print(f"   Keys: {', '.join(state_config.modality_keys)}")
             if hasattr(state_config, "delta_indices") and state_config.delta_indices:
                 print(f"   Delta Indices: {state_config.delta_indices}")
-            state_dim = len(state_config.modality_keys) if hasattr(state_config, "modality_keys") else 0
-            print(f"   Dimension: {state_dim} modalities")
+            state_groups = len(state_config.modality_keys) if hasattr(state_config, "modality_keys") else 0
+            print(f"   Groups: {state_groups}")
         else:
             print("   No state configuration")
 
@@ -199,8 +199,8 @@ class EmbodimentConfigReference:
                 for i, ac in enumerate(action_config.action_configs):
                     if hasattr(ac, "rep") and hasattr(ac, "type"):
                         print(f"      [{i}] rep={ac.rep.name if hasattr(ac.rep, 'name') else ac.rep}, type={ac.type.name if hasattr(ac.type, 'name') else ac.type}")
-            action_dim = len(action_config.modality_keys) if hasattr(action_config, "modality_keys") else 0
-            print(f"   Dimension: {action_dim} modalities")
+            action_groups = len(action_config.modality_keys) if hasattr(action_config, "modality_keys") else 0
+            print(f"   Groups: {action_groups}")
         else:
             print("   No action configuration")
 
@@ -216,14 +216,6 @@ class EmbodimentConfigReference:
             print("   No video configuration")
 
         print("\n" + "-" * 80 + "\n")
-
-    def _get_total_dim(self, modality: Any) -> str:
-        """Estimate total dimension. Returns '?' if cannot determine."""
-        if isinstance(modality, dict) and "modality_keys" in modality:
-            # Very rough estimate: each key might be 5-10 dims
-            num_keys = len(modality["modality_keys"])
-            return f"~{num_keys * 3}-{num_keys * 10}"
-        return "?"
 
     def _suggest_embodiments(self, tag: str) -> None:
         """Suggest similar embodiment names."""
@@ -369,7 +361,6 @@ def main():
 Examples:
   python scripts/embodiment_config_reference.py --list
   python scripts/embodiment_config_reference.py --all
-  python scripts/embodiment_config_reference.py --show gr1
   python scripts/embodiment_config_reference.py --show unitree_g1
   python scripts/embodiment_config_reference.py --template my_robot
   python scripts/embodiment_config_reference.py --validate config.py
@@ -384,7 +375,7 @@ Examples:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Show summary of all embodiments with dimensions",
+        help="Show summary of all embodiments with modality-group counts",
     )
     parser.add_argument(
         "--show",
