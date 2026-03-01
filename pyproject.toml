@@ -14,6 +14,7 @@ dependencies = [
     "av==15.0.0",
     "diffusers==0.35.1",
     "dm-tree==0.1.8",
+    "jsonlines==4.0.0",
     "lmdb==1.7.5",
     "msgpack==1.1.0",
     "msgpack-numpy==0.4.8",

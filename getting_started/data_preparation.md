@@ -12,6 +12,27 @@ If you already have a dataset in the LeRobot v2 format, you can skip this sectio
 
 If you have a dataset in the LeRobot v3.0 format, please use [this script](../scripts/lerobot_conversion/convert_v3_to_v2.py) to convert it to the LeRobot v2 format.
 
+### How to Recognize a LeRobot v3 Dataset
+
+Many Hugging Face LeRobot datasets now use the v3 layout. GR00T training and evaluation expect the v2.1-style layout documented below.
+
+Typical v3 indicators:
+- `meta/episodes/` contains parquet files instead of a single `meta/episodes.jsonl`
+- data is stored as consolidated files such as `data/chunk-000/file-000.parquet`
+- video metadata includes fields such as `videos/<key>/chunk_index` and `videos/<key>/file_index`
+
+Typical failure modes when a v3 dataset is used directly with GR00T:
+- `FileNotFoundError: .../meta/episodes.jsonl`
+- `KeyError: 'chunk_index'`
+
+If you see either error, convert the dataset to v2.1 first:
+
+```bash
+uv run python scripts/lerobot_conversion/convert_v3_to_v2.py \
+  --repo-id <huggingface-user-or-org>/<dataset-name> \
+  --root /path/to/output_dataset
+```
+
 If you have a dataset in another format, please convert it to the LeRobot v2 format satisfying the following requirements.
 
 ### Structure Requirements

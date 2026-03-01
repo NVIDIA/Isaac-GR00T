@@ -6,6 +6,40 @@ This guide demonstrates how to finetune GR00T on your own robot data and configu
 
 Prepare your data in **GR00T-flavored LeRobot v2 format** by following the [data preparation guide](data_preparation.md). 
 
+### Important: Convert LeRobot v3 Datasets Before Training
+
+GR00T's custom-embodiment training flow expects the LeRobot v2.1-style metadata files:
+- `meta/episodes.jsonl`
+- `meta/tasks.jsonl`
+- per-episode parquet files under `data/chunk-*/episode_*.parquet`
+
+Many datasets hosted on Hugging Face use the newer LeRobot v3 layout instead. If you try to train on those datasets directly, common errors are:
+- `FileNotFoundError: .../meta/episodes.jsonl`
+- `KeyError: 'chunk_index'`
+
+Convert those datasets first:
+
+```bash
+uv run python scripts/lerobot_conversion/convert_v3_to_v2.py \
+    --repo-id <huggingface-user-or-org>/<dataset-name> \
+    --root /path/to/local_dataset
+```
+
+For example, if you are starting from a hosted LeRobot dataset:
+
+```bash
+uv run python scripts/lerobot_conversion/convert_v3_to_v2.py \
+    --repo-id izuluaga/finish_sandwich \
+    --root examples/SO100/finish_sandwich_lerobot
+```
+
+Then add your `meta/modality.json` file and validate the converted dataset before launching training:
+
+```bash
+cp examples/SO100/modality.json examples/SO100/finish_sandwich_lerobot/meta/modality.json
+uv run python scripts/validate_dataset.py examples/SO100/finish_sandwich_lerobot
+```
+
 ## Step 2: Prepare Your Modality Configuration
 
 Define your own modality configuration by following the [modality config guide](data_config.md). Below is an example configuration that corresponds to the demo data:
@@ -68,6 +102,8 @@ register_modality_config(so100_config, embodiment_tag=EmbodimentTag.NEW_EMBODIME
 
 We'll use `gr00t/experiment/launch_finetune.py` as the entry point. Ensure that the uv environment is enabled before launching. You can do this by running the command `uv run bash <example_script_name>`.
 
+Before launching training, make sure `scripts/validate_dataset.py` passes on your dataset. This catches missing `episodes.jsonl`, malformed `tasks.jsonl`, and folder-layout mismatches early.
+
 ### View Available Arguments
 ```bash
 # Display all available arguments
@@ -127,3 +163,13 @@ python gr00t/eval/open_loop_eval.py \
 The evaluation generates visualizations comparing predicted actions against ground truth trajectories:
 
 <img src="../media/open_loop_eval_so100.jpeg" width="800" alt="Open loop evaluation results showing predicted vs ground truth trajectories" />
+
+## Troubleshooting
+
+### `FileNotFoundError: .../meta/episodes.jsonl`
+
+Your dataset is not in the LeRobot v2.1 layout expected by GR00T. Convert it with `scripts/lerobot_conversion/convert_v3_to_v2.py`, then re-run `scripts/validate_dataset.py`.
+
+### `KeyError: 'chunk_index'`
+
+This usually means the dataset still uses the LeRobot v3 metadata/file layout. Convert it to v2.1 before running `launch_finetune.py` or `open_loop_eval.py`.
