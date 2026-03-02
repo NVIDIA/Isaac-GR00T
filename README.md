@@ -82,11 +82,19 @@ The focus is on enabling customization of robot behaviors through finetuning.
 
 ### Clone the Repository
 
+Install [git lfs](https://git-lfs.com/):
+
+```bash
+sudo apt install git-lfs
+git lfs install
+```
+
 GR00T relies on submodules for certain dependencies. Include them when cloning:
 
 ```sh
 git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T
 cd Isaac-GR00T
+git lfs pull
 ```
 
 If you've already cloned without submodules, initialize them separately:
