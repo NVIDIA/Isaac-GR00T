@@ -38,7 +38,7 @@ fi
 
 # Core sim deps: robosuite first (as per README), then this repo editable
 # README: https://github.com/robocasa/robocasa-gr1-tabletop-tasks
-uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@master"
+uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@v1.5.1"
 
 # The repo’s requirements.txt only contains "-e .", so just install editable.
 uv pip install -e "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" --config-settings editable_mode=compat
