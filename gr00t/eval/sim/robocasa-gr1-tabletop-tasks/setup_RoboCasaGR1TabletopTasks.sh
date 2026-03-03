@@ -6,6 +6,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_REPO="$SCRIPT_DIR/../../../.."
 ROBOCASA_GR1_TABLETOP_TASKS_REPO="$PROJECT_REPO/external_dependencies/robocasa-gr1-tabletop-tasks"
 UV_ENV="$SCRIPT_DIR/robocasa_uv"
+ROBOSUITE_REF="${ROBOSUITE_REF:-v1.5.1}"
 
 # Optional: if you want to avoid hardlink warnings with uv cache
 # export UV_LINK_MODE=copy
@@ -36,9 +37,11 @@ else
   echo "Skipping flash-attn (non-Linux or INSTALL_FLASH_ATTN=0)"
 fi
 
-# Core sim deps: robosuite first (as per README), then this repo editable
-# README: https://github.com/robocasa/robocasa-gr1-tabletop-tasks
-uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@master"
+# Core sim deps: robosuite first, then this repo editable.
+# Avoid tracking robosuite@master because upstream changes can break this setup.
+# The default is pinned to the stable v1.5.1 release, but can be overridden with:
+#   ROBOSUITE_REF=<git-tag-or-commit> bash setup_RoboCasaGR1TabletopTasks.sh
+uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@${ROBOSUITE_REF}"
 
 # The repo’s requirements.txt only contains "-e .", so just install editable.
 uv pip install -e "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" --config-settings editable_mode=compat

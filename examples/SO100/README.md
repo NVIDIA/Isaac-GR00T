@@ -20,7 +20,8 @@ uv run python scripts/lerobot_conversion/convert_v3_to_v2.py --repo-id izuluaga/
 
 Then move the `modality.json` file to the root of the dataset.
 ```bash
-cp modality.json examples/SO100/finish_sandwich_lerobot/meta/modality.json
+cp examples/SO100/modality.json examples/SO100/finish_sandwich_lerobot/meta/modality.json
+uv run python scripts/validate_dataset.py examples/SO100/finish_sandwich_lerobot
 ```
 
 ## Finetuning
