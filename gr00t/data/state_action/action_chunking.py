@@ -145,7 +145,9 @@ class ActionChunk(Generic[PoseType]):
         raise NotImplementedError("Subclasses must implement to_absolute_chunking")
 
     def interpolate(
-        self, num_points: Optional[int] = None, times: Optional[NDArray[np.float64]] = None
+        self,
+        num_points: Optional[int] = None,
+        times: Optional[NDArray[np.float64]] = None,
     ) -> "ActionChunk":
         """
         Interpolate the action chunking to generate intermediate poses.
@@ -248,7 +250,9 @@ class JointActionChunk(ActionChunk[JointPose]):
         super().__init__(poses, times)
 
     def interpolate(
-        self, num_points: Optional[int] = None, times: Optional[NDArray[np.float64]] = None
+        self,
+        num_points: Optional[int] = None,
+        times: Optional[NDArray[np.float64]] = None,
     ) -> "JointActionChunk":
         """
         Interpolate the joint action chunking to generate intermediate configurations.
@@ -473,7 +477,9 @@ class EndEffectorActionChunk(ActionChunk[EndEffectorPose]):
         return cls(poses)
 
     def interpolate(
-        self, num_points: Optional[int] = None, times: Optional[NDArray[np.float64]] = None
+        self,
+        num_points: Optional[int] = None,
+        times: Optional[NDArray[np.float64]] = None,
     ) -> "EndEffectorActionChunk":
         """
         Interpolate the action chunking to generate intermediate poses.

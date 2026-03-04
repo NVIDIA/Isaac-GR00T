@@ -20,7 +20,10 @@ class GoogleFractalEnv(gym.Env):
         self.observation_space = gym.spaces.Dict(
             {
                 "video.image": gym.spaces.Box(
-                    low=0, high=255, shape=(image_size[0], image_size[1], 3), dtype=np.uint8
+                    low=0,
+                    high=255,
+                    shape=(image_size[0], image_size[1], 3),
+                    dtype=np.uint8,
                 ),
                 "state.x": gym.spaces.Box(low=obs_low[0], high=obs_high[0], shape=(1,)),
                 "state.y": gym.spaces.Box(low=obs_low[1], high=obs_high[1], shape=(1,)),
@@ -127,7 +130,10 @@ class WidowXBridgeEnv(gym.Env):
         self.observation_space = gym.spaces.Dict(
             {
                 "video.image_0": gym.spaces.Box(
-                    low=0, high=255, shape=(image_size[0], image_size[1], 3), dtype=np.uint8
+                    low=0,
+                    high=255,
+                    shape=(image_size[0], image_size[1], 3),
+                    dtype=np.uint8,
                 ),
                 "state.x": gym.spaces.Box(low=obs_low[0], high=obs_high[0], shape=(1,)),
                 "state.y": gym.spaces.Box(low=obs_low[1], high=obs_high[1], shape=(1,)),

@@ -15,7 +15,10 @@ class CheckpointFormatCallback(TrainerCallback):
     """
 
     def __init__(
-        self, run_name: str, exp_cfg_dir: Path | None = None, processor_dir: Path | None = None
+        self,
+        run_name: str,
+        exp_cfg_dir: Path | None = None,
+        processor_dir: Path | None = None,
     ):
         """
         Args:
@@ -57,7 +60,10 @@ class BestMetricCheckpointCallback(TrainerCallback):
     """This callback saves the best checkpoint based on the metric."""
 
     def __init__(
-        self, metric_name: str, greater_is_better: bool = True, exp_cfg_dir: Path | None = None
+        self,
+        metric_name: str,
+        greater_is_better: bool = True,
+        exp_cfg_dir: Path | None = None,
     ):
         self.metric_name = metric_name
         self.greater_is_better = greater_is_better

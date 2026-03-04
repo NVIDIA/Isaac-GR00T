@@ -564,7 +564,10 @@ class EndEffectorPose(Pose):
         return H
 
     def to_rotation(
-        self, rotation_type: str, rotation_order: Optional[str] = None, degrees: bool = True
+        self,
+        rotation_type: str,
+        rotation_order: Optional[str] = None,
+        degrees: bool = True,
     ) -> np.ndarray:
         """
         Get rotation in specified representation.

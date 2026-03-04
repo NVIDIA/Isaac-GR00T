@@ -90,7 +90,12 @@ def plot_trajectory_results(
         # put a dot every ACTION_HORIZON
         for j in range(0, actual_steps, action_horizon):
             if j == 0:
-                ax.plot(j, gt_action_across_time[j, action_idx], "ro", label="inference point")
+                ax.plot(
+                    j,
+                    gt_action_across_time[j, action_idx],
+                    "ro",
+                    label="inference point",
+                )
             else:
                 ax.plot(j, gt_action_across_time[j, action_idx], "ro")
 

@@ -44,7 +44,7 @@ class StateActionProcessor:
     def __init__(
         self,
         modality_configs: dict[str, dict[str, ModalityConfig]],
-        statistics: dict[str, dict[str, dict[str, dict[str, list[float]]]]] | None = None,
+        statistics: (dict[str, dict[str, dict[str, dict[str, list[float]]]]] | None) = None,
         use_percentiles: bool = False,
         clip_outliers: bool = True,
         apply_sincos_state_encoding: bool = False,
@@ -210,7 +210,10 @@ class StateActionProcessor:
 
             # Strategy 2: Mean/std normalization
             elif (
-                hasattr(self.modality_configs[embodiment_tag]["state"], "mean_std_embedding_keys")
+                hasattr(
+                    self.modality_configs[embodiment_tag]["state"],
+                    "mean_std_embedding_keys",
+                )
                 and self.modality_configs[embodiment_tag]["state"].mean_std_embedding_keys
                 and joint_group
                 in self.modality_configs[embodiment_tag]["state"].mean_std_embedding_keys
@@ -273,7 +276,10 @@ class StateActionProcessor:
 
             # Reverse mean/std normalization
             elif (
-                hasattr(self.modality_configs[embodiment_tag]["state"], "mean_std_embedding_keys")
+                hasattr(
+                    self.modality_configs[embodiment_tag]["state"],
+                    "mean_std_embedding_keys",
+                )
                 and self.modality_configs[embodiment_tag]["state"].mean_std_embedding_keys
                 and joint_group
                 in self.modality_configs[embodiment_tag]["state"].mean_std_embedding_keys

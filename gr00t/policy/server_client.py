@@ -34,7 +34,10 @@ class MsgSerializer:
     @staticmethod
     def encode_custom_classes(obj):
         if isinstance(obj, ModalityConfig):
-            return {"__ModalityConfig_class__": True, "as_json": to_json_serializable(obj)}
+            return {
+                "__ModalityConfig_class__": True,
+                "as_json": to_json_serializable(obj),
+            }
         if isinstance(obj, np.ndarray):
             output = io.BytesIO()
             np.save(output, obj, allow_pickle=False)
@@ -55,7 +58,11 @@ class PolicyServer:
     """
 
     def __init__(
-        self, policy: BasePolicy, host: str = "*", port: int = 5555, api_token: str = None
+        self,
+        policy: BasePolicy,
+        host: str = "*",
+        port: int = 5555,
+        api_token: str = None,
     ):
         self.policy = policy
         self.running = True

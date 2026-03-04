@@ -233,7 +233,11 @@ class ShardedSingleStepDataset(ShardedDataset):
         """
         assert self.processor is not None, "Processor must be set before getting datapoints"
         vla_step_data = extract_step_data(
-            episode_data, step_index, self.modality_configs, self.embodiment_tag, self.allow_padding
+            episode_data,
+            step_index,
+            self.modality_configs,
+            self.embodiment_tag,
+            self.allow_padding,
         )
         # Apply processor to convert to model inputs
         messages = [{"type": MessageType.EPISODE_STEP.value, "content": vla_step_data}]

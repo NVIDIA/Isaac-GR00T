@@ -199,7 +199,13 @@ if __name__ == "__main__":
     benchmark_dict = benchmark.get_benchmark_dict()
     task_suite_name = "libero_10"  # can also choose libero_spatial, libero_object, etc.
     task_suite = benchmark_dict[task_suite_name]()
-    for key in ["libero_10", "libero_spatial", "libero_object", "libero_goal", "libero_90"]:
+    for key in [
+        "libero_10",
+        "libero_spatial",
+        "libero_object",
+        "libero_goal",
+        "libero_90",
+    ]:
         for task_name in benchmark_dict[key]().get_task_names():
             print(f"- {key}/{task_name}")
 
@@ -217,7 +223,11 @@ if __name__ == "__main__":
     )
 
     # step over the environment
-    env_args = {"bddl_file_name": task_bddl_file, "camera_heights": 128, "camera_widths": 128}
+    env_args = {
+        "bddl_file_name": task_bddl_file,
+        "camera_heights": 128,
+        "camera_widths": 128,
+    }
     env = OffScreenRenderEnv(**env_args)
     env.seed(0)
     env.reset()

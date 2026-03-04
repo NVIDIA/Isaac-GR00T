@@ -272,7 +272,10 @@ def run(config: Config):
         profile_dir.mkdir(parents=True, exist_ok=True)
 
         with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+            activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA,
+            ],
             schedule=torch.profiler.schedule(skip_first=10, wait=1, warmup=1, active=3, repeat=1),
             # profile_memory=True,
             with_stack=True,

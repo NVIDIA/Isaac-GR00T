@@ -12,55 +12,64 @@ logger = logging.get_logger(__name__)
 
 
 class Eagle3_VLConfig(PretrainedConfig):
-    model_type = 'eagle_3_vl'
+    model_type = "eagle_3_vl"
     is_composition = True
     sub_configs = {"vision_config": SiglipVisionConfig, "text_config": Qwen2Config}
+
     def __init__(
-            self,
-            vision_config=None,
-            text_config=None,
-            use_backbone_lora=0,
-            use_llm_lora=0,
-            pad2square=False,
-            select_layer=-4,
-            downsample_ratio=0.5,
-            template=None,
-            loss_version='v1',
-            mlp_checkpoint=False,
-            image_token_index=151667,
-            **kwargs):
+        self,
+        vision_config=None,
+        text_config=None,
+        use_backbone_lora=0,
+        use_llm_lora=0,
+        pad2square=False,
+        select_layer=-4,
+        downsample_ratio=0.5,
+        template=None,
+        loss_version="v1",
+        mlp_checkpoint=False,
+        image_token_index=151667,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
 
         if vision_config is None:
-            vision_config = {'model_type': 'siglip_vision_model'}
-            logger.info('vision_config is None. Initializing the InternVisionConfig with default values.')
+            vision_config = {"model_type": "siglip_vision_model"}
+            logger.info(
+                "vision_config is None. Initializing the InternVisionConfig with default values."
+            )
 
         if text_config is None:
-            text_config = {'architectures': ['Qwen2ForCausalLM']}
-            logger.info('text_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`).')
+            text_config = {"architectures": ["Qwen2ForCausalLM"]}
+            logger.info(
+                "text_config is None. Initializing the LlamaConfig config with default values (`LlamaConfig`)."
+            )
 
-        if vision_config['model_type'] == 'siglip_vision_model':
+        if vision_config["model_type"] == "siglip_vision_model":
             self.vision_config = SiglipVisionConfig(**vision_config)
-        elif vision_config['model_type'] == 'siglip2_vision_model':
+        elif vision_config["model_type"] == "siglip2_vision_model":
             self.vision_config = Siglip2VisionConfig(**vision_config)
-        elif vision_config['model_type'] == 'intern_vit_6b':
+        elif vision_config["model_type"] == "intern_vit_6b":
             self.vision_config = InternVisionConfig(**vision_config)
-        elif vision_config['model_type'] == 'radio':
+        elif vision_config["model_type"] == "radio":
             self.vision_config = RADIOConfig(**vision_config)
         else:
-            raise ValueError('Unsupported model_type: {}'.format(vision_config['model_type']))
+            raise ValueError(
+                "Unsupported model_type: {}".format(vision_config["model_type"])
+            )
 
-
-        if text_config['architectures'][0] == 'LlamaForCausalLM':
+        if text_config["architectures"][0] == "LlamaForCausalLM":
             self.text_config = LlamaConfig(**text_config)
-        elif text_config['architectures'][0] == 'Phi3ForCausalLM':
+        elif text_config["architectures"][0] == "Phi3ForCausalLM":
             self.text_config = Phi3Config(**text_config)
-        elif text_config['architectures'][0] == 'Qwen2ForCausalLM':
+        elif text_config["architectures"][0] == "Qwen2ForCausalLM":
             self.text_config = Qwen2Config(**text_config)
-        elif text_config['architectures'][0] == 'Qwen3ForCausalLM':
+        elif text_config["architectures"][0] == "Qwen3ForCausalLM":
             self.text_config = Qwen3Config(**text_config)
         else:
-            raise ValueError('Unsupported architecture: {}'.format(text_config['architectures'][0]))
+            raise ValueError(
+                "Unsupported architecture: {}".format(text_config["architectures"][0])
+            )
         self.use_backbone_lora = use_backbone_lora
         self.use_llm_lora = use_llm_lora
         self.mlp_checkpoint = mlp_checkpoint
@@ -80,15 +89,15 @@ class Eagle3_VLConfig(PretrainedConfig):
             `Dict[str, any]`: Dictionary of all the attributes that make up this configuration instance,
         """
         output = copy.deepcopy(self.__dict__)
-        output['vision_config'] = self.vision_config.to_dict()
-        output['text_config'] = self.text_config.to_dict()
-        output['model_type'] = self.__class__.model_type
-        output['use_backbone_lora'] = self.use_backbone_lora
-        output['use_llm_lora'] = self.use_llm_lora
-        output['select_layer'] = self.select_layer
-        output['downsample_ratio'] = self.downsample_ratio
-        output['template'] = self.template
-        output['image_token_index'] = self.image_token_index
-        output['_attn_implementation'] = self._attn_implementation
-        output['_attn_implementation_autoset'] = self._attn_implementation_autoset
+        output["vision_config"] = self.vision_config.to_dict()
+        output["text_config"] = self.text_config.to_dict()
+        output["model_type"] = self.__class__.model_type
+        output["use_backbone_lora"] = self.use_backbone_lora
+        output["use_llm_lora"] = self.use_llm_lora
+        output["select_layer"] = self.select_layer
+        output["downsample_ratio"] = self.downsample_ratio
+        output["template"] = self.template
+        output["image_token_index"] = self.image_token_index
+        output["_attn_implementation"] = self._attn_implementation
+        output["_attn_implementation_autoset"] = self._attn_implementation_autoset
         return output

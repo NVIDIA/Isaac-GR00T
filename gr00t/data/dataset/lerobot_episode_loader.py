@@ -325,7 +325,9 @@ class LeRobotEpisodeLoader:
             if modality_type not in self.modality_configs:
                 continue
             joint_groups_df = self._extract_joint_groups(
-                original_df, self.modality_configs[modality_type].modality_keys, modality_type
+                original_df,
+                self.modality_configs[modality_type].modality_keys,
+                modality_type,
             )
             for joint_group in joint_groups_df.columns:
                 loaded_df[f"{modality_type}.{joint_group}"] = joint_groups_df[joint_group]
@@ -365,7 +367,9 @@ class LeRobotEpisodeLoader:
 
             # Construct video file path using pattern
             video_filename = self.video_path_pattern.format(
-                episode_chunk=chunk_idx, video_key=original_key, episode_index=episode_index
+                episode_chunk=chunk_idx,
+                video_key=original_key,
+                episode_index=episode_index,
             )
             video_path = self.dataset_path / video_filename
 
@@ -428,7 +432,11 @@ class LeRobotEpisodeLoader:
             new_languages = [[] for _ in range(nframes)]
             sub_tasks = episode_meta["sub_tasks"]
             for sub_task in sub_tasks:
-                start_idx, end_idx, sub_text = sub_task["start"], sub_task["end"], sub_task["text"]
+                start_idx, end_idx, sub_text = (
+                    sub_task["start"],
+                    sub_task["end"],
+                    sub_task["text"],
+                )
                 horizon = action_horizon // 2
                 for i in range(start_idx - horizon, end_idx):
                     if i < 0:

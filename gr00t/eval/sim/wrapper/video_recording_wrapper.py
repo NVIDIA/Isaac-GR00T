@@ -410,7 +410,13 @@ class VideoRecordingWrapper(gym.Wrapper):
 
                 # Add text
                 cv2.putText(
-                    frame, language, (text_x, text_y), font, font_scale, font_color, font_thickness
+                    frame,
+                    language,
+                    (text_x, text_y),
+                    font,
+                    font_scale,
+                    font_color,
+                    font_thickness,
                 )
 
             self.video_recorder.write_frame(frame)
