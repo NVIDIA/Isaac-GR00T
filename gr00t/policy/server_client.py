@@ -149,8 +149,8 @@ class PolicyServer:
                 self.socket.send(MsgSerializer.to_bytes({"error": str(e)}))
 
     @staticmethod
-    def start_server(policy: BasePolicy, port: int, api_token: str = None):
-        server = PolicyServer(policy, port=port, api_token=api_token)
+    def start_server(policy: BasePolicy, port: int, host: str = "*", api_token: str = None):
+        server = PolicyServer(policy, host=host, port=port, api_token=api_token)
         server.run()
 
 
