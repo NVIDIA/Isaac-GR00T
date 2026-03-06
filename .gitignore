@@ -1,3 +1,6 @@
+# Test debug artifacts
+/debug_video_decoding/
+
 # Finetune datasets
 /examples/GR00T-WholeBodyControl/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/
 /examples/LIBERO/libero_10_no_noops_1.0.0_lerobot/
