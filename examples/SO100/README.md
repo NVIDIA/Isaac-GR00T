@@ -14,13 +14,15 @@ Visualize it with this [link](https://huggingface.co/spaces/lerobot/visualize_da
 ## Handling the dataset
 
 ```bash
-uv run python scripts/lerobot_conversion/convert_v3_to_v2.py --repo-id izuluaga/finish_sandwich \
+uv run --project scripts/lerobot_conversion \
+  python scripts/lerobot_conversion/convert_v3_to_v2.py \
+  --repo-id izuluaga/finish_sandwich \
   --root examples/SO100/finish_sandwich_lerobot
 ```
 
 Then move the `modality.json` file to the root of the dataset.
 ```bash
-cp modality.json examples/SO100/finish_sandwich_lerobot/meta/modality.json
+cp examples/SO100/modality.json examples/SO100/finish_sandwich_lerobot/izuluaga/finish_sandwich/meta/modality.json
 ```
 
 ## Finetuning
@@ -35,7 +37,7 @@ uv run bash examples/SO100/finetune_so100.sh
 Evaluate the finetuned model with the following command:
 ```bash
 uv run python gr00t/eval/open_loop_eval.py \
-  --dataset-path examples/SO100/finish_sandwich_lerobot \
+  --dataset-path examples/SO100/finish_sandwich_lerobot/izuluaga/finish_sandwich/ \
   --embodiment-tag NEW_EMBODIMENT \
   --model-path /tmp/so100_finetune/checkpoint-10000 \
   --traj-ids 0 \

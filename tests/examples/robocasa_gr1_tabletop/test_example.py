@@ -7,6 +7,7 @@ import subprocess
 import time
 
 import pytest
+from tests.examples.utils import build_shared_runtime_env, run_subprocess_step
 
 
 LOGGER = logging.getLogger(__name__)
@@ -23,7 +24,6 @@ ROBOCASA_ASSETS_REPO_DIR = (
 )
 
 SHARED_DRIVE_ROOT = pathlib.Path("/shared")
-SHARED_UV_CACHE_DIR = SHARED_DRIVE_ROOT / "uv-cache/robocasa-gr1-tabletop"
 ROBOCASA_ASSETS_SHARED_DIR = SHARED_DRIVE_ROOT / "robocasa-gr1-tabletop-tasks/assets"
 
 REQUIRED_ASSET_DIRS = (
@@ -112,40 +112,18 @@ def _remove_dangling_repo_asset_symlinks() -> None:
             repo_dir.unlink()
 
 
-def _resolve_uv_cache_dir() -> pathlib.Path | None:
-    """Return a writable shared uv cache path, or None if unavailable."""
-    try:
-        SHARED_UV_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        return SHARED_UV_CACHE_DIR
-    except OSError:
-        print(
-            f"[cache] warning: shared uv cache unavailable at {SHARED_UV_CACHE_DIR}; "
-            "falling back to uv default cache dir"
-        )
-        return None
-
-
 def _build_runtime_env(
     skip_download_assets: str,
-    uv_cache_dir: pathlib.Path | None,
 ) -> dict[str, str]:
     """Build the runtime environment used by setup, model server, and rollout."""
-    env = {
-        **os.environ,
-        "SKIP_DOWNLOAD_ASSETS": skip_download_assets,
-        # not needed in simulation since it doesn't run models.
-        "INSTALL_FLASH_ATTN": "0",
-    }
-    if uv_cache_dir is not None:
-        env["UV_CACHE_DIR"] = str(uv_cache_dir)
-
-    # Prefer the currently active venv when present.
-    if os.environ.get("UV_PROJECT_ENVIRONMENT"):
-        env["UV_PROJECT_ENVIRONMENT"] = os.environ["UV_PROJECT_ENVIRONMENT"]
-    elif os.environ.get("VIRTUAL_ENV"):
-        env["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
-
-    return env
+    return build_shared_runtime_env(
+        "robocasa-gr1-tabletop",
+        extra_env={
+            "SKIP_DOWNLOAD_ASSETS": skip_download_assets,
+            # not needed in simulation since it doesn't run models.
+            "INSTALL_FLASH_ATTN": "0",
+        },
+    )
 
 
 def _wait_for_server_ready(
@@ -202,17 +180,18 @@ def test_robocasa_gr1_tabletop_readme_eval_flow():
         _remove_dangling_repo_asset_symlinks()
 
     skip_download_assets = "1" if shared_assets_ready else "0"
-    uv_cache_dir = _resolve_uv_cache_dir()
     runtime_env = _build_runtime_env(
         skip_download_assets=skip_download_assets,
-        uv_cache_dir=uv_cache_dir,
     )
     LOGGER.info("Running setup script")
-    subprocess.run(
+    run_subprocess_step(
         ["bash", str(SETUP_SCRIPT)],
+        step="setup_robocasa",
         cwd=ROOT,
-        check=True,
         env=runtime_env,
+        log_prefix="robocasa",
+        failure_prefix="RoboCasa setup step failed",
+        output_tail_chars=4000,
     )
 
     # When setup performs a fresh download, move those assets into shared PVC
@@ -229,6 +208,7 @@ def test_robocasa_gr1_tabletop_readme_eval_flow():
     model_server_cmd = [
         "uv",
         "run",
+        "--extra=dev",
         "--extra=gpu",
         "python",
         str(MODEL_SERVER_SCRIPT),
@@ -285,13 +265,14 @@ def test_robocasa_gr1_tabletop_readme_eval_flow():
 
     try:
         LOGGER.info("Starting simulation process")
-        simulation_result = subprocess.run(
+        simulation_result, _ = run_subprocess_step(
             simulation_cmd,
+            step="simulation_rollout",
             cwd=ROOT,
-            check=False,
             env=runtime_env,
-            capture_output=True,
-            text=True,
+            log_prefix="robocasa",
+            failure_prefix="Simulation rollout command failed",
+            output_tail_chars=4000,
         )
         simulation_output = (simulation_result.stdout or "") + (simulation_result.stderr or "")
         assert simulation_result.returncode == 0, (
