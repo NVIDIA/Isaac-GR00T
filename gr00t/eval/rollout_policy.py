@@ -425,9 +425,6 @@ def run_gr00t_sim_policy(
         )
     else:
         video_dir = f"/tmp/sim_eval_videos_{env_name}_ac{n_action_steps}_{uuid.uuid4()}"
-    if env_name.startswith("sim_behavior_r1_pro"):
-        # BEHAVIOR sim will crash if decord is imported in video_utils.py
-        video_dir = None
     wrapper_configs = WrapperConfigs(
         video=VideoConfig(
             video_dir=video_dir,

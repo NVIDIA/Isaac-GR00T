@@ -233,6 +233,24 @@ class LeRobotEpisodeLoader:
                     "Only single timestep is supported for language modality"
                 )
 
+        # Validate video modality_keys against modality.json.
+        # Each key in modality_configs["video"].modality_keys must exist in
+        # modality.json["video"], otherwise _load_video_data will fail with
+        # a confusing KeyError when trying to resolve the original video key.
+        if "video" in modality_configs and "video" in self.modality_meta:
+            config_keys = set(modality_configs["video"].modality_keys)
+            meta_keys = set(self.modality_meta["video"].keys())
+            missing_keys = config_keys - meta_keys
+            if missing_keys:
+                raise ValueError(
+                    f"Video modality_keys {sorted(missing_keys)} in modality_config "
+                    f"not found in modality.json. "
+                    f"modality_config expects: {sorted(config_keys)}, "
+                    f"modality.json defines: {sorted(meta_keys)}. "
+                    f"Please ensure modality.json and your modality_config use the "
+                    f"same video key names."
+                )
+
         return modality_configs
 
     def __len__(self) -> int:
