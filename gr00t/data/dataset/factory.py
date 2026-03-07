@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -9,6 +11,16 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.interfaces import BaseProcessor
 from gr00t.data.stats import generate_rel_stats, generate_stats
 from gr00t.experiment.dist_utils import barrier
+
+
+def _get_local_rank() -> int:
+    """
+    Get local rank for multi-GPU training.
+
+    Returns the LOCAL_RANK from environment variable, or 0 if not set.
+    This is used to assign each process to its corresponding GPU for video decoding.
+    """
+    return int(os.environ.get("LOCAL_RANK", 0))
 
 
 class DatasetFactory:
@@ -29,6 +41,11 @@ class DatasetFactory:
 
         all_datasets = []
         all_weights = []
+
+        # Build video_backend_kwargs with correct GPU assignment for multi-GPU training
+        # Each process uses its local rank as gpu_id for nvc (NVIDIA GPU decoder)
+        video_backend_kwargs = {"gpu_id": _get_local_rank()}
+
         for dataset_spec in tqdm(
             self.config.data.datasets,
             total=len(self.config.data.datasets),
@@ -52,6 +69,7 @@ class DatasetFactory:
                     embodiment_tag=EmbodimentTag(embodiment_tag),
                     modality_configs=self.config.data.modality_configs[embodiment_tag],
                     video_backend=self.config.data.video_backend,
+                    video_backend_kwargs=video_backend_kwargs,
                     shard_size=self.config.data.shard_size,
                     episode_sampling_rate=self.config.data.episode_sampling_rate,
                     seed=self.config.data.seed,

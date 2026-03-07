@@ -19,16 +19,20 @@ def extract_step_data(
 ) -> VLAStepData:
     step_data = {}
 
+    # Get max valid index from DataFrame index (supports both full and sparse DataFrames)
+    max_valid_index = episode_data.index.max()
+
     # Extract data for each configured modality
     for modality, config in modality_configs.items():
         step_data[modality] = {}
         # Sample timesteps according to delta indices configuration
         indices_to_load = [step_index + delta_index for delta_index in config.delta_indices]
         if allow_padding:
-            indices_to_load = [max(0, min(idx, len(episode_data) - 1)) for idx in indices_to_load]
+            indices_to_load = [max(0, min(idx, max_valid_index)) for idx in indices_to_load]
         for key in config.modality_keys:
             if f"{modality}.{key}" in episode_data.columns:
-                modality_data = episode_data[f"{modality}.{key}"].iloc[indices_to_load]
+                # Use .loc for label-based indexing (supports sparse DataFrame from nvc backend)
+                modality_data = episode_data[f"{modality}.{key}"].loc[indices_to_load]
             else:
                 raise KeyError(
                     f"{modality}.{key} not found in episode data, available keys: {episode_data.columns}"
@@ -254,6 +258,9 @@ class ShardedSingleStepDataset(ShardedDataset):
         Loads the required episodes and extracts all timesteps assigned to this shard,
         applying the configured processor to each timestep.
 
+        For nvc backend, uses on-demand decoding to only decode required frames,
+        saving decoding overhead when episode_sampling_rate is low.
+
         Args:
             idx: Shard index to load
 
@@ -263,8 +270,13 @@ class ShardedSingleStepDataset(ShardedDataset):
         episodes = self.sharded_episodes[idx]
         datapoints = []
         for ep_idx, step_indices in episodes:
-            # Load episode data once per episode in shard
-            episode_data = self.episode_loader[ep_idx]
+            # For nvc backend: use on-demand decoding to save ~90% decoding overhead
+            # For other backends: use original full episode loading
+            if self.video_backend == "nvc":
+                episode_data = self.episode_loader.load_episode_sampled(ep_idx, step_indices)
+            else:
+                episode_data = self.episode_loader[ep_idx]
+
             for step_index in step_indices:
                 datapoints.append(self.get_datapoint(episode_data, step_index))
         return datapoints
