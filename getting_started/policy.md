@@ -25,6 +25,51 @@ policy = Gr00tPolicy(
 - `device`: Device to run inference on (`"cuda:0"`, `"cpu"`, or integer device index)
 - `strict`: Whether to validate inputs/outputs (recommended during development, can disable in production)
 
+## Inference Parameter Guide
+
+When running inference scripts (e.g., `standalone_inference_script.py`, `open_loop_eval.py`), the key parameters are:
+
+### `--embodiment-tag`
+
+Determines which modality config the model uses (state/action keys, normalization). **Must match the robot type of your dataset.**
+
+- **Pretrain tags** (e.g., `GR1`, `ROBOCASA_PANDA_OMRON`) — use for zero-shot inference on datasets that match the pretrained embodiment. The modality config is loaded from the model checkpoint.
+- **Posttrain tags** (e.g., `UNITREE_G1`, `BEHAVIOR_R1_PRO`) — use for finetuned checkpoints trained on that embodiment.
+- **`NEW_EMBODIMENT`** — use for custom robots. Requires a `--modality-config-path` during finetuning. After finetuning, the config is saved in the checkpoint and loaded automatically during inference.
+
+> **Important:** You cannot mix embodiment tags and datasets. For example, `--embodiment-tag GR1` expects GR1 state keys (`left_arm`, `right_arm`, `waist`, etc.) and will fail on an SO100 dataset (`single_arm`, `gripper`).
+
+### `--traj-ids`
+
+Which episode indices to evaluate. Check your dataset's `meta/episodes.jsonl` to see available episodes. For example, `--traj-ids 0 1 2` runs on the first 3 episodes.
+
+### `--action-horizon`
+
+Number of future action steps predicted per inference call. The model's maximum is 16 (from model config). Common values:
+- `16` — full horizon, used for open-loop evaluation
+- `8` — shorter horizon, common for real-time deployment where actions are re-planned frequently
+
+This parameter is robot-agnostic — the same value works across different datasets and embodiments.
+
+### `--inference-mode`
+
+- `pytorch` — standard PyTorch inference (default, no setup required)
+- `tensorrt` — accelerated inference using TensorRT engine (requires ONNX export + engine build first, see [Deployment Guide](../scripts/deployment/README.md))
+
+### Expected Output (PyTorch mode)
+
+The inference scripts produce:
+- Per-trajectory **MSE** and **MAE** (unnormalized action prediction error vs ground truth)
+- **Timing stats**: model load time, avg/min/max/P90 inference time per step
+- **Summary**: average MSE/MAE across all trajectories
+
+### Example: Matching Parameters to Dataset
+
+| Dataset | Embodiment Tag | Notes |
+|---------|---------------|-------|
+| `demo_data/gr1.PickNPlace` | `GR1` | GR1 humanoid (pretrain tag) |
+| `demo_data/cube_to_bowl_5` | `NEW_EMBODIMENT` | SO100 arm — only works with a finetuned checkpoint, not the base model |
+
 ## Understanding the Observation Format
 
 The policy expects observations as a nested dictionary with three modalities:
@@ -337,13 +382,13 @@ The number of available episodes can be queried via the `info` dict returned fro
 
 ##### Example: Validating a LIBERO Environment
 
-Here's a complete example of using ReplayPolicy to validate a LIBERO simulation setup:
+Here's a complete example of using ReplayPolicy to validate a simulation setup:
 
 ```bash
 # Terminal 1: Start the replay server
 python gr00t/eval/run_gr00t_server.py \
-    --dataset-path examples/LIBERO/libero_10_no_noops_1.0.0_lerobot \
-    --embodiment-tag LIBERO_PANDA \
+    --dataset-path <your_dataset_path> \
+    --embodiment-tag <YOUR_EMBODIMENT_TAG> \
     --action-horizon 8 \
     --use-sim-policy-wrapper
 
@@ -353,7 +398,7 @@ python gr00t/eval/rollout_policy.py \
     --policy_client_host 127.0.0.1 \
     --policy_client_port 5555 \
     --max_episode_steps 720 \
-    --env_name libero_sim/KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it \
+    --env_name <env_prefix>/<task_name> \
     --n_action_steps 8 \
     --n_envs 1
 ```
@@ -365,7 +410,7 @@ If your environment is set up correctly, replaying ground-truth actions should a
 
 > **Tip:** ReplayPolicy is an excellent first step when integrating a new environment. Debug with replay first, then switch to model inference once the pipeline is validated.
 
-#### Integrating the GR00T 1.6 Client Into Your Deployment Pipeline
+#### Integrating the GR00T N1.7 Client Into Your Deployment Pipeline
 
 GR00T's server–client architecture allows you to keep the **client side extremely lightweight**, making it easy to embed into any custom deployment pipeline without pulling in the full dependency stack.
 

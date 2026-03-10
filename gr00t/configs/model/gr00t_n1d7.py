@@ -13,8 +13,8 @@ from . import register_model_config
 class Gr00tN1d7Config(PretrainedConfig):
     """Unified configuration for Gr00tN1d7 model with backbone and action head.
 
-    The main change from Gr00tN1d6 is the VLM backbone: Gr00tN1d7 uses
-    Cosmos-Reason2-2B (Qwen3-VL architecture) instead of Eagle.
+    Gr00tN1d7 uses the Cosmos-Reason2-2B (Qwen3-VL architecture) VLM backbone,
+    replacing the Eagle backbone used in Gr00tN1d6.
     """
 
     # Model identification

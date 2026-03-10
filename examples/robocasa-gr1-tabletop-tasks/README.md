@@ -8,6 +8,8 @@ For more information, see the [official repository](https://github.com/robocasa/
 
 # RoboCasa GR1 Tabletop Tasks evaluation benchmark result
 
+> **Note:** Running all 24 tasks, each 20 episodes, can take approximately 3 hours on H100, and the result variance can be large.
+
 | Task | Success rate |
 | ---- | ------------ |
 | `gr1_unified/PnPBottleToCabinetClose_GR1ArmsAndWaistFourierHands_Env` | 51.5% |
@@ -36,34 +38,4 @@ For more information, see the [official repository](https://github.com/robocasa/
 | `gr1_unified/PosttrainPnPNovelFromTrayToTieredshelfSplitA_GR1ArmsAndWaistFourierHands_Env` | 31.5% |
 | **Average** | 47.6% |
 
-# Evaluate checkpoint
-
-First, setup the evaluation simulation environment. This only needs to run once for each simulation benchmark. After it's done, we only need to launch server and client.
-
-```bash
-sudo apt update
-sudo apt install libegl1-mesa-dev libglu1-mesa
-bash gr00t/eval/sim/robocasa-gr1-tabletop-tasks/setup_RoboCasaGR1TabletopTasks.sh
-```
-
-Then, run client server evaluation under the project root directory in separate terminals:
-
-**Terminal 1 - Server:**
-```bash
-uv run python gr00t/eval/run_gr00t_server.py \
-    --model-path nvidia/GR00T-N1.6-3B \
-    --embodiment-tag GR1 \
-    --use-sim-policy-wrapper
-```
-
-**Terminal 2 - Client:**
-```bash
-gr00t/eval/sim/robocasa-gr1-tabletop-tasks/robocasa_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
-    --n_episodes 10 \
-    --policy_client_host 127.0.0.1 \
-    --policy_client_port 5555 \
-    --max_episode_steps=720 \
-    --env_name gr1_unified/PnPBottleToCabinetClose_GR1ArmsAndWaistFourierHands_Env \
-    --n_action_steps 8 \
-    --n_envs 5
-```
+> **Note:** Benchmark results above are from N1.6. N1.7 results pending.

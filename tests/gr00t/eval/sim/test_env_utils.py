@@ -15,13 +15,11 @@ class TestEnvPrefixMapping:
     def test_all_known_prefixes_present(self):
         expected_prefixes = {
             "robocasa_panda_omron",
-            "gr1",
             "gr1_unified",
             "gr00tlocomanip_g1",
             "gr00tlocomanip_g1_sim",
             "gr00tlocomanip_g1_new",
             "sim_behavior_r1_pro",
-            "libero_sim",
             "simpler_env_google",
             "simpler_env_widowx",
         }
@@ -55,7 +53,7 @@ class TestGetEmbodimentTagFromEnvName:
     @pytest.mark.parametrize(
         "env_name",
         [
-            "gr1/GraspFromTable",
+            "gr1_unified/GraspFromTable",
             "gr1_unified/PnPNovelFromPlateToBowl",
         ],
     )
@@ -79,17 +77,13 @@ class TestGetEmbodimentTagFromEnvName:
 
     # --- Issue #479 fixes: these were broken before ---
 
-    def test_libero(self):
-        tag = get_embodiment_tag_from_env_name("libero_sim/LIVING_ROOM_SCENE2_put_soup_in_basket")
-        assert tag == EmbodimentTag.LIBERO_PANDA
-
     def test_simpler_env_google(self):
         tag = get_embodiment_tag_from_env_name("simpler_env_google/google_robot_pick_coke_can")
-        assert tag == EmbodimentTag.OXE_GOOGLE
+        assert tag == EmbodimentTag.SIMPLER_ENV_GOOGLE
 
     def test_simpler_env_widowx(self):
         tag = get_embodiment_tag_from_env_name("simpler_env_widowx/widowx_spoon_on_towel")
-        assert tag == EmbodimentTag.OXE_WIDOWX
+        assert tag == EmbodimentTag.SIMPLER_ENV_WIDOWX
 
     # --- Edge cases ---
 
@@ -108,5 +102,5 @@ class TestGetEmbodimentTagFromEnvName:
 
     def test_multi_slash_uses_first_segment(self):
         """Only the first segment before '/' is used as the prefix."""
-        tag = get_embodiment_tag_from_env_name("libero_sim/task/subtask")
-        assert tag == EmbodimentTag.LIBERO_PANDA
+        tag = get_embodiment_tag_from_env_name("simpler_env_google/task/subtask")
+        assert tag == EmbodimentTag.SIMPLER_ENV_GOOGLE

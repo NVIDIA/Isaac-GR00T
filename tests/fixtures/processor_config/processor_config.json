@@ -1,15 +1,15 @@
 {
-  "processor_class": "Gr00tN1d6Processor",
+  "processor_class": "Gr00tN1d7Processor",
   "processor_kwargs": {
     "modality_configs": {
-      "libero_panda": {
+      "sim_behavior_r1_pro": {
         "video": {
           "delta_indices": [
             0
           ],
           "modality_keys": [
-            "image",
-            "wrist_image"
+            "observation.images.rgb.head_256_256",
+            "observation.images.rgb.left_wrist_256_256"
           ],
           "sin_cos_embedding_keys": null,
           "mean_std_embedding_keys": null,

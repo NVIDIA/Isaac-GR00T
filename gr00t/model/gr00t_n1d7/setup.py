@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 
 import numpy as np
-from termcolor import colored
 import torch
 from transformers import AutoModel, AutoProcessor
 
@@ -93,7 +92,7 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 transformers_loading_kwargs=self.transformers_loading_kwargs,
             )
 
-        print(colored(f"Model Config: {model.config}", "yellow"))
+        logging.debug(f"Model Config: {model.config}")
         if get_rank() == 0:
             with open(self.save_cfg_dir / "final_model_config.json", "w") as f:
                 f.write(model.config.to_filtered_json())
@@ -104,7 +103,7 @@ class Gr00tN1d7Pipeline(ModelPipeline):
         logging.info(
             f"Trainable parameters: {trainable_params:,} ({100 * trainable_params / total_params:.2f}%)"
         )
-        print("Model: ", model)
+        logging.debug(f"Model architecture: {model}")
 
         return model
 
@@ -167,11 +166,8 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 transformers_loading_kwargs=self.transformers_loading_kwargs,
             )
 
-        print(
-            colored(
-                f"These are all the processor configs for training: {json.dumps({k: str(v) for k, v in vars(processor).items()}, indent=2)}",
-                "yellow",
-            )
+        logging.debug(
+            f"Processor configs for training: {json.dumps({k: str(v) for k, v in vars(processor).items()}, indent=2)}"
         )
         if get_rank() == 0:
             with open(self.save_cfg_dir / "final_processor_config.json", "w") as f:

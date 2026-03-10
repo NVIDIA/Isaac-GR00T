@@ -171,11 +171,8 @@ def get_gym_env(env_name: str, env_idx: int, total_n_envs: int):
     elif env_embodiment in (EmbodimentTag.UNITREE_G1,):
         env_fn = get_groot_locomanip_env_fn(env_name)
 
-    elif env_embodiment in (EmbodimentTag.OXE_GOOGLE, EmbodimentTag.OXE_WIDOWX):
+    elif env_embodiment in (EmbodimentTag.SIMPLER_ENV_GOOGLE, EmbodimentTag.SIMPLER_ENV_WIDOWX):
         env_fn = get_simpler_env_fn(env_name)
-
-    elif env_embodiment in (EmbodimentTag.LIBERO_PANDA,):
-        env_fn = get_libero_env_fn(env_name)
 
     elif env_embodiment in (EmbodimentTag.BEHAVIOR_R1_PRO,):
         env_fn = get_behavior_env_fn(env_name, env_idx, total_n_envs)

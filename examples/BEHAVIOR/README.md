@@ -9,6 +9,8 @@
 
 This is a benchmark of behavior1k from https://behavior.stanford.edu/
 
+> **Note:** N1.7 finetuned checkpoint is not yet available. You can use the N1.6 checkpoint below with the [n1.6-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) branch, or finetune from the N1.7 base model.
+
 We provide a checkpoint: `nvidia/GR00T-N1.6-BEHAVIOR1k` which is post-trained on all 50 tasks. You can use this checkpoint for evaluation. 
 
 ## Multi-task (50 tasks) performance
@@ -79,14 +81,26 @@ Starting from the base checkpoint, we post-train on individual tasks and report 
 | sim_behavior_r1_pro/setting_mousetraps | 19.17% | 0.10 |
 
 # Fine-tune on BEHAVIOR dataset
-First, download our converted BEHAVIOR dataset from HuggingFace
+First, download our converted BEHAVIOR dataset from HuggingFace.
+
+To get started quickly, download a single task (~807 files, ~3 GB):
 ```
 huggingface-cli download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
   --repo-type dataset \
-  --include "sim_behavior_r1_pro.*" \
+  --include "sim_behavior_r1_pro.task-0000_turning_on_radio/**" \
   --local-dir $HOME/gr00t_dataset
 ```
-Using `sim_behavior_r1_pro.*` will download datasets for all 50 tasks. You can replace `sim_behavior_r1_pro.*` with a specific task.
+
+To download all 50 tasks (~40k files, ~150 GB, may take several hours):
+```
+huggingface-cli download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
+  --repo-type dataset \
+  --include "sim_behavior_r1_pro.*/**" \
+  --local-dir $HOME/gr00t_dataset
+```
+
+> **Note**: The `--include` filter is applied client-side. The CLI must first enumerate
+> all files in the repository, which can take several minutes for this large dataset.
 
 To launch training, run the shared `examples/finetune.sh` launcher directly:
 ```

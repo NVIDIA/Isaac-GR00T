@@ -6,7 +6,7 @@ Run inference with PyTorch or TensorRT acceleration for the GR00T policy.
 
 ## Prerequisites
 
-- Model checkpoint (e.g., `nvidia/GR00T-N1.6-3B`)
+- Model checkpoint (e.g., `nvidia/GR00T-N1.7-3B`)
 - Dataset in LeRobot format
 - CUDA-enabled GPU
 
@@ -34,7 +34,7 @@ uv sync --extra tensorrt
 
 ```bash
 python scripts/deployment/standalone_inference_script.py \
-  --model-path nvidia/GR00T-N1.6-3B \
+  --model-path nvidia/GR00T-N1.7-3B \
   --dataset-path /path/to/dataset \
   --embodiment-tag GR1 \
   --traj-ids 0 1 2 \
@@ -49,25 +49,25 @@ python scripts/deployment/standalone_inference_script.py \
 ### Step 1: Export to ONNX
 
 ```bash
-python scripts/deployment/export_onnx_n1d6.py \
-  --model_path nvidia/GR00T-N1.6-3B \
-  --dataset_path /path/to/dataset \
-  --embodiment_tag gr1 \
-  --output_dir ./groot_n1d6_onnx
+python scripts/deployment/export_onnx_n1d7.py \
+  --model-path nvidia/GR00T-N1.7-3B \
+  --dataset-path /path/to/dataset \
+  --embodiment-tag GR1 \
+  --output-dir ./groot_n1d7_onnx
 ```
 
-**Output:** `./groot_n1d6_onnx/dit_model.onnx`
+**Output:** `./groot_n1d7_onnx/dit_model.onnx`
 
 ### Step 2: Build TensorRT Engine
 
 ```bash
 python scripts/deployment/build_tensorrt_engine.py \
-  --onnx ./groot_n1d6_onnx/dit_model.onnx \
-  --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --onnx ./groot_n1d7_onnx/dit_model.onnx \
+  --engine ./groot_n1d7_onnx/dit_model_bf16.trt \
   --precision bf16
 ```
 
-**Output:** `./groot_n1d6_onnx/dit_model_bf16.trt`
+**Output:** `./groot_n1d7_onnx/dit_model_bf16.trt`
 
 > **Note:** Engine build takes ~5-10 minutes depending on GPU. The engine is GPU-specific and needs to be rebuilt for different GPU architectures.
 
@@ -75,12 +75,12 @@ python scripts/deployment/build_tensorrt_engine.py \
 
 ```bash
 python scripts/deployment/standalone_inference_script.py \
-  --model-path nvidia/GR00T-N1.6-3B \
+  --model-path nvidia/GR00T-N1.7-3B \
   --dataset-path /path/to/dataset \
   --embodiment-tag GR1 \
   --traj-ids 0 1 2 \
   --inference-mode tensorrt \
-  --trt-engine-path ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --trt-engine-path ./groot_n1d7_onnx/dit_model_bf16.trt \
   --action-horizon 8
 ```
 
@@ -99,21 +99,21 @@ python scripts/deployment/standalone_inference_script.py \
 | `--steps` | `200` | Max steps per trajectory |
 | `--action-horizon` | `16` | Action horizon for inference |
 | `--inference-mode` | `pytorch` | `pytorch` or `tensorrt` |
-| `--trt-engine-path` | `./groot_n1d6_onnx/dit_model_bf16.trt` | TensorRT engine path |
+| `--trt-engine-path` | `./groot_n1d7_onnx/dit_model_bf16.trt` | TensorRT engine path |
 | `--denoising-steps` | `4` | Number of denoising steps |
 | `--skip-timing-steps` | `1` | Steps to skip for timing (warmup) |
 | `--seed` | `42` | Random seed for reproducibility |
 | `--video-backend` | `torchcodec` | Video backend (`decord`, `torchvision_av`, `torchcodec`) |
 
-### `export_onnx_n1d6.py`
+### `export_onnx_n1d7.py`
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--model_path` | (required) | Path to model checkpoint |
-| `--dataset_path` | (required) | Path to dataset (for input shape capture) |
-| `--embodiment_tag` | `gr1` | Embodiment tag |
-| `--output_dir` | `./groot_n1d6_onnx` | Output directory for ONNX model |
-| `--video_backend` | `torchcodec` | Video backend |
+| `--model-path` | (required) | Path to model checkpoint |
+| `--dataset-path` | (required) | Path to dataset (for input shape capture) |
+| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--output-dir` | `./groot_n1d7_onnx` | Output directory for ONNX model |
+| `--video-backend` | `torchcodec` | Video backend |
 
 ### `build_tensorrt_engine.py`
 
@@ -128,11 +128,11 @@ python scripts/deployment/standalone_inference_script.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--model_path` | `nvidia/GR00T-N1.6-3B` | Path to model checkpoint |
-| `--dataset_path` | `demo_data/gr1.PickNPlace` | Path to dataset |
-| `--embodiment_tag` | `gr1` | Embodiment tag |
-| `--trt_engine_path` | (optional) | Path to TensorRT engine |
-| `--num_iterations` | `20` | Number of benchmark iterations |
+| `--model-path` | `nvidia/GR00T-N1.7-3B` | Path to model checkpoint |
+| `--dataset-path` | `demo_data/gr1.PickNPlace` | Path to dataset |
+| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--trt-engine-path` | (optional) | Path to TensorRT engine |
+| `--num-iterations` | `20` | Number of benchmark iterations |
 | `--warmup` | `5` | Number of warmup iterations |
 | `--skip_compile` | `false` | Skip torch.compile benchmark |
 | `--seed` | `42` | Random seed for reproducibility |
@@ -145,7 +145,7 @@ python scripts/deployment/standalone_inference_script.py \
 
 > **Note:** The backbone (Vision Encoder + Language Model) timing is the same across all modes (Eager, torch.compile, TensorRT). Only the **Action Head (DiT)** is optimized with torch.compile or TensorRT, which is why you see significant speedups in the Action Head column while the Backbone column remains constant.
 
-GR00T-N1.6-3B inference timing (4 denoising steps):
+GR00T-N1.7-3B inference timing (4 denoising steps):
 
 | Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
 |--------|------|-----------------|----------|-------------|-----|-----------|
@@ -373,7 +373,7 @@ The TensorRT optimization targets the **DiT (Diffusion Transformer)** component 
 | File | Description |
 |------|-------------|
 | `standalone_inference_script.py` | Main inference script (PyTorch + TensorRT) |
-| `export_onnx_n1d6.py` | Export DiT model to ONNX format |
+| `export_onnx_n1d7.py` | Export DiT model to ONNX format |
 | `build_tensorrt_engine.py` | Build TensorRT engine from ONNX |
 | `benchmark_inference.py` | Benchmark data processing, backbone, action head, and E2E timing |
 | `GR00T_inference_timing.ipynb` | Inference timing analysis notebook with visualizations |

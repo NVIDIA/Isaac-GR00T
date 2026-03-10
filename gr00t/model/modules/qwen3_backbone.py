@@ -1,5 +1,10 @@
+import logging
+
 import torch
 from transformers.feature_extraction_utils import BatchFeature
+
+
+logger = logging.getLogger(__name__)
 
 
 try:
@@ -65,7 +70,7 @@ class Qwen3Backbone(torch.nn.Module):
             for n, p in self.named_parameters():
                 if p.requires_grad:
                     p.data = p.data.to(torch.float32)
-                    print(f"Casting trainable parameter {n} to fp32")
+                    logger.debug(f"Casting trainable parameter {n} to fp32")
 
     def set_trainable_parameters(self, tune_llm: bool, tune_visual: bool, tune_top_llm_layers: int):
         self.tune_llm = tune_llm
@@ -82,14 +87,14 @@ class Qwen3Backbone(torch.nn.Module):
                 for param in layer.parameters():
                     param.requires_grad = True
 
-        print(f"Tune backbone llm: {self.tune_llm}")
-        print(f"Tune backbone visual: {self.tune_visual}")
-        # Check if any parameters are still trainable. If not, print a warning.
+        logger.debug(f"Tune backbone llm: {self.tune_llm}")
+        logger.debug(f"Tune backbone visual: {self.tune_visual}")
+        # Check if any parameters are still trainable. If not, log a warning.
         for name, p in self.named_parameters():
             if p.requires_grad:
-                print(f"Backbone trainable parameter: {name}")
+                logger.debug(f"Backbone trainable parameter: {name}")
         if not any(p.requires_grad for p in self.parameters()):
-            print("Warning: No backbone trainable parameters found.")
+            logger.warning("No backbone trainable parameters found.")
 
     def set_frozen_modules_to_eval_mode(self):
         """

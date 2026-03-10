@@ -4,6 +4,7 @@ import pathlib
 import shutil
 import subprocess
 
+from huggingface_hub import login
 import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
@@ -17,7 +18,9 @@ from test_support.runtime import (
 )
 
 
-REPO_ROOT = get_root()
+login(token=os.environ["HF_TOKEN"])
+
+LOGGER = logging.getLogger(__name__)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -38,6 +41,8 @@ REQUIRED_ASSET_DIRS = (
     "objects/lightwheel",
     "objects/sketchfab",
 )
+DEFAULT_SERVER_STARTUP_SECONDS = 180.0
+DEFAULT_MODEL_PATH = os.getenv("ROBOCASA_MODEL_PATH", "nvidia/GR00T-N1.7-3B")
 
 
 def _shared_assets_ready() -> bool:
@@ -155,7 +160,7 @@ def _build_runtime_env(
 @pytest.mark.timeout(900)
 def test_robocasa_gr1_tabletop_readme_eval_flow():
     """
-    Tests the directions given in https://gitlab-master.nvidia.com/gr00t-release/Isaac-GR00T/-/blob/main/examples/robocasa-gr1-tabletop-tasks/README.md
+    Tests the directions given in https://github.com/NVIDIA/Isaac-GR00T/blob/main/examples/robocasa-gr1-tabletop-tasks/README.md
     """
 
     _ensure_robocasa_submodule()
@@ -192,7 +197,25 @@ def test_robocasa_gr1_tabletop_readme_eval_flow():
     _assert_required_assets_present()
 
     model_server_host = "127.0.0.1"
-    model_server_port = 5556
+    model_server_port = "5551"
+    model_server_cmd = [
+        "uv",
+        "run",
+        "--extra=dev",
+        "python",
+        str(MODEL_SERVER_SCRIPT),
+        "--model-path",
+        DEFAULT_MODEL_PATH,
+        "--embodiment-tag",
+        "GR1",
+        "--use-sim-policy-wrapper",
+        "--device",
+        "cuda:0",
+        "--host",
+        model_server_host,
+        "--port",
+        model_server_port,
+    ]
 
     # Build server command from README, injecting test-specific flags.
     server_code = replace_once(

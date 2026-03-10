@@ -39,14 +39,15 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.pr
 EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     ##### Pretrain embodiment ids #####
     "robocasa_panda_omron": 13,
-    "gr1": 20,
-    "behavior_r1_pro": 24,
+    "gr1_unified": 20,
+    "sim_behavior_r1_pro": 24,
+    "xdof": 23,
+    "agibot": 26,
     ##### Pre-registered posttrain embodiment ids #####
-    "unitree_g1": 8,
-    "libero_panda": 2,
-    "oxe_google": 0,
-    "oxe_widowx": 1,
-    "oxe_droid": 16,
+    "unitree_g1_full_body_with_waist_height_nav_cmd": 25,
+    "simpler_env_google": 0,
+    "simpler_env_widowx": 1,
+    "oxe_droid_joint_position_relative": 17,
     "new_embodiment": 10,
 }
 

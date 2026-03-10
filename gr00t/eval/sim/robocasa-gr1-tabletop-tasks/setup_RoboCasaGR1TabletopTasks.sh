@@ -44,7 +44,7 @@ uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@v1.5.1"
 uv pip install -e "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" --config-settings editable_mode=compat
 
 # Optional: your eval stack uses gymnasium
-uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.51.3 msgpack==1.1.0 msgpack-numpy==0.4.8
+uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.57.3 msgpack==1.1.0 msgpack-numpy==0.4.8
 
 # Make your project importable without re-resolving deps
 uv pip install --editable "$PROJECT_REPO" --no-deps

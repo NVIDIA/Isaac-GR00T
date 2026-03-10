@@ -90,7 +90,11 @@ class Gr00tPolicy(BasePolicy):
 
         # Store embodiment-specific configurations
         self.embodiment_tag = embodiment_tag
-        self.modality_configs = self.processor.get_modality_configs()[self.embodiment_tag.value]
+        self.modality_configs = {
+            k: v
+            for k, v in self.processor.get_modality_configs()[self.embodiment_tag.value].items()
+            if k != "rl_info"
+        }
         self.collate_fn = self.processor.collator
 
         # Extract and validate language configuration

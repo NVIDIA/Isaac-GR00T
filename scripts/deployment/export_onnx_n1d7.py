@@ -323,7 +323,7 @@ def export_dit_to_onnx(
 
 def main(args):
     logger.info("=" * 80)
-    logger.info("GrootN1d6 ONNX Export Script")
+    logger.info("Gr00tN1d7 ONNX Export Script")
     logger.info("=" * 80)
     logger.info(f"Model path: {args.model_path}")
     logger.info(f"Dataset path: {args.dataset_path}")
@@ -387,7 +387,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Export GrootN1d6 model to ONNX")
+    parser = argparse.ArgumentParser(description="Export Gr00tN1d7 model to ONNX")
     parser.add_argument(
         "--model_path", type=str, required=True, help="Path to the model checkpoint"
     )
