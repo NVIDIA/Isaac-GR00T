@@ -15,7 +15,7 @@ Supports three inference modes:
 
 Usage:
     python scripts/deployment/benchmark_inference.py \
-        --model_path nvidia/GR00T-N1.6-3B \
+        --model_path nvidia/GR00T-N1.7-3B \
         --dataset_path /path/to/dataset \
         --trt_engine_path ./gr00t_n1d7_onnx/dit_model_bf16.trt
 """
@@ -262,7 +262,7 @@ def print_markdown_table(results, device_name, denoising_steps):
     print("\n" + "=" * 100)
     print("MARKDOWN TABLE (copy/paste into README)")
     print("=" * 100)
-    print(f"\nGR00T-N1.6-3B Inference Timing ({denoising_steps} denoising steps):\n")
+    print(f"\nGR00T-N1.7-3B Inference Timing ({denoising_steps} denoising steps):\n")
 
     # Component breakdown table (using median for robustness against outliers)
     print("### Component-wise Breakdown\n")
@@ -300,14 +300,14 @@ def print_markdown_table(results, device_name, denoising_steps):
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark GR00T inference timing")
-    parser.add_argument("--model_path", type=str, default="nvidia/GR00T-N1.6-3B")
+    parser.add_argument("--model_path", type=str, default="nvidia/GR00T-N1.7-3B")
     parser.add_argument(
         "--dataset_path",
         type=str,
         default=None,
         help="Path to dataset. Defaults to demo_data/gr1.PickNPlace",
     )
-    parser.add_argument("--embodiment_tag", type=str, default="gr1")
+    parser.add_argument("--embodiment_tag", type=str, default="gr1_unified")
     parser.add_argument(
         "--trt_engine_path",
         type=str,

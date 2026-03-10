@@ -574,7 +574,7 @@ class ArgsConfig:
     video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "torchcodec"
     """Video backend to use for various codec options. h264: decord or av: torchvision_av"""
 
-    dataset_path: str = "demo_data/robot_sim.PickNPlace/"
+    dataset_path: str = "demo_data/gr1.PickNPlace/"
     """Path to the dataset."""
 
     embodiment_tag: EmbodimentTag = EmbodimentTag.GR1

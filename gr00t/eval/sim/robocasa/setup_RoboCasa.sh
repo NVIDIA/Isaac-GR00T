@@ -28,7 +28,7 @@ fi
 # Sim stack
 uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@master"
 uv pip install -e "$ROBOCASA_REPO" --config-settings editable_mode=compat
-uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.51.3 msgpack==1.1.0 msgpack-numpy==0.4.8
+uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.57.3 msgpack==1.1.0 msgpack-numpy==0.4.8
 
 # Make your project importable in this venv without re-resolving deps
 uv pip install --editable "$PROJECT_REPO" --no-deps

@@ -28,7 +28,7 @@ git clone https://github.com/xieleo5/robosuite.git "$GR00T_WHOLEBODYCONTROL_REPO
 GIT_LFS_SKIP_SMUDGE=1 uv pip install -e "$GR00T_WHOLEBODYCONTROL_REPO" --config-settings editable_mode=compat
 uv pip install -e "$GR00T_WHOLEBODYCONTROL_REPO/gr00t_wbc/dexmg/gr00trobosuite" --config-settings editable_mode=compat
 uv pip install -e "$GR00T_WHOLEBODYCONTROL_REPO/gr00t_wbc/dexmg/gr00trobocasa" --config-settings editable_mode=compat
-uv pip install mujoco==3.2.6 transformers==4.51.3
+uv pip install mujoco==3.2.6 transformers==4.57.3
 
 uv pip install --editable "$PROJECT_REPO" --no-deps
 

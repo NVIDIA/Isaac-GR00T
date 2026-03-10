@@ -10,7 +10,7 @@ from gr00t.data.types import (
 
 MODALITY_CONFIGS = {
     ##### Pre-registered posttrain configurations #####
-    "unitree_g1": {
+    "unitree_g1_full_body_with_waist_height_nav_cmd": {
         "video": ModalityConfig(
             delta_indices=[0],
             modality_keys=["ego_view"],
@@ -28,7 +28,7 @@ MODALITY_CONFIGS = {
             ],
         ),
         "action": ModalityConfig(
-            delta_indices=list(range(30)),
+            delta_indices=list(range(50)),
             modality_keys=[
                 "left_arm",
                 "right_arm",
@@ -88,127 +88,7 @@ MODALITY_CONFIGS = {
             modality_keys=["annotation.human.task_description"],
         ),
     },
-    "libero_panda": {
-        "video": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=["image", "wrist_image"],
-        ),
-        "state": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-                "gripper",
-            ],
-        ),
-        "action": ModalityConfig(
-            delta_indices=list(range(0, 16)),
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-                "gripper",
-            ],
-        ),
-        "language": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=["annotation.human.action.task_description"],
-        ),
-    },
-    "oxe_widowx": {
-        "video": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=["image_0"],
-        ),
-        "state": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-                "pad",
-                "gripper",
-            ],
-        ),
-        "action": ModalityConfig(
-            delta_indices=list(range(0, 8)),
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-                "gripper",
-            ],
-            mean_std_embedding_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-            ],
-        ),
-        "language": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=["annotation.human.action.task_description"],
-        ),
-    },
-    "oxe_google": {
-        "video": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=["image"],
-        ),
-        "state": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "rx",
-                "ry",
-                "rz",
-                "rw",
-                "gripper",
-            ],
-        ),
-        "action": ModalityConfig(
-            delta_indices=list(range(0, 8)),
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-                "gripper",
-            ],
-            mean_std_embedding_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-            ],
-        ),
-        "language": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=["annotation.human.action.task_description"],
-        ),
-    },
-    "behavior_r1_pro": {
+    "sim_behavior_r1_pro": {
         "video": ModalityConfig(
             delta_indices=[0],
             modality_keys=[
@@ -300,7 +180,7 @@ MODALITY_CONFIGS = {
             modality_keys=["annotation.human.coarse_action"],
         ),
     },
-    "oxe_droid": {
+    "oxe_droid_joint_position_relative": {
         "video": ModalityConfig(
             delta_indices=[0],
             modality_keys=[

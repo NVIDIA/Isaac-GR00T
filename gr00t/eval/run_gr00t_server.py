@@ -14,7 +14,7 @@ DEFAULT_MODEL_SERVER_PORT = 5555
 
 @dataclass
 class ServerConfig:
-    """Configuration for running the Groot N1.5 inference server."""
+    """Configuration for running the GR00T inference server."""
 
     # Gr00t policy configs
     model_path: str | None = None

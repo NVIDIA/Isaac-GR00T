@@ -5,7 +5,7 @@
 ---
 
 # RoboCasa evaluation benchmark result
-Checkpoint: [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B)
+Checkpoint: [nvidia/GR00T-N1.7-3B](https://huggingface.co/nvidia/GR00T-N1.7-3B)
 
 | Task | Success rate |
 | ---- | ------------ |
@@ -35,6 +35,8 @@ Checkpoint: [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B)
 | `robocasa_panda_omron/TurnOffStove_PandaOmron_Env` | 31.0% |
 | **Average** | 66.22% |
 
+> **Note:** Benchmark results above are from N1.6. N1.7 results pending.
+
 # Evaluate checkpoint
 
 First, setup the evaluation simulation environment. This only needs to run once for each simulation benchmark. After it's done, we only need to launch server and client.
@@ -45,12 +47,28 @@ sudo apt install libegl1-mesa-dev libglu1-mesa
 bash gr00t/eval/sim/robocasa/setup_RoboCasa.sh
 ```
 
+#### Downloading RoboCasa Datasets (Optional)
+
+To download RoboCasa demonstration datasets, you **must** use the robocasa venv created by the setup script above (the main project venv does not have `robosuite` installed, which `robocasa` requires at import time):
+
+```bash
+# Download human demonstration datasets
+gr00t/eval/sim/robocasa/robocasa_uv/.venv/bin/python \
+    external_dependencies/robocasa/robocasa/scripts/download_datasets.py --ds_types human_im
+
+# Download machine-generated datasets
+gr00t/eval/sim/robocasa/robocasa_uv/.venv/bin/python \
+    external_dependencies/robocasa/robocasa/scripts/download_datasets.py --ds_types mg
+```
+
+> **Note:** Running `python -m robocasa.scripts.download_datasets` from the main project environment will fail because `robocasa` depends on `robosuite`, which is only installed in the robocasa venv.
+
 Then, run client server evaluation under the project root directory in separate terminals:
 
 **Terminal 1 - Server:**
 ```bash
-uv run python gr00t/eval/run_gr00t_server.py \
-    --model-path nvidia/GR00T-N1.6-3B \
+uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
+    --model-path nvidia/GR00T-N1.7-3B \
     --embodiment-tag ROBOCASA_PANDA_OMRON \
     --use-sim-policy-wrapper
 ```

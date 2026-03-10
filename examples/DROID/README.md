@@ -1,4 +1,6 @@
-# Gr00t N1.6-DROID
+# GR00T DROID
+
+> **Note:** N1.7 finetuned checkpoint is not yet available. You can use the N1.6 checkpoint below with the [n1.6-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) branch, or finetune from the N1.7 base model.
 
 We provide a checkpoint that is post-trained on the [DROID](https://droid-dataset.github.io/) dataset - [GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID). Follow the instructions below to run inference for this model.
 

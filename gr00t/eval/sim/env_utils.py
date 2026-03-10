@@ -7,7 +7,6 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 ENV_PREFIX_TO_EMBODIMENT_TAG: dict[str, EmbodimentTag] = {
     # Pretrain benchmarks
     "robocasa_panda_omron": EmbodimentTag.ROBOCASA_PANDA_OMRON,
-    "gr1": EmbodimentTag.GR1,
     "gr1_unified": EmbodimentTag.GR1,
     # Locomanipulation
     "gr00tlocomanip_g1": EmbodimentTag.UNITREE_G1,
@@ -15,9 +14,8 @@ ENV_PREFIX_TO_EMBODIMENT_TAG: dict[str, EmbodimentTag] = {
     "gr00tlocomanip_g1_new": EmbodimentTag.UNITREE_G1,
     # Posttrain benchmarks
     "sim_behavior_r1_pro": EmbodimentTag.BEHAVIOR_R1_PRO,
-    "libero_sim": EmbodimentTag.LIBERO_PANDA,
-    "simpler_env_google": EmbodimentTag.OXE_GOOGLE,
-    "simpler_env_widowx": EmbodimentTag.OXE_WIDOWX,
+    "simpler_env_google": EmbodimentTag.SIMPLER_ENV_GOOGLE,
+    "simpler_env_widowx": EmbodimentTag.SIMPLER_ENV_WIDOWX,
 }
 
 

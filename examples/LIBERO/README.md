@@ -118,7 +118,7 @@ Then, run client server evaluation under the project root directory in separate 
 ```bash
 uv run python gr00t/eval/run_gr00t_server.py \
     --model-path /tmp/libero_spatial/checkpoint-20000/ \
-    --embodiment-tag LIBERO_PANDA \
+    --embodiment-tag NEW_EMBODIMENT \
     --use-sim-policy-wrapper
 ```
 

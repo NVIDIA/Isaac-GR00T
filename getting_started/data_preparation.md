@@ -83,7 +83,7 @@ Here is a sample of the `meta/tasks.jsonl` file that contains the task descripti
 
 You can refer the task index in the parquet file to get the task description. So in this case, the `annotation.human.action.task_description` for the first observation is "pick the squash from the counter and place it in the plate" and `annotation.human.validity` is "valid".
 
-`tasks.json` contains a list of all the tasks in the entire dataset.
+`tasks.jsonl` contains a list of all the tasks in the entire dataset.
 
 #### meta/episodes.jsonl
 
@@ -94,7 +94,7 @@ Here is a sample of the `meta/episodes.jsonl` file that contains the episode inf
 {"episode_index": 1, "tasks": [...], "length": 470}
 ```
 
-`episodes.json` contains a list of all the episodes in the entire dataset. Each episode contains a list of tasks and the length of the episode.
+`episodes.jsonl` contains a list of all the episodes in the entire dataset. Each episode contains a list of tasks and the length of the episode.
 
 ## GR00T LeRobot Specific Requirements
 
@@ -136,6 +136,13 @@ We require an additional metadata file `meta/modality.json` that is not present 
     }
 }
 ```
+
+#### Example
+
+For a concrete example of `modality.json` and the full dataset structure, see the publicly available datasets on HuggingFace:
+[nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/tree/main).
+
+You can also find a working example in the included demo data at [`demo_data/cube_to_bowl_5/meta/modality.json`](../demo_data/cube_to_bowl_5/meta/modality.json).
 
 #### Notes
 
