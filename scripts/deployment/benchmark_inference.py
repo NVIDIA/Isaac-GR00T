@@ -4,20 +4,31 @@ Benchmark script for GR00T inference timing.
 
 Measures component-wise timing for:
 - Data Processing: VLAStepData preparation and collation
-- Backbone (VLM): Eagle VLM forward pass
+- Backbone (VLM): Qwen3-VL forward pass
 - Action Head (DiT): Flow-matching diffusion model
 - E2E: Full end-to-end inference
 
-Supports three inference modes:
+Supports four inference modes:
 1. PyTorch Eager: Standard PyTorch execution
 2. torch.compile: PyTorch 2.0+ JIT compilation with max-autotune
-3. TensorRT: Optimized DiT action head using TensorRT engine
+3. TensorRT (DiT-only): Optimized DiT action head using TensorRT engine
+4. TensorRT (Full Pipeline): All 6 components in TRT (ViT + LLM + Action Head)
 
 Usage:
+    # Basic benchmark (Eager + torch.compile)
+    python scripts/deployment/benchmark_inference.py \
+        --model_path nvidia/GR00T-N1.7-3B
+
+    # With DiT-only TRT
     python scripts/deployment/benchmark_inference.py \
         --model_path nvidia/GR00T-N1.7-3B \
-        --dataset_path /path/to/dataset \
         --trt_engine_path ./gr00t_n1d7_onnx/dit_model_bf16.trt
+
+    # With full-pipeline TRT (6 engines)
+    python scripts/deployment/benchmark_inference.py \
+        --model_path nvidia/GR00T-N1.7-3B \
+        --trt_engine_path ./gr00t_n1d7_engines \
+        --trt_mode n17_full_pipeline
 """
 
 import argparse
@@ -33,6 +44,12 @@ from gr00t.data.types import MessageType, VLAStepData
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 import numpy as np
 import torch
+
+
+# Ensure scripts/deployment/ is on sys.path for sibling module imports
+_DEPLOY_DIR = os.path.dirname(os.path.abspath(__file__))
+if _DEPLOY_DIR not in sys.path:
+    sys.path.insert(0, _DEPLOY_DIR)
 
 
 def set_seed(seed: int = 42):
@@ -262,7 +279,7 @@ def print_markdown_table(results, device_name, denoising_steps):
     print("\n" + "=" * 100)
     print("MARKDOWN TABLE (copy/paste into README)")
     print("=" * 100)
-    print(f"\nGR00T-N1.7-3B Inference Timing ({denoising_steps} denoising steps):\n")
+    print(f"\nGR00T N1.7 Inference Timing ({denoising_steps} denoising steps):\n")
 
     # Component breakdown table (using median for robustness against outliers)
     print("### Component-wise Breakdown\n")
@@ -317,6 +334,13 @@ def main():
     parser.add_argument("--num_iterations", type=int, default=20)
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--trt_mode",
+        type=str,
+        default="dit_only",
+        choices=["dit_only", "n17_full_pipeline"],
+        help="TRT mode: 'dit_only' (DiT engine only) or 'n17_full_pipeline' (all 6 engines)",
+    )
     parser.add_argument(
         "--skip_compile",
         action="store_true",
@@ -507,8 +531,9 @@ def main():
     # 3. TensorRT (if available)
     # ========================================
     if args.trt_engine_path and os.path.exists(args.trt_engine_path):
+        trt_label = f"TensorRT ({args.trt_mode})"
         print("\n" + "-" * 50)
-        print("Benchmarking TensorRT...")
+        print(f"Benchmarking {trt_label}...")
         print("-" * 50)
 
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -520,7 +545,15 @@ def main():
             device=device,
             strict=True,
         )
-        replace_dit_with_tensorrt(policy_trt, args.trt_engine_path)
+
+        if args.trt_mode == "n17_full_pipeline":
+            from trt_model_forward import setup_tensorrt_engines
+
+            setup_tensorrt_engines(policy_trt, args.trt_engine_path, mode="n17_full_pipeline")
+        else:
+            from standalone_inference_script import replace_dit_with_tensorrt
+
+            replace_dit_with_tensorrt(policy_trt, args.trt_engine_path)
 
         # TensorRT needs extra warmup for engine initialization and CUDA context setup
         trt_warmup = max(args.warmup + 5, 10)
@@ -534,7 +567,7 @@ def main():
             "action_head": times_components["action_head"],
         }
         components["e2e"] = compute_e2e_from_components(components)
-        results["TensorRT"] = components
+        results[trt_label] = components
 
         e2e_median = np.median(components["e2e"])
         print(f"  E2E:             {e2e_median:.0f} ms ({1000 / e2e_median:.1f} Hz)")
@@ -543,12 +576,14 @@ def main():
         print(f"  Action Head:     {np.median(components['action_head']):.0f} ms")
     elif args.trt_engine_path:
         print(f"\nTensorRT engine not found: {args.trt_engine_path}")
-        print("To build the engine, run:")
+        print("To build engines for full pipeline, run:")
         print(
-            "  python scripts/deployment/export_onnx_n1d7.py --model_path nvidia/GR00T-N1.7-3B --output_dir ./gr00t_n1d7_onnx"
+            "  python scripts/deployment/export_onnx_n1d7.py --model_path nvidia/GR00T-N1.7-3B"
+            " --dataset_path demo_data/gr1.PickNPlace --output_dir ./gr00t_n1d7_onnx --export_mode full_pipeline"
         )
         print(
-            "  python scripts/deployment/build_tensorrt_engine.py --onnx ./gr00t_n1d7_onnx/dit_model.onnx --engine <path>.trt --precision bf16"
+            "  python scripts/deployment/build_tensorrt_engine.py --mode full_pipeline"
+            " --onnx_dir ./gr00t_n1d7_onnx --engine_dir ./gr00t_n1d7_engines --precision bf16"
         )
 
     # ========================================
