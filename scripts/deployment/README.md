@@ -1,14 +1,15 @@
 # GR00T Deployment & Inference Guide
 
-Run inference with PyTorch or TensorRT acceleration for the GR00T policy.
+Run inference with PyTorch or TensorRT acceleration for the GR00T N1.7 policy.
 
 ---
 
 ## Prerequisites
 
-- Model checkpoint (e.g., `nvidia/GR00T-N1.7-3B`)
-- Dataset in LeRobot format
+- Model checkpoint: `nvidia/GR00T-N1.7-3B`
+- Dataset in LeRobot format (e.g., `demo_data/gr1.PickNPlace`)
 - CUDA-enabled GPU
+- FFmpeg (required by `torchcodec` video backend): `sudo apt-get install -y ffmpeg`
 
 ## Choose Your Setup
 
@@ -25,7 +26,7 @@ uv sync
 
 **TensorRT mode** (includes ONNX and TensorRT dependencies):
 ```bash
-uv sync --extra tensorrt
+uv sync --extra gpu
 ```
 
 ---
@@ -35,7 +36,7 @@ uv sync --extra tensorrt
 ```bash
 python scripts/deployment/standalone_inference_script.py \
   --model-path nvidia/GR00T-N1.7-3B \
-  --dataset-path /path/to/dataset \
+  --dataset-path demo_data/gr1.PickNPlace \
   --embodiment-tag GR1 \
   --traj-ids 0 1 2 \
   --inference-mode pytorch \
@@ -44,87 +45,73 @@ python scripts/deployment/standalone_inference_script.py \
 
 ---
 
-## TensorRT Mode (2x Faster)
+## TensorRT Full Pipeline (5x Faster)
+
+The full-pipeline TRT mode exports **all 6 model components** to TensorRT engines:
+
+| Engine | Description |
+|--------|-------------|
+| ViT | Qwen3-VL Vision Encoder (24 blocks + PatchMerger + DeepStack) |
+| LLM | Qwen3-VL Text Model (16 layers, with deepstack injection) |
+| State Encoder | CategorySpecificMLP |
+| Action Encoder | MultiEmbodimentActionEncoder |
+| DiT | AlternateVLDiT (32 layers) |
+| Action Decoder | CategorySpecificMLP |
+
+Lightweight ops remain in PyTorch (<1ms): `embed_tokens`, `masked_scatter`, `get_rope_index`, VLLN.
 
 ### Step 1: Export to ONNX
 
 ```bash
-python scripts/deployment/export_onnx_n1d7.py \
-  --model-path nvidia/GR00T-N1.7-3B \
-  --dataset-path /path/to/dataset \
-  --embodiment-tag GR1 \
-  --output-dir ./groot_n1d7_onnx
+uv run python scripts/deployment/export_onnx_n1d7.py \
+  --model_path nvidia/GR00T-N1.7-3B \
+  --dataset_path demo_data/gr1.PickNPlace \
+  --output_dir ./gr00t_n1d7_onnx \
+  --export_mode full_pipeline
 ```
 
-**Output:** `./groot_n1d7_onnx/dit_model.onnx`
+**Output:** 6 ONNX files in `./gr00t_n1d7_onnx/` (~5 GB total)
 
-### Step 2: Build TensorRT Engine
+> **Finetuned models:** Replace `--model_path` with your checkpoint path. The export pipeline is identical for base and finetuned models.
+
+### Step 2: Build TensorRT Engines
 
 ```bash
-python scripts/deployment/build_tensorrt_engine.py \
-  --onnx ./groot_n1d7_onnx/dit_model.onnx \
-  --engine ./groot_n1d7_onnx/dit_model_bf16.trt \
+uv run python scripts/deployment/build_tensorrt_engine.py \
+  --mode full_pipeline \
+  --onnx_dir ./gr00t_n1d7_onnx \
+  --engine_dir ./gr00t_n1d7_engines \
   --precision bf16
 ```
 
-**Output:** `./groot_n1d7_onnx/dit_model_bf16.trt`
+**Output:** 6 `.engine` files in `./gr00t_n1d7_engines/` (~4.3 GB total)
 
-> **Note:** Engine build takes ~5-10 minutes depending on GPU. The engine is GPU-specific and needs to be rebuilt for different GPU architectures.
+> **Note:** Engine build takes ~2-5 minutes depending on GPU. Engines are GPU-architecture-specific and must be rebuilt for different GPUs.
 
-### Step 3: Run with TensorRT
+### Step 3: Verify Accuracy
 
 ```bash
-python scripts/deployment/standalone_inference_script.py \
-  --model-path nvidia/GR00T-N1.7-3B \
-  --dataset-path /path/to/dataset \
-  --embodiment-tag GR1 \
-  --traj-ids 0 1 2 \
-  --inference-mode tensorrt \
-  --trt-engine-path ./groot_n1d7_onnx/dit_model_bf16.trt \
-  --action-horizon 8
+uv run python scripts/deployment/verify_n1d7_trt.py \
+  --model_path nvidia/GR00T-N1.7-3B \
+  --dataset_path demo_data/gr1.PickNPlace \
+  --engine_dir ./gr00t_n1d7_engines \
+  --mode n17_full_pipeline
 ```
+
+Expected output: `Cosine Similarity: 0.999987` (PASS).
 
 ---
 
-## Command-Line Arguments
+### Step 4: Run Benchmark
 
-### `standalone_inference_script.py`
+```bash
+uv run python scripts/deployment/benchmark_inference.py \
+    --model_path nvidia/GR00T-N1.7-3B \
+    --trt_engine_path ./gr00t_n1d7_engines \
+    --trt_mode n17_full_pipeline
+```
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--model-path` | (required) | Path to model checkpoint |
-| `--dataset-path` | (required) | Path to LeRobot dataset |
-| `--embodiment-tag` | `GR1` | Embodiment tag |
-| `--traj-ids` | `[0]` | List of trajectory IDs to evaluate |
-| `--steps` | `200` | Max steps per trajectory |
-| `--action-horizon` | `16` | Action horizon for inference |
-| `--inference-mode` | `pytorch` | `pytorch` or `tensorrt` |
-| `--trt-engine-path` | `./groot_n1d7_onnx/dit_model_bf16.trt` | TensorRT engine path |
-| `--denoising-steps` | `4` | Number of denoising steps |
-| `--skip-timing-steps` | `1` | Steps to skip for timing (warmup) |
-| `--seed` | `42` | Random seed for reproducibility |
-| `--video-backend` | `torchcodec` | Video backend (`decord`, `torchvision_av`, `torchcodec`) |
-
-### `export_onnx_n1d7.py`
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--model-path` | (required) | Path to model checkpoint |
-| `--dataset-path` | (required) | Path to dataset (for input shape capture) |
-| `--embodiment-tag` | `GR1` | Embodiment tag |
-| `--output-dir` | `./groot_n1d7_onnx` | Output directory for ONNX model |
-| `--video-backend` | `torchcodec` | Video backend |
-
-### `build_tensorrt_engine.py`
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--onnx` | (required) | Path to ONNX model |
-| `--engine` | (required) | Path to save TensorRT engine |
-| `--precision` | `bf16` | Precision (`fp32`, `fp16`, `bf16`, `fp8`) |
-| `--workspace` | `8192` | Workspace size in MB |
-
-### `benchmark_inference.py`
+## Performance
 
 | Argument | Default | Description |
 |----------|---------|-------------|
@@ -136,16 +123,23 @@ python scripts/deployment/standalone_inference_script.py \
 | `--warmup` | `5` | Number of warmup iterations |
 | `--skip_compile` | `false` | Skip torch.compile benchmark |
 | `--seed` | `42` | Random seed for reproducibility |
+### N1.7 Full Pipeline TRT (BF16, 4 denoising steps, single view)
 
----
+| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
+|--------|------|-----------------|----------|-------------|-----|-----------|
+| H100 | PyTorch Eager | 4 ms | 49 ms | 95 ms | 148 ms | 6.8 Hz |
+| H100 | torch.compile | 4 ms | 48 ms | 11 ms | 63 ms | 15.8 Hz |
+| H100 | **TRT Full Pipeline** | **4 ms** | **7 ms** | **13 ms** | **23 ms** | **42.6 Hz** |
 
-## Benchmarks
+Speedup vs Eager: torch.compile **2.33x**, TRT Full Pipeline **6.29x**
 
-### Component-wise Breakdown
+TODO: test compatibility and get results on other platforms
+### N1.6 DiT-Only TRT (BF16, 4 denoising steps, single view)
 
-> **Note:** The backbone (Vision Encoder + Language Model) timing is the same across all modes (Eager, torch.compile, TensorRT). Only the **Action Head (DiT)** is optimized with torch.compile or TensorRT, which is why you see significant speedups in the Action Head column while the Backbone column remains constant.
+> The DiT-only mode (`--export_mode dit_only`) optimizes only the action head DiT,
+> leaving the backbone in PyTorch.
 
-GR00T-N1.7-3B inference timing (4 denoising steps):
+GR00T-N1.6-3B inference timing:
 
 | Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
 |--------|------|-----------------|----------|-------------|-----|-----------|
@@ -328,43 +322,68 @@ source scripts/activate_orin.sh
 Then run inference or benchmarks as shown in the Quick Start section above.
 The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
 and `torch.compile` need on Orin.
+> Experiments on Thor and Orin used different dependency stacks. Thor with CUDA 13, PyTorch 2.9, using supporting packages sourced from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130); and Orin with CUDA 12.6, PyTorch 2.8, using supporting packages sourced from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126).
 
 ---
 
-## Troubleshooting
+## Command-Line Arguments
 
-### Engine Build Fails
+### `export_onnx_n1d7.py`
 
-- Ensure you have enough GPU memory (8GB+ recommended)
-- Try reducing workspace size: `--workspace 4096`
-- Ensure TensorRT version matches your CUDA version
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model_path` | (required) | Path to model checkpoint |
+| `--dataset_path` | (required) | Path to dataset (for input shape capture) |
+| `--embodiment_tag` | `GR1` | Embodiment tag |
+| `--output_dir` | `./gr00t_n1d7_onnx` | Output directory for ONNX models |
+| `--export_mode` | `dit_only` | `dit_only`, `action_head`, or `full_pipeline` |
+| `--video_backend` | `torchcodec` | Video backend |
+| `--precision` | `bf16` | Export precision (`bf16`) |
 
-### ONNX Export Issues
+### `build_tensorrt_engine.py`
 
-- If export fails, ensure the model loads correctly in PyTorch first
-- Check that the dataset path is valid and contains at least one trajectory
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--mode` | `single` | `single` (one engine) or `full_pipeline` (all 6) |
+| `--onnx_dir` | `./gr00t_n1d7_onnx` | Directory with ONNX models (full_pipeline mode) |
+| `--engine_dir` | `./gr00t_n1d7_engines` | Directory to save engines (full_pipeline mode) |
+| `--onnx` | — | Path to single ONNX model (single mode) |
+| `--engine` | — | Path to save single engine (single mode) |
+| `--precision` | `bf16` | Precision (`fp32`, `fp16`, `bf16`) |
+| `--workspace` | `8192` | Workspace size in MB |
+
+### `verify_n1d7_trt.py`
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model_path` | `nvidia/GR00T-N1.7-3B` | Path to model checkpoint |
+| `--dataset_path` | `demo_data/gr1.PickNPlace` | Path to dataset |
+| `--engine_dir` | `./gr00t_n1d7_engines` | Directory with TRT engines |
+| `--mode` | `action_head` | `action_head` or `n17_full_pipeline` |
+| `--embodiment_tag` | `GR1` | Embodiment tag |
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    GR00T Policy                             │
-│  ┌───────────────┐  ┌───────────────┐  ┌─────────────────┐  │
-│  │ Vision Encoder│  │Language Model │  │  Action Head    │  │
-│  │(Cosmos-Reason)│──│(Cosmos-Reason)│──│    (DiT)        │  │
-│  └───────────────┘  └───────────────┘  └─────────────────┘  │
-│                                              ▲              │
-│                                              │              │
-│                                    ┌─────────┴─────────┐    │
-│                                    │ TensorRT Engine   │    │
-│                                    │ (dit_model.trt)   │    │
-│                                    └───────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-```
+Full Pipeline TRT (6 engines):
 
-The TensorRT optimization targets the **DiT (Diffusion Transformer)** component of the action head, which is the main computational bottleneck during inference.
+┌──────────────────────────────────────────────────────────────────────┐
+│                         GR00T N1.7 Policy                            │
+│                                                                      │
+│  ┌─────────────────── Backbone ───────────────────┐  ┌────────────┐  │
+│  │                                                │  │ Action Head │  │
+│  │  [ViT TRT] → embed_tokens → masked_scatter    │  │            │  │
+│  │              → get_rope_index                  │  │ [State Enc]│  │
+│  │              → [LLM TRT]                       │  │ [Act Enc]  │  │
+│  │                  (with deepstack injection)    │  │ [DiT]      │  │
+│  │                                                │  │ [Act Dec]  │  │
+│  └────────────────────────────────────────────────┘  └────────────┘  │
+│                                                                      │
+│  ████ = TRT Engine    plain text = PyTorch (<1ms)                    │
+└──────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -372,8 +391,33 @@ The TensorRT optimization targets the **DiT (Diffusion Transformer)** component 
 
 | File | Description |
 |------|-------------|
-| `standalone_inference_script.py` | Main inference script (PyTorch + TensorRT) |
-| `export_onnx_n1d7.py` | Export DiT model to ONNX format |
-| `build_tensorrt_engine.py` | Build TensorRT engine from ONNX |
-| `benchmark_inference.py` | Benchmark data processing, backbone, action head, and E2E timing |
-| `GR00T_inference_timing.ipynb` | Inference timing analysis notebook with visualizations |
+| `standalone_inference_script.py` | Main inference script (PyTorch + DiT-only TensorRT) |
+| `export_onnx_n1d7.py` | Export N1.7 model components to ONNX (ViT, LLM, action head) |
+| `build_tensorrt_engine.py` | Build TensorRT engines from ONNX models |
+| `trt_torch.py` | TRT Engine wrapper class (load, bind, execute) |
+| `trt_model_forward.py` | TRT forward functions and setup (backbone + action head) |
+| `verify_n1d7_trt.py` | Accuracy verification (PyTorch vs TRT output comparison) |
+| `benchmark_inference.py` | Benchmark timing for data processing, backbone, action head |
+
+---
+
+## Troubleshooting
+
+### Engine Build Fails
+
+- Ensure you have enough GPU memory (16GB+ recommended for full pipeline)
+- Try reducing workspace size: `--workspace 4096`
+- Ensure TensorRT version matches your CUDA version
+- LLM engine requires `batch_size` dimension handling — update `build_tensorrt_engine.py` if using custom shape profiles
+
+### ONNX Export Issues
+
+- If export fails with COMPLEX128 error: ensure `_simple_causal_mask` is used (not HuggingFace's `create_causal_mask`)
+- If `masked_scatter` size assertion fails: ensure `visual_pos_masks` has the correct number of True values matching deepstack tensor size
+- Check that the dataset path is valid and contains at least one trajectory
+
+### Accuracy Issues
+
+- If cosine < 0.99: check that LLM export does NOT include the final RMSNorm (backbone returns pre-norm `hidden_states[-1]`)
+- If output magnitude is ~12x too small: this is the norm bug — see above
+- Run `verify_n1d7_trt.py --mode action_head` first to isolate backbone vs action head drift
