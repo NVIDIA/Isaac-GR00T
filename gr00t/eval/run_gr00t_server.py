@@ -37,7 +37,7 @@ class ServerConfig:
     """Policy execution horizon during inference."""
 
     # Server configs
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     """Host address for the server"""
 
     port: int = DEFAULT_MODEL_SERVER_PORT
@@ -48,6 +48,13 @@ class ServerConfig:
 
     use_sim_policy_wrapper: bool = False
     """Whether to use the sim policy wrapper"""
+
+    # TensorRT acceleration
+    trt_engine_path: str | None = None
+    """Path to TRT engine directory. If set, loads TRT engines for accelerated inference."""
+
+    trt_mode: str = "full_pipeline"
+    """TRT mode: 'full_pipeline' (all 6 engines) or 'dit_only' (DiT only)"""
 
 
 def main(config: ServerConfig):
@@ -86,6 +93,20 @@ def main(config: ServerConfig):
         )
     else:
         raise ValueError("Either model_path or dataset_path must be provided")
+
+    # Apply TensorRT acceleration if requested
+    if config.trt_engine_path is not None:
+        import sys
+
+        deploy_dir = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "deployment")
+        deploy_dir = os.path.abspath(deploy_dir)
+        if deploy_dir not in sys.path:
+            sys.path.insert(0, deploy_dir)
+        from trt_model_forward import setup_tensorrt_engines
+
+        print(f"  Loading TRT engines from: {config.trt_engine_path}")
+        print(f"  TRT mode: {config.trt_mode}")
+        setup_tensorrt_engines(policy, config.trt_engine_path, mode=config.trt_mode)
 
     # Apply sim policy wrapper if needed
     if config.use_sim_policy_wrapper:
