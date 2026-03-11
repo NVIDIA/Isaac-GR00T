@@ -2,8 +2,6 @@
 
 set -x
 
-image_name="gr00t-dev"
-
 export DOCKER_BUILDKIT=1
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -16,12 +14,14 @@ echo $DIR
 cp -r $DIR/../ /tmp/gr00t
 cp -r /tmp/gr00t $DIR/src/
 
-export DOCKER_BUILDKIT=1
-
-# Filter out --fix flag and other script-specific flags before passing to docker
+# Parse --profile and filter script-specific flags before passing to docker
+profile="default"
 docker_args=()
 for arg in "$@"; do
     case $arg in
+        --profile=*)
+            profile="${arg#--profile=}"
+            ;;
         --fix)
             # Skip --fix flag as it's not a valid docker build flag
             ;;
@@ -31,10 +31,27 @@ for arg in "$@"; do
     esac
 done
 
-docker build "${docker_args[@]}" \
-    --platform linux/amd64 \
-    --network host \
-    -t $image_name $DIR \
-    && echo Image $image_name BUILT SUCCESSFULLY
+if [ "$profile" = "thor" ]; then
+    image_name="gr00t-thor"
+    docker build "${docker_args[@]}" \
+        --network host \
+        -f $DIR/../scripts/deployment/thor/Dockerfile \
+        -t $image_name $DIR \
+        && echo Image $image_name BUILT SUCCESSFULLY
+elif [ "$profile" = "orin" ]; then
+    image_name="gr00t-orin"
+    docker build "${docker_args[@]}" \
+        --network host \
+        -f $DIR/../scripts/deployment/orin/Dockerfile \
+        -t $image_name $DIR \
+        && echo Image $image_name BUILT SUCCESSFULLY
+else
+    image_name="gr00t-dev"
+    docker build "${docker_args[@]}" \
+        --platform linux/amd64 \
+        --network host \
+        -t $image_name $DIR \
+        && echo Image $image_name BUILT SUCCESSFULLY
+fi
 
 rm -rf $DIR/src/

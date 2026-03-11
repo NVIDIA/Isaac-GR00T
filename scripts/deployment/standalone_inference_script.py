@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import random
 import re
+import sys
 import time
 from typing import Any, Literal
 import warnings
@@ -622,6 +623,10 @@ def main(args: ArgsConfig):
     logging.info(f"Seed: {args.seed}")
     set_seed(args.seed)
     logging.info("=" * 80)
+
+    if not torch.cuda.is_available():
+        logging.error("CUDA is not available. This script requires a GPU. Exiting.")
+        sys.exit(1)
 
     # Download model checkpoint
     local_model_path = args.model_path
