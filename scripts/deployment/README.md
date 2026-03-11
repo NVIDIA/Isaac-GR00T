@@ -10,7 +10,13 @@ Run inference with PyTorch or TensorRT acceleration for the GR00T policy.
 - Dataset in LeRobot format
 - CUDA-enabled GPU
 
-### Installation
+## Choose Your Setup
+
+- dGPU local environment: use the installation commands below, then use the PyTorch or TensorRT commands in this guide
+- Thor Docker or bare metal: skip to [Jetson Thor Setup](#jetson-thor-setup)
+- Orin Docker or bare metal: skip to [Jetson Orin Setup](#jetson-orin-setup)
+
+### dGPU Installation
 
 **PyTorch mode** (default installation):
 ```bash
@@ -44,10 +50,10 @@ python scripts/deployment/standalone_inference_script.py \
 
 ```bash
 python scripts/deployment/export_onnx_n1d6.py \
-  --model-path nvidia/GR00T-N1.6-3B \
-  --dataset-path /path/to/dataset \
-  --embodiment-tag GR1 \
-  --output-dir ./groot_n1d6_onnx
+  --model_path nvidia/GR00T-N1.6-3B \
+  --dataset_path /path/to/dataset \
+  --embodiment_tag gr1 \
+  --output_dir ./groot_n1d6_onnx
 ```
 
 **Output:** `./groot_n1d6_onnx/dit_model.onnx`
@@ -103,11 +109,11 @@ python scripts/deployment/standalone_inference_script.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--model-path` | (required) | Path to model checkpoint |
-| `--dataset-path` | (required) | Path to dataset (for input shape capture) |
-| `--embodiment-tag` | `GR1` | Embodiment tag |
-| `--output-dir` | `./groot_n1d6_onnx` | Output directory for ONNX model |
-| `--video-backend` | `torchcodec` | Video backend |
+| `--model_path` | (required) | Path to model checkpoint |
+| `--dataset_path` | (required) | Path to dataset (for input shape capture) |
+| `--embodiment_tag` | `gr1` | Embodiment tag |
+| `--output_dir` | `./groot_n1d6_onnx` | Output directory for ONNX model |
+| `--video_backend` | `torchcodec` | Video backend |
 
 ### `build_tensorrt_engine.py`
 
@@ -122,13 +128,13 @@ python scripts/deployment/standalone_inference_script.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--model-path` | `nvidia/GR00T-N1.6-3B` | Path to model checkpoint |
-| `--dataset-path` | `demo_data/gr1.PickNPlace` | Path to dataset |
-| `--embodiment-tag` | `GR1` | Embodiment tag |
-| `--trt-engine-path` | (optional) | Path to TensorRT engine |
-| `--num-iterations` | `20` | Number of benchmark iterations |
+| `--model_path` | `nvidia/GR00T-N1.6-3B` | Path to model checkpoint |
+| `--dataset_path` | `demo_data/gr1.PickNPlace` | Path to dataset |
+| `--embodiment_tag` | `gr1` | Embodiment tag |
+| `--trt_engine_path` | (optional) | Path to TensorRT engine |
+| `--num_iterations` | `20` | Number of benchmark iterations |
 | `--warmup` | `5` | Number of warmup iterations |
-| `--skip-compile` | `false` | Skip torch.compile benchmark |
+| `--skip_compile` | `false` | Skip torch.compile benchmark |
 | `--seed` | `42` | Random seed for reproducibility |
 
 ---
@@ -159,7 +165,6 @@ GR00T-N1.6-3B inference timing (4 denoising steps):
 | Orin | torch.compile | 6 ms | 93 ms | 101 ms | 199 ms | 5.0 Hz |
 | Orin | TensorRT | 6 ms | 95 ms | 72 ms | 173 ms | 5.8 Hz |
 
-
 ### Speedup vs PyTorch Eager
 
 | Device | Mode | E2E Speedup | Action Head Speedup |
@@ -183,7 +188,147 @@ GR00T-N1.6-3B inference timing (4 denoising steps):
 > Run `python scripts/deployment/benchmark_inference.py` to generate benchmarks for your hardware.
 > See `GR00T_inference_timing.ipynb` for detailed analysis and visualizations.
 
-> Experiments on Thor and Orin used different dependency stacks. Thor with CUDA 13, PyTorch 2.9, using supporting packages sourced from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130); and Orin with CUDA 12.6, PyTorch 2.8, using supporting packages sourced from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126).
+> Jetson platforms use different dependency stacks than dGPU. Thor uses CUDA 13 with PyTorch 2.10.0 from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130). Orin uses CUDA 12.6 with PyTorch 2.10.0 from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126). See the platform-specific setup sections below.
+---
+
+## Jetson Thor Setup
+
+Thor uses CUDA 13 and Python 3.12, which require a different dependency stack than x86 or Orin.
+Tested with JetPack 7.1.
+There are two ways to run on Thor: Docker (recommended) or bare metal.
+
+### Docker (Recommended)
+
+Build the Thor container from the repo root:
+
+```bash
+cd docker && bash build.sh --profile=thor && cd ..
+```
+
+Run inference:
+
+```bash
+docker run --rm --runtime nvidia --gpus all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  --network host \
+  -v "$(pwd)":/workspace/repo \
+  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
+  -w /workspace/repo \
+  -e HF_TOKEN="${HF_TOKEN:-}" \
+  gr00t-thor \
+  python scripts/deployment/standalone_inference_script.py \
+    --model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path demo_data/gr1.PickNPlace \
+    --embodiment-tag GR1 \
+    --traj-ids 0 \
+    --inference-mode pytorch \
+    --denoising-steps 4
+```
+
+Run benchmarks:
+
+```bash
+docker run --rm --runtime nvidia --gpus all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  --network host \
+  -v "$(pwd)":/workspace/repo \
+  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
+  -w /workspace/repo \
+  gr00t-thor \
+  python scripts/deployment/benchmark_inference.py
+```
+
+### Bare Metal
+
+```bash
+# One-time install (temporarily copies the Thor pyproject.toml and uv.lock to repo root,
+# installs NVPL libs, uv, Python deps, and builds torchcodec from source against the
+# system FFmpeg runtime)
+bash scripts/deployment/thor/install_deps.sh
+
+# In each new shell
+source .venv/bin/activate
+source scripts/activate_thor.sh
+```
+
+Then run inference or benchmarks as shown in the Quick Start section above.
+The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
+and `torch.compile` need on Thor.
+
+---
+
+## Jetson Orin Setup
+
+Orin uses CUDA 12.6 and Python 3.10 (JetPack 6.2), which require a different dependency stack than x86 or Thor.
+Tested with JetPack 6.2.
+There are two ways to run on Orin: Docker (recommended) or bare metal.
+
+### Docker (Recommended)
+
+Build the Orin container from the repo root:
+
+```bash
+cd docker && bash build.sh --profile=orin && cd ..
+```
+
+Run inference:
+
+```bash
+docker run --rm --runtime nvidia --gpus all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  --network host \
+  -v "$(pwd)":/workspace/repo \
+  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
+  -w /workspace/repo \
+  -e HF_TOKEN="${HF_TOKEN:-}" \
+  gr00t-orin \
+  python scripts/deployment/standalone_inference_script.py \
+    --model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path demo_data/gr1.PickNPlace \
+    --embodiment-tag GR1 \
+    --traj-ids 0 \
+    --inference-mode pytorch \
+    --denoising-steps 4
+```
+
+Run benchmarks:
+
+```bash
+docker run --rm --runtime nvidia --gpus all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  --network host \
+  -v "$(pwd)":/workspace/repo \
+  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
+  -w /workspace/repo \
+  gr00t-orin \
+  python scripts/deployment/benchmark_inference.py
+```
+
+### Bare Metal
+
+```bash
+# One-time install (temporarily copies the Orin pyproject.toml and uv.lock to repo root,
+# installs uv, Python deps, and builds torchcodec from source against JetPack's FFmpeg
+# runtime)
+bash scripts/deployment/orin/install_deps.sh
+
+# In each new shell
+source .venv/bin/activate
+source scripts/activate_orin.sh
+```
+
+Then run inference or benchmarks as shown in the Quick Start section above.
+The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
+and `torch.compile` need on Orin.
+
 ---
 
 ## Troubleshooting

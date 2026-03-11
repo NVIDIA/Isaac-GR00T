@@ -22,6 +22,7 @@ Usage:
 
 import argparse
 import os
+import sys
 import time
 
 import gr00t
@@ -331,6 +332,9 @@ def main():
 
     set_seed(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cpu":
+        print("ERROR: No CUDA GPU detected. Benchmarking requires a GPU.")
+        sys.exit(1)
     device_name = get_device_name()
 
     # Default dataset path
@@ -507,6 +511,7 @@ def main():
         print("Benchmarking TensorRT...")
         print("-" * 50)
 
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from standalone_inference_script import replace_dit_with_tensorrt
 
         policy_trt = Gr00tPolicy(

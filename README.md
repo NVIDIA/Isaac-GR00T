@@ -113,23 +113,49 @@ git submodule update --init --recursive
 
 ### Set Up the Environment
 
-GR00T uses [uv](https://github.com/astral-sh/uv) for fast, reproducible dependency management.
+GR00T uses [uv](https://github.com/astral-sh/uv) for fast, reproducible dependency management. Each supported platform has its own dependency configuration under `scripts/deployment/`.
 
-> **Requirement:** uv **v0.8.4+** is needed to parse `[tool.uv.extra-build-dependencies]` in `pyproject.toml` (required for building `flash-attn`). For RTX-5090, this was tested with CUDA 12.8, `flash-attn==2.8.0.post2`, `pytorch-cu128`.
+#### dGPU (Non-Jetson) — Default
 
-After installing uv, create the environment and install GR00T:
+```bash
+bash scripts/deployment/dgpu/install_deps.sh
+source .venv/bin/activate
+```
 
-```sh
-uv sync --python 3.10
+Or manually:
+```bash
+uv sync --extra gpu
 uv pip install -e .
 ```
 
-> Note: CUDA 12.4 is recommended and officially tested. However, CUDA 11.8 has also been verified to work.
-> In such cases, make sure to install a compatible version of `flash-attn` manually (e.g., `flash-attn==2.8.2` was confirmed working with CUDA 11.8).
+#### Jetson AGX Thor
 
-For a containerized setup that avoids system-level dependency conflicts, see our [Docker Setup Guide](docker/README.md).
+Tested with JetPack 7.1.
 
-For training and inference hardware recommendations (RTX PRO Servers, DGX, Jetson AGX Thor), see the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md).
+```bash
+bash scripts/deployment/thor/install_deps.sh
+source .venv/bin/activate
+source scripts/activate_thor.sh
+```
+
+See the [Thor setup guide](scripts/deployment/README.md#jetson-thor-setup) for Docker and bare metal details.
+
+#### Jetson Orin
+
+Tested with JetPack 6.2.
+
+```bash
+bash scripts/deployment/orin/install_deps.sh
+source .venv/bin/activate
+source scripts/activate_orin.sh
+```
+
+See the [Orin setup guide](scripts/deployment/README.md#jetson-orin-setup) for Docker and bare metal details.
+
+For a containerized setup on any platform, see the [Docker Setup Guide](docker/README.md).
+Use the Docker guide to build the image and open a container, and the [Deployment & Inference Guide](scripts/deployment/README.md) for copy-paste inference and benchmark commands.
+
+For training and inference hardware recommendations, see the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md).
 
 ## Model Checkpoints
 

@@ -159,7 +159,7 @@ third_parties/
 dump.rdb
 
 # Docker
-.dockerignore
+# Note: docker/.dockerignore is tracked — it controls the Docker build context
 
 # SysID / robotics experiment data
 sysid_data/
