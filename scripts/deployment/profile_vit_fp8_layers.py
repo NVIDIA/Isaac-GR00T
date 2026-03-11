@@ -20,17 +20,9 @@ Usage:
 """
 
 import argparse
+from collections import defaultdict
 import copy
 import logging
-from collections import defaultdict
-
-from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
-from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
-from gr00t.data.embodiment_tags import EmbodimentTag
-from gr00t.policy.gr00t_policy import Gr00tPolicy
-import numpy as np
-import torch
-import torch.nn.functional as F
 
 # Reuse ViT wrappers and calibration helpers from export_onnx_n1d6.py
 from export_onnx_n1d6 import (
@@ -39,6 +31,13 @@ from export_onnx_n1d6 import (
     _load_calibration_observations,
     parse_observation_gr00t,
 )
+from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
+from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
+from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.policy.gr00t_policy import Gr00tPolicy
+import numpy as np
+import torch
+import torch.nn.functional as F
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -493,12 +492,8 @@ if __name__ == "__main__":
         description="ViT FP8 Per-Layer Cosine Profiling",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
-        "--model_path", type=str, required=True, help="Path to model checkpoint"
-    )
-    parser.add_argument(
-        "--dataset_path", type=str, required=True, help="Path to dataset"
-    )
+    parser.add_argument("--model_path", type=str, required=True, help="Path to model checkpoint")
+    parser.add_argument("--dataset_path", type=str, required=True, help="Path to dataset")
     parser.add_argument(
         "--embodiment_tag",
         type=EmbodimentTag,

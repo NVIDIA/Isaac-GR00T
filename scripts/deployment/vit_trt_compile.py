@@ -26,6 +26,7 @@ import os
 import torch
 import torch.nn.functional as F
 
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -67,9 +68,8 @@ def compile_vit(policy, output_dir, image_size=None):
     Returns:
         Path to the compiled model file, or None on failure
     """
-    import torch_tensorrt
-
     from export_onnx_n1d6 import Siglip2VisionTransformerOpt
+    import torch_tensorrt
 
     eagle_model = policy.model.backbone.model
     original_vit = eagle_model.vision_model.vision_model
@@ -77,7 +77,6 @@ def compile_vit(policy, output_dir, image_size=None):
     # Auto-detect image size from a sample inference if not provided
     if image_size is None:
         from export_onnx_n1d6 import prepare_observation
-
         from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 
         dataset = LeRobotEpisodeLoader(
@@ -162,9 +161,7 @@ def compile_vit(policy, output_dir, image_size=None):
         logger.info(f"Compiled vs Wrapper cosine: {cos_sim_wrapper:.6f}")
 
         if cos_sim_compiled < 0.999:
-            logger.warning(
-                f"Compiled ViT cosine {cos_sim_compiled:.6f} is below 0.999 threshold!"
-            )
+            logger.warning(f"Compiled ViT cosine {cos_sim_compiled:.6f} is below 0.999 threshold!")
 
         # Save compiled model
         os.makedirs(output_dir, exist_ok=True)
