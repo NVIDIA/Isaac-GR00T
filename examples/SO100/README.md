@@ -67,7 +67,7 @@ uv pip install --no-deps -e ../../../../
 
 2. Start policy server
 ```bash
-uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
   --model-path /tmp/so100_finetune/checkpoint-10000 \
   --embodiment-tag NEW_EMBODIMENT 
 ```

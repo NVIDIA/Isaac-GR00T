@@ -103,9 +103,6 @@ VENV_DIR="${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}"
 VENV_PYTHON="$VENV_DIR/bin/python"
 SITE_PKGS="$VENV_DIR/lib/python${PYTHON_VERSION}/site-packages"
 
-echo "Installing GPU extras..."
-uv sync --extra gpu --extra dev
-
 echo "Installing package in editable mode..."
 uv pip install --python "$VENV_PYTHON" -e .
 

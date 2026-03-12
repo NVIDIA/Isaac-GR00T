@@ -108,7 +108,7 @@ source .venv/bin/activate
 
 Or manually:
 ```bash
-uv sync --extra gpu
+uv sync
 uv pip install -e .
 ```
 
@@ -169,7 +169,7 @@ We also provide finetuned checkpoints for various robot platforms and benchmarks
 We can quickly start by downloading a pre-trained checkpoint and starting the policy server for any pretrained embodiement, e.g. GR1 embodiment.
 ```bash
 # On GPU server: Start the policy server
-uv run --extra=gpu python gr00t/eval/run_gr00t_server.py --embodiment-tag GR1 --model-path nvidia/GR00T-N1.6-3B
+uv run python gr00t/eval/run_gr00t_server.py --embodiment-tag GR1 --model-path nvidia/GR00T-N1.6-3B
 ```
 
 Then, refer to the [robocasa-gr1-tabletop-tasks](examples/robocasa-gr1-tabletop-tasks/README.md) for more details on how to rollout the policy with `GR1` embodiment.
@@ -308,7 +308,7 @@ After training your model, you'll use the `Gr00tPolicy` class to load and run in
 
 ```bash
 # On GPU server: Start the policy server
-uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path <CHECKPOINT_PATH> \
     --device cuda:0 \
@@ -334,7 +334,7 @@ When developing a new environment integration or debugging your inference loop, 
 
 ```bash
 # Start server with ReplayPolicy (replays actions from dataset)
-uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --dataset-path <DATASET_PATH> \
     --embodiment-tag NEW_EMBODIMENT \
     --execution-horizon 8  # should match the executed action horizon in the environment

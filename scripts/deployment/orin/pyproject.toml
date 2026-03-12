@@ -42,6 +42,9 @@ dependencies = [
     "wandb==0.23.0",
     "pyzmq==27.0.1",
     "torchcodec==0.10.0",
+    "flash-attn==2.8.3",
+    "onnx>=1.20.0",
+    "onnxscript",
 ]
 
 [project.optional-dependencies]
@@ -52,11 +55,6 @@ dev = [
     "pytest-timeout",
     "build",
     "pre-commit",
-]
-gpu = [
-    "flash-attn==2.8.3",
-    "onnx>=1.20.0",
-    "onnxscript",
 ]
 
 [tool.setuptools.packages.find]

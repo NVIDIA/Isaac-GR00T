@@ -70,9 +70,6 @@ cd "$REPO_ROOT"
 echo "Running uv sync (torch==2.7.1+cu128 from pytorch-cu128 index)..."
 uv sync
 
-echo "Installing GPU extras..."
-uv sync --extra gpu --extra dev
-
 echo "Installing package in editable mode..."
 uv pip install -e .
 
