@@ -124,7 +124,7 @@ uv sync --python 3.10
 uv pip install -e .
 
 # replace the model path with the path to your finetuned checkpoint or use the provided checkpoint
-uv run --extra=gpu gr00t/eval/run_gr00t_server.py \
+uv run gr00t/eval/run_gr00t_server.py \
     --model-path nvidia/GR00T-N1.6-BEHAVIOR1k \
     --embodiment-tag BEHAVIOR_R1_PRO \
     --use-sim-policy-wrapper

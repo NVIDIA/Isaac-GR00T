@@ -46,6 +46,10 @@ dependencies = [
     # Revisit if the Jetson AI Lab torch packages start vendoring them or declaring them reliably.
     "nvidia-cudnn-cu13",
     "nvidia-cudss-cu13",
+    "flash-attn==2.8.4",
+    "onnx>=1.20.0",
+    "onnxscript",
+    "tensorrt>=10.14.1.48.post1",
 ]
 
 [project.optional-dependencies]
@@ -56,12 +60,6 @@ dev = [
     "pytest-timeout",
     "build",
     "pre-commit",
-]
-gpu = [
-    "flash-attn==2.8.4",
-    "onnx>=1.20.0",
-    "onnxscript",
-    "tensorrt>=10.14.1.48.post1",
 ]
 
 [tool.setuptools.packages.find]

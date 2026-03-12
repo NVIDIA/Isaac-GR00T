@@ -214,7 +214,6 @@ def test_robocasa_gr1_tabletop_readme_eval_flow():
         "uv",
         "run",
         "--extra=dev",
-        "--extra=gpu",
         "python",
         str(MODEL_SERVER_SCRIPT),
         "--model-path",

@@ -79,7 +79,7 @@ You can use either a local finetuned checkpoint path or the remote finetuned che
 
 **Option 1: Local finetuned checkpoint**
 ```bash
-uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --model-path /tmp/fractal_finetune/checkpoint-30000 \
     --embodiment-tag OXE_GOOGLE \
     --use-sim-policy-wrapper
@@ -87,7 +87,7 @@ uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
 
 **Option 2: Remote finetuned checkpoint (directly runnable)**
 ```bash
-uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --model-path nvidia/GR00T-N1.6-fractal \
     --embodiment-tag OXE_GOOGLE \
     --use-sim-policy-wrapper

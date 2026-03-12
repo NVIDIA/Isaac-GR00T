@@ -17,7 +17,7 @@ RUN cd /opt && git clone https://github.com/facebookresearch/pytorch3d.git
 RUN cd /opt/pytorch3d && pip install .
 
 COPY src/gr00t/ /workspace/gr00t/
-RUN cd /workspace/gr00t && uv sync --extra gpu && uv pip install -e .
+RUN cd /workspace/gr00t && uv sync && uv pip install -e .
 
 WORKDIR /workspace/gr00t
 ENV VIRTUAL_ENV=/workspace/gr00t/.venv
