@@ -5,7 +5,7 @@ ENV NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute
 RUN apt-get update && apt-get install -y \
     build-essential yasm cmake libtool git pkg-config \
     libass-dev libfreetype6-dev libvorbis-dev \
-    autoconf automake texinfo tmux ffmpeg
+    autoconf automake texinfo tmux ffmpeg git-lfs
 
 RUN pip install --upgrade pip setuptools
 RUN pip install uv
