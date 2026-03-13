@@ -83,6 +83,27 @@ gr00t/eval/sim/GR00T-WholeBodyControl/GR00T-WholeBodyControl_uv/.venv/bin/python
     --n_envs 5
 ```
 
+## Troubleshooting Unitree G1 Evaluation
+
+If evaluation setup fails before rollout:
+
+1. Re-run environment checks:
+```bash
+uv run python scripts/eval/check_sim_eval_ready.py
+```
+2. Verify your training/eval dataset metadata:
+```bash
+uv run python scripts/lerobot_conversion/validate_v2_dataset.py \
+  --dataset-root /path/to/your_dataset
+```
+3. Apply automatic metadata repairs if needed (`episodes.jsonl`, `chunk_index`, etc.):
+```bash
+uv run python scripts/lerobot_conversion/validate_v2_dataset.py \
+  --dataset-root /path/to/your_dataset \
+  --write-fixes
+```
+4. Confirm `--embodiment-tag UNITREE_G1` is used by the policy server and that `--env_name` is one of the task names listed below.
+
 # Full task list
 
 - `gr00tlocomanip_g1_sim/LMPnPAppleToPlateDC_G1_gear_wbc`
