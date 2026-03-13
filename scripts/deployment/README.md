@@ -1,225 +1,222 @@
-# GR00T Deployment & Inference Guide
+# GR00T N1.6 TensorRT Deployment Guide
 
-Run inference with PyTorch or TensorRT acceleration for the GR00T policy.
+TensorRT acceleration for GR00T N1.6 inference. Converts 6 model components to TRT engines for faster inference on NVIDIA GPUs.
 
----
+## What Is Optimized
+
+The following 6 trainable components are exported to ONNX and compiled into TRT engines:
+
+| Engine | Description | Notes |
+|--------|-------------|-------|
+| **ViT** (Siglip2) | Vision encoder, 27 transformer layers | Largest backbone component |
+| **LLM** (Qwen3) | Language model, 16 transformer layers | Exported with eager attention (no flash) |
+| **State Encoder** | Embodiment-specific state MLP | Small, BF16 even in FP8 mode |
+| **Action Encoder** | Multi-embodiment action encoder | Small, BF16 even in FP8 mode |
+| **DiT** | Flow-matching diffusion transformer, 32 layers | Runs 4× per inference (denoising loop) |
+| **Action Decoder** | Embodiment-specific action MLP | Small, BF16 even in FP8 mode |
+
+### What Is NOT Optimized (remains in PyTorch)
+
+- **pixel_shuffle_back + MLP1**: Data-dependent reshape after ViT (~1ms)
+- **VLLN**: Single LayerNorm(2048), negligible latency
+- **Position embedding**: Lightweight lookup in denoising loop
+- **Embedding layer + vision token scatter**: Python-level token placement logic
+- **Data processing**: Tokenizer, image preprocessing (CPU-bound, ~5ms)
+
+These components contribute ~6ms combined overhead that is included in all reported timings below.
 
 ## Prerequisites
 
-- Model checkpoint (e.g., `nvidia/GR00T-N1.6-3B`)
-- Dataset in LeRobot format
-- CUDA-enabled GPU
+- CUDA-enabled GPU with sufficient VRAM (tested on H100 80GB)
+- Model checkpoint (base or finetuned)
+- Dataset in LeRobot format (needed during export to capture input shapes)
+- FP8 mode requires Hopper architecture (H100) or newer; RTX 4090 and Jetson Thor support BF16 only
 
 ### Installation
 
-**PyTorch mode** (default installation):
 ```bash
-uv sync
+uv sync --extra=gpu
 ```
 
-**TensorRT mode** (includes ONNX and TensorRT dependencies):
+This installs `flash-attn`, `onnx`, and `tensorrt`.
+
+---
+
+## Quick Start
+
+The pipeline script handles export, build, validation, and benchmarking:
+
 ```bash
-uv sync --extra tensorrt
+# BF16
+bash scripts/deployment/run_trt_pipeline.sh export_bf16       # ~5-10 min on H100
+bash scripts/deployment/run_trt_pipeline.sh build_bf16        # ~10-20 min on H100
+bash scripts/deployment/run_trt_pipeline.sh compare_detailed  # ~2 min
+bash scripts/deployment/run_trt_pipeline.sh benchmark         # ~5 min
+
+# FP8 (H100 / Hopper only)
+bash scripts/deployment/run_trt_pipeline.sh export_fp8        # ~15-20 min (includes calibration)
+bash scripts/deployment/run_trt_pipeline.sh build_fp8         # ~10-20 min
+bash scripts/deployment/run_trt_pipeline.sh compare_detailed_fp8
+bash scripts/deployment/run_trt_pipeline.sh benchmark_fp8
+```
+
+> **Build times**: ONNX export takes ~5-10 minutes, TRT engine build takes ~10-20 minutes per precision mode. Engines are GPU-architecture specific — they must be rebuilt when switching between different GPUs (e.g., H100 vs RTX 4090).
+
+### Exporting a Finetuned Model
+
+The export workflow is identical for base and finetuned models. Override `MODEL` with your checkpoint path:
+
+```bash
+MODEL=/path/to/finetuned/checkpoint bash scripts/deployment/run_trt_pipeline.sh export_bf16
+MODEL=/path/to/finetuned/checkpoint bash scripts/deployment/run_trt_pipeline.sh build_bf16
+```
+
+The checkpoint directory must contain:
+- `config.json` — model architecture config
+- `model-*.safetensors` — model weights (one or more shards)
+- `model.safetensors.index.json` — weight shard index
+- `processor_config.json` — processor configuration
+
+Example with a finetuned LIBERO checkpoint:
+
+```bash
+MODEL=/tmp/libero_10/checkpoint-20000 \
+DATASET=path/to/libero_dataset \
+bash scripts/deployment/run_trt_pipeline.sh export_bf16
+```
+
+### Changing Embodiment or Dataset
+
+```bash
+MODEL=/path/to/checkpoint \
+EMBODIMENT=NEW_EMBODIMENT \
+DATASET=path/to/your/dataset \
+bash scripts/deployment/run_trt_pipeline.sh export_bf16
 ```
 
 ---
 
-## Quick Start: PyTorch Mode
+## Embodiment Compatibility
+
+All testing was performed with **GR1** embodiment using `demo_data/gr1.PickNPlace`. The TRT engines use dynamic inputs (batch size, sequence length) and the `embodiment_id` input selects the correct MLP branch at runtime, so **a single set of engines supports multiple embodiments without re-exporting**.
+
+However, there are constraints that may require re-exporting:
+
+| Constraint | Default Value | Impact |
+|------------|--------------|--------|
+| `max_state_dim` | 128 | Embodiments with state dim > 128 need re-export |
+| `max_action_dim` | 128 | Embodiments with action dim > 128 need re-export |
+| `action_horizon` | 50 | Fixed at export time |
+| `image_size` | 252 (auto-detected) | Different image resolutions need re-export (ViT engine is resolution-specific) |
+| `llm_seq_len` | Dynamic (min=1, max=512) | Multi-view setups produce longer sequences; covered by dynamic shape profiles |
+
+---
+
+## Running Inference with TRT Engines
+
+### Policy Server (for sim evaluation or real robot)
 
 ```bash
-python scripts/deployment/standalone_inference_script.py \
-  --model-path nvidia/GR00T-N1.6-3B \
-  --dataset-path /path/to/dataset \
-  --embodiment-tag GR1 \
-  --traj-ids 0 1 2 \
-  --inference-mode pytorch \
-  --action-horizon 8
+uv run python gr00t/eval/run_gr00t_server.py \
+    --model_path nvidia/GR00T-N1.6-3B \
+    --embodiment_tag GR1 \
+    --port 5556 \
+    --trt_engine_path ./groot_n1d6_engines \
+    --trt_mode full_pipeline
 ```
 
----
-
-## TensorRT Mode (2x Faster)
-
-### Step 1: Export to ONNX
+### Standalone Benchmark
 
 ```bash
-python scripts/deployment/export_onnx_n1d6.py \
-  --model-path nvidia/GR00T-N1.6-3B \
-  --dataset-path /path/to/dataset \
-  --embodiment-tag GR1 \
-  --output-dir ./groot_n1d6_onnx
-```
-
-**Output:** `./groot_n1d6_onnx/dit_model.onnx`
-
-### Step 2: Build TensorRT Engine
-
-```bash
-python scripts/deployment/build_tensorrt_engine.py \
-  --onnx ./groot_n1d6_onnx/dit_model.onnx \
-  --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
-  --precision bf16
-```
-
-**Output:** `./groot_n1d6_onnx/dit_model_bf16.trt`
-
-> **Note:** Engine build takes ~5-10 minutes depending on GPU. The engine is GPU-specific and needs to be rebuilt for different GPU architectures.
-
-### Step 3: Run with TensorRT
-
-```bash
-python scripts/deployment/standalone_inference_script.py \
-  --model-path nvidia/GR00T-N1.6-3B \
-  --dataset-path /path/to/dataset \
-  --embodiment-tag GR1 \
-  --traj-ids 0 1 2 \
-  --inference-mode tensorrt \
-  --trt-engine-path ./groot_n1d6_onnx/dit_model_bf16.trt \
-  --action-horizon 8
+uv run python scripts/deployment/benchmark_inference.py \
+    --model_path nvidia/GR00T-N1.6-3B \
+    --dataset_path demo_data/gr1.PickNPlace \
+    --trt_engine_path ./groot_n1d6_engines \
+    --trt_mode full_pipeline
 ```
 
 ---
 
-## Command-Line Arguments
+## Performance (H100 80GB)
 
-### `standalone_inference_script.py`
+Model: GR00T-N1.6-3B, 4 denoising steps, GR1 embodiment, single-view.
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--model-path` | (required) | Path to model checkpoint |
-| `--dataset-path` | (required) | Path to LeRobot dataset |
-| `--embodiment-tag` | `GR1` | Embodiment tag |
-| `--traj-ids` | `[0]` | List of trajectory IDs to evaluate |
-| `--steps` | `200` | Max steps per trajectory |
-| `--action-horizon` | `16` | Action horizon for inference |
-| `--inference-mode` | `pytorch` | `pytorch` or `tensorrt` |
-| `--trt-engine-path` | `./groot_n1d6_onnx/dit_model_bf16.trt` | TensorRT engine path |
-| `--denoising-steps` | `4` | Number of denoising steps |
-| `--skip-timing-steps` | `1` | Steps to skip for timing (warmup) |
-| `--seed` | `42` | Random seed for reproducibility |
-| `--video-backend` | `torchcodec` | Video backend (`decord`, `torchvision_av`, `torchcodec`) |
+### Inference Timing
 
-### `export_onnx_n1d6.py`
+| Mode | Data Proc | Backbone | Action Head | E2E | Frequency |
+|------|-----------|----------|-------------|-----|-----------|
+| PyTorch Eager | 5 ms | 39 ms | 93 ms | 137 ms | 7.3 Hz |
+| torch.compile | 5 ms | 39 ms | 11 ms | 55 ms | 18.3 Hz |
+| **TRT BF16** | 5 ms | **6 ms** | **12 ms** | **24 ms** | **42.3 Hz** |
+| **TRT FP8** | 4 ms | **5 ms** | **10 ms** | **19 ms** | **52.5 Hz** |
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--model-path` | (required) | Path to model checkpoint |
-| `--dataset-path` | (required) | Path to dataset (for input shape capture) |
-| `--embodiment-tag` | `GR1` | Embodiment tag |
-| `--output-dir` | `./groot_n1d6_onnx` | Output directory for ONNX model |
-| `--video-backend` | `torchcodec` | Video backend |
+> **Note**: These frequencies measure model inference time only (data processing + backbone + action head). In a real deployment loop, additional overhead from sensor I/O, image preprocessing, network latency (if using server/client), and control loop timing will reduce the effective frequency. Expect actual deployment frequency to be lower than these numbers.
 
-### `build_tensorrt_engine.py`
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--onnx` | (required) | Path to ONNX model |
-| `--engine` | (required) | Path to save TensorRT engine |
-| `--precision` | `bf16` | Precision (`fp32`, `fp16`, `bf16`, `fp8`) |
-| `--workspace` | `8192` | Workspace size in MB |
-
-### `benchmark_inference.py`
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--model-path` | `nvidia/GR00T-N1.6-3B` | Path to model checkpoint |
-| `--dataset-path` | `demo_data/gr1.PickNPlace` | Path to dataset |
-| `--embodiment-tag` | `GR1` | Embodiment tag |
-| `--trt-engine-path` | (optional) | Path to TensorRT engine |
-| `--num-iterations` | `20` | Number of benchmark iterations |
-| `--warmup` | `5` | Number of warmup iterations |
-| `--skip-compile` | `false` | Skip torch.compile benchmark |
-| `--seed` | `42` | Random seed for reproducibility |
+> **Other GPUs**: These numbers are from H100. Performance on RTX 4090, A100, or Jetson Thor will differ. FP8 is only available on Hopper (H100) and newer architectures. Run `bash scripts/deployment/run_trt_pipeline.sh benchmark` on your target hardware to measure actual performance.
 
 ---
 
-## Benchmarks
+## Accuracy Validation
 
-### Component-wise Breakdown
+### Method
 
-> **Note:** The backbone (Vision Encoder + Language Model) timing is the same across all modes (Eager, torch.compile, TensorRT). Only the **Action Head (DiT)** is optimized with torch.compile or TensorRT, which is why you see significant speedups in the Action Head column while the Backbone column remains constant.
+Accuracy is verified at three levels:
 
-GR00T-N1.6-3B inference timing (4 denoising steps):
+1. **Per-Component Isolation** (`--compare-detailed`): Each TRT engine is tested independently — the same input is fed to both the PyTorch module and the TRT engine, and their outputs are compared via cosine similarity. This isolates each engine's precision from upstream drift.
 
-| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
-|--------|------|-----------------|----------|-------------|-----|-----------|
-| RTX 5090 | PyTorch Eager | 2 ms | 18 ms | 38 ms | 58 ms | 17.3 Hz |
-| RTX 5090 | torch.compile | 2 ms | 18 ms | 16 ms | 37 ms | 27.3 Hz |
-| RTX 5090 | TensorRT | 2 ms | 18 ms | 11 ms | 31 ms | 32.1 Hz |
-| H100 | PyTorch Eager | 4 ms | 23 ms | 49 ms | 77 ms | 13.0 Hz |
-| H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
-| H100 | TensorRT | 4 ms | 22 ms | 10 ms | 36 ms | 27.9 Hz |
-| RTX 4090 | PyTorch Eager | 2 ms | 25 ms | 55 ms | 82 ms | 12.2 Hz |
-| RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
-| RTX 4090 | TensorRT | 2 ms | 24 ms | 16 ms | 43 ms | 23.3 Hz |
-| Thor | PyTorch Eager | 5 ms | 38 ms | 74 ms | 117 ms | 8.6 Hz |
-| Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
-| Thor | TensorRT | 5 ms | 38 ms | 49 ms | 92 ms | 10.9 Hz |
-| Orin | PyTorch Eager | 6 ms | 93 ms | 202 ms | 300 ms | 3.3 Hz |
-| Orin | torch.compile | 6 ms | 93 ms | 101 ms | 199 ms | 5.0 Hz |
-| Orin | TensorRT | 6 ms | 95 ms | 72 ms | 173 ms | 5.8 Hz |
+2. **End-to-End Action Output** (`--compare`): Both PyTorch and TRT pipelines process the same observation with the same random noise. The final action predictions are compared.
 
+3. **Task Success Rate** (RoboCasa simulation): Cosine similarity alone does not guarantee correct robot behavior over long episodes. The full RoboCasa GR1 tabletop evaluation suite (24 tasks, 20 episodes each) measures task success rate for each inference backend.
 
-### Speedup vs PyTorch Eager
+### Per-Component Cosine Similarity (BF16)
 
-| Device | Mode | E2E Speedup | Action Head Speedup |
-|--------|------|-------------|---------------------|
-| RTX 5090 | PyTorch Eager | 1.00x | 1.00x |
-| RTX 5090 | torch.compile | 1.58x | 2.32x |
-| RTX 5090 | TensorRT | 1.86x | 3.59x |
-| H100 | PyTorch Eager | 1.00x | 1.00x |
-| H100 | torch.compile | 2.02x | 4.60x |
-| H100 | TensorRT | 2.14x | 4.80x |
-| RTX 4090 | PyTorch Eager | 1.00x | 1.00x |
-| RTX 4090 | torch.compile | 1.87x | 3.26x |
-| RTX 4090 | TensorRT | 1.92x | 3.48x |
-| Thor | PyTorch Eager | 1.00x | 1.00x |
-| Thor | torch.compile | 1.11x | 1.20x |
-| Thor | TensorRT | 1.27x | 1.49x |
-| Orin | PyTorch Eager | 1.00x | 1.00x |
-| Orin | torch.compile | 1.50x | 2.00x |
-| Orin | TensorRT | 1.73x | 2.80x |
+| Component | Cosine Similarity | Status |
+|-----------|-------------------|--------|
+| ViT (Siglip2) | 0.998375 | WARN (flash→TRT attention drift, inherent to export) |
+| LLM (Qwen3) | 0.999777 | PASS |
+| State Encoder | 1.000000 | PASS |
+| Action Encoder | 0.999996 | PASS |
+| DiT | 0.999993 | PASS |
+| Action Decoder | 1.000000 | PASS |
+| **E2E Action** | **0.999998** | **PASS** |
 
-> Run `python scripts/deployment/benchmark_inference.py` to generate benchmarks for your hardware.
-> See `GR00T_inference_timing.ipynb` for detailed analysis and visualizations.
+### RoboCasa Task Success Rate (24 tasks, 20 episodes each)
 
-> Experiments on Thor and Orin used different dependency stacks. Thor with CUDA 13, PyTorch 2.9, using supporting packages sourced from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130); and Orin with CUDA 12.6, PyTorch 2.8, using supporting packages sourced from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126).
----
+| Mode | Avg Success Rate | Statistically Significant vs Eager? |
+|------|-----------------|-------------------------------------|
+| PyTorch Eager | 0.5048 | — |
+| TRT BF16 | 0.4618 | NO (t=-1.78, p>0.05) |
+| TRT FP8 | 0.5060 | NO (t=+0.04, p>0.05) |
 
-## Troubleshooting
+Neither TRT mode shows statistically significant degradation. Differences are within simulation variance.
 
-### Engine Build Fails
-
-- Ensure you have enough GPU memory (8GB+ recommended)
-- Try reducing workspace size: `--workspace 4096`
-- Ensure TensorRT version matches your CUDA version
-
-### ONNX Export Issues
-
-- If export fails, ensure the model loads correctly in PyTorch first
-- Check that the dataset path is valid and contains at least one trajectory
+> **Note**: The RoboCasa evaluation takes **3+ hours per backend** (24 tasks × 20 episodes × 720 max steps). Running all three backends sequentially takes ~10 hours. Use `bash scripts/deployment/eval_trt_robocasa.sh quick` for a faster smoke test (2 episodes).
 
 ---
 
-## Architecture
+## Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    GR00T Policy                             │
-│  ┌───────────────┐  ┌───────────────┐  ┌─────────────────┐  │
-│  │ Vision Encoder│  │Language Model │  │  Action Head    │  │
-│  │(Cosmos-Reason)│──│(Cosmos-Reason)│──│    (DiT)        │  │
-│  └───────────────┘  └───────────────┘  └─────────────────┘  │
-│                                              ▲              │
-│                                              │              │
-│                                    ┌─────────┴─────────┐    │
-│                                    │ TensorRT Engine   │    │
-│                                    │ (dit_model.trt)   │    │
-│                                    └───────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-```
+┌──────────────────────────────────────────────────────────────────┐
+│                     GR00T Policy                                 │
+│                                                                  │
+│  Backbone:                                                       │
+│  ┌──────────┐   ┌──────────────┐   ┌─────────┐   ┌──────────┐  │
+│  │ ViT (TRT)│ → │pixel_shuffle │ → │MLP1 (PT)│ → │ LLM (TRT)│  │
+│  │ Siglip2  │   │  (PyTorch)   │   │         │   │  Qwen3   │  │
+│  └──────────┘   └──────────────┘   └─────────┘   └──────────┘  │
+│                                                                  │
+│  Action Head:                                                    │
+│  ┌────────┐  ┌──────────────┐  ┌─────────┐  ┌──────────────┐   │
+│  │VLLN(PT)│→ │State Enc(TRT)│→ │DiT (TRT)│→ │Act Dec (TRT) │   │
+│  └────────┘  └──────────────┘  │×4 steps  │  └──────────────┘   │
+│              ┌──────────────┐  │          │                      │
+│              │Act Enc (TRT) │→ │          │                      │
+│              └──────────────┘  └─────────┘                       │
+└──────────────────────────────────────────────────────────────────┘
 
-The TensorRT optimization targets the **DiT (Diffusion Transformer)** component of the action head, which is the main computational bottleneck during inference.
+TRT = TensorRT engine    PT = PyTorch (small ops, not worth TRT overhead)
+```
 
 ---
 
@@ -227,8 +224,38 @@ The TensorRT optimization targets the **DiT (Diffusion Transformer)** component 
 
 | File | Description |
 |------|-------------|
-| `standalone_inference_script.py` | Main inference script (PyTorch + TensorRT) |
-| `export_onnx_n1d6.py` | Export DiT model to ONNX format |
-| `build_tensorrt_engine.py` | Build TensorRT engine from ONNX |
-| `benchmark_inference.py` | Benchmark data processing, backbone, action head, and E2E timing |
-| `GR00T_inference_timing.ipynb` | Inference timing analysis notebook with visualizations |
+| `run_trt_pipeline.sh` | Pipeline runner: export → build → validate → benchmark |
+| `export_onnx_n1d6.py` | Export 6 components to ONNX (BF16 or FP8 with calibration) |
+| `build_tensorrt_engine.py` | Build TRT engines from ONNX (auto shape profiles from metadata) |
+| `benchmark_inference.py` | Benchmark and accuracy comparison (`--compare`, `--compare-detailed`) |
+| `trt_model_forward.py` | TRT forward functions and engine setup (monkey-patches policy) |
+| `trt_torch.py` | TRT engine wrapper class |
+| `eval_trt_robocasa.sh` | RoboCasa sim evaluation across backends (eager vs BF16 vs FP8) |
+| `vit_trt_compile.py` | Experimental: torch_tensorrt ViT compilation (preserves SDPA) |
+| `accuracy_thresholds.py` | Centralized accuracy thresholds for validation |
+
+---
+
+## Troubleshooting
+
+### Engine Build Fails
+- Ensure 8GB+ GPU memory available
+- Try `--workspace 4096` to reduce memory usage
+- Engines are GPU-architecture specific — rebuild when switching GPUs
+
+### TRT Version Mismatch
+- Engines must be built with the same TRT version used at runtime
+- Check: `python -c "import tensorrt; print(tensorrt.__version__)"`
+- Rebuild engines after TRT version upgrades
+
+### flash-attn Not Found
+- Run `uv sync --extra=gpu` (bare `uv sync` removes flash-attn)
+
+### ONNX Export Fails
+- Ensure model loads in PyTorch first
+- Ensure dataset has at least 1 trajectory
+- Check `export_metadata.json` is generated in output dir
+
+### FP8 Not Available
+- FP8 requires Hopper architecture (H100) or newer
+- RTX 4090 (Ada) and Jetson Thor support BF16 only
