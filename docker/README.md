@@ -4,7 +4,7 @@ Docker configuration for building and running a containerized GR00T environment 
 
 ## Prerequisites
 
-- Docker (version 20.10+) and [perform post-installation setup](https://docs.docker.com/engine/install/linux-postinstall/) to verify that you can run docker commands without sudo.
+- Docker (version 20.10+) and [perform post-installation setup](https://docs.docker.com/engine/install/linux-postinstall/) so you can run Docker commands without sudo. If you skip this setup, prefix the Docker commands below with `sudo`.
 - NVIDIA Container Toolkit ([installation guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html))
 - NVIDIA GPU with compatible drivers
 - Bash shell
@@ -46,6 +46,16 @@ bash build.sh --profile=thor
 ```
 
 For full Thor usage instructions (inference, benchmarks, bare metal setup), see the [Deployment & Inference Guide](../scripts/deployment/README.md#jetson-thor-setup).
+
+## Spark Container (DGX Spark / CUDA 13)
+
+The `gr00t-spark` image is built from `scripts/deployment/spark/Dockerfile` for DGX Spark with CUDA 13 support:
+
+```bash
+bash build.sh --profile=spark
+```
+
+For full Spark usage instructions (inference, benchmarks, bare metal setup), see the [Deployment & Inference Guide](../scripts/deployment/README.md#dgx-spark-setup).
 
 ## Orin Container (Jetson Orin / CUDA 12.6)
 

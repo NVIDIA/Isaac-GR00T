@@ -124,6 +124,18 @@ source scripts/activate_thor.sh
 
 See the [Thor setup guide](scripts/deployment/README.md#jetson-thor-setup) for Docker and bare metal details.
 
+#### DGX Spark
+
+Tested with DGX Spark GB10.
+
+```bash
+bash scripts/deployment/spark/install_deps.sh
+source .venv/bin/activate
+source scripts/activate_spark.sh
+```
+
+See the [Spark setup guide](scripts/deployment/README.md#dgx-spark-setup) for Docker and bare metal details.
+
 #### Jetson Orin
 
 Tested with JetPack 6.2.
@@ -204,6 +216,7 @@ GR00T-N1.6-3B inference timing (4 denoising steps, single view):
 | H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
 | RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
 | Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
+| Spark | torch.compile | 2 ms | 33 ms | 54 ms | 89 ms | 11.2 Hz |
 
 For more details, please check our full [inference guide](scripts/deployment/README.md) for more details including faster inference with `TensorRT`
 

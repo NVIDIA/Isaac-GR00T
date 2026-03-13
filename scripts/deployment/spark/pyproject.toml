@@ -1,0 +1,85 @@
+# Spark platform pyproject.toml — DGX Spark (aarch64, CUDA 13, Python 3.12)
+# This is a self-contained config with no platform markers needed.
+
+[tool.uv.workspace]
+members = ["groot_infra"]
+
+[build-system]
+requires = ["setuptools>=67", "wheel", "pip"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gr00t"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "albumentations==1.4.18",
+    "av==16.1.0",
+    "diffusers==0.36.0.dev0",
+    "dm-tree==0.1.8",
+    "lmdb==1.7.5",
+    "msgpack==1.1.0",
+    "msgpack-numpy==0.4.8",
+    "pandas==2.2.3",
+    "peft==0.17.1",
+    "termcolor==3.2.0",
+    "torch==2.10.0",
+    "triton==3.5.0",
+    "torchvision==0.25.0",
+    "transformers==4.51.3",
+    "tyro==0.9.17",
+    "click==8.1.8",
+    "datasets==3.6.0",
+    "cryptography>=44.0.0",
+    "einops==0.8.1",
+    "gitpython==3.1.46",
+    "gymnasium==1.2.2",
+    "matplotlib==3.10.1",
+    "numpy==1.26.4",
+    "omegaconf==2.3.0",
+    "scipy==1.15.3",
+    "wandb==0.23.0",
+    "pyzmq==27.0.1",
+    "torchcodec==0.10.0",
+    "onnx>=1.20.0",
+    "onnxscript",
+    "tensorrt>=10.14.1.48.post1",
+    # Keep these as direct pins: the Spark torch wheel does not bundle these runtime libs,
+    # and we want them installed even if torch's transitive dependency metadata changes upstream.
+    # Revisit if the Jetson AI Lab torch packages start vendoring them or declaring them reliably.
+    "nvidia-cudnn-cu13",
+    "nvidia-cudss-cu13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "ipython",
+    "pytest",
+    "pytest-timeout",
+    "build",
+    "pre-commit",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gr00t*"]
+
+[tool.uv]
+
+[tool.uv.sources]
+torch = [{ index = "jetson-sbsa-cu130" }]
+torchvision = [{ index = "jetson-sbsa-cu130" }]
+torchcodec = [{ index = "jetson-sbsa-cu130" }]
+triton = [{ index = "jetson-sbsa-cu130" }]
+diffusers = [{ index = "jetson-sbsa-cu130" }]
+
+[[tool.uv.index]]
+name = "nvidia-pypi"
+url = "https://pypi.nvidia.com"
+explicit = true
+
+[[tool.uv.index]]
+name = "jetson-sbsa-cu130"
+url = "https://pypi.jetson-ai-lab.io/sbsa/cu130/+simple"
+explicit = true

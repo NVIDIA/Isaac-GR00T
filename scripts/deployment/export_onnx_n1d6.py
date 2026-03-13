@@ -31,6 +31,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def _is_spark_sm121() -> bool:
+    if not torch.cuda.is_available():
+        return False
+
+    major, minor = torch.cuda.get_device_capability()
+    return (major, minor) == (12, 1)
+
+
+def _should_use_dynamo_exporter() -> bool:
+    override = os.environ.get("GR00T_ONNX_EXPORTER_MODE")
+    if override == "legacy":
+        return False
+    if override == "default":
+        return True
+
+    return not _is_spark_sm121()
+
+
 class DiTInputCapture:
     """
     Helper class to capture DiT forward pass inputs during inference.
@@ -219,6 +237,11 @@ def export_dit_to_onnx(
 
     # Export to ONNX
     logger.info(f"Exporting to {output_path}...")
+    use_dynamo_exporter = _should_use_dynamo_exporter()
+    logger.info(
+        "Using %s ONNX exporter",
+        "dynamo" if use_dynamo_exporter else "legacy",
+    )
 
     # Create a wrapper to handle keyword arguments
     # torch.onnx.export uses positional args: `dit.forward(arg1, arg2...)`
@@ -258,6 +281,7 @@ def export_dit_to_onnx(
             do_constant_folding=True,
             dynamic_axes=dynamic_axes,
             export_params=True,
+            dynamo=use_dynamo_exporter,
         )
 
     logger.info(" DiT exported successfully!")
