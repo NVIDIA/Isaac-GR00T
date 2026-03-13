@@ -145,6 +145,7 @@ class TestProcessorVariableImageSize:
             images=mock_images,
             image_transform=processor.eval_image_transform,
             language="pick up the object",
+            masks=None,
         )
 
         assert "vlm_content" in vlm_inputs
@@ -166,6 +167,7 @@ class TestProcessorVariableImageSize:
             images=mock_images,
             image_transform=processor.eval_image_transform,
             language="pick up the object",
+            masks=None,
         )
 
         assert "vlm_content" in vlm_inputs
