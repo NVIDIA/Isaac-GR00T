@@ -94,6 +94,12 @@ If you've already cloned without submodules, initialize them separately:
 ```sh
 git submodule update --init --recursive
 ```
+### Install System Dependencies
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg libsm6 libxext6
+```
 
 ### Set Up the Environment
 
