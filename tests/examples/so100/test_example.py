@@ -93,6 +93,7 @@ def test_so100_readme_workflow_executes_via_subprocess() -> None:
             [
                 "uv",
                 "run",
+                "--extra=gpu",
                 "bash",
                 "examples/SO100/finetune_so100.sh",
             ],
@@ -122,6 +123,7 @@ def test_so100_readme_workflow_executes_via_subprocess() -> None:
             [
                 "uv",
                 "run",
+                "--extra=gpu",
                 "python",
                 "gr00t/eval/open_loop_eval.py",
                 "--dataset-path",

@@ -15,9 +15,25 @@
 
 ## NVIDIA Isaac GR00T
 
-<div align="center">
-  <img src="media/stacked_demo.gif" width="800" alt="GR00T Demo">
-</div>
+<!-- <div align="center">
+<img src="media/H1-MultiView.gif" height="240" alt="YAM arms">
+<img src="media/H3-head-2x.gif" height="240" alt="AgiBot Genie-1">
+<img src="media/W4.gif" height="240" alt="Unitree G1">
+</div> -->
+<!-- <img src="media/banner.gif" height="240" alt="Unitree G1"> -->
+<table style="width:100%; table-layout:fixed;">
+  <tr>
+    <td style="width:33.33%; text-align:center;">
+      <img src="media/unitree_g1.gif" style="max-width:100%; height:auto;">
+    </td>
+    <td style="width:33.33%; text-align:center;">
+      <img src="media/agibot_g1.gif" style="max-width:100%; height:auto;">
+    </td>
+    <td style="width:33.33%; text-align:center;">
+      <img src="media/yam.gif" style="max-width:100%; height:auto;">
+    </td>
+  </tr>
+</table>
 
 > We just released GR00T N1.6, an updated version of GR00T N1 with improved performance and new features. Check out the [release blog post](https://research.nvidia.com/labs/gear/gr00t-n1_6/) for more details.
 
@@ -97,61 +113,23 @@ git submodule update --init --recursive
 
 ### Set Up the Environment
 
-GR00T uses [uv](https://github.com/astral-sh/uv) for fast, reproducible dependency management. Each supported platform has its own dependency configuration under `scripts/deployment/`.
+GR00T uses [uv](https://github.com/astral-sh/uv) for fast, reproducible dependency management.
 
-#### dGPU (Non-Jetson) — Default
+> **Requirement:** uv **v0.8.4+** is needed to parse `[tool.uv.extra-build-dependencies]` in `pyproject.toml` (required for building `flash-attn`). For RTX-5090, this was tested with CUDA 12.8, `flash-attn==2.8.0.post2`, `pytorch-cu128`.
 
-```bash
-bash scripts/deployment/dgpu/install_deps.sh
-source .venv/bin/activate
-```
+After installing uv, create the environment and install GR00T:
 
-Or manually:
-```bash
-uv sync
+```sh
+uv sync --python 3.10
 uv pip install -e .
 ```
 
-#### Jetson AGX Thor
+> Note: CUDA 12.4 is recommended and officially tested. However, CUDA 11.8 has also been verified to work.
+> In such cases, make sure to install a compatible version of `flash-attn` manually (e.g., `flash-attn==2.8.2` was confirmed working with CUDA 11.8).
 
-Tested with JetPack 7.1.
+For a containerized setup that avoids system-level dependency conflicts, see our [Docker Setup Guide](docker/README.md).
 
-```bash
-bash scripts/deployment/thor/install_deps.sh
-source .venv/bin/activate
-source scripts/activate_thor.sh
-```
-
-See the [Thor setup guide](scripts/deployment/README.md#jetson-thor-setup) for Docker and bare metal details.
-
-#### DGX Spark
-
-Tested with DGX Spark GB10.
-
-```bash
-bash scripts/deployment/spark/install_deps.sh
-source .venv/bin/activate
-source scripts/activate_spark.sh
-```
-
-See the [Spark setup guide](scripts/deployment/README.md#dgx-spark-setup) for Docker and bare metal details.
-
-#### Jetson Orin
-
-Tested with JetPack 6.2.
-
-```bash
-bash scripts/deployment/orin/install_deps.sh
-source .venv/bin/activate
-source scripts/activate_orin.sh
-```
-
-See the [Orin setup guide](scripts/deployment/README.md#jetson-orin-setup) for Docker and bare metal details.
-
-For a containerized setup on any platform, see the [Docker Setup Guide](docker/README.md).
-Use the Docker guide to build the image and open a container, and the [Deployment & Inference Guide](scripts/deployment/README.md) for copy-paste inference and benchmark commands.
-
-For training and inference hardware recommendations, see the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md).
+For training and inference hardware recommendations (RTX PRO Servers, DGX, Jetson AGX Thor), see the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md).
 
 ## Model Checkpoints
 
@@ -181,7 +159,7 @@ We also provide finetuned checkpoints for various robot platforms and benchmarks
 We can quickly start by downloading a pre-trained checkpoint and starting the policy server for any pretrained embodiement, e.g. GR1 embodiment.
 ```bash
 # On GPU server: Start the policy server
-uv run python gr00t/eval/run_gr00t_server.py --embodiment-tag GR1 --model-path nvidia/GR00T-N1.6-3B
+uv run --extra=gpu python gr00t/eval/run_gr00t_server.py --embodiment-tag GR1 --model-path nvidia/GR00T-N1.6-3B
 ```
 
 Then, refer to the [robocasa-gr1-tabletop-tasks](examples/robocasa-gr1-tabletop-tasks/README.md) for more details on how to rollout the policy with `GR1` embodiment.
@@ -216,7 +194,6 @@ GR00T-N1.6-3B inference timing (4 denoising steps, single view):
 | H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
 | RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
 | Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
-| Spark | torch.compile | 2 ms | 33 ms | 54 ms | 89 ms | 11.2 Hz |
 
 For more details, please check our full [inference guide](scripts/deployment/README.md) for more details including faster inference with `TensorRT`
 
@@ -321,7 +298,7 @@ After training your model, you'll use the `Gr00tPolicy` class to load and run in
 
 ```bash
 # On GPU server: Start the policy server
-uv run python gr00t/eval/run_gr00t_server.py \
+uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path <CHECKPOINT_PATH> \
     --device cuda:0 \
@@ -347,7 +324,7 @@ When developing a new environment integration or debugging your inference loop, 
 
 ```bash
 # Start server with ReplayPolicy (replays actions from dataset)
-uv run python gr00t/eval/run_gr00t_server.py \
+uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
     --dataset-path <DATASET_PATH> \
     --embodiment-tag NEW_EMBODIMENT \
     --execution-horizon 8  # should match the executed action horizon in the environment

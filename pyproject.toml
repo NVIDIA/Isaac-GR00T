@@ -1,4 +1,4 @@
-# Default platform pyproject.toml (x86, GB200, and any non-Jetson GPU)
+#This is the single project pyproject.toml
 
 [tool.uv.workspace]
 members = ["groot_infra"]
@@ -10,7 +10,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gr00t"
 version = "0.1.0"
-requires-python = ">=3.10,<3.13"
+requires-python = "==3.10.*"
+# Mirror the main repo's baseline dependencies so install behaves the same.
 dependencies = [
     "albumentations==1.4.18",
     "av==16.1.0",
@@ -23,6 +24,7 @@ dependencies = [
     "peft==0.17.1",
     "termcolor==3.2.0",
     "torch==2.7.1",
+    "triton==3.3.1; sys_platform == 'linux' and platform_machine == 'aarch64'",
     "torchvision==0.22.1",
     "transformers==4.51.3",
     "tyro==0.9.17",
@@ -36,17 +38,13 @@ dependencies = [
     "numpy==1.26.4",
     "omegaconf==2.3.0",
     "scipy==1.15.3",
-    # torchcodec has no aarch64 Linux wheel — built from source on aarch64 by install_deps.sh
+    # torchcodec does not currently publish Linux aarch64 wheels.
+    # TODO: build from source when ARM support is required.
     "torchcodec==0.4.0; platform_machine != 'aarch64' or sys_platform != 'linux'",
     "wandb==0.23.0",
     "pyzmq==27.0.1",
-    # deepspeed has no aarch64 Linux wheel
+    # deepspeed does not currently publish Linux aarch64 wheels.
     "deepspeed==0.17.6; platform_machine != 'aarch64' or sys_platform != 'linux'",
-    # triton is needed on aarch64 (GB200) but ships with torch on x86_64
-    "triton==3.3.1; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "flash-attn==2.7.4.post1",
-    "onnx>=1.20.0",
-    "tensorrt>=10.14.1.48.post1",
 ]
 
 [project.optional-dependencies]
@@ -58,25 +56,29 @@ dev = [
     "build",
     "pre-commit",
 ]
+gpu = [
+    "flash-attn==2.7.4.post1",
+    "onnx>=1.20.0",
+    "tensorrt>=10.14.1.48.post1",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["gr00t*"]
 
-[tool.uv]
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch==2.7.1", "numpy==1.26.4", "triton==3.3.1"]
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu128" }]
-torchvision = [{ index = "pytorch-cu128" }]
+torch = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux' and (platform_machine == 'aarch64')" },
+]
+torchvision = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux' and (platform_machine == 'aarch64')" },
+]
 triton = [
     { index = "pytorch-cu128", marker = "sys_platform == 'linux' and (platform_machine == 'aarch64')" },
 ]
-flash-attn = [
-    { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
-]
-
-[tool.uv.extra-build-dependencies]
-flash-attn = ["torch==2.7.1", "numpy==1.26.4", "triton==3.3.1"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"

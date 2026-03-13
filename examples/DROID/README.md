@@ -7,7 +7,7 @@ We provide a checkpoint that is post-trained on the [DROID](https://droid-datase
 On a machine with a sufficiently powerful GPU, start the policy server from the root folder of this repo:
 
 ```bash
-uv run python gr00t/eval/run_gr00t_server.py --embodiment-tag OXE_DROID --use_sim_policy_wrapper --model-path=nvidia/GR00T-N1.6-DROID
+uv run --extra=gpu python gr00t/eval/run_gr00t_server.py --embodiment-tag OXE_DROID --use_sim_policy_wrapper --model-path=nvidia/GR00T-N1.6-DROID
 ```
 
 ## 2. Control Script:

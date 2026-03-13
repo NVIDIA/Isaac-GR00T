@@ -49,7 +49,7 @@ Remember to update the script with your dataset and output paths:
 **Step 1**: Launch the GR00T inference server:
 
 ```bash
-uv run python gr00t/eval/run_gr00t_server.py \
+uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
     --model-path <path/to/checkpoint> \
     --embodiment-tag NEW_EMBODIMENT \
     --device cuda:0 \

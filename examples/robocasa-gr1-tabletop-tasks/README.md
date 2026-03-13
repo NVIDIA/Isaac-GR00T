@@ -50,7 +50,7 @@ Then, run client server evaluation under the project root directory in separate 
 
 **Terminal 1 - Server:**
 ```bash
-uv run python gr00t/eval/run_gr00t_server.py \
+uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
     --model-path nvidia/GR00T-N1.6-3B \
     --embodiment-tag GR1 \
     --use-sim-policy-wrapper

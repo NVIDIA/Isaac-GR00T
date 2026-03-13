@@ -173,11 +173,6 @@ def test_robocasa_gr1_tabletop_readme_eval_flow():
     # 1) If assets already exist on shared PVC, reuse them by symlinking.
     # 2) Otherwise run setup with download enabled.
     shared_assets_ready = _shared_assets_ready()
-    if not shared_assets_ready and not SHARED_DRIVE_ROOT.exists():
-        pytest.skip(
-            "Shared asset drive not available (/shared); "
-            "this test requires either pre-cached assets or a CI environment with /shared mounted."
-        )
     if shared_assets_ready:
         # Ensure setup sees required repo asset paths when downloads are skipped.
         _point_repo_assets_to_shared()
@@ -214,6 +209,7 @@ def test_robocasa_gr1_tabletop_readme_eval_flow():
         "uv",
         "run",
         "--extra=dev",
+        "--extra=gpu",
         "python",
         str(MODEL_SERVER_SCRIPT),
         "--model-path",
