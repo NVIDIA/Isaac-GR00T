@@ -252,8 +252,8 @@ class ArgsConfig:
     dataset_path: str = "demo_data/cube_to_bowl_5/"
     """Path to the dataset."""
 
-    embodiment_tag: EmbodimentTag = EmbodimentTag.NEW_EMBODIMENT
-    """Embodiment tag to use."""
+    embodiment_tag: str = "new_embodiment"
+    """Embodiment tag (name or value, case-insensitive). Run with --help to see known tags."""
 
     model_path: str | None = None
     """Path to the model checkpoint."""
@@ -269,6 +269,7 @@ class ArgsConfig:
 
 
 def main(args: ArgsConfig):
+    args.embodiment_tag = EmbodimentTag.resolve(args.embodiment_tag)
     # Set up logging
     logging.basicConfig(level=logging.INFO)
 

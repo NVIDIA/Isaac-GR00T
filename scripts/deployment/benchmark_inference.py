@@ -8,33 +8,35 @@ Measures component-wise timing for:
 - Action Head (DiT): Flow-matching diffusion model
 - E2E: Full end-to-end inference
 
-Supports four inference modes:
+Supports five inference modes:
 1. PyTorch Eager: Standard PyTorch execution
 2. torch.compile: PyTorch 2.0+ JIT compilation with max-autotune
 3. TensorRT (DiT-only): Optimized DiT action head using TensorRT engine
 4. TensorRT (Full Pipeline): All 6 components in TRT (ViT + LLM + Action Head)
+5. TensorRT (vit_llm_only): ViT + LLM in TRT, action head in PyTorch (use on Spark/sm121)
 
 Usage:
     # Basic benchmark (Eager + torch.compile)
     python scripts/deployment/benchmark_inference.py \
-        --model_path nvidia/GR00T-N1.7-3B
+        --model-path nvidia/GR00T-N1.7-3B
 
     # With DiT-only TRT
     python scripts/deployment/benchmark_inference.py \
-        --model_path nvidia/GR00T-N1.7-3B \
-        --trt_engine_path ./gr00t_n1d7_onnx/dit_model_bf16.trt
+        --model-path nvidia/GR00T-N1.7-3B \
+        --trt-engine-path ./gr00t_n1d7_onnx/dit_model_bf16.trt
 
     # With full-pipeline TRT (6 engines)
     python scripts/deployment/benchmark_inference.py \
-        --model_path nvidia/GR00T-N1.7-3B \
-        --trt_engine_path ./gr00t_n1d7_engines \
-        --trt_mode n17_full_pipeline
+        --model-path nvidia/GR00T-N1.7-3B \
+        --trt-engine-path ./gr00t_n1d7_engines \
+        --trt-mode n17_full_pipeline
 """
 
-import argparse
+from dataclasses import dataclass
 import os
 import sys
 import time
+from typing import Literal
 
 import gr00t
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
@@ -44,6 +46,7 @@ from gr00t.data.types import MessageType, VLAStepData
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 import numpy as np
 import torch
+import tyro
 
 
 # Ensure scripts/deployment/ is on sys.path for sibling module imports
@@ -315,44 +318,44 @@ def print_markdown_table(results, device_name, denoising_steps):
     print("\n" + "=" * 100)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Benchmark GR00T inference timing")
-    parser.add_argument("--model_path", type=str, default="nvidia/GR00T-N1.7-3B")
-    parser.add_argument(
-        "--dataset_path",
-        type=str,
-        default=None,
-        help="Path to dataset. Defaults to demo_data/gr1.PickNPlace",
-    )
-    parser.add_argument("--embodiment_tag", type=str, default="gr1_unified")
-    parser.add_argument(
-        "--trt_engine_path",
-        type=str,
-        default=None,
-        help="Path to TensorRT engine. If not provided, TensorRT benchmark is skipped.",
-    )
-    parser.add_argument("--num_iterations", type=int, default=20)
-    parser.add_argument("--warmup", type=int, default=5)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument(
-        "--trt_mode",
-        type=str,
-        default="dit_only",
-        choices=["dit_only", "n17_full_pipeline"],
-        help="TRT mode: 'dit_only' (DiT engine only) or 'n17_full_pipeline' (all 6 engines)",
-    )
-    parser.add_argument(
-        "--skip_compile",
-        action="store_true",
-        help="Skip torch.compile benchmark (can take a while due to JIT compilation)",
-    )
-    parser.add_argument(
-        "--use_trajectory",
-        action="store_true",
-        help="Benchmark on full trajectory instead of single data point. "
-        "This cycles through all steps in an episode for more realistic benchmarking.",
-    )
-    args = parser.parse_args()
+@dataclass
+class BenchmarkConfig:
+    """Configuration for GR00T inference benchmarking."""
+
+    model_path: str = "nvidia/GR00T-N1.7-3B"
+    """Path to model checkpoint."""
+
+    dataset_path: str | None = None
+    """Path to dataset. Defaults to demo_data/gr1.PickNPlace."""
+
+    embodiment_tag: str = "gr1_unified"
+    """Embodiment tag to use."""
+
+    trt_engine_path: str | None = None
+    """Path to TensorRT engine. If not provided, TensorRT benchmark is skipped."""
+
+    num_iterations: int = 20
+    """Number of benchmark iterations."""
+
+    warmup: int = 5
+    """Number of warmup iterations."""
+
+    seed: int = 42
+    """Random seed for reproducibility."""
+
+    trt_mode: Literal["dit_only", "n17_full_pipeline", "vit_llm_only"] = "dit_only"
+    """TRT mode: 'dit_only' (DiT engine only), 'n17_full_pipeline' (all 6 engines), or 'vit_llm_only' (ViT+LLM TRT, action head in PyTorch — use on Spark/sm121)."""
+
+    skip_compile: bool = False
+    """Skip torch.compile benchmark (can take a while due to JIT compilation)."""
+
+    use_trajectory: bool = False
+    """Benchmark on full trajectory instead of single data point. This cycles through all steps in an episode for more realistic benchmarking."""
+
+
+def main(args: BenchmarkConfig | None = None):
+    if args is None:
+        args = tyro.cli(BenchmarkConfig)
 
     set_seed(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -546,10 +549,10 @@ def main():
             strict=True,
         )
 
-        if args.trt_mode == "n17_full_pipeline":
+        if args.trt_mode in ("n17_full_pipeline", "vit_llm_only"):
             from trt_model_forward import setup_tensorrt_engines
 
-            setup_tensorrt_engines(policy_trt, args.trt_engine_path, mode="n17_full_pipeline")
+            setup_tensorrt_engines(policy_trt, args.trt_engine_path, mode=args.trt_mode)
         else:
             from standalone_inference_script import replace_dit_with_tensorrt
 
@@ -578,12 +581,12 @@ def main():
         print(f"\nTensorRT engine not found: {args.trt_engine_path}")
         print("To build engines for full pipeline, run:")
         print(
-            "  python scripts/deployment/export_onnx_n1d7.py --model_path nvidia/GR00T-N1.7-3B"
-            " --dataset_path demo_data/gr1.PickNPlace --output_dir ./gr00t_n1d7_onnx --export_mode full_pipeline"
+            "  python scripts/deployment/export_onnx_n1d7.py --model-path nvidia/GR00T-N1.7-3B"
+            " --dataset-path demo_data/gr1.PickNPlace --output-dir ./gr00t_n1d7_onnx --export-mode full_pipeline"
         )
         print(
             "  python scripts/deployment/build_tensorrt_engine.py --mode full_pipeline"
-            " --onnx_dir ./gr00t_n1d7_onnx --engine_dir ./gr00t_n1d7_engines --precision bf16"
+            " --onnx-dir ./gr00t_n1d7_onnx --engine-dir ./gr00t_n1d7_engines --precision bf16"
         )
 
     # ========================================
@@ -615,4 +618,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    config = tyro.cli(BenchmarkConfig)
+    main(config)

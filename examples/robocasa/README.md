@@ -67,7 +67,7 @@ Then, run client server evaluation under the project root directory in separate 
 
 **Terminal 1 - Server:**
 ```bash
-uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --model-path nvidia/GR00T-N1.7-3B \
     --embodiment-tag ROBOCASA_PANDA_OMRON \
     --use-sim-policy-wrapper
@@ -76,11 +76,11 @@ uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
 **Terminal 2 - Client:**
 ```bash
 gr00t/eval/sim/robocasa/robocasa_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
-    --n_episodes 10 \
-    --policy_client_host 127.0.0.1 \
-    --policy_client_port 5555 \
-    --max_episode_steps=720 \
-    --env_name robocasa_panda_omron/OpenDrawer_PandaOmron_Env \
-    --n_action_steps 8 \
-    --n_envs 5
+    --n-episodes 10 \
+    --policy-client-host 127.0.0.1 \
+    --policy-client-port 5555 \
+    --max-episode-steps 720 \
+    --env-name robocasa_panda_omron/OpenDrawer_PandaOmron_Env \
+    --n-action-steps 8 \
+    --n-envs 5
 ```

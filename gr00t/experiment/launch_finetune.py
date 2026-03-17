@@ -32,6 +32,9 @@ if __name__ == "__main__":
         os.environ["LOGURU_LEVEL"] = "INFO"
     # Use tyro for clean CLI
     ft_config = tyro.cli(FinetuneConfig, description=__doc__)
+    from gr00t.data.embodiment_tags import EmbodimentTag
+
+    ft_config.embodiment_tag = EmbodimentTag.resolve(ft_config.embodiment_tag)
     embodiment_tag = ft_config.embodiment_tag.value
 
     # all rank workers should register for the modality config

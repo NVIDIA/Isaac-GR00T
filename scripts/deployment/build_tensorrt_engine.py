@@ -13,19 +13,21 @@ Usage:
     # Full pipeline:
     python scripts/deployment/build_tensorrt_engine.py \
         --mode full_pipeline \
-        --onnx_dir ./gr00t_n1d7_onnx \
-        --engine_dir ./gr00t_n1d7_engines \
+        --onnx-dir ./gr00t_n1d7_onnx \
+        --engine-dir ./gr00t_n1d7_engines \
         --precision bf16
 """
 
-import argparse
+from dataclasses import dataclass
 import json
 import logging
 import os
 import time
+from typing import Literal
 
 import onnx
 import tensorrt as trt
+import tyro
 
 
 # Set up logging
@@ -409,50 +411,35 @@ def build_full_pipeline(onnx_dir, engine_dir, precision="bf16", workspace_mb=819
 # ============================================================
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Build TensorRT engines from ONNX models")
+@dataclass
+class BuildConfig:
+    """Configuration for building TensorRT engines from ONNX models."""
 
-    parser.add_argument(
-        "--mode",
-        type=str,
-        default="single",
-        choices=["single", "full_pipeline"],
-        help="Build mode: 'single' (one engine) or 'full_pipeline' (all engines)",
-    )
+    mode: Literal["single", "full_pipeline"] = "single"
+    """Build mode: 'single' (one engine) or 'full_pipeline' (all engines)."""
 
-    # Single engine mode
-    parser.add_argument("--onnx", type=str, default=None, help="Path to ONNX model (single mode)")
-    parser.add_argument(
-        "--engine", type=str, default=None, help="Path to save TensorRT engine (single mode)"
-    )
+    onnx: str | None = None
+    """Path to ONNX model (single mode)."""
 
-    # Full pipeline mode
-    parser.add_argument(
-        "--onnx_dir",
-        type=str,
-        default="./gr00t_n1d7_onnx",
-        help="Directory with ONNX models (full_pipeline mode)",
-    )
-    parser.add_argument(
-        "--engine_dir",
-        type=str,
-        default="./gr00t_n1d7_engines",
-        help="Directory to save engines (full_pipeline mode)",
-    )
+    engine: str | None = None
+    """Path to save TensorRT engine (single mode)."""
 
-    # Shared options
-    parser.add_argument(
-        "--precision",
-        type=str,
-        default="bf16",
-        choices=["fp32", "fp16", "bf16", "fp8"],
-        help="Precision mode (default: bf16)",
-    )
-    parser.add_argument(
-        "--workspace", type=int, default=8192, help="Workspace size in MB (default: 8192)"
-    )
+    onnx_dir: str = "./gr00t_n1d7_onnx"
+    """Directory with ONNX models (full_pipeline mode)."""
 
-    args = parser.parse_args()
+    engine_dir: str = "./gr00t_n1d7_engines"
+    """Directory to save engines (full_pipeline mode)."""
+
+    precision: Literal["fp32", "fp16", "bf16", "fp8"] = "bf16"
+    """Precision mode (default: bf16)."""
+
+    workspace: int = 8192
+    """Workspace size in MB (default: 8192)."""
+
+
+def main(args: BuildConfig | None = None):
+    if args is None:
+        args = tyro.cli(BuildConfig)
 
     if args.mode == "full_pipeline":
         build_full_pipeline(
@@ -463,7 +450,7 @@ def main():
         )
     else:
         if not args.onnx or not args.engine:
-            parser.error("--onnx and --engine are required in single mode")
+            raise ValueError("--onnx and --engine are required in single mode")
 
         # Auto-derive shapes from the ONNX model
         min_shapes, opt_shapes, max_shapes = derive_shapes_with_hint(args.onnx)
@@ -479,4 +466,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    config = tyro.cli(BuildConfig)
+    main(config)

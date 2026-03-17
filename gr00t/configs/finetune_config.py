@@ -1,8 +1,6 @@
 # Finetune config used for single node post-training.
 from dataclasses import dataclass
 
-from gr00t.data.embodiment_tags import EmbodimentTag
-
 
 @dataclass
 class FinetuneConfig:
@@ -22,8 +20,8 @@ class FinetuneConfig:
     dataset_path: str
     """Path to the dataset root directory containing trajectory data for fine-tuning."""
 
-    embodiment_tag: EmbodimentTag
-    """Identifier specifying which embodiment (robot configuration) this fine-tuning run targets."""
+    embodiment_tag: str
+    """Embodiment tag (name or value, case-insensitive). See EmbodimentTag for known tags."""
 
     modality_config_path: str | None = None
     """

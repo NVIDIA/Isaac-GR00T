@@ -125,13 +125,13 @@ uv run python gr00t/eval/run_gr00t_server.py \
 **Terminal 2 - Client:**
 ```bash
 gr00t/eval/sim/LIBERO/libero_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
-    --n_episodes 10 \
-    --policy_client_host 127.0.0.1 \
-    --policy_client_port 5555 \
-    --max_episode_steps=720 \
-    --env_name libero_sim/KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it \
-    --n_action_steps 8 \
-    --n_envs 5
+    --n-episodes 10 \
+    --policy-client-host 127.0.0.1 \
+    --policy-client-port 5555 \
+    --max-episode-steps 720 \
+    --env-name libero_sim/KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it \
+    --n-action-steps 8 \
+    --n-envs 5
 ```
 
 # Full task list

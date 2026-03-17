@@ -20,8 +20,8 @@ class ServerConfig:
     model_path: str | None = None
     """Path to the model checkpoint directory"""
 
-    embodiment_tag: EmbodimentTag = EmbodimentTag.NEW_EMBODIMENT
-    """Embodiment tag"""
+    embodiment_tag: str = "new_embodiment"
+    """Embodiment tag (name or value, case-insensitive). Run with --help to see known tags."""
 
     device: str = "cuda"
     """Device to run the model on"""
@@ -51,6 +51,7 @@ class ServerConfig:
 
 
 def main(config: ServerConfig):
+    config.embodiment_tag = EmbodimentTag.resolve(config.embodiment_tag)
     print("Starting GR00T inference server...")
     print(f"  Embodiment tag: {config.embodiment_tag}")
     print(f"  Model path: {config.model_path}")

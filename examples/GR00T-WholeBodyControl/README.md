@@ -81,11 +81,11 @@ uv run python gr00t/eval/run_gr00t_server.py \
 **Terminal 2 - Client:**
 ```bash
 gr00t/eval/sim/GR00T-WholeBodyControl/GR00T-WholeBodyControl_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
-    --n_episodes 10 \
-    --max_episode_steps=1440 \
-    --env_name gr00tlocomanip_g1_sim/LMPnPAppleToPlateDC_G1_gear_wbc \
-    --n_action_steps 20 \
-    --n_envs 5
+    --n-episodes 10 \
+    --max-episode-steps 1440 \
+    --env-name gr00tlocomanip_g1_sim/LMPnPAppleToPlateDC_G1_gear_wbc \
+    --n-action-steps 20 \
+    --n-envs 5
 ```
 
 # Full task list

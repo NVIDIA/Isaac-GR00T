@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Quick verification: compare PyTorch vs TRT action head outputs for N1.7."""
 
+from dataclasses import dataclass
 import os
 import sys
+from typing import Literal
 
 import torch
 from torch.nn.functional import cosine_similarity
+import tyro
 
 
 # Make sibling imports work
@@ -17,22 +20,29 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 
 
-def main():
-    import argparse
+@dataclass
+class VerifyConfig:
+    """Configuration for TRT verification."""
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str, default="nvidia/GR00T-N1.7-3B")
-    parser.add_argument("--dataset_path", type=str, default="demo_data/gr1.PickNPlace")
-    parser.add_argument("--engine_dir", type=str, default="./gr00t_n1d7_engines")
-    parser.add_argument(
-        "--mode",
-        type=str,
-        default="action_head",
-        choices=["action_head", "n17_full_pipeline"],
-        help="TRT setup mode",
-    )
-    parser.add_argument("--embodiment_tag", type=EmbodimentTag, default=EmbodimentTag.GR1)
-    args = parser.parse_args()
+    model_path: str = "nvidia/GR00T-N1.7-3B"
+    """Path to model checkpoint."""
+
+    dataset_path: str = "demo_data/gr1.PickNPlace"
+    """Path to dataset."""
+
+    engine_dir: str = "./gr00t_n1d7_engines"
+    """Directory with TRT engines."""
+
+    mode: Literal["action_head", "n17_full_pipeline", "vit_llm_only"] = "action_head"
+    """TRT setup mode: 'vit_llm_only' uses ViT+LLM TRT with PyTorch action head."""
+
+    embodiment_tag: EmbodimentTag = EmbodimentTag.GR1
+    """Embodiment tag to use."""
+
+
+def main(args: VerifyConfig | None = None):
+    if args is None:
+        args = tyro.cli(VerifyConfig)
 
     print("=" * 60)
     print("N1.7 TRT Action Head Verification")
@@ -115,4 +125,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    config = tyro.cli(VerifyConfig)
+    main(config)

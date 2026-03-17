@@ -24,9 +24,16 @@ Architecture (n17_full_pipeline mode):
   Action Head: VLLN (PyTorch) → State Encoder (TRT) → denoising loop:
                [ Action Encoder (TRT) → DiT (TRT) → Action Decoder (TRT) ]
 
+Architecture (vit_llm_only mode):
+  Backbone: ViT (TRT) → embed_tokens + masked_scatter + get_rope_index (PyTorch)
+            → LLM (TRT, with deepstack injection)
+  Action Head: stays in PyTorch
+  Use when DiT cannot be exported with dynamic vl_seq_len (e.g. torch 2.10 / sm121).
+
 Architecture (action_head mode):
   Backbone: stays in PyTorch (Qwen3-VL)
-  Action Head: same as above
+  Action Head: VLLN (PyTorch) → State Encoder (TRT) → denoising loop:
+               [ Action Encoder (TRT) → DiT (TRT) → Action Decoder (TRT) ]
 """
 
 from functools import partial
@@ -111,6 +118,18 @@ def _qwen3_vit_and_scatter(self, vl_input):
 
     image_mask_out = input_ids == self._image_token_id
     backbone_attention_mask = attention_mask == 1
+
+    # transformers 4.57+ strips padding tokens before calling language_model internally.
+    # Apply the same stripping so TRT engine inputs match export-time captured shapes.
+    valid_mask = attention_mask[0] == 1  # [full_seq_len]
+    if not valid_mask.all():
+        inputs_embeds = inputs_embeds[:, valid_mask, :]
+        attention_mask = attention_mask[:, valid_mask]
+        position_ids = position_ids[:, :, valid_mask]
+        if visual_pos_masks is not None:
+            visual_pos_masks = visual_pos_masks[:, valid_mask]
+        image_mask_out = image_mask_out[:, valid_mask]
+        backbone_attention_mask = backbone_attention_mask[:, valid_mask]
 
     return {
         "inputs_embeds": inputs_embeds,
@@ -366,17 +385,21 @@ def setup_tensorrt_engines(policy, trt_engine_path, mode="n17_full_pipeline"):
         policy: Gr00tPolicy instance
         trt_engine_path: Path to directory containing TRT engine files
         mode: 'n17_full_pipeline' (ViT TRT + LLM TRT + Action Head TRT),
+              'vit_llm_only' (ViT TRT + LLM TRT, Action Head in PyTorch),
               'action_head' (Action Head TRT only), or 'dit_only'
     """
     if mode == "n17_full_pipeline":
         _setup_n17_full_pipeline(policy, trt_engine_path)
+    elif mode == "vit_llm_only":
+        _setup_vit_llm_only(policy, trt_engine_path)
     elif mode == "action_head":
         _setup_action_head(policy, trt_engine_path)
     elif mode == "dit_only":
         _setup_dit_only(policy, trt_engine_path)
     else:
         raise ValueError(
-            f"Unknown mode: {mode}. Expected 'n17_full_pipeline', 'action_head', or 'dit_only'."
+            f"Unknown mode: {mode}. Expected 'n17_full_pipeline', 'vit_llm_only', "
+            f"'action_head', or 'dit_only'."
         )
 
 
@@ -426,11 +449,11 @@ def _setup_n17_full_pipeline(policy, trt_engine_path):
             f"To fix this, either:\n"
             f"  1. Rebuild the ViT engine (recommended for full pipeline performance):\n"
             f"       python scripts/deployment/export_onnx_n1d7.py \\\n"
-            f"         --model_path <MODEL> --dataset_path <DATA> \\\n"
-            f"         --output_dir ./gr00t_n1d7_onnx --export_mode full_pipeline\n"
+            f"         --model-path <MODEL> --dataset-path <DATA> \\\n"
+            f"         --output-dir ./gr00t_n1d7_onnx --export-mode full_pipeline\n"
             f"       python scripts/deployment/build_tensorrt_engine.py \\\n"
-            f"         --mode full_pipeline --onnx_dir ./gr00t_n1d7_onnx \\\n"
-            f"         --engine_dir {trt_engine_path} --precision bf16\n\n"
+            f"         --mode full_pipeline --onnx-dir ./gr00t_n1d7_onnx \\\n"
+            f"         --engine-dir {trt_engine_path} --precision bf16\n\n"
             f"  2. Use action_head mode instead (backbone stays in PyTorch):\n"
             f"       setup_tensorrt_engines(policy, '{trt_engine_path}', mode='action_head')"
         )
@@ -488,6 +511,56 @@ def _setup_n17_full_pipeline(policy, trt_engine_path):
     vit_status = "TRT" if backbone.vit_engine else "PyTorch"
     print("N1.7 full-pipeline TRT engines loaded.")
     print(f"  ViT: {vit_status} | LLM: {llm_status} | Action Head: TRT")
+
+
+def _setup_vit_llm_only(policy, trt_engine_path):
+    """Set up TRT engines for ViT + LLM only; action head stays in PyTorch.
+
+    Use this on platforms where DiT cannot be exported with dynamic vl_seq_len
+    (e.g. DGX Spark / torch 2.10 dynamo exporter bakes seq_len as static).
+    The backbone (ViT TRT + LLM TRT) still gets TRT acceleration; the PyTorch
+    action head receives the LLM embeddings at the actual runtime seq_len
+    without any shape constraint.
+    """
+    backbone = policy.model.backbone
+    qwen_model = backbone.model  # Qwen3VLForConditionalGeneration
+
+    # Save references needed by the TRT forward
+    backbone._embedding_layer = qwen_model.model.language_model.get_input_embeddings()
+    backbone._image_token_id = qwen_model.config.image_token_id
+
+    # Load ViT TRT engine
+    vit_engine_path = os.path.join(trt_engine_path, "vit_bf16.engine")
+    if not os.path.exists(vit_engine_path):
+        raise FileNotFoundError(
+            f"ViT TRT engine not found: {vit_engine_path}\n"
+            f"Run export_onnx_n1d7.py + build_tensorrt_engine.py first."
+        )
+    print(f"Loading ViT engine: {vit_engine_path}")
+    backbone.vit_engine = Engine(vit_engine_path)
+    del qwen_model.model.visual
+    torch.cuda.empty_cache()
+    print("  Deleted PyTorch ViT (replaced by TRT engine)")
+
+    # Load LLM TRT engine
+    llm_engine_path = os.path.join(trt_engine_path, "llm_bf16.engine")
+    if not os.path.exists(llm_engine_path):
+        raise FileNotFoundError(
+            f"LLM TRT engine not found: {llm_engine_path}\n"
+            f"Run export_onnx_n1d7.py + build_tensorrt_engine.py first."
+        )
+    print(f"Loading LLM engine: {llm_engine_path}")
+    backbone.llm_engine = Engine(llm_engine_path)
+    del qwen_model.model.language_model.layers
+    del qwen_model.model.language_model.norm
+    torch.cuda.empty_cache()
+    print("  Deleted PyTorch LLM layers (replaced by TRT engine)")
+
+    # Patch backbone forward to use ViT TRT + LLM TRT
+    backbone.forward = partial(qwen3_backbone_full_trt_forward, backbone)
+
+    print("vit_llm_only TRT engines loaded.")
+    print("  ViT: TRT | LLM: TRT | Action Head: PyTorch")
 
 
 def _setup_action_head(policy, trt_engine_path):

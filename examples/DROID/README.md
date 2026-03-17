@@ -2,6 +2,8 @@
 
 > **Note:** N1.7 finetuned checkpoint is not yet available. You can use the N1.6 checkpoint below with the [n1.6-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) branch, or finetune from the N1.7 base model.
 
+> **Note:** The DROID dataset contains multiple language instruction paraphrases per episode (`language_instruction`, `language_instruction_2`, `language_instruction_3`). These are used for language augmentation during training. At inference time, only the first language key is used.
+
 We provide a checkpoint that is post-trained on the [DROID](https://droid-dataset.github.io/) dataset - [GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID). Follow the instructions below to run inference for this model.
 
 ## 1. Inference Server:
@@ -9,7 +11,7 @@ We provide a checkpoint that is post-trained on the [DROID](https://droid-datase
 On a machine with a sufficiently powerful GPU, start the policy server from the root folder of this repo:
 
 ```bash
-uv run python gr00t/eval/run_gr00t_server.py --embodiment-tag OXE_DROID --use_sim_policy_wrapper --model-path=nvidia/GR00T-N1.6-DROID
+uv run python gr00t/eval/run_gr00t_server.py --embodiment-tag OXE_DROID --use-sim-policy-wrapper --model-path=nvidia/GR00T-N1.6-DROID
 ```
 
 ## 2. Control Script:
@@ -25,5 +27,5 @@ pip install tyro moviepy==1.0.3 pydantic numpy==1.26.4
 
 3. Start the control script:
 ```bash
-python examples/DROID/main_gr00t.py --external_camera="left" # or "right"
+python examples/DROID/main_gr00t.py --external-camera="left" # or "right"
 ```

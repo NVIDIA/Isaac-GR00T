@@ -58,7 +58,7 @@ class Gr00tPolicy(BasePolicy):
 
     def __init__(
         self,
-        embodiment_tag: EmbodimentTag,
+        embodiment_tag: EmbodimentTag | str,
         model_path: str,
         *,
         device: int | str,
@@ -67,7 +67,8 @@ class Gr00tPolicy(BasePolicy):
         """Initialize the Gr00t Policy.
 
         Args:
-            embodiment_tag: The embodiment tag defining the robot/environment type
+            embodiment_tag: The embodiment tag defining the robot/environment type.
+                Accepts an EmbodimentTag enum or a string (resolved case-insensitively).
             model_path: Path to the pretrained model checkpoint directory
             device: Device to run the model on (e.g., 'cuda:0', 0, 'cpu')
             strict: Whether to enforce strict input validation (default: True)
@@ -76,6 +77,8 @@ class Gr00tPolicy(BasePolicy):
         import gr00t.model  # noqa: F401
 
         super().__init__(strict=strict)
+        if isinstance(embodiment_tag, str):
+            embodiment_tag = EmbodimentTag.resolve(embodiment_tag)
         model_dir = Path(model_path)
 
         # Load the pretrained model and move to target device with bfloat16 precision
@@ -90,18 +93,27 @@ class Gr00tPolicy(BasePolicy):
 
         # Store embodiment-specific configurations
         self.embodiment_tag = embodiment_tag
+        all_modality_configs = self.processor.get_modality_configs()
+        if self.embodiment_tag.value not in all_modality_configs:
+            supported = sorted(all_modality_configs.keys())
+            raise ValueError(
+                f"Embodiment tag '{self.embodiment_tag.value}' "
+                f"(EmbodimentTag.{self.embodiment_tag.name}) is not supported "
+                f"by this checkpoint. Supported tags: {', '.join(supported)}"
+            )
         self.modality_configs = {
             k: v
-            for k, v in self.processor.get_modality_configs()[self.embodiment_tag.value].items()
+            for k, v in all_modality_configs[self.embodiment_tag.value].items()
             if k != "rl_info"
         }
         self.collate_fn = self.processor.collator
 
         # Extract and validate language configuration
-        # Currently only supports single language input per timestep
+        # Some embodiments (e.g. OXE_DROID) define multiple language keys for
+        # training-time augmentation (paraphrases). At inference we only use the first key.
         language_keys = self.modality_configs["language"].modality_keys
         language_delta_indices = self.modality_configs["language"].delta_indices
-        assert len(language_keys) == 1, "Only one language key is supported"
+        assert len(language_keys) >= 1, "At least one language key is required"
         assert len(language_delta_indices) == 1, "Only one language delta index is supported"
         self.language_key = language_keys[0]
 

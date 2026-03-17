@@ -33,9 +33,30 @@ When running inference scripts (e.g., `standalone_inference_script.py`, `open_lo
 
 Determines which modality config the model uses (state/action keys, normalization). **Must match the robot type of your dataset.**
 
+The tag is **case-insensitive** and accepts either the enum name or the string value.
+For example, `--embodiment-tag gr1`, `--embodiment-tag GR1`, and `--embodiment-tag gr1_unified` all resolve to the same tag. An unknown tag will produce an error listing all known options.
+
 - **Pretrain tags** (e.g., `GR1`, `ROBOCASA_PANDA_OMRON`) — use for zero-shot inference on datasets that match the pretrained embodiment. The modality config is loaded from the model checkpoint.
 - **Posttrain tags** (e.g., `UNITREE_G1`, `BEHAVIOR_R1_PRO`) — use for finetuned checkpoints trained on that embodiment.
 - **`NEW_EMBODIMENT`** — use for custom robots. Requires a `--modality-config-path` during finetuning. After finetuning, the config is saved in the checkpoint and loaded automatically during inference.
+
+#### Known Embodiment Tags
+
+**Pretrain** (baked into the N1.7 base model):
+- `GR1` / `gr1_unified` — Fourier GR1 humanoid
+- `ROBOCASA_PANDA_OMRON` / `robocasa_panda_omron` — RoboCasa Panda with Omron mobile base
+- `XDOF` / `xdof` — Generic X-DOF robot
+- `AGIBOT` / `agibot` — AgiBot robot
+
+**Posttrain** (pre-registered finetuned embodiments shipped with N1.7):
+- `UNITREE_G1` / `unitree_g1_full_body_with_waist_height_nav_cmd` — Unitree G1 full-body
+- `SIMPLER_ENV_GOOGLE` / `simpler_env_google` — SimplerEnv Google Robot
+- `SIMPLER_ENV_WIDOWX` / `simpler_env_widowx` — SimplerEnv WidowX
+- `OXE_DROID` / `oxe_droid_joint_position_relative` — OXE DROID (relative joint position)
+- `BEHAVIOR_R1_PRO` / `sim_behavior_r1_pro` — Behavior R1 Pro (sim)
+
+**Finetuning** (for custom robots):
+- `NEW_EMBODIMENT` / `new_embodiment` — Any new embodiment
 
 > **Important:** You cannot mix embodiment tags and datasets. For example, `--embodiment-tag GR1` expects GR1 state keys (`left_arm`, `right_arm`, `waist`, etc.) and will fail on an SO100 dataset (`single_arm`, `gripper`).
 
@@ -394,13 +415,13 @@ python gr00t/eval/run_gr00t_server.py \
 
 # Terminal 2: Run evaluation with the replay policy
 python gr00t/eval/rollout_policy.py \
-    --n_episodes 1 \
-    --policy_client_host 127.0.0.1 \
-    --policy_client_port 5555 \
-    --max_episode_steps 720 \
-    --env_name <env_prefix>/<task_name> \
-    --n_action_steps 8 \
-    --n_envs 1
+    --n-episodes 1 \
+    --policy-client-host 127.0.0.1 \
+    --policy-client-port 5555 \
+    --max-episode-steps 720 \
+    --env-name <env_prefix>/<task_name> \
+    --n-action-steps 8 \
+    --n-envs 1
 ```
 
 If your environment is set up correctly, replaying ground-truth actions should achieve high (often 100%) success rates. Low success rates indicate issues with:
