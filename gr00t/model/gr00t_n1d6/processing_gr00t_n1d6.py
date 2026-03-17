@@ -253,14 +253,18 @@ class Gr00tN1d6Processor(BaseProcessor):
             out_dict, embodiment_tag.value, state=state
         )
 
-    def _apply_vlm_processing(self, images: np.ndarray, language: str) -> BatchFeature:
+    def _apply_vlm_processing(
+        self, images: np.ndarray | list, language: str
+    ) -> BatchFeature:
         """
         Args:
-            batch:
-                video: [T, C, H, W]
+            images: Either a numpy array of shape [N, C, H, W] (all same size),
+                   or a list of numpy arrays with shape [C, H, W] (variable sizes)
+            language: The language instruction
         Returns: vlm_content format for collation
         """
         # Convert images to PIL format
+        # Works for both numpy array (all same size) and list (variable sizes)
         pil_images = [Image.fromarray(np.transpose(v, (1, 2, 0))) for v in images]
 
         # Create conversation with images and text
@@ -436,11 +440,32 @@ class Gr00tN1d6Processor(BaseProcessor):
             assert v.dtype == torch.uint8, f"{v} is not a uint8 tensor"
             assert v.shape[1] == 3, f"{v} is not a 3 channel tensor"
 
-        stacked_images = (
-            torch.stack([temporal_stacked_images[view] for view in image_keys], dim=1)
-            .flatten(0, 1)
-            .numpy()
-        )  # (T*V, C, H, W), Eagle processor expects numpy array
+        # Check if all views have the same spatial dimensions
+        shapes = [temporal_stacked_images[view].shape[-2:] for view in image_keys]
+        all_same_size = all(s == shapes[0] for s in shapes)
+
+        if all_same_size:
+            # Original behavior: stack all views together
+            stacked_images = (
+                torch.stack(
+                    [temporal_stacked_images[view] for view in image_keys], dim=1
+                )
+                .flatten(0, 1)
+                .numpy()
+            )  # (T*V, C, H, W), Eagle processor expects numpy array
+        else:
+            # Handle variable-sized images: concatenate as list without stacking
+            # Flatten temporal dimension for each view and collect all images
+            all_images = []
+            for view in image_keys:
+                view_images = temporal_stacked_images[view]  # (T, C, H, W)
+                for t in range(view_images.shape[0]):
+                    all_images.append(view_images[t].numpy())  # (C, H, W)
+            stacked_images = (
+                np.array(all_images)
+                if all(img.shape == all_images[0].shape for img in all_images)
+                else all_images
+            )  # List of (C, H, W) arrays with different sizes
 
         vlm_inputs = self._apply_vlm_processing(stacked_images, language)
         return vlm_inputs
