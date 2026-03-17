@@ -11,24 +11,24 @@ Supports three export modes:
 Usage:
     # DiT only (default)
     python export_onnx_n1d7.py \\
-        --model_path nvidia/GR00T-N1.7-3B \\
-        --dataset_path demo_data/gr1.PickNPlace \\
-        --output_dir ./gr00t_n1d7_onnx
+        --model-path nvidia/GR00T-N1.7-3B \\
+        --dataset-path demo_data/gr1.PickNPlace \\
+        --output-dir ./gr00t_n1d7_onnx
 
     # Action head (4 components)
     python export_onnx_n1d7.py \\
-        --model_path nvidia/GR00T-N1.7-3B \\
-        --dataset_path demo_data/gr1.PickNPlace \\
-        --output_dir ./gr00t_n1d7_onnx \\
-        --export_mode action_head
+        --model-path nvidia/GR00T-N1.7-3B \\
+        --dataset-path demo_data/gr1.PickNPlace \\
+        --output-dir ./gr00t_n1d7_onnx \\
+        --export-mode action_head
 """
 
-import argparse
 import copy
+from dataclasses import dataclass
 import json
 import logging
 import os
-from typing import Any
+from typing import Any, Literal
 
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
@@ -39,6 +39,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.onnx
+import tyro
 
 
 # Set up logging
@@ -64,10 +65,8 @@ def _should_use_dynamo_exporter() -> bool:
     return not _is_spark_sm121()
 
 
-class DiTInputCapture:
-    """
-    Helper class to capture DiT forward pass inputs during inference.
-    """
+def _consolidate_external_data(onnx_path: str) -> None:
+    """Merge scattered external-data files into a single .data file next to the ONNX model."""
     import onnx
     from onnx.external_data_helper import convert_model_to_external_data
 
@@ -97,6 +96,15 @@ class DiTInputCapture:
     for f in scattered:
         os.remove(os.path.join(onnx_dir, f))
     logger.info(f"  Consolidated and cleaned up {len(scattered)} files.")
+
+
+def verify_onnx_export(onnx_path: str) -> None:
+    """Load and check the exported ONNX model for validity."""
+    import onnx
+
+    logger.info(f"  Verifying {onnx_path} ...")
+    onnx.checker.check_model(onnx_path)
+    logger.info("  ONNX model verified successfully.")
 
 
 # ============================================================
@@ -414,13 +422,6 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     output_names = ["image_embeds", "deepstack_features"]
-    dynamic_axes = {
-        "pixel_values": {0: "num_patches"},
-        "image_embeds": {0: "num_merged_patches"},
-    }
-    num_deepstack = len(captured_vit.deepstack_shapes)
-    if num_deepstack > 0:
-        dynamic_axes["deepstack_features"] = {1: "num_merged_patches"}
 
     logger.info(f"  Exporting to {output_path}...")
     with torch.inference_mode():
@@ -432,7 +433,6 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True):
             output_names=output_names,
             opset_version=19,
             do_constant_folding=True,
-            dynamic_axes=dynamic_axes,
             export_params=True,
         )
 
@@ -665,11 +665,12 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True):
 
     export_inputs = [inputs_embeds, attention_mask, position_ids]
     input_names = ["inputs_embeds", "attention_mask", "position_ids"]
-    dynamic_axes = {
-        "inputs_embeds": {0: "batch_size", 1: "seq_len"},
-        "attention_mask": {0: "batch_size", 1: "seq_len"},
-        "position_ids": {1: "batch_size", 2: "seq_len"},
-        "embeddings": {0: "batch_size", 1: "seq_len"},
+    # seq_len varies with tokenized input length — must be dynamic for TRT profile
+    llm_dynamic_axes = {
+        "inputs_embeds": {1: "seq_len"},
+        "attention_mask": {1: "seq_len"},
+        "position_ids": {2: "seq_len"},
+        "embeddings": {1: "seq_len"},
     }
 
     if num_deepstack > 0 and captured_llm.visual_pos_masks is not None:
@@ -677,7 +678,7 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True):
         vis_mask = captured_llm.visual_pos_masks.to(device="cuda")
         export_inputs.append(vis_mask)
         input_names.append("visual_pos_masks")
-        dynamic_axes["visual_pos_masks"] = {0: "batch_size", 1: "seq_len"}
+        llm_dynamic_axes["visual_pos_masks"] = {1: "seq_len"}
 
         for i in range(num_deepstack):
             ds = captured_llm.deepstack_visual_embeds[i]
@@ -685,7 +686,6 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True):
             export_inputs.append(ds_dummy)
             name = f"deepstack_{i}"
             input_names.append(name)
-            dynamic_axes[name] = {0: "num_vis_tokens"}
 
     logger.info("  Export input shapes:")
     for name, tensor in zip(input_names, export_inputs):
@@ -704,7 +704,7 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True):
             output_names=["embeddings"],
             opset_version=19,
             do_constant_folding=True,
-            dynamic_axes=dynamic_axes,
+            dynamic_axes=llm_dynamic_axes,
             export_params=True,
         )
 
@@ -812,11 +812,6 @@ def export_state_encoder_to_onnx(policy, output_dir, use_bf16=True):
             output_names=["output"],
             opset_version=19,
             do_constant_folding=True,
-            dynamic_axes={
-                "state": {0: "batch_size"},
-                "embodiment_id": {0: "batch_size"},
-                "output": {0: "batch_size"},
-            },
         )
 
     logger.info("  State Encoder exported successfully!")
@@ -868,12 +863,6 @@ def export_action_encoder_to_onnx(policy, output_dir, use_bf16=True):
             output_names=["output"],
             opset_version=19,
             do_constant_folding=True,
-            dynamic_axes={
-                "actions": {0: "batch_size"},
-                "timesteps": {0: "batch_size"},
-                "embodiment_id": {0: "batch_size"},
-                "output": {0: "batch_size"},
-            },
         )
 
     logger.info("  Action Encoder exported successfully!")
@@ -914,13 +903,6 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True):
 
     export_inputs = [sa_embs, vl_embs, timestep]
     input_names = ["sa_embs", "vl_embs", "timestep"]
-    dynamic_axes = {
-        "sa_embs": {0: "batch_size", 1: "sa_seq_len"},
-        "vl_embs": {0: "batch_size", 1: "vl_seq_len"},
-        "timestep": {0: "batch_size"},
-        "output": {0: "batch_size", 1: "sa_seq_len"},
-    }
-
     has_image_mask = captured_inputs.image_mask is not None
     has_backbone_mask = captured_inputs.backbone_attention_mask is not None
 
@@ -928,7 +910,6 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True):
         image_mask = torch.ones(captured_inputs.image_mask.shape, dtype=torch.bool, device="cuda")
         export_inputs.append(image_mask)
         input_names.append("image_mask")
-        dynamic_axes["image_mask"] = {0: "batch_size", 1: "vl_seq_len"}
 
     if has_backbone_mask:
         backbone_attention_mask = torch.ones(
@@ -936,7 +917,6 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True):
         )
         export_inputs.append(backbone_attention_mask)
         input_names.append("backbone_attention_mask")
-        dynamic_axes["backbone_attention_mask"] = {0: "batch_size", 1: "vl_seq_len"}
 
     logger.info("  Export input shapes:")
     for name, tensor in zip(input_names, export_inputs):
@@ -977,6 +957,16 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True):
     wrapped_model = DiTWrapper(dit_model, has_image_mask, has_backbone_mask)
     wrapped_model.eval()
 
+    # vl_seq_len varies with input text length — mark it dynamic so the TRT engine
+    # can handle any sequence length seen at runtime, not just the export-time value.
+    dit_dynamic_axes = {
+        "vl_embs": {1: "vl_seq_len"},
+    }
+    if has_image_mask:
+        dit_dynamic_axes["image_mask"] = {1: "vl_seq_len"}
+    if has_backbone_mask:
+        dit_dynamic_axes["backbone_attention_mask"] = {1: "vl_seq_len"}
+
     logger.info(f"  Exporting to {output_path}...")
     with torch.inference_mode():
         torch.onnx.export(
@@ -987,9 +977,9 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True):
             output_names=["output"],
             opset_version=19,
             do_constant_folding=True,
-            dynamic_axes=dynamic_axes,
             export_params=True,
-            dynamo=use_dynamo_exporter,
+            dynamic_axes=dit_dynamic_axes,
+            dynamo=False,  # DiT specializes vl_seq_len under dynamo; legacy exporter needed
         )
 
     logger.info("  DiT exported successfully!")
@@ -1045,11 +1035,6 @@ def export_action_decoder_to_onnx(policy, output_dir, use_bf16=True):
             output_names=["output"],
             opset_version=19,
             do_constant_folding=True,
-            dynamic_axes={
-                "model_output": {0: "batch_size"},
-                "embodiment_id": {0: "batch_size"},
-                "output": {0: "batch_size"},
-            },
         )
 
     logger.info("  Action Decoder exported successfully!")
@@ -1063,6 +1048,7 @@ def export_action_decoder_to_onnx(policy, output_dir, use_bf16=True):
 
 
 def main(args):
+    args.embodiment_tag = EmbodimentTag.resolve(args.embodiment_tag)
     logger.info("=" * 80)
     logger.info("GR00T N1.7 ONNX Export Script")
     logger.info("=" * 80)
@@ -1270,49 +1256,36 @@ def main(args):
             logger.info(f"  {f}: {size_mb:.2f} MB")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Export GR00T N1.7 model to ONNX")
-    parser.add_argument(
-        "--model_path", type=str, required=True, help="Path to the model checkpoint"
-    )
-    parser.add_argument(
-        "--dataset_path",
-        type=str,
-        required=True,
-        help="Path to the dataset (used to capture input shapes)",
-    )
-    parser.add_argument(
-        "--embodiment_tag",
-        type=EmbodimentTag,
-        default=EmbodimentTag.GR1,
-        help="Embodiment tag (default: GR1)",
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        default="./gr00t_n1d7_onnx",
-        help="Output directory for ONNX models",
-    )
-    parser.add_argument(
-        "--export_mode",
-        type=str,
-        default="dit_only",
-        choices=["dit_only", "action_head", "full_pipeline"],
-        help="Export mode: 'dit_only', 'action_head' (4 components), or 'full_pipeline' (ViT + action head)",
-    )
-    parser.add_argument(
-        "--video_backend",
-        type=str,
-        default="torchcodec",
-        help="Options: ['decord', 'torchvision_av', 'torchcodec']",
-    )
-    parser.add_argument(
-        "--precision",
-        type=str,
-        default="bf16",
-        choices=["bf16", "fp8"],
-        help="Export precision: 'bf16' (default) or 'fp8' (TODO for N1.7)",
-    )
+@dataclass
+class ExportConfig:
+    """Configuration for exporting GR00T N1.7 model to ONNX."""
 
-    args = parser.parse_args()
+    model_path: str = ""
+    """Path to the model checkpoint."""
+
+    dataset_path: str = ""
+    """Path to the dataset (used to capture input shapes)."""
+
+    embodiment_tag: EmbodimentTag = EmbodimentTag.GR1
+    """Embodiment tag (default: GR1)."""
+
+    output_dir: str = "./gr00t_n1d7_onnx"
+    """Output directory for ONNX models."""
+
+    export_mode: Literal["dit_only", "action_head", "full_pipeline"] = "dit_only"
+    """Export mode: 'dit_only', 'action_head' (4 components), or 'full_pipeline' (ViT + action head)."""
+
+    video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "torchcodec"
+    """Video backend to use."""
+
+    precision: Literal["bf16", "fp8"] = "bf16"
+    """Export precision: 'bf16' (default) or 'fp8' (TODO for N1.7)."""
+
+
+if __name__ == "__main__":
+    args = tyro.cli(ExportConfig)
+    if not args.model_path:
+        raise ValueError("Please provide --model-path")
+    if not args.dataset_path:
+        raise ValueError("Please provide --dataset-path")
     main(args)

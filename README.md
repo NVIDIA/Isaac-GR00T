@@ -124,14 +124,25 @@ After installing uv, create the environment and install GR00T:
 
 ```sh
 uv sync --python 3.10
-uv pip install -e ".[gpu]"
 ```
-GPU dependencies (flash-attn, TensorRT, etc.) is required to run inference/fine-tuning experiments efficiently. If no GPU is available:
-```sh
-uv pip install -e .
-```
+GPU dependencies (flash-attn, TensorRT, etc.) are included in the default install.
 
 #### Jetson AGX Thor
+
+> **flash-attn on older systems (e.g., Ubuntu 20.04 with glibc < 2.35):** The pre-built `flash-attn` wheel may fail with `ImportError: glibc_compat.so: cannot open shared object file`. To fix this, build from source:
+> ```sh
+> uv pip install flash-attn==2.7.4.post1 --no-binary flash-attn --no-cache
+> ```
+> This compiles locally (~10-30 minutes) and avoids the glibc compatibility issue. Verify with:
+> ```sh
+> python -c "import flash_attn; print(flash_attn.__version__)"
+> ```
+
+> **CUDA 13.x Users:** PyTorch 2.7 pins Triton to 3.3.1, which does not recognize CUDA major version 13+. This causes a `RuntimeError` in Triton's `ptx_get_version()`. To fix this, locate Triton's compiler file (typically at `<your-venv>/lib/python3.10/site-packages/triton/backends/nvidia/compiler.py`) and add the following branch **before** the existing `if major == 12:` line:
+> ```python
+> if major == 13:
+>     return 90 + minor
+> ```
 
 Tested with JetPack 7.1.
 
@@ -215,26 +226,26 @@ Note: it could take very long when setting up the RoboCasa environments, as it n
 
 **2. Start the policy server** (Terminal 1):
 ```bash
-uv run --extra=gpu python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --model-path nvidia/GR00T-N1.7-3B \
     --embodiment-tag GR1 \
     --use-sim-policy-wrapper
 ```
 
-> **Tip:** If you get `ZMQError: Address already in use`, the default port 5555 is occupied. Use `--port <other_port>` (e.g., `--port 5556`) and also use it for `--policy_client_port` in step 3, or free the port.
+> **Tip:** If you get `ZMQError: Address already in use`, the default port 5555 is occupied. Use `--port <other_port>` (e.g., `--port 5556`) and also use it for `--policy-client-port` in step 3, or free the port.
 
 **3. Run the simulation client** (Terminal 2):
 
 Note: This step needs to run with the robocasa python env installed in step 1.
 ```bash
 gr00t/eval/sim/robocasa-gr1-tabletop-tasks/robocasa_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
-    --n_episodes 10 \
-    --policy_client_host 127.0.0.1 \
-    --policy_client_port 5555 \
-    --max_episode_steps=720 \
-    --env_name gr1_unified/PnPBottleToCabinetClose_GR1ArmsAndWaistFourierHands_Env \
-    --n_action_steps 8 \
-    --n_envs 5
+    --n-episodes 10 \
+    --policy-client-host 127.0.0.1 \
+    --policy-client-port 5555 \
+    --max-episode-steps 720 \
+    --env-name gr1_unified/PnPBottleToCabinetClose_GR1ArmsAndWaistFourierHands_Env \
+    --n-action-steps 8 \
+    --n-envs 5
 ```
 
 See [RoboCasa GR1 Tabletop Tasks](examples/robocasa-gr1-tabletop-tasks/README.md) for benchmark results and the full list of evaluation tasks.

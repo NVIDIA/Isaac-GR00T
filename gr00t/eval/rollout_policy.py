@@ -1,4 +1,3 @@
-import argparse
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import partial
@@ -14,6 +13,7 @@ from gr00t.policy import BasePolicy
 import gymnasium as gym
 import numpy as np
 from tqdm import tqdm
+import tyro
 
 
 @dataclass
@@ -479,26 +479,39 @@ def run_gr00t_sim_policy(
     return results
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--max_episode_steps", type=int, default=504)
-    parser.add_argument("--n_episodes", type=int, default=50)
-    parser.add_argument(
-        "--model_path",
-        type=str,
-        default="",
-    )
-    parser.add_argument("--policy_client_host", type=str, default="")
-    parser.add_argument("--policy_client_port", type=int, default=None)
-    parser.add_argument(
-        "--env_name",
-        type=str,
-        default="gr1_unified/PosttrainPnPNovelFromPlateToBowlSplitA_GR1ArmsAndWaistFourierHands_Env",
-    )
-    parser.add_argument("--n_envs", type=int, default=8)
-    parser.add_argument("--n_action_steps", type=int, default=8)
+@dataclass
+class RolloutConfig:
+    """Configuration for rollout policy evaluation."""
 
-    args = parser.parse_args()
+    max_episode_steps: int = 504
+    """Maximum number of steps per episode."""
+
+    n_episodes: int = 50
+    """Number of episodes to run."""
+
+    model_path: str = ""
+    """Path to model checkpoint."""
+
+    policy_client_host: str = ""
+    """Host for policy client."""
+
+    policy_client_port: int | None = None
+    """Port for policy client."""
+
+    env_name: str = (
+        "gr1_unified/PosttrainPnPNovelFromPlateToBowlSplitA_GR1ArmsAndWaistFourierHands_Env"
+    )
+    """Environment name."""
+
+    n_envs: int = 8
+    """Number of parallel environments."""
+
+    n_action_steps: int = 8
+    """Number of action steps."""
+
+
+if __name__ == "__main__":
+    args = tyro.cli(RolloutConfig)
 
     # validate policy configuration
     assert (args.model_path and not (args.policy_client_host or args.policy_client_port)) or (
@@ -506,8 +519,8 @@ if __name__ == "__main__":
     ), (
         "Invalid policy configuration: You must provide EITHER model_path OR (policy_client_host & policy_client_port), not both.\n"
         "If all 3 arguments are provided, explicitly choose one:\n"
-        '  - To use policy client: set --policy_client_host and --policy_client_port, and set --model_path ""\n'
-        '  - To use model path: set --model_path, and set --policy_client_host "" (and leave --policy_client_port unset)'
+        '  - To use policy client: set --policy-client-host and --policy-client-port, and set --model-path ""\n'
+        '  - To use model path: set --model-path, and set --policy-client-host "" (and leave --policy-client-port unset)'
     )
 
     results = run_gr00t_sim_policy(

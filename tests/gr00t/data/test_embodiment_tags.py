@@ -13,6 +13,48 @@ from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import EMBODIMENT_TAG_TO_PROJE
 import pytest
 
 
+class TestEmbodimentTagResolve:
+    """Verify that EmbodimentTag.resolve() works case-insensitively."""
+
+    @pytest.mark.parametrize(
+        "input_str, expected",
+        [
+            # By enum name (various cases)
+            ("GR1", EmbodimentTag.GR1),
+            ("gr1", EmbodimentTag.GR1),
+            ("Gr1", EmbodimentTag.GR1),
+            ("xdof", EmbodimentTag.XDOF),
+            ("XDOF", EmbodimentTag.XDOF),
+            ("new_embodiment", EmbodimentTag.NEW_EMBODIMENT),
+            ("NEW_EMBODIMENT", EmbodimentTag.NEW_EMBODIMENT),
+            ("unitree_g1", EmbodimentTag.UNITREE_G1),
+            # By enum value (various cases)
+            ("gr1_unified", EmbodimentTag.GR1),
+            ("GR1_UNIFIED", EmbodimentTag.GR1),
+            ("sim_behavior_r1_pro", EmbodimentTag.BEHAVIOR_R1_PRO),
+            ("oxe_droid_joint_position_relative", EmbodimentTag.OXE_DROID),
+            # Passthrough of existing enum
+            (EmbodimentTag.GR1, EmbodimentTag.GR1),
+            # Whitespace tolerance
+            ("  gr1  ", EmbodimentTag.GR1),
+        ],
+    )
+    def test_resolve_known_tags(self, input_str, expected):
+        assert EmbodimentTag.resolve(input_str) == expected
+
+    def test_resolve_unknown_raises(self):
+        with pytest.raises(ValueError, match="Unknown embodiment tag"):
+            EmbodimentTag.resolve("nonexistent_robot")
+
+    def test_resolve_error_lists_known_tags(self):
+        with pytest.raises(ValueError, match="GR1") as exc_info:
+            EmbodimentTag.resolve("foo")
+        # Error message should list all known tags
+        msg = str(exc_info.value)
+        for tag in EmbodimentTag:
+            assert tag.name in msg
+
+
 class TestRemovedN16Tags:
     """Verify that deprecated N1.6-only tags are fully removed."""
 

@@ -19,15 +19,11 @@ Run inference with PyTorch or TensorRT acceleration for the GR00T N1.7 policy.
 
 ### dGPU Installation
 
-**PyTorch mode** (default installation):
 ```bash
 uv sync
 ```
 
-**TensorRT mode** (includes ONNX and TensorRT dependencies):
-```bash
-uv sync --extra gpu
-```
+GPU dependencies (`flash-attn`, `onnx`, `tensorrt`) are included in the default install.
 
 ---
 
@@ -64,23 +60,23 @@ Lightweight ops remain in PyTorch (<1ms): `embed_tokens`, `masked_scatter`, `get
 
 ```bash
 uv run python scripts/deployment/export_onnx_n1d7.py \
-  --model_path nvidia/GR00T-N1.7-3B \
-  --dataset_path demo_data/gr1.PickNPlace \
-  --output_dir ./gr00t_n1d7_onnx \
-  --export_mode full_pipeline
+  --model-path nvidia/GR00T-N1.7-3B \
+  --dataset-path demo_data/gr1.PickNPlace \
+  --output-dir ./gr00t_n1d7_onnx \
+  --export-mode full_pipeline
 ```
 
 **Output:** 6 ONNX files in `./gr00t_n1d7_onnx/` (~5 GB total)
 
-> **Finetuned models:** Replace `--model_path` with your checkpoint path. The export pipeline is identical for base and finetuned models.
+> **Finetuned models:** Replace `--model-path` with your checkpoint path. The export pipeline is identical for base and finetuned models.
 
 ### Step 2: Build TensorRT Engines
 
 ```bash
 uv run python scripts/deployment/build_tensorrt_engine.py \
   --mode full_pipeline \
-  --onnx_dir ./gr00t_n1d7_onnx \
-  --engine_dir ./gr00t_n1d7_engines \
+  --onnx-dir ./gr00t_n1d7_onnx \
+  --engine-dir ./gr00t_n1d7_engines \
   --precision bf16
 ```
 
@@ -92,9 +88,9 @@ uv run python scripts/deployment/build_tensorrt_engine.py \
 
 ```bash
 uv run python scripts/deployment/verify_n1d7_trt.py \
-  --model_path nvidia/GR00T-N1.7-3B \
-  --dataset_path demo_data/gr1.PickNPlace \
-  --engine_dir ./gr00t_n1d7_engines \
+  --model-path nvidia/GR00T-N1.7-3B \
+  --dataset-path demo_data/gr1.PickNPlace \
+  --engine-dir ./gr00t_n1d7_engines \
   --mode n17_full_pipeline
 ```
 
@@ -106,9 +102,9 @@ Expected output: `Cosine Similarity: 0.999987` (PASS).
 
 ```bash
 uv run python scripts/deployment/benchmark_inference.py \
-    --model_path nvidia/GR00T-N1.7-3B \
-    --trt_engine_path ./gr00t_n1d7_engines \
-    --trt_mode n17_full_pipeline
+    --model-path nvidia/GR00T-N1.7-3B \
+    --trt-engine-path ./gr00t_n1d7_engines \
+    --trt-mode n17_full_pipeline
 ```
 
 ## Performance
@@ -136,7 +132,7 @@ Speedup vs Eager: torch.compile **2.33x**, TRT Full Pipeline **6.29x**
 TODO: test compatibility and get results on other platforms
 ### N1.6 DiT-Only TRT (BF16, 4 denoising steps, single view)
 
-> The DiT-only mode (`--export_mode dit_only`) optimizes only the action head DiT,
+> The DiT-only mode (`--export-mode dit_only`) optimizes only the action head DiT,
 > leaving the backbone in PyTorch.
 
 GR00T-N1.6-3B inference timing:
@@ -332,12 +328,12 @@ and `torch.compile` need on Orin.
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--model_path` | (required) | Path to model checkpoint |
-| `--dataset_path` | (required) | Path to dataset (for input shape capture) |
-| `--embodiment_tag` | `GR1` | Embodiment tag |
-| `--output_dir` | `./gr00t_n1d7_onnx` | Output directory for ONNX models |
-| `--export_mode` | `dit_only` | `dit_only`, `action_head`, or `full_pipeline` |
-| `--video_backend` | `torchcodec` | Video backend |
+| `--model-path` | (required) | Path to model checkpoint |
+| `--dataset-path` | (required) | Path to dataset (for input shape capture) |
+| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--output-dir` | `./gr00t_n1d7_onnx` | Output directory for ONNX models |
+| `--export-mode` | `dit_only` | `dit_only`, `action_head`, or `full_pipeline` |
+| `--video-backend` | `torchcodec` | Video backend |
 | `--precision` | `bf16` | Export precision (`bf16`) |
 
 ### `build_tensorrt_engine.py`
@@ -345,8 +341,8 @@ and `torch.compile` need on Orin.
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--mode` | `single` | `single` (one engine) or `full_pipeline` (all 6) |
-| `--onnx_dir` | `./gr00t_n1d7_onnx` | Directory with ONNX models (full_pipeline mode) |
-| `--engine_dir` | `./gr00t_n1d7_engines` | Directory to save engines (full_pipeline mode) |
+| `--onnx-dir` | `./gr00t_n1d7_onnx` | Directory with ONNX models (full_pipeline mode) |
+| `--engine-dir` | `./gr00t_n1d7_engines` | Directory to save engines (full_pipeline mode) |
 | `--onnx` | — | Path to single ONNX model (single mode) |
 | `--engine` | — | Path to save single engine (single mode) |
 | `--precision` | `bf16` | Precision (`fp32`, `fp16`, `bf16`) |
@@ -356,11 +352,11 @@ and `torch.compile` need on Orin.
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--model_path` | `nvidia/GR00T-N1.7-3B` | Path to model checkpoint |
-| `--dataset_path` | `demo_data/gr1.PickNPlace` | Path to dataset |
-| `--engine_dir` | `./gr00t_n1d7_engines` | Directory with TRT engines |
+| `--model-path` | `nvidia/GR00T-N1.7-3B` | Path to model checkpoint |
+| `--dataset-path` | `demo_data/gr1.PickNPlace` | Path to dataset |
+| `--engine-dir` | `./gr00t_n1d7_engines` | Directory with TRT engines |
 | `--mode` | `action_head` | `action_head` or `n17_full_pipeline` |
-| `--embodiment_tag` | `GR1` | Embodiment tag |
+| `--embodiment-tag` | `GR1` | Embodiment tag |
 
 ---
 

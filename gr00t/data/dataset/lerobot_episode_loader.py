@@ -233,10 +233,26 @@ class LeRobotEpisodeLoader:
             }
         for modality in modality_configs:
             if modality == "language":
-                # Language modality has special constraints
-                assert len(modality_configs[modality].modality_keys) == 1, (
-                    "Language modality must have exactly one key"
+                # Language modality has special constraints.
+                # Some embodiments (e.g. OXE_DROID) define multiple language keys for
+                # training-time augmentation. At inference we only use the first key.
+                assert len(modality_configs[modality].modality_keys) >= 1, (
+                    "Language modality must have at least one key"
                 )
+                if len(modality_configs[modality].modality_keys) > 1:
+                    logging.warning(
+                        f"Language modality has {len(modality_configs[modality].modality_keys)} keys, "
+                        f"only the first key will be used: {modality_configs[modality].modality_keys[0]}"
+                    )
+                    modality_configs[modality] = ModalityConfig(
+                        delta_indices=modality_configs[modality].delta_indices,
+                        modality_keys=[modality_configs[modality].modality_keys[0]],
+                        sin_cos_embedding_keys=modality_configs[modality].sin_cos_embedding_keys,
+                        mean_std_embedding_keys=modality_configs[modality].mean_std_embedding_keys,
+                        action_configs=modality_configs[modality].action_configs[:1]
+                        if modality_configs[modality].action_configs is not None
+                        else None,
+                    )
                 assert modality_configs[modality].delta_indices == [0], (
                     "Only single timestep is supported for language modality"
                 )

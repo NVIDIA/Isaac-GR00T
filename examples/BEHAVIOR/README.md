@@ -140,10 +140,9 @@ Then, run client server evaluation under the project root directory in separate 
 **Terminal 1 - Server:**
 ```bash
 uv sync --python 3.10
-uv pip install -e .
 
 # replace the model path with the path to your finetuned checkpoint or use the provided checkpoint
-uv run gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --model-path nvidia/GR00T-N1.6-BEHAVIOR1k \
     --embodiment-tag BEHAVIOR_R1_PRO \
     --use-sim-policy-wrapper
@@ -152,15 +151,15 @@ uv run gr00t/eval/run_gr00t_server.py \
 **Terminal 2 - Client:**
 ```bash
 uv run python gr00t/eval/rollout_policy.py \
-    --n_episodes 10 \
-    --policy_client_host 127.0.0.1 \
-    --policy_client_port 5555 \
-    --max_episode_steps=999999999 \
-    --env_name sim_behavior_r1_pro/turning_on_radio \
-    --n_action_steps 8 \
-    --n_envs 1
+    --n-episodes 10 \
+    --policy-client-host 127.0.0.1 \
+    --policy-client-port 5555 \
+    --max-episode-steps 999999999 \
+    --env-name sim_behavior_r1_pro/turning_on_radio \
+    --n-action-steps 8 \
+    --n-envs 1
 ```
-Note that we set `max_episode_steps` to a large value, this is because the BEHAVIOR sim will by default use 2x human steps as the horizon. Setting `max_episode_steps` to a smaller value if you want the evaluation to finish quicker, e.g., for debug purpose. Also, we disable video recording because we found the sim will crash if `decord` is imported in `video_utils.py`.
+Note that we set `max-episode-steps` to a large value, this is because the BEHAVIOR sim will by default use 2x human steps as the horizon. Setting `max-episode-steps` to a smaller value if you want the evaluation to finish quicker, e.g., for debug purpose. Also, we disable video recording because we found the sim will crash if `decord` is imported in `video_utils.py`.
 
 # Full task list
 - sim_behavior_r1_pro/turning_on_radio
