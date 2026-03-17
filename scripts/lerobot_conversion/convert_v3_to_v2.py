@@ -159,12 +159,33 @@ def _group_episodes_by_data_file(
     episode_records: Iterable[dict[str, Any]],
 ) -> dict[tuple[int, int], list[dict[str, Any]]]:
     grouped: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
+    missing_chunk_index = False
+    missing_file_index = False
+
     for record in episode_records:
+        if "data/chunk_index" not in record:
+            missing_chunk_index = True
+        if "data/file_index" not in record:
+            missing_file_index = True
+
+        # Some v3 datasets published in the wild omit data/chunk_index metadata.
+        # Fall back to chunk-0 plus per-episode file index to keep conversion usable.
+        episode_index = int(record["episode_index"])
         key = (
-            int(record["data/chunk_index"]),
-            int(record["data/file_index"]),
+            int(record.get("data/chunk_index", 0)),
+            int(record.get("data/file_index", episode_index)),
         )
         grouped[key].append(record)
+
+    if missing_chunk_index:
+        logging.warning(
+            "Missing 'data/chunk_index' in episode metadata; defaulting to chunk-0 for affected rows"
+        )
+    if missing_file_index:
+        logging.warning(
+            "Missing 'data/file_index' in episode metadata; defaulting to file index == episode_index for affected rows"
+        )
+
     return grouped
 
 
@@ -213,15 +234,35 @@ def _group_episodes_by_video_file(
     grouped: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
     chunk_column = f"videos/{video_key}/chunk_index"
     file_column = f"videos/{video_key}/file_index"
+    missing_chunk_index = False
+    missing_file_index = False
 
     for record in episode_records:
-        if chunk_column not in record or file_column not in record:
+        if chunk_column not in record and file_column not in record:
             continue
-        chunk_idx = record.get(chunk_column)
-        file_idx = record.get(file_column)
-        if chunk_idx is None or file_idx is None:
+        if chunk_column not in record:
+            missing_chunk_index = True
+        if file_column not in record:
+            missing_file_index = True
+
+        chunk_idx = record.get(chunk_column, 0)
+        file_idx = record.get(file_column, record["episode_index"])
+        if chunk_idx is None and file_idx is None:
             continue
-        grouped[(int(chunk_idx), int(file_idx))].append(record)
+
+        grouped[(int(chunk_idx or 0), int(file_idx or int(record["episode_index"])))].append(record)
+
+    if missing_chunk_index:
+        logging.warning(
+            "Missing '%s' in video metadata; defaulting to chunk-0 for affected rows",
+            chunk_column,
+        )
+    if missing_file_index:
+        logging.warning(
+            "Missing '%s' in video metadata; defaulting to file index == episode_index for affected rows",
+            file_column,
+        )
+
     return grouped
 
 
