@@ -179,6 +179,13 @@ We also provide finetuned checkpoints for various robot platforms and benchmarks
 ## Quick Start
 
 We can quickly start by downloading a pre-trained checkpoint and starting the policy server for any pretrained embodiement, e.g. GR1 embodiment.
+
+Follow the instruction here to obtain the [access token] (https://huggingface.co/docs/hub/en/security-tokens)
+```bash
+export HF_TOKEN=<token_key> #or use uv run huggingface-cli login
+
+```
+Then, we run the following command to start the server 
 ```bash
 # On GPU server: Start the policy server
 uv run python gr00t/eval/run_gr00t_server.py --embodiment-tag GR1 --model-path nvidia/GR00T-N1.6-3B
@@ -199,6 +206,7 @@ Please refer to the [data preparation guide](getting_started/data_preparation.md
 After data is prepared, the GR00T model can be used to generate output actions with the below simple inference script:
 
 ```bash
+export HF_TOKEN=<token_key> #or use uv run huggingface-cli login
 uv run python scripts/deployment/standalone_inference_script.py \
   --model-path nvidia/GR00T-N1.6-3B \
   --dataset-path demo_data/gr1.PickNPlace \
