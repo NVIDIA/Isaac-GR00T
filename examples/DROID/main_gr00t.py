@@ -97,7 +97,7 @@ def main(args: Args):
     else:
         results_dir = args.results_dir
 
-    # Initialize the Panda environment. N1.6-DROID uses absolute joint position actions.
+    # Initialize the Panda environment.
     env = RobotEnv(action_space="joint_position", gripper_action_space="position")
     print("Created the droid env!")
 

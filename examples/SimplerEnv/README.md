@@ -1,3 +1,6 @@
+<!-- TODO: This example uses N1.6 checkpoints (nvidia/GR00T-N1.6-bridge, nvidia/GR00T-N1.6-fractal).
+     Update when N1.7 SimplerEnv checkpoints are available. -->
+
 # SimplerEnv
 
 Framework for evaluating real-world robot manipulation policies (RT-1, RT-1-X, Octo) in simulation. Replicates common setups like Google Robot and WidowX+Bridge, with GPU-accelerated simulations (10-15x speedup). Offers visual matching and variant aggregation evaluation methods for robust policy assessment.

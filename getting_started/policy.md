@@ -34,16 +34,16 @@ When running inference scripts (e.g., `standalone_inference_script.py`, `open_lo
 Determines which modality config the model uses (state/action keys, normalization). **Must match the robot type of your dataset.**
 
 The tag is **case-insensitive** and accepts either the enum name or the string value.
-For example, `--embodiment-tag gr1`, `--embodiment-tag GR1`, and `--embodiment-tag gr1_unified` all resolve to the same tag. An unknown tag will produce an error listing all known options.
+For example, `--embodiment-tag xdof`, `--embodiment-tag XDOF`, and `--embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` all resolve correctly. An unknown tag will produce an error listing all known options.
 
-- **Pretrain tags** (e.g., `GR1`, `ROBOCASA_PANDA_OMRON`) — use for zero-shot inference on datasets that match the pretrained embodiment. The modality config is loaded from the model checkpoint.
-- **Posttrain tags** (e.g., `UNITREE_G1`, `BEHAVIOR_R1_PRO`) — use for finetuned checkpoints trained on that embodiment.
+- **Pretrain tags** (e.g., `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT`, `ROBOCASA_PANDA_OMRON`) — use for zero-shot inference on datasets that match the pretrained embodiment. The modality config is loaded from the model checkpoint.
+- **Posttrain tags** (e.g., `UNITREE_G1`, `BEHAVIOR_R1_PRO`, `LIBERO_PANDA`) — use for finetuned checkpoints trained on that embodiment.
 - **`NEW_EMBODIMENT`** — use for custom robots. Requires a `--modality-config-path` during finetuning. After finetuning, the config is saved in the checkpoint and loaded automatically during inference.
 
 #### Known Embodiment Tags
 
-**Pretrain** (baked into the N1.7 base model):
-- `GR1` / `gr1_unified` — Fourier GR1 humanoid
+**Pretrain** (baked into the N1.7 base model, inference-ready):
+- `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` / `oxe_droid_relative_eef_relative_joint` — DROID (relative EEF + joint)
 - `ROBOCASA_PANDA_OMRON` / `robocasa_panda_omron` — RoboCasa Panda with Omron mobile base
 - `XDOF` / `xdof` — Generic X-DOF robot
 - `AGIBOT` / `agibot` — AgiBot robot
@@ -52,13 +52,13 @@ For example, `--embodiment-tag gr1`, `--embodiment-tag GR1`, and `--embodiment-t
 - `UNITREE_G1` / `unitree_g1_full_body_with_waist_height_nav_cmd` — Unitree G1 full-body
 - `SIMPLER_ENV_GOOGLE` / `simpler_env_google` — SimplerEnv Google Robot
 - `SIMPLER_ENV_WIDOWX` / `simpler_env_widowx` — SimplerEnv WidowX
-- `OXE_DROID` / `oxe_droid_joint_position_relative` — OXE DROID (relative joint position)
 - `BEHAVIOR_R1_PRO` / `sim_behavior_r1_pro` — Behavior R1 Pro (sim)
+- `LIBERO_PANDA` / `libero_sim` — LIBERO Panda robot
 
 **Finetuning** (for custom robots):
 - `NEW_EMBODIMENT` / `new_embodiment` — Any new embodiment
 
-> **Important:** You cannot mix embodiment tags and datasets. For example, `--embodiment-tag GR1` expects GR1 state keys (`left_arm`, `right_arm`, `waist`, etc.) and will fail on an SO100 dataset (`single_arm`, `gripper`).
+> **Important:** You cannot mix embodiment tags and datasets. For example, `--embodiment-tag ROBOCASA_PANDA_OMRON` expects RoboCasa state keys and will fail on an SO100 dataset (`single_arm`, `gripper`).
 
 ### `--traj-ids`
 
@@ -88,7 +88,7 @@ The inference scripts produce:
 
 | Dataset | Embodiment Tag | Notes |
 |---------|---------------|-------|
-| `demo_data/gr1.PickNPlace` | `GR1` | GR1 humanoid (pretrain tag) |
+| `demo_data/libero_demo` | `LIBERO_PANDA` | LIBERO Panda — uses finetuned checkpoint from `nvidia/GR00T-N1.7-LIBERO` (must be downloaded locally first, see [README](../README.md)) |
 | `demo_data/cube_to_bowl_5` | `NEW_EMBODIMENT` | SO100 arm — only works with a finetuned checkpoint, not the base model |
 
 ## Understanding the Observation Format

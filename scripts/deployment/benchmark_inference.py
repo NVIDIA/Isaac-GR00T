@@ -326,9 +326,9 @@ class BenchmarkConfig:
     """Path to model checkpoint."""
 
     dataset_path: str | None = None
-    """Path to dataset. Defaults to demo_data/gr1.PickNPlace."""
+    """Path to dataset. Defaults to demo_data/libero_demo."""
 
-    embodiment_tag: str = "gr1_unified"
+    embodiment_tag: str = "libero_sim"
     """Embodiment tag to use."""
 
     trt_engine_path: str | None = None
@@ -367,7 +367,7 @@ def main(args: BenchmarkConfig | None = None):
     # Default dataset path
     if args.dataset_path is None:
         repo_path = os.path.dirname(os.path.dirname(gr00t.__file__))
-        args.dataset_path = os.path.join(repo_path, "demo_data/gr1.PickNPlace")
+        args.dataset_path = os.path.join(repo_path, "demo_data/libero_demo")
 
     print("=" * 100)
     print("GR00T INFERENCE BENCHMARK")
@@ -581,8 +581,8 @@ def main(args: BenchmarkConfig | None = None):
         print(f"\nTensorRT engine not found: {args.trt_engine_path}")
         print("To build engines for full pipeline, run:")
         print(
-            "  python scripts/deployment/export_onnx_n1d7.py --model-path nvidia/GR00T-N1.7-3B"
-            " --dataset-path demo_data/gr1.PickNPlace --output-dir ./gr00t_n1d7_onnx --export-mode full_pipeline"
+            "  python scripts/deployment/export_onnx_n1d7.py --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10"
+            " --dataset-path demo_data/libero_demo --output-dir ./gr00t_n1d7_onnx --export-mode full_pipeline"
         )
         print(
             "  python scripts/deployment/build_tensorrt_engine.py --mode full_pipeline"

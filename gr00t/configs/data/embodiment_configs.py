@@ -180,47 +180,22 @@ MODALITY_CONFIGS = {
             modality_keys=["annotation.human.coarse_action"],
         ),
     },
-    "oxe_droid_joint_position_relative": {
+    "libero_sim": {
         "video": ModalityConfig(
             delta_indices=[0],
-            modality_keys=[
-                "exterior_image_1_left",
-                "wrist_image_left",
-            ],
+            modality_keys=["image", "wrist_image"],
         ),
         "state": ModalityConfig(
             delta_indices=[0],
-            modality_keys=[
-                "joint_position",
-                "gripper_position",
-            ],
+            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
         ),
         "action": ModalityConfig(
-            delta_indices=list(range(0, 32)),
-            modality_keys=[
-                "joint_position",
-                "gripper_position",
-            ],
-            action_configs=[
-                # joint_position
-                ActionConfig(
-                    rep=ActionRepresentation.RELATIVE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                ),
-                # gripper_position
-                ActionConfig(
-                    rep=ActionRepresentation.ABSOLUTE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                ),
-            ],
+            delta_indices=list(range(40)),
+            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
         ),
         "language": ModalityConfig(
             delta_indices=[0],
-            modality_keys=[
-                "annotation.language.language_instruction",
-            ],
+            modality_keys=["annotation.human.action.task_description"],
         ),
     },
 }

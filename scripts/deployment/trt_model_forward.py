@@ -75,12 +75,14 @@ def _qwen3_vit_and_scatter(self, vl_input):
     engine_dtype = torch.bfloat16
 
     # --- ViT TRT Engine ---
+    # Detect ViT engine dtype (FP32 for accuracy or BF16 for speed)
+    vit_dtype = self.vit_engine.dtype_of("pixel_values")
     if isinstance(pixel_values, (list, tuple)):
         pv = torch.cat(pixel_values, dim=0)
     else:
         pv = pixel_values
-    if pv.dtype != engine_dtype:
-        pv = pv.to(engine_dtype)
+    if pv.dtype != vit_dtype:
+        pv = pv.to(vit_dtype)
 
     self.vit_engine.set_runtime_tensor_shape("pixel_values", pv.shape)
     vit_result = self.vit_engine(pv)
@@ -182,6 +184,103 @@ def qwen3_backbone_tensorrt_forward(self, vl_input):
     )
 
 
+def qwen3_backbone_llm_trt_forward(self, vl_input):
+    """Replace Qwen3Backbone.forward() with PyTorch ViT + LLM TRT.
+
+    ViT stays in PyTorch. LLM is replaced with a TRT engine.
+    Used when ViT TRT has accuracy issues but LLM TRT is accurate.
+    """
+    self.set_frozen_modules_to_eval_mode()
+
+    keys_to_use = ["input_ids", "attention_mask", "pixel_values", "image_grid_thw"]
+    vl_input = {k: vl_input[k] for k in keys_to_use}
+
+    # Run PyTorch ViT + scatter + rope (original backbone logic up to LLM)
+    qwen_model = self.model
+    inner_model = qwen_model.model
+
+    # ViT forward (PyTorch — kept for accuracy)
+    pixel_values = vl_input["pixel_values"]
+    grid_thw = vl_input["image_grid_thw"]
+    image_embeds_split, deepstack_image_embeds = inner_model.get_image_features(
+        pixel_values, grid_thw
+    )
+    # get_image_features returns a tuple of per-image tensors; concat for scatter
+    image_embeds = torch.cat(list(image_embeds_split), dim=0)
+
+    # Scatter image embeddings into text embeddings
+    input_ids = vl_input["input_ids"]
+    inputs_embeds = qwen_model.get_input_embeddings()(input_ids)
+    image_mask, _ = inner_model.get_placeholder_mask(
+        input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
+    )
+    inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+    visual_pos_masks = image_mask[..., 0] if image_mask is not None else None
+    deepstack_list = list(deepstack_image_embeds) if deepstack_image_embeds else []
+
+    # Compute position IDs
+    attention_mask = vl_input["attention_mask"]
+    position_ids, rope_deltas = inner_model.get_rope_index(
+        input_ids, grid_thw, video_grid_thw=None, attention_mask=attention_mask
+    )
+    inner_model.rope_deltas = rope_deltas
+
+    image_mask_out = input_ids == qwen_model.config.image_token_id
+    backbone_attention_mask = attention_mask == 1
+
+    # Strip padding tokens (transformers 4.57+)
+    valid_mask = attention_mask[0] == 1
+    if not valid_mask.all():
+        inputs_embeds = inputs_embeds[:, valid_mask, :]
+        attention_mask = attention_mask[:, valid_mask]
+        position_ids = position_ids[:, :, valid_mask]
+        if visual_pos_masks is not None:
+            visual_pos_masks = visual_pos_masks[:, valid_mask]
+        image_mask_out = image_mask_out[:, valid_mask]
+        backbone_attention_mask = backbone_attention_mask[:, valid_mask]
+
+    # LLM forward (TRT)
+    llm_float_dtype = self.llm_engine.dtype_of("inputs_embeds")
+
+    if inputs_embeds.dtype != llm_float_dtype:
+        inputs_embeds = inputs_embeds.to(llm_float_dtype)
+    if attention_mask.dtype != torch.int64:
+        attention_mask = attention_mask.to(torch.int64)
+    if position_ids.dtype != torch.int64:
+        position_ids = position_ids.to(torch.int64)
+
+    self.llm_engine.set_runtime_tensor_shape("inputs_embeds", inputs_embeds.shape)
+    self.llm_engine.set_runtime_tensor_shape("attention_mask", attention_mask.shape)
+    self.llm_engine.set_runtime_tensor_shape("position_ids", position_ids.shape)
+
+    llm_kwargs = {}
+    if visual_pos_masks is not None and deepstack_list:
+        self.llm_engine.set_runtime_tensor_shape("visual_pos_masks", visual_pos_masks.shape)
+        llm_kwargs["visual_pos_masks"] = visual_pos_masks
+        for i, ds in enumerate(deepstack_list):
+            name = f"deepstack_{i}"
+            if ds.dtype != llm_float_dtype:
+                ds = ds.to(llm_float_dtype)
+            self.llm_engine.set_runtime_tensor_shape(name, ds.shape)
+            llm_kwargs[name] = ds
+
+    backbone_features = self.llm_engine(inputs_embeds, attention_mask, position_ids, **llm_kwargs)[
+        "embeddings"
+    ]
+
+    if backbone_features.dtype != torch.bfloat16:
+        backbone_features = backbone_features.to(torch.bfloat16)
+
+    return BatchFeature(
+        data={
+            "backbone_features": backbone_features,
+            "backbone_attention_mask": backbone_attention_mask,
+            "image_mask": image_mask_out,
+        }
+    )
+
+
 def qwen3_backbone_full_trt_forward(self, vl_input):
     """Replace Qwen3Backbone.forward() with ViT TRT + LLM TRT.
 
@@ -199,13 +298,16 @@ def qwen3_backbone_full_trt_forward(self, vl_input):
 
     prepared = _qwen3_vit_and_scatter(self, vl_input)
 
-    engine_dtype = torch.bfloat16
     inputs_embeds = prepared["inputs_embeds"]
     attention_mask = prepared["attention_mask"]
     position_ids = prepared["position_ids"]
 
-    if inputs_embeds.dtype != engine_dtype:
-        inputs_embeds = inputs_embeds.to(engine_dtype)
+    # Detect LLM engine's expected float dtype from its first input binding.
+    # Handles both BF16 engines (default) and FP32 engines gracefully.
+    llm_float_dtype = self.llm_engine.dtype_of("inputs_embeds")
+
+    if inputs_embeds.dtype != llm_float_dtype:
+        inputs_embeds = inputs_embeds.to(llm_float_dtype)
     if attention_mask.dtype != torch.int64:
         attention_mask = attention_mask.to(torch.int64)
     if position_ids.dtype != torch.int64:
@@ -228,14 +330,18 @@ def qwen3_backbone_full_trt_forward(self, vl_input):
 
         for i, ds in enumerate(deepstack_list):
             name = f"deepstack_{i}"
-            if ds.dtype != engine_dtype:
-                ds = ds.to(engine_dtype)
+            if ds.dtype != llm_float_dtype:
+                ds = ds.to(llm_float_dtype)
             self.llm_engine.set_runtime_tensor_shape(name, ds.shape)
             llm_kwargs[name] = ds
 
     backbone_features = self.llm_engine(inputs_embeds, attention_mask, position_ids, **llm_kwargs)[
         "embeddings"
     ]
+
+    # Cast LLM output back to BF16 — downstream (vl_self_attention, DiT) expect BF16.
+    if backbone_features.dtype != torch.bfloat16:
+        backbone_features = backbone_features.to(torch.bfloat16)
 
     return BatchFeature(
         data={
@@ -264,9 +370,17 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
         backbone_output: BatchFeature with backbone_features, backbone_attention_mask, image_mask
         action_input: BatchFeature with state, embodiment_id
     """
-    # --- VLLN: LayerNorm in PyTorch (too small for TRT) ---
+    # --- VLLN (PyTorch) + vl_self_attention (TRT if available, else PyTorch) ---
     backbone_features = backbone_output.backbone_features
     backbone_features = self.vlln(backbone_features)
+    if hasattr(self, "vl_sa_engine") and self.vl_sa_engine is not None:
+        engine_dtype = torch.bfloat16
+        if backbone_features.dtype != engine_dtype:
+            backbone_features = backbone_features.to(engine_dtype)
+        self.vl_sa_engine.set_runtime_tensor_shape("hidden_states", backbone_features.shape)
+        backbone_features = self.vl_sa_engine(backbone_features)["output"]
+    else:
+        backbone_features = self.vl_self_attention(backbone_features)
     vl_embs = backbone_features
 
     embodiment_id = action_input.embodiment_id
@@ -421,42 +535,22 @@ def _setup_n17_full_pipeline(policy, trt_engine_path):
     backbone._embedding_layer = qwen_model.model.language_model.get_input_embeddings()
     backbone._image_token_id = qwen_model.config.image_token_id
 
-    # Load ViT TRT engine
+    # Load ViT TRT engine (optional — PyTorch ViT used as fallback for accuracy)
     vit_engine_path = os.path.join(trt_engine_path, "vit_bf16.engine")
-    if os.path.exists(vit_engine_path):
+    use_vit_trt = os.path.exists(vit_engine_path)
+    if use_vit_trt:
         print(f"Loading ViT engine: {vit_engine_path}")
         backbone.vit_engine = Engine(vit_engine_path)
-
         del qwen_model.model.visual
         torch.cuda.empty_cache()
         print("  Deleted PyTorch ViT (replaced by TRT engine)")
     else:
         backbone.vit_engine = None
+        print(f"  ViT engine not found at {vit_engine_path}, keeping PyTorch ViT")
 
     # Load LLM TRT engine (if available)
     llm_engine_path = os.path.join(trt_engine_path, "llm_bf16.engine")
     use_llm_trt = os.path.exists(llm_engine_path)
-
-    if use_llm_trt and backbone.vit_engine is None:
-        # LLM TRT requires ViT TRT — the TRT backbone forward functions
-        # assume ViT output is produced by the ViT engine. Without it,
-        # loading the LLM engine would delete PyTorch LLM layers while
-        # leaving the backbone forward un-patched, causing AttributeError.
-        raise RuntimeError(
-            f"LLM TRT engine found at {llm_engine_path} but ViT TRT engine is "
-            f"missing at {vit_engine_path}.\n"
-            f"The n17_full_pipeline mode requires both ViT and LLM engines.\n\n"
-            f"To fix this, either:\n"
-            f"  1. Rebuild the ViT engine (recommended for full pipeline performance):\n"
-            f"       python scripts/deployment/export_onnx_n1d7.py \\\n"
-            f"         --model-path <MODEL> --dataset-path <DATA> \\\n"
-            f"         --output-dir ./gr00t_n1d7_onnx --export-mode full_pipeline\n"
-            f"       python scripts/deployment/build_tensorrt_engine.py \\\n"
-            f"         --mode full_pipeline --onnx-dir ./gr00t_n1d7_onnx \\\n"
-            f"         --engine-dir {trt_engine_path} --precision bf16\n\n"
-            f"  2. Use action_head mode instead (backbone stays in PyTorch):\n"
-            f"       setup_tensorrt_engines(policy, '{trt_engine_path}', mode='action_head')"
-        )
 
     if use_llm_trt:
         print(f"Loading LLM engine: {llm_engine_path}")
@@ -474,15 +568,31 @@ def _setup_n17_full_pipeline(policy, trt_engine_path):
         print(f"  LLM engine not found at {llm_engine_path}, using PyTorch LLM")
 
     # Monkey-patch backbone forward
-    if backbone.vit_engine is not None:
-        if use_llm_trt:
-            backbone.forward = partial(qwen3_backbone_full_trt_forward, backbone)
-        else:
-            backbone.forward = partial(qwen3_backbone_tensorrt_forward, backbone)
+    if use_vit_trt and use_llm_trt:
+        backbone.forward = partial(qwen3_backbone_full_trt_forward, backbone)
+    elif use_vit_trt and not use_llm_trt:
+        backbone.forward = partial(qwen3_backbone_tensorrt_forward, backbone)
+    elif not use_vit_trt and use_llm_trt:
+        # PyTorch ViT + LLM TRT (best accuracy when ViT TRT has issues)
+        backbone.forward = partial(qwen3_backbone_llm_trt_forward, backbone)
     else:
-        print(f"  ViT engine not found at {vit_engine_path}, backbone remains in PyTorch")
+        print("  No backbone TRT engines loaded, backbone remains in PyTorch")
 
     # --- Action head setup ---
+    # Load vl_self_attention TRT engine (if available)
+    vl_sa_engine_path = os.path.join(trt_engine_path, "vl_self_attention.engine")
+    if os.path.exists(vl_sa_engine_path):
+        print(f"Loading VL Self-Attention engine: {vl_sa_engine_path}")
+        action_head.vl_sa_engine = Engine(vl_sa_engine_path)
+        # Delete PyTorch module — TRT engine replaces it
+        if hasattr(action_head, "vl_self_attention"):
+            del action_head.vl_self_attention
+            torch.cuda.empty_cache()
+        print("  Deleted PyTorch vl_self_attention (replaced by TRT engine)")
+    else:
+        action_head.vl_sa_engine = None
+        print(f"  VL Self-Attention engine not found at {vl_sa_engine_path}, using PyTorch")
+
     if hasattr(action_head, "model"):
         del action_head.model
     if hasattr(action_head, "state_encoder"):

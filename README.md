@@ -46,10 +46,10 @@ Here is the general procedure to use GR00T N1.7:
 
 1. We assume the user has already collected a dataset of robot demonstrations in the form of (video, state, action) triplets for a specific task.
 2. The user will first convert the demonstration data into the LeRobot compatible data schema (more info in [`getting_started/data_preparation.md`](getting_started/data_preparation.md)), which is compatible with the upstream [Huggingface LeRobot Dataset V2](https://github.com/huggingface/lerobot).
-3. Our repo provides convenient scripts to validate zero-shot performance of the pretrained model (see [Policy API Guide](getting_started/policy.md) and [RoboCasa Zero-Shot](examples/robocasa-gr1-tabletop-tasks/README.md)).
+3. Our repo provides convenient scripts to validate zero-shot performance of the pretrained model (see [Policy API Guide](getting_started/policy.md) and [DROID Inference](examples/DROID/README.md)).
 4. Our repo provides examples of different configurations for training with different robot embodiments (see [`examples/`](examples/) and [Fine-tuning Guide](getting_started/finetune_new_embodiment.md)).
 5. Our repo provides convenient scripts for finetuning the pre-trained GR00T N1.7 model on user's data, and running inference, see [`examples`](examples).
-6. Our repo provides convenient scripts to run academic simulation benchmarks with finetuned checkpoints (TODO, fine-tuned checkpoints not available yet).
+6. Our repo provides convenient scripts to run academic simulation benchmarks with finetuned checkpoints (see [Evaluation](#4-evaluation)).
 7. The user will need to connect the `Gr00tPolicy` to the robot controller to execute actions on their target hardware.
 
 ## What's New in GR00T N1.7
@@ -195,60 +195,65 @@ We provide pre-trained base VLA model checkpoints. These checkpoints have been p
 
 | Model | Use Case | Description | Checkpoint Path | Branch |
 | ----- | -------- | ----------- | --------------- | ------ |
-| GR00T N1.7 | Finetuning | Base GR00T N1.7 model (3B parameters) | [nvidia/GR00T-N1.7-3B](https://huggingface.co/nvidia/GR00T-N1.7-3B) | [main->internal branch right now, TODO change to public](https://github.com/NVIDIA/Isaac-GR00T-EA) |
-| GR00T N1.6 | Finetuning | Base [GR00T N1.6 model](https://research.nvidia.com/labs/gear/gr00t-n1_6/) (3B parameters) | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | [n1.6-release, todo](https://github.com/NVIDIA/Isaac-GR00T) |
+| GR00T N1.7 | Finetuning | Base GR00T N1.7 model (3B parameters) | [nvidia/GR00T-N1.7-3B](https://huggingface.co/nvidia/GR00T-N1.7-3B) | [main](https://github.com/NVIDIA/Isaac-GR00T) |
+| GR00T N1.6 | Finetuning | Base [GR00T N1.6 model](https://research.nvidia.com/labs/gear/gr00t-n1_6/) (3B parameters) | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | [n1.6-release](https://github.com/NVIDIA/Isaac-GR00T) |
 | GR00T N1.5 | Finetuning | Base [GR00T N1.5 model](https://research.nvidia.com/labs/gear/gr00t-n1_5/) (3B parameters) | [nvidia/GR00T-N1.5-3B](https://huggingface.co/nvidia/GR00T-N1.5-3B) | [n1.5-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release) |
 
 ### Finetuned Models
 We also provide finetuned checkpoints for various robot platforms and benchmarks. These models are finetuned from the base models above and can be used directly for evaluation or as starting points for further finetuning.
 
-> **Note:** N1.7 finetuned checkpoints are coming soon. In the meantime, you can finetune from the N1.7 base model, or use the N1.6 finetuned checkpoints below with the [n1.6-release, todo](https://github.com/NVIDIA/Isaac-GR00T) branch.
-
 | Model | Base Model | Description | Checkpoint Path | Example |
 | ----- | ---------- | ----------- | --------------- | ------- |
-| GR00T-N1.6-bridge | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned on [Bridge dataset](https://rail-berkeley.github.io/bridgedata/) for WidowX robot on manipulation tasks | [nvidia/GR00T-N1.6-bridge](https://huggingface.co/nvidia/GR00T-N1.6-bridge) | [SimplerEnv](examples/SimplerEnv/README.md) |
-| GR00T-N1.6-fractal | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned on [Fractal dataset](https://www.tensorflow.org/datasets/catalog/fractal20220817_data) for Google robot on manipulation tasks | [nvidia/GR00T-N1.6-fractal](https://huggingface.co/nvidia/GR00T-N1.6-fractal) | [SimplerEnv](examples/SimplerEnv/README.md) |
-| GR00T-N1.6-BEHAVIOR1k | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned on [BEHAVIOR-1K](https://behavior.stanford.edu/) for Galaxea R1 Pro robot on loco-manipulation tasks | [nvidia/GR00T-N1.6-BEHAVIOR1k](https://huggingface.co/nvidia/GR00T-N1.6-BEHAVIOR1k) | [BEHAVIOR](examples/BEHAVIOR/README.md) |
-| GR00T-N1.6-G1-PnPAppleToPlate | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned for Unitree G1 loco-manipulation pick-and-place tasks | [nvidia/GR00T-N1.6-G1-PnPAppleToPlate](https://huggingface.co/nvidia/GR00T-N1.6-G1-PnPAppleToPlate) | [G1 LocoManipulation](examples/GR00T-WholeBodyControl/README.md) |
-| GR00T-N1.6-DROID | [nvidia/GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID) | Fine-tuned for DROID robot on manipulation tasks | [nvidia/GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID) | [DROID](examples/DROID/README.md) |
+| GR00T-N1.7-LIBERO | [nvidia/GR00T-N1.7-3B](https://huggingface.co/nvidia/GR00T-N1.7-3B) | Fine-tuned on [LIBERO](https://libero-project.github.io/) benchmark for Franka Panda robot on manipulation tasks | [nvidia/GR00T-N1.7-LIBERO](https://huggingface.co/nvidia/GR00T-N1.7-LIBERO) | [LIBERO](examples/LIBERO/README.md) |
+
+> **Note:** Additional N1.7 finetuned checkpoints are coming soon. N1.6 finetuned checkpoints are available on the [n1.6-release](https://github.com/NVIDIA/Isaac-GR00T) branch.
 
 ## Quick Start
 
-We can quickly start by downloading a pre-trained checkpoint and running a zero-shot simulation evaluation with the GR1 embodiment on [RoboCasa GR1 Tabletop Tasks](examples/robocasa-gr1-tabletop-tasks/README.md).
+### DROID Inference
 
-**1. Set up the simulation environment** (one-time):
-```bash
-sudo apt update
-sudo apt install libegl1-mesa-dev libglu1-mesa
-bash gr00t/eval/sim/robocasa-gr1-tabletop-tasks/setup_RoboCasaGR1TabletopTasks.sh
-```
-Note: it could take very long when setting up the RoboCasa environments, as it needs to download dependent datasets (objaverse, etc.).
+Start the policy server with the pre-trained N1.7 checkpoint:
 
-**2. Start the policy server** (Terminal 1):
 ```bash
 uv run python gr00t/eval/run_gr00t_server.py \
     --model-path nvidia/GR00T-N1.7-3B \
-    --embodiment-tag GR1 \
-    --use-sim-policy-wrapper
+    --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT
 ```
 
-> **Tip:** If you get `ZMQError: Address already in use`, the default port 5555 is occupied. Use `--port <other_port>` (e.g., `--port 5556`) and also use it for `--policy-client-port` in step 3, or free the port.
+See [DROID](examples/DROID/README.md) for the full inference and control setup.
 
-**3. Run the simulation client** (Terminal 2):
+### LIBERO Inference (Server-Client)
 
-Note: This step needs to run with the robocasa python env installed in step 1.
+Run inference with the LIBERO finetuned checkpoint using the server-client architecture:
+
+First, download the finetuned model to a local directory (HuggingFace does not support nested repo paths directly):
 ```bash
-gr00t/eval/sim/robocasa-gr1-tabletop-tasks/robocasa_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
-    --n-episodes 10 \
-    --policy-client-host 127.0.0.1 \
-    --policy-client-port 5555 \
-    --max-episode-steps 720 \
-    --env-name gr1_unified/PnPBottleToCabinetClose_GR1ArmsAndWaistFourierHands_Env \
-    --n-action-steps 8 \
-    --n-envs 5
+uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
 ```
 
-See [RoboCasa GR1 Tabletop Tasks](examples/robocasa-gr1-tabletop-tasks/README.md) for benchmark results and the full list of evaluation tasks.
+**Terminal 1 — Start the policy server:**
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+    --embodiment-tag LIBERO_PANDA \
+    --device cuda:0
+```
+
+> **Tip:** If you get `ZMQError: Address already in use`, the default port 5555 is occupied. Use `--port <other_port>` (e.g., `--port 5556`).
+
+**Terminal 2 — Run open-loop evaluation against the server:**
+```bash
+uv run python gr00t/eval/open_loop_eval.py \
+    --dataset-path demo_data/libero_demo \
+    --embodiment-tag LIBERO_PANDA \
+    --host 127.0.0.1 \
+    --port 5555 \
+    --traj-ids 0 \
+    --action-horizon 16 \
+    --steps 5
+```
+
+See [LIBERO](examples/LIBERO/README.md) for finetuning and evaluation details.
 
 ## Getting started with this repo
 
@@ -264,9 +269,9 @@ After data is prepared, the GR00T model can be used to generate output actions w
 
 ```bash
 uv run python scripts/deployment/standalone_inference_script.py \
-  --model-path nvidia/GR00T-N1.7-3B \
-  --dataset-path demo_data/gr1.PickNPlace \
-  --embodiment-tag GR1 \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 \
   --inference-mode pytorch \
   --action-horizon 8
@@ -292,7 +297,7 @@ GR00T N1.7 supports the following embodiment tags:
 
 | Tag | Robot | Value |
 |-----|-------|-------|
-| `GR1` | Fourier GR1 | `gr1_unified` |
+| `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | DROID | `oxe_droid_relative_eef_relative_joint` |
 | `ROBOCASA_PANDA_OMRON` | RoboCasa Panda + Omron base | `robocasa_panda_omron` |
 | `AGIBOT` | AgiBot | `agibot` |
 | `XDOF` | Generic X-DOF | `xdof` |
@@ -303,7 +308,7 @@ GR00T N1.7 supports the following embodiment tags:
 |-----|-------|-------|
 | `UNITREE_G1` | Unitree G1 | `unitree_g1_full_body_with_waist_height_nav_cmd` |
 | `BEHAVIOR_R1_PRO` | Galaxea R1 Pro (BEHAVIOR) | `sim_behavior_r1_pro` |
-| `OXE_DROID` | DROID | `oxe_droid_joint_position_relative` |
+| `LIBERO_PANDA` | LIBERO Panda | `libero_sim` |
 
 **Posttrain tags for evaluation only** (require `--modality-config-path` for finetuning):
 
@@ -314,7 +319,13 @@ GR00T N1.7 supports the following embodiment tags:
 
 **Generic tag** for any new robot: `NEW_EMBODIMENT` (requires `--modality-config-path`)
 
-> **Note:** Pretrain tags (e.g., `GR1`) are embedded in the model checkpoint and used for inference. They do not have entries in `MODALITY_CONFIGS`, so finetuning with a pretrain tag requires using `NEW_EMBODIMENT` with a `--modality-config-path` instead.
+> **Note:** Pretrain tags (e.g., `ROBOCASA_PANDA_OMRON`) are embedded in the model checkpoint and used for inference. They do not have entries in `MODALITY_CONFIGS`, so finetuning with a pretrain tag requires using `NEW_EMBODIMENT` with a `--modality-config-path` instead.
+
+### Fine-tuning
+
+> **Reproducing LIBERO benchmark results?** See [examples/LIBERO/README.md](examples/LIBERO/README.md) for the exact dataset download and finetune commands using the built-in `LIBERO_PANDA` embodiment.
+>
+> **Fine-tuning on your own robot?** Continue below.
 
 ### Fine-tune on Custom Embodiments ("NEW_EMBODIMENT")
 
@@ -490,21 +501,26 @@ To add a new benchmark:
 3. Add corresponding test cases in `tests/gr00t/eval/sim/test_env_utils.py` and update the `test_all_known_prefixes_present` test.
 
 **Zero-shot Evaluation** (evaluate without finetuning):
-- **RoboCasa**: [Instructions](examples/robocasa/README.md)
-- **RoboCasa GR1 Tabletop Tasks**: [Instructions](examples/robocasa-gr1-tabletop-tasks/README.md)
+- **DROID**: [Instructions](examples/DROID/README.md)
 
 **Finetuned Evaluation** (test after task-specific finetuning):
-- **G1 LocoManipulation**: [Instructions](examples/GR00T-WholeBodyControl/README.md)
-- **BEHAVIOR**: [Instructions](examples/BEHAVIOR/README.md)
+- **LIBERO**: [Instructions](examples/LIBERO/README.md)
 - **SO-100**: [Instructions](examples/SO100/README.md)
 
 
-# Contributing
+# Contributions
 
-For more details, see [CONTRIBUTING.md](CONTRIBUTING.md)
+During Early Access we are not accepting pull requests while the codebase stabilizes. If you encounter issues or have suggestions, please open an [Issue](https://github.com/NVIDIA/Isaac-GR00T/issues) in this repository.
+
+# Support
+
+Support during Early Access is best-effort. We will continue iterating toward a more stable General Availability (GA) release.
 
 
-## License 
+## License
+
+- **Code:** Apache 2.0 — see [LICENSE](LICENSE)
+- **Model weights:** [NVIDIA Software and Model Evaluation License](https://developer.nvidia.com/downloads/license/nvidia-software-model-evaluation-license)
 
 ```
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.

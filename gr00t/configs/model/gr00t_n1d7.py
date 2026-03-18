@@ -100,7 +100,8 @@ class Gr00tN1d7Config(PretrainedConfig):
 
     # State augmentation parameters
     state_dropout_prob: float = 0.8  # State dropout probability
-    state_additive_noise_scale: float = 0.0  # Scale for additive Gaussian noise on state features
+    exclude_state: bool = False  # Zero out all state inputs (ablation)
+    use_mean_std: bool = False  # Use mean/std normalization instead of min/max
 
     # Multi-embodiment parameters
     max_num_embodiments: int = 32

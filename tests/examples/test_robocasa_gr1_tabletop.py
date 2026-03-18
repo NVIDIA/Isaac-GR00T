@@ -156,6 +156,9 @@ def _build_runtime_env(
 
 
 # may need to increase timeout since first run may need to download assets
+@pytest.mark.skip(
+    reason="N1.7 checkpoint no longer supports GR1 embodiment tag; re-enable when a GR1-compatible checkpoint is available"
+)
 @pytest.mark.gpu
 @pytest.mark.timeout(900)
 def test_robocasa_gr1_tabletop_readme_eval_flow():

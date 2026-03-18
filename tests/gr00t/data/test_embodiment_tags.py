@@ -3,7 +3,7 @@
 Ensures that:
 - All pretrain/posttrain tags (except NEW_EMBODIMENT) have matching
   entries in the N1.7 MODALITY_CONFIGS and EMBODIMENT_TAG_TO_PROJECTOR_INDEX.
-- Removed N1.6 tags (OXE_GOOGLE, OXE_WIDOWX, LIBERO_PANDA) are no longer
+- Removed N1.6 tags (OXE_GOOGLE, OXE_WIDOWX, GR1) are no longer
   in the enum or configs.
 """
 
@@ -20,23 +20,21 @@ class TestEmbodimentTagResolve:
         "input_str, expected",
         [
             # By enum name (various cases)
-            ("GR1", EmbodimentTag.GR1),
-            ("gr1", EmbodimentTag.GR1),
-            ("Gr1", EmbodimentTag.GR1),
             ("xdof", EmbodimentTag.XDOF),
             ("XDOF", EmbodimentTag.XDOF),
             ("new_embodiment", EmbodimentTag.NEW_EMBODIMENT),
             ("NEW_EMBODIMENT", EmbodimentTag.NEW_EMBODIMENT),
             ("unitree_g1", EmbodimentTag.UNITREE_G1),
             # By enum value (various cases)
-            ("gr1_unified", EmbodimentTag.GR1),
-            ("GR1_UNIFIED", EmbodimentTag.GR1),
             ("sim_behavior_r1_pro", EmbodimentTag.BEHAVIOR_R1_PRO),
-            ("oxe_droid_joint_position_relative", EmbodimentTag.OXE_DROID),
+            (
+                "oxe_droid_relative_eef_relative_joint",
+                EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT,
+            ),
             # Passthrough of existing enum
-            (EmbodimentTag.GR1, EmbodimentTag.GR1),
+            (EmbodimentTag.XDOF, EmbodimentTag.XDOF),
             # Whitespace tolerance
-            ("  gr1  ", EmbodimentTag.GR1),
+            ("  xdof  ", EmbodimentTag.XDOF),
         ],
     )
     def test_resolve_known_tags(self, input_str, expected):
@@ -47,7 +45,7 @@ class TestEmbodimentTagResolve:
             EmbodimentTag.resolve("nonexistent_robot")
 
     def test_resolve_error_lists_known_tags(self):
-        with pytest.raises(ValueError, match="GR1") as exc_info:
+        with pytest.raises(ValueError, match="XDOF") as exc_info:
             EmbodimentTag.resolve("foo")
         # Error message should list all known tags
         msg = str(exc_info.value)
@@ -58,19 +56,19 @@ class TestEmbodimentTagResolve:
 class TestRemovedN16Tags:
     """Verify that deprecated N1.6-only tags are fully removed."""
 
-    @pytest.mark.parametrize("tag_name", ["OXE_GOOGLE", "OXE_WIDOWX", "LIBERO_PANDA"])
+    @pytest.mark.parametrize("tag_name", ["OXE_GOOGLE", "OXE_WIDOWX", "GR1"])
     def test_removed_from_enum(self, tag_name):
         assert not hasattr(EmbodimentTag, tag_name), (
             f"EmbodimentTag.{tag_name} should be removed (not in N1.7 checkpoint)"
         )
 
-    @pytest.mark.parametrize("tag_value", ["oxe_google", "oxe_widowx", "libero_panda"])
+    @pytest.mark.parametrize("tag_value", ["oxe_google", "oxe_widowx", "gr1_unified"])
     def test_removed_from_modality_configs(self, tag_value):
         assert tag_value not in MODALITY_CONFIGS, (
             f"MODALITY_CONFIGS['{tag_value}'] should be removed (not in N1.7 checkpoint)"
         )
 
-    @pytest.mark.parametrize("tag_value", ["oxe_google", "oxe_widowx", "libero_panda"])
+    @pytest.mark.parametrize("tag_value", ["oxe_google", "oxe_widowx", "gr1_unified"])
     def test_removed_from_projector_index(self, tag_value):
         assert tag_value not in EMBODIMENT_TAG_TO_PROJECTOR_INDEX, (
             f"EMBODIMENT_TAG_TO_PROJECTOR_INDEX['{tag_value}'] should be removed"
@@ -83,13 +81,12 @@ class TestEmbodimentTagConsistency:
     # Tags that exist in the pretrained N1.7 checkpoint
     N17_PRETRAINED_TAGS = {
         EmbodimentTag.ROBOCASA_PANDA_OMRON,
-        EmbodimentTag.GR1,
         EmbodimentTag.XDOF,
         EmbodimentTag.AGIBOT,
         EmbodimentTag.UNITREE_G1,
         EmbodimentTag.SIMPLER_ENV_GOOGLE,
         EmbodimentTag.SIMPLER_ENV_WIDOWX,
-        EmbodimentTag.OXE_DROID,
+        EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT,
         EmbodimentTag.BEHAVIOR_R1_PRO,
     }
 
@@ -128,11 +125,11 @@ class TestEmbodimentTagConsistency:
         # only posttrain tags need an explicit entry in MODALITY_CONFIGS.
         pretrain_tags = {
             EmbodimentTag.ROBOCASA_PANDA_OMRON,
-            EmbodimentTag.GR1,
             EmbodimentTag.XDOF,
             EmbodimentTag.AGIBOT,
             EmbodimentTag.SIMPLER_ENV_GOOGLE,
             EmbodimentTag.SIMPLER_ENV_WIDOWX,
+            EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT,
         }
         skip_tags = pretrain_tags | {EmbodimentTag.NEW_EMBODIMENT}
         for tag in EmbodimentTag:

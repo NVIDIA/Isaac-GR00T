@@ -1,3 +1,6 @@
+<!-- TODO: This example uses N1.6 checkpoint (nvidia/GR00T-N1.6-BEHAVIOR1k).
+     Update when N1.7 BEHAVIOR checkpoint is available. -->
+
 # BEHAVIOR Benchmark Results
 
 <div align="center">

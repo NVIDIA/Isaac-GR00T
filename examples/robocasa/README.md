@@ -1,3 +1,6 @@
+<!-- TODO: RoboCasa Panda (ROBOCASA_PANDA_OMRON) is not verified with N1.7 checkpoint.
+     Remove or update this example once N1.7 support is confirmed. -->
+
 # RoboCasa Evaluation Benchmark
 
 [RoboCasa](https://robocasa.ai/) is a large-scale simulation framework for training generally capable robots to perform everyday tasks, featuring realistic kitchen environments with over 2,500 3D assets and 100 diverse manipulation tasks. This evaluation benchmark uses RoboCasa with the Panda robot equipped with an Omron gripper to test household manipulation tasks including operating kitchen appliances, pick-and-place operations, and interacting with doors, drawers, and various objects.

@@ -9,16 +9,19 @@ Supports three export modes:
                    (deepstack injection requires it).
 
 Usage:
+    # Download finetuned model first (HF doesn't support nested repo paths)
+    uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
+
     # DiT only (default)
     python export_onnx_n1d7.py \\
-        --model-path nvidia/GR00T-N1.7-3B \\
-        --dataset-path demo_data/gr1.PickNPlace \\
+        --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \\
+        --dataset-path demo_data/libero_demo \\
         --output-dir ./gr00t_n1d7_onnx
 
     # Action head (4 components)
     python export_onnx_n1d7.py \\
-        --model-path nvidia/GR00T-N1.7-3B \\
-        --dataset-path demo_data/gr1.PickNPlace \\
+        --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \\
+        --dataset-path demo_data/libero_demo \\
         --output-dir ./gr00t_n1d7_onnx \\
         --export-mode action_head
 """
@@ -28,7 +31,8 @@ from dataclasses import dataclass
 import json
 import logging
 import os
-from typing import Any, Literal
+from pathlib import Path
+from typing import Any, Literal, Optional
 
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
@@ -418,7 +422,8 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True):
     logger.info(f"  pixel_values: {pixel_values.shape} ({pixel_values.dtype})")
     logger.info(f"  grid_thw (baked in): {grid_thw.tolist()}")
 
-    output_path = os.path.join(output_dir, "vit_bf16.onnx")
+    precision_tag = "bf16" if use_bf16 else "fp32"
+    output_path = os.path.join(output_dir, f"vit_{precision_tag}.onnx")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     output_names = ["image_embeds", "deepstack_features"]
@@ -691,7 +696,8 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True):
     for name, tensor in zip(input_names, export_inputs):
         logger.info(f"    {name}: {tensor.shape} ({tensor.dtype})")
 
-    output_path = os.path.join(output_dir, "llm_bf16.onnx")
+    precision_tag = "bf16" if use_bf16 else "fp32"
+    output_path = os.path.join(output_dir, f"llm_{precision_tag}.onnx")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     logger.info(f"  Exporting to {output_path}...")
@@ -760,6 +766,62 @@ def prepare_observation(policy, dataset, traj_idx=0):
     parsed_obs = parse_observation_gr00t(observation, modality_configs)
     logger.info("  Observation prepared")
     return parsed_obs
+
+
+# ============================================================
+# Export Functions: VL Self-Attention
+# ============================================================
+
+
+def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=True):
+    """Export the vl_self_attention (SelfAttentionTransformer) to ONNX.
+
+    This module sits between VLLN and the DiT, transforming backbone
+    embeddings. If the model has no vl_self_attention (nn.Identity), skip.
+
+    Input: hidden_states [B, T, backbone_embedding_dim]  (T is dynamic)
+    Output: hidden_states [B, T, backbone_embedding_dim]
+    """
+    vl_sa = policy.model.action_head.vl_self_attention
+    if isinstance(vl_sa, nn.Identity):
+        logger.info("  vl_self_attention is Identity — skipping export")
+        return None
+
+    logger.info("\n" + "=" * 80)
+    logger.info("Exporting VL Self-Attention to ONNX")
+    logger.info("=" * 80)
+
+    config = policy.model.action_head.config
+    dtype = torch.bfloat16 if use_bf16 else torch.float32
+    model = vl_sa.to(dtype).eval().cuda()
+
+    hidden_states = torch.randn(
+        1, vl_seq_len, config.backbone_embedding_dim, dtype=dtype, device="cuda"
+    )
+    logger.info(f"  hidden_states: {hidden_states.shape} ({hidden_states.dtype})")
+
+    output_path = os.path.join(output_dir, "vl_self_attention.onnx")
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    logger.info(f"  Exporting to {output_path}...")
+    with torch.inference_mode():
+        torch.onnx.export(
+            model,
+            (hidden_states,),
+            output_path,
+            input_names=["hidden_states"],
+            output_names=["output"],
+            dynamic_axes={
+                "hidden_states": {1: "seq_len"},
+                "output": {1: "seq_len"},
+            },
+            opset_version=19,
+            do_constant_folding=True,
+        )
+
+    logger.info("  VL Self-Attention exported successfully!")
+    verify_onnx_export(output_path)
+    return output_path
 
 
 # ============================================================
@@ -1213,24 +1275,30 @@ def main(args):
         logger.info("\n[Step 4] Exporting full pipeline to ONNX...")
         logger.info("  (ViT TRT + LLM TRT + Action Head TRT)")
 
-        # 4a. ViT
-        logger.info("\n--- [4a] ViT (Qwen3-VL Vision) ---")
-        export_vit_to_onnx(policy, args.output_dir, vit_capture, use_bf16=True)
+        # 4a. ViT — exported in FP32 to avoid TRT BF16 kernel fusion accuracy issues
+        logger.info("\n--- [4a] ViT (Qwen3-VL Vision, FP32 for TRT accuracy) ---")
+        export_vit_to_onnx(policy, args.output_dir, vit_capture, use_bf16=False)
 
         # 4b. LLM
         logger.info("\n--- [4b] LLM (Qwen3-VL Text Model) ---")
         export_llm_to_onnx(policy, llm_capture, args.output_dir, use_bf16=True)
 
-        # 4c. State Encoder
-        logger.info("\n--- [4c] State Encoder ---")
+        # 4c. VL Self-Attention (if present)
+        logger.info("\n--- [4c] VL Self-Attention ---")
+        export_vl_self_attention_to_onnx(
+            policy, args.output_dir, vl_seq_len=vl_seq_len, use_bf16=True
+        )
+
+        # 4d. State Encoder
+        logger.info("\n--- [4d] State Encoder ---")
         export_state_encoder_to_onnx(policy, args.output_dir, use_bf16=True)
 
-        # 4d. Action Encoder
-        logger.info("\n--- [4d] Action Encoder ---")
+        # 4e. Action Encoder
+        logger.info("\n--- [4e] Action Encoder ---")
         export_action_encoder_to_onnx(policy, args.output_dir, use_bf16=True)
 
-        # 4e. DiT
-        logger.info("\n--- [4e] DiT ---")
+        # 4f. DiT
+        logger.info("\n--- [4f] DiT ---")
         dit_output_path = os.path.join(args.output_dir, "dit_bf16.onnx")
         export_dit_to_onnx(
             policy=policy,
@@ -1239,8 +1307,8 @@ def main(args):
             use_bf16=True,
         )
 
-        # 4f. Action Decoder
-        logger.info("\n--- [4f] Action Decoder ---")
+        # 4g. Action Decoder
+        logger.info("\n--- [4g] Action Decoder ---")
         export_action_decoder_to_onnx(policy, args.output_dir, use_bf16=True)
 
     # Summary
@@ -1266,8 +1334,8 @@ class ExportConfig:
     dataset_path: str = ""
     """Path to the dataset (used to capture input shapes)."""
 
-    embodiment_tag: EmbodimentTag = EmbodimentTag.GR1
-    """Embodiment tag (default: GR1)."""
+    embodiment_tag: Optional[EmbodimentTag] = None
+    """Embodiment tag. If not provided, auto-detected from model's processor_config.json."""
 
     output_dir: str = "./gr00t_n1d7_onnx"
     """Output directory for ONNX models."""
@@ -1288,4 +1356,32 @@ if __name__ == "__main__":
         raise ValueError("Please provide --model-path")
     if not args.dataset_path:
         raise ValueError("Please provide --dataset-path")
+    if args.embodiment_tag is None:
+        # Auto-detect from model's processor_config.json
+        config_file = Path(args.model_path) / "processor_config.json"
+        if not config_file.exists():
+            raise ValueError(
+                f"Cannot auto-detect embodiment_tag: {config_file} not found. "
+                "Please provide --embodiment-tag explicitly."
+            )
+        with open(config_file, "r") as f:
+            processor_config = json.load(f)
+        modality_configs = processor_config.get("processor_kwargs", {}).get("modality_configs", {})
+        if len(modality_configs) == 0:
+            raise ValueError(
+                "Cannot auto-detect embodiment_tag: no modality_configs found in processor_config.json. "
+                "Please provide --embodiment-tag explicitly."
+            )
+        if len(modality_configs) == 1:
+            embodiment_key = next(iter(modality_configs))
+            args.embodiment_tag = EmbodimentTag.resolve(embodiment_key)
+            logger.info(
+                f"Auto-detected embodiment tag: {args.embodiment_tag} (from {embodiment_key})"
+            )
+        else:
+            available = sorted(modality_configs.keys())
+            raise ValueError(
+                f"Multiple embodiments found in processor_config.json: {available}. "
+                "Please provide --embodiment-tag explicitly."
+            )
     main(args)

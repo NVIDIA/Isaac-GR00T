@@ -34,7 +34,7 @@ Example commands:
 python scripts/deployment/standalone_inference_script.py \
   --model-path /path/to/checkpoint \
   --dataset-path /path/to/dataset \
-  --embodiment-tag GR1 \
+  --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 \
   --inference-mode pytorch
 
@@ -42,7 +42,7 @@ python scripts/deployment/standalone_inference_script.py \
 python scripts/deployment/standalone_inference_script.py \
   --model-path /path/to/checkpoint \
   --dataset-path /path/to/dataset \
-  --embodiment-tag GR1 \
+  --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 \
   --inference-mode tensorrt \
   --trt-engine-path ./gr00t_n1d7_onnx/dit_model_bf16.trt
@@ -574,20 +574,20 @@ class ArgsConfig:
     video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "torchcodec"
     """Video backend to use for various codec options. h264: decord or av: torchvision_av"""
 
-    dataset_path: str = "demo_data/gr1.PickNPlace/"
+    dataset_path: str = "demo_data/libero_demo/"
     """Path to the dataset."""
 
-    embodiment_tag: EmbodimentTag = EmbodimentTag.GR1
+    embodiment_tag: EmbodimentTag = EmbodimentTag.LIBERO_PANDA
     """Embodiment tag to use."""
 
     model_path: str | None = None
     """Path to the model checkpoint."""
 
-    inference_mode: Literal["pytorch", "tensorrt"] = "pytorch"
-    """Inference mode: 'pytorch' (default) or 'tensorrt'."""
+    inference_mode: Literal["pytorch", "tensorrt", "trt_full_pipeline"] = "pytorch"
+    """Inference mode: 'pytorch' (default), 'tensorrt' (DiT-only TRT), or 'trt_full_pipeline' (all engines)."""
 
-    trt_engine_path: str = "./gr00t_n1d7_onnx/dit_model_bf16.trt"
-    """Path to TensorRT engine file (.trt). Used only when inference_mode='tensorrt'."""
+    trt_engine_path: str = "./gr00t_n1d7_engines"
+    """Path to TensorRT engine file or directory. For 'tensorrt': single .trt file. For 'trt_full_pipeline': engine directory."""
 
     denoising_steps: int = 4
     """Number of denoising steps to use."""
@@ -661,17 +661,19 @@ def main(args: ArgsConfig):
             device="cuda" if torch.cuda.is_available() else "cpu",
         )
 
-        # Apply inference mode: TensorRT or PyTorch
-        if args.inference_mode == "tensorrt":
+        # Apply inference mode
+        if args.inference_mode == "trt_full_pipeline":
+            logging.info(f"Loading full-pipeline TRT engines from: {args.trt_engine_path}")
+            from trt_model_forward import setup_tensorrt_engines
+
+            setup_tensorrt_engines(policy, args.trt_engine_path, mode="n17_full_pipeline")
+            logging.info("  TRT full-pipeline mode enabled")
+        elif args.inference_mode == "tensorrt":
             logging.info(f"Replacing DiT with TensorRT engine: {args.trt_engine_path}")
             replace_dit_with_tensorrt(policy, args.trt_engine_path)
-            logging.info(" TensorRT mode enabled")
+            logging.info("  TensorRT DiT-only mode enabled")
         else:
-            # PyTorch mode with torch.compile
-            policy.model.action_head.model.forward = torch.compile(
-                policy.model.action_head.model.forward, mode="max-autotune"
-            )
-            logging.info(" PyTorch mode enabled with torch.compile")
+            logging.info("  PyTorch mode enabled")
 
         if torch.cuda.is_available():
             torch.backends.cudnn.benchmark = True

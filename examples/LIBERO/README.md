@@ -112,15 +112,22 @@ sudo apt install libegl1-mesa-dev libglu1-mesa
 bash gr00t/eval/sim/LIBERO/setup_libero.sh
 ```
 
-Then, run client server evaluation under the project root directory in separate terminals:
+Then, download the finetuned model to a local directory (HuggingFace does not support nested repo paths directly):
+```bash
+uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
+```
+
+Run client server evaluation under the project root directory in separate terminals:
 
 **Terminal 1 - Server:**
 ```bash
 uv run python gr00t/eval/run_gr00t_server.py \
-    --model-path /tmp/libero_spatial/checkpoint-20000/ \
-    --embodiment-tag NEW_EMBODIMENT \
+    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+    --embodiment-tag LIBERO_PANDA \
     --use-sim-policy-wrapper
 ```
+
+> **Note:** Replace `checkpoints/GR00T-N1.7-LIBERO/libero_10` with your own checkpoint path (e.g., `/tmp/libero_10/checkpoint-20000/`) if evaluating a locally finetuned model.
 
 **Terminal 2 - Client:**
 ```bash

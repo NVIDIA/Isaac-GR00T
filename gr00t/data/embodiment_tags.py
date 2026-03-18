@@ -14,18 +14,18 @@ If using multiple datasets, e.g. sim GR1 and real GR1, we can drop the dataset n
 class EmbodimentTag(Enum):
     """Embodiment tags supported by the GR00T N1.7 checkpoint.
 
-    Pretrain tags (baked into the base model):
-    - GR1                  -> "gr1_unified"                                      (Fourier GR1 humanoid)
-    - ROBOCASA_PANDA_OMRON -> "robocasa_panda_omron"                             (RoboCasa Panda + Omron base)
-    - XDOF                 -> "xdof"                                             (Generic X-DOF robot)
-    - AGIBOT               -> "agibot"                                           (AgiBot robot)
+    Pretrain tags (baked into the base model, inference-ready):
+    - OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT -> "oxe_droid_relative_eef_relative_joint"  (DROID relative EEF + joint)
+    - ROBOCASA_PANDA_OMRON                  -> "robocasa_panda_omron"                    (RoboCasa Panda + Omron base)
+    - XDOF                                  -> "xdof"                                    (Generic X-DOF robot)
+    - AGIBOT                                -> "agibot"                                  (AgiBot robot)
 
-    Pre-registered posttrain tags (finetuned embodiments shipped with N1.7):
+    Pre-registered posttrain tags (for finetuning):
     - UNITREE_G1           -> "unitree_g1_full_body_with_waist_height_nav_cmd"   (Unitree G1 full-body)
     - SIMPLER_ENV_GOOGLE   -> "simpler_env_google"                               (SimplerEnv Google Robot)
     - SIMPLER_ENV_WIDOWX   -> "simpler_env_widowx"                               (SimplerEnv WidowX)
-    - OXE_DROID            -> "oxe_droid_joint_position_relative"                (OXE DROID relative joints)
     - BEHAVIOR_R1_PRO      -> "sim_behavior_r1_pro"                              (Behavior R1 Pro sim)
+    - LIBERO_PANDA         -> "libero_sim"                                       (LIBERO Panda robot)
 
     Finetuning tag (for custom robots):
     - NEW_EMBODIMENT       -> "new_embodiment"                                   (Any new embodiment)
@@ -38,11 +38,6 @@ class EmbodimentTag(Enum):
     ROBOCASA_PANDA_OMRON = "robocasa_panda_omron"
     """
     The RoboCasa Panda robot with omron mobile base.
-    """
-
-    GR1 = "gr1_unified"
-    """
-    The Fourier GR1 robot.
     """
 
     XDOF = "xdof"
@@ -71,14 +66,19 @@ class EmbodimentTag(Enum):
     The SimplerEnv WidowX robot.
     """
 
-    OXE_DROID = "oxe_droid_joint_position_relative"
+    OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT = "oxe_droid_relative_eef_relative_joint"
     """
-    The Open-X-Embodiment DROID robot with relative joint position actions.
+    The Open-X-Embodiment DROID robot with relative EEF and relative joint position actions.
     """
 
     BEHAVIOR_R1_PRO = "sim_behavior_r1_pro"
     """
     The Behavior R1 Pro robot.
+    """
+
+    LIBERO_PANDA = "libero_sim"
+    """
+    The LIBERO Panda robot (used for LIBERO-Goal, LIBERO-Object, LIBERO-Spatial, LIBERO-10).
     """
 
     # New embodiment during post-training
@@ -92,7 +92,7 @@ class EmbodimentTag(Enum):
         """Resolve a string to an EmbodimentTag, case-insensitively.
 
         Matches by enum **name** first (e.g. ``"gr1"`` -> ``GR1``), then by
-        enum **value** (e.g. ``"gr1_unified"`` -> ``GR1``).
+        enum **value** (e.g. ``"xdof"`` -> ``XDOF``).
 
         Raises:
             ValueError: If *tag* does not match any known embodiment.

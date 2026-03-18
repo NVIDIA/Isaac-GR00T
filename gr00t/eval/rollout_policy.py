@@ -162,10 +162,7 @@ def get_gym_env(env_name: str, env_idx: int, total_n_envs: int):
 
     env_embodiment = get_embodiment_tag_from_env_name(env_name)
 
-    if env_embodiment in (
-        EmbodimentTag.GR1,
-        EmbodimentTag.ROBOCASA_PANDA_OMRON,
-    ):
+    if env_embodiment in (EmbodimentTag.ROBOCASA_PANDA_OMRON,):
         env_fn = get_robocasa_env_fn(env_name)
 
     elif env_embodiment in (EmbodimentTag.UNITREE_G1,):
@@ -498,9 +495,7 @@ class RolloutConfig:
     policy_client_port: int | None = None
     """Port for policy client."""
 
-    env_name: str = (
-        "gr1_unified/PosttrainPnPNovelFromPlateToBowlSplitA_GR1ArmsAndWaistFourierHands_Env"
-    )
+    env_name: str = "robocasa_panda_omron/OpenDrawer_PandaOmron_Env"
     """Environment name."""
 
     n_envs: int = 8
