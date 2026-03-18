@@ -30,7 +30,7 @@ Combined inference script supporting both PyTorch and TensorRT modes.
 Example commands:
  
 # PyTorch mode (default):
-python groot/scripts/deployment/standalone_inference_script.py \
+python gr00t/scripts/deployment/standalone_inference_script.py \
   --model_path /path/to/checkpoint \
   --dataset_path /path/to/dataset \
   --embodiment_tag GR1 \
@@ -38,7 +38,7 @@ python groot/scripts/deployment/standalone_inference_script.py \
   --inference-mode pytorch
 
 # TensorRT mode:
-python groot/scripts/deployment/standalone_inference_script.py \
+python gr00t/scripts/deployment/standalone_inference_script.py \
   --model_path /path/to/checkpoint \
   --dataset_path /path/to/dataset \
   --embodiment_tag GR1 \

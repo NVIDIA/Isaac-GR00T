@@ -38,7 +38,7 @@ class FinetuneConfig:
     tune_visual: bool = False
     """If True, fine-tune the visual encoder (e.g., ViT or CNN backbone)."""
 
-    tune_projector: bool = True
+    tune_projector: bool = False
     """If True, fine-tune the multimodal projector layers that map vision/language features to a shared space."""
 
     tune_diffusion_model: bool = True
@@ -68,7 +68,7 @@ class FinetuneConfig:
     """
 
     # --- Training Configuration ---
-    global_batch_size: int = 64
+    global_batch_size: int = 32
     """Total effective batch size across all GPUs and accumulation steps."""
 
     dataloader_num_workers: int = 2

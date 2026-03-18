@@ -52,7 +52,7 @@ def convert_tensors_to_lists(obj):
 class BasicPipeline(ModelPipeline):
     """A simple pipeline that works for diffusion and flowmatching-based models."""
 
-    model_class: type[PreTrainedModel]
+    model_class: type[PreTrainedModel]  # from transformer
     processor_class: type[BaseProcessor]
     data_collator_class: type[BasicDataCollator] = BasicDataCollator
 
