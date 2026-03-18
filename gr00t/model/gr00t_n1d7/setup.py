@@ -77,14 +77,7 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 **self.transformers_loading_kwargs,
             )
 
-            missing_keys = loading_info.get("missing_keys", [])
-            mask_token_missing = any("mask_token" in key for key in missing_keys)
-            if mask_token_missing and model.action_head.mask_token is not None:
-                with torch.no_grad():
-                    model.action_head.mask_token.data.copy_(
-                        0.02 * torch.randn_like(model.action_head.mask_token)
-                    )
-                logging.info("mask_token not in checkpoint - initialized")
+            # missing_keys = loading_info.get("missing_keys", [])
 
         else:
             model = self.model_class(
@@ -139,6 +132,10 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 transformers_loading_kwargs=self.transformers_loading_kwargs,
                 use_alternate_vl_dit=self.model_config.use_alternate_vl_dit,
                 use_relative_action=self.model_config.use_relative_action,
+                # State augmentation overrides
+                exclude_state=self.model_config.exclude_state,
+                state_dropout_prob=self.model_config.state_dropout_prob,
+                use_mean_std=self.model_config.use_mean_std,
                 **self.transformers_loading_kwargs,
             )
         else:
@@ -163,6 +160,10 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 shortest_image_edge=self.model_config.shortest_image_edge,
                 crop_fraction=self.model_config.crop_fraction,
                 use_relative_action=self.model_config.use_relative_action,
+                # State augmentation
+                exclude_state=self.model_config.exclude_state,
+                state_dropout_prob=self.model_config.state_dropout_prob,
+                use_mean_std=self.model_config.use_mean_std,
                 transformers_loading_kwargs=self.transformers_loading_kwargs,
             )
 

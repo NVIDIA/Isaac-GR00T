@@ -15,13 +15,13 @@ class TestEnvPrefixMapping:
     def test_all_known_prefixes_present(self):
         expected_prefixes = {
             "robocasa_panda_omron",
-            "gr1_unified",
             "gr00tlocomanip_g1",
             "gr00tlocomanip_g1_sim",
             "gr00tlocomanip_g1_new",
             "sim_behavior_r1_pro",
             "simpler_env_google",
             "simpler_env_widowx",
+            "libero_sim",
         }
         assert set(ENV_PREFIX_TO_EMBODIMENT_TAG.keys()) == expected_prefixes
 
@@ -53,16 +53,6 @@ class TestGetEmbodimentTagFromEnvName:
     @pytest.mark.parametrize(
         "env_name",
         [
-            "gr1_unified/GraspFromTable",
-            "gr1_unified/PnPNovelFromPlateToBowl",
-        ],
-    )
-    def test_gr1(self, env_name):
-        assert get_embodiment_tag_from_env_name(env_name) == EmbodimentTag.GR1
-
-    @pytest.mark.parametrize(
-        "env_name",
-        [
             "gr00tlocomanip_g1/LMBottlePnP",
             "gr00tlocomanip_g1_sim/LMBottlePnP",
             "gr00tlocomanip_g1_new/LMBottlePnP",
@@ -84,6 +74,10 @@ class TestGetEmbodimentTagFromEnvName:
     def test_simpler_env_widowx(self):
         tag = get_embodiment_tag_from_env_name("simpler_env_widowx/widowx_spoon_on_towel")
         assert tag == EmbodimentTag.SIMPLER_ENV_WIDOWX
+
+    def test_libero_panda(self):
+        tag = get_embodiment_tag_from_env_name("libero_sim/KITCHEN_SCENE3_pick_up_the_black_bowl")
+        assert tag == EmbodimentTag.LIBERO_PANDA
 
     # --- Edge cases ---
 

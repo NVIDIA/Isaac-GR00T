@@ -1,3 +1,6 @@
+<!-- TODO: This example uses N1.6 checkpoint (nvidia/GR00T-N1.6-G1-PnPAppleToPlate).
+     Update when N1.7 G1 checkpoint is available. -->
+
 # G1 LocoManipulation Benchmark
 
 This is our in-house loco-manipulation task built on MuJoCo, using the Unitree G1 humanoid robot with whole-body control. The task requires the robot to navigate, pick up objects, and place them at target locations while maintaining balance and coordination across the entire body.

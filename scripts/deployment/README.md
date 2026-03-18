@@ -7,7 +7,7 @@ Run inference with PyTorch or TensorRT acceleration for the GR00T N1.7 policy.
 ## Prerequisites
 
 - Model checkpoint: `nvidia/GR00T-N1.7-3B`
-- Dataset in LeRobot format (e.g., `demo_data/gr1.PickNPlace`)
+- Dataset in LeRobot format (e.g., `demo_data/libero_demo`)
 - CUDA-enabled GPU
 - FFmpeg (required by `torchcodec` video backend): `sudo apt-get install -y ffmpeg`
 
@@ -15,6 +15,7 @@ Run inference with PyTorch or TensorRT acceleration for the GR00T N1.7 policy.
 
 - dGPU local environment: use the installation commands below, then use the PyTorch or TensorRT commands in this guide
 - Thor Docker or bare metal: skip to [Jetson Thor Setup](#jetson-thor-setup)
+- Spark Docker or bare metal: skip to [DGX Spark Setup](#dgx-spark-setup)
 - Orin Docker or bare metal: skip to [Jetson Orin Setup](#jetson-orin-setup)
 
 ### dGPU Installation
@@ -29,11 +30,16 @@ GPU dependencies (`flash-attn`, `onnx`, `tensorrt`) are included in the default 
 
 ## Quick Start: PyTorch Mode
 
+First, download the finetuned model to a local directory (HuggingFace does not support nested repo paths directly):
+```bash
+uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
+```
+
 ```bash
 python scripts/deployment/standalone_inference_script.py \
-  --model-path nvidia/GR00T-N1.7-3B \
-  --dataset-path demo_data/gr1.PickNPlace \
-  --embodiment-tag GR1 \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 \
   --inference-mode pytorch \
   --action-horizon 8
@@ -41,32 +47,42 @@ python scripts/deployment/standalone_inference_script.py \
 
 ---
 
-## TensorRT Full Pipeline (5x Faster)
+## TensorRT Acceleration (3x Faster)
 
-The full-pipeline TRT mode exports **all 6 model components** to TensorRT engines:
+The `n17_full_pipeline` mode accelerates the LLM and action head with TRT engines while keeping the ViT in PyTorch for accuracy:
 
-| Engine | Description |
-|--------|-------------|
-| ViT | Qwen3-VL Vision Encoder (24 blocks + PatchMerger + DeepStack) |
-| LLM | Qwen3-VL Text Model (16 layers, with deepstack injection) |
-| State Encoder | CategorySpecificMLP |
-| Action Encoder | MultiEmbodimentActionEncoder |
-| DiT | AlternateVLDiT (32 layers) |
-| Action Decoder | CategorySpecificMLP |
+| Component | Engine | Notes |
+|-----------|--------|-------|
+| ViT | **PyTorch** | Kept in PyTorch for accuracy (see note below) |
+| LLM | **TRT** | Qwen3-VL Text Model (16 layers, with deepstack injection) |
+| VL Self-Attention | **TRT** | SelfAttentionTransformer (4 layers, if present) |
+| State Encoder | **TRT** | CategorySpecificMLP |
+| Action Encoder | **TRT** | MultiEmbodimentActionEncoder |
+| DiT | **TRT** | AlternateVLDiT (32 layers) |
+| Action Decoder | **TRT** | CategorySpecificMLP |
 
-Lightweight ops remain in PyTorch (<1ms): `embed_tokens`, `masked_scatter`, `get_rope_index`, VLLN.
+Lightweight ops remain in PyTorch: `embed_tokens`, `masked_scatter`, `get_rope_index`, VLLN.
+
+> **TensorRT version:** We tested on both CUDA 12.8 and CUDA 13.0. TensorRT 12 libraries work on both, so they are used by default on standard dGPU setups. On CUDA 13.0 platforms (DGX Spark, Jetson Thor), TensorRT 13 is also supported and is set as the default in those platform-specific dependency stacks.
+
+<!-- TODO: Investigate and fix ViT TRT accuracy issue.
+     The ONNX export wrapper produces 0.998 cosine vs PyTorch ViT, but the TRT-built engine
+     diverges to ~0.57 cosine. This is likely a TRT builder kernel fusion bug with the patched
+     SDPA attention across 24 ViT blocks. Once fixed, the ViT engine can be re-enabled for
+     full backbone TRT acceleration (~7ms backbone instead of ~27ms). -->
 
 ### Step 1: Export to ONNX
 
 ```bash
 uv run python scripts/deployment/export_onnx_n1d7.py \
-  --model-path nvidia/GR00T-N1.7-3B \
-  --dataset-path demo_data/gr1.PickNPlace \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
   --output-dir ./gr00t_n1d7_onnx \
-  --export-mode full_pipeline
+  --export-mode full_pipeline \
+  --embodiment-tag LIBERO_PANDA
 ```
 
-**Output:** 6 ONNX files in `./gr00t_n1d7_onnx/` (~5 GB total)
+**Output:** ONNX files in `./gr00t_n1d7_onnx/` (LLM, VL Self-Attention, State Encoder, Action Encoder, DiT, Action Decoder)
 
 > **Finetuned models:** Replace `--model-path` with your checkpoint path. The export pipeline is identical for base and finetuned models.
 
@@ -80,21 +96,19 @@ uv run python scripts/deployment/build_tensorrt_engine.py \
   --precision bf16
 ```
 
-**Output:** 6 `.engine` files in `./gr00t_n1d7_engines/` (~4.3 GB total)
-
-> **Note:** Engine build takes ~2-5 minutes depending on GPU. Engines are GPU-architecture-specific and must be rebuilt for different GPUs.
+> **Note:** Engine build takes ~2-5 minutes depending on GPU. Engines are GPU-architecture-specific and must be rebuilt for different GPUs. The ViT engine (if present) is automatically skipped at runtime — ViT stays in PyTorch for accuracy.
 
 ### Step 3: Verify Accuracy
 
 ```bash
 uv run python scripts/deployment/verify_n1d7_trt.py \
-  --model-path nvidia/GR00T-N1.7-3B \
-  --dataset-path demo_data/gr1.PickNPlace \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
   --engine-dir ./gr00t_n1d7_engines \
   --mode n17_full_pipeline
 ```
 
-Expected output: `Cosine Similarity: 0.999987` (PASS).
+Expected output: `Cosine Similarity: 0.999+` (PASS).
 
 ---
 
@@ -102,7 +116,7 @@ Expected output: `Cosine Similarity: 0.999987` (PASS).
 
 ```bash
 uv run python scripts/deployment/benchmark_inference.py \
-    --model-path nvidia/GR00T-N1.7-3B \
+    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
     --trt-engine-path ./gr00t_n1d7_engines \
     --trt-mode n17_full_pipeline
 ```
@@ -111,31 +125,36 @@ uv run python scripts/deployment/benchmark_inference.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--model-path` | `nvidia/GR00T-N1.7-3B` | Path to model checkpoint |
-| `--dataset-path` | `demo_data/gr1.PickNPlace` | Path to dataset |
-| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--model-path` | (required) | Path to model checkpoint (local path) |
+| `--dataset-path` | `demo_data/libero_demo` | Path to dataset |
+| `--embodiment-tag` | `LIBERO_PANDA` | Embodiment tag |
 | `--trt-engine-path` | (optional) | Path to TensorRT engine |
 | `--num-iterations` | `20` | Number of benchmark iterations |
 | `--warmup` | `5` | Number of warmup iterations |
 | `--skip_compile` | `false` | Skip torch.compile benchmark |
 | `--seed` | `42` | Random seed for reproducibility |
-### N1.7 Full Pipeline TRT (BF16, 4 denoising steps, single view)
+
+### N1.7 TRT (BF16, 4 denoising steps, ViT in PyTorch)
 
 | Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
 |--------|------|-----------------|----------|-------------|-----|-----------|
-| H100 | PyTorch Eager | 4 ms | 49 ms | 95 ms | 148 ms | 6.8 Hz |
-| H100 | torch.compile | 4 ms | 48 ms | 11 ms | 63 ms | 15.8 Hz |
-| H100 | **TRT Full Pipeline** | **4 ms** | **7 ms** | **13 ms** | **23 ms** | **42.6 Hz** |
+| H100 | PyTorch Eager | 7 ms | 50 ms | 99 ms | 156 ms | 6.4 Hz |
+| H100 | torch.compile | 7 ms | 51 ms | 14 ms | 72 ms | 13.9 Hz |
+| H100 | **TRT (n17_full_pipeline)** | **7 ms** | **27 ms** | **13 ms** | **47 ms** | **21.1 Hz** |
 
-Speedup vs Eager: torch.compile **2.33x**, TRT Full Pipeline **6.29x**
+| Device | Mode | E2E Speedup | Action Head Speedup |
+|--------|------|-------------|---------------------|
+| H100 | PyTorch Eager | 1.00x | 1.00x |
+| H100 | torch.compile | 2.16x | 7.31x |
+| H100 | TRT (n17_full_pipeline) | 3.29x | 7.62x |
 
 TODO: test compatibility and get results on other platforms
-### N1.6 DiT-Only TRT (BF16, 4 denoising steps, single view)
+### DiT-Only TRT (BF16, 4 denoising steps, single view)
 
 > The DiT-only mode (`--export-mode dit_only`) optimizes only the action head DiT,
 > leaving the backbone in PyTorch.
 
-GR00T-N1.6-3B inference timing:
+GR00T N1.7 DiT-only inference timing:
 
 | Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
 |--------|------|-----------------|----------|-------------|-----|-----------|
@@ -151,6 +170,9 @@ GR00T-N1.6-3B inference timing:
 | Thor | PyTorch Eager | 5 ms | 38 ms | 74 ms | 117 ms | 8.6 Hz |
 | Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
 | Thor | TensorRT | 5 ms | 38 ms | 49 ms | 92 ms | 10.9 Hz |
+| Spark | PyTorch Eager | 2 ms | 33 ms | 76 ms | 112 ms | 8.9 Hz |
+| Spark | torch.compile | 2 ms | 33 ms | 54 ms | 89 ms | 11.2 Hz |
+| Spark | TensorRT | 2 ms | 32 ms | 48 ms | 84 ms | 11.9 Hz |
 | Orin | PyTorch Eager | 6 ms | 93 ms | 202 ms | 300 ms | 3.3 Hz |
 | Orin | torch.compile | 6 ms | 93 ms | 101 ms | 199 ms | 5.0 Hz |
 | Orin | TensorRT | 6 ms | 95 ms | 72 ms | 173 ms | 5.8 Hz |
@@ -171,6 +193,9 @@ GR00T-N1.6-3B inference timing:
 | Thor | PyTorch Eager | 1.00x | 1.00x |
 | Thor | torch.compile | 1.11x | 1.20x |
 | Thor | TensorRT | 1.27x | 1.49x |
+| Spark | PyTorch Eager | 1.00x | 1.00x |
+| Spark | torch.compile | 1.25x | 1.41x |
+| Spark | TensorRT | 1.33x | 1.58x |
 | Orin | PyTorch Eager | 1.00x | 1.00x |
 | Orin | torch.compile | 1.50x | 2.00x |
 | Orin | TensorRT | 1.73x | 2.80x |
@@ -178,7 +203,7 @@ GR00T-N1.6-3B inference timing:
 > Run `python scripts/deployment/benchmark_inference.py` to generate benchmarks for your hardware.
 > See `GR00T_inference_timing.ipynb` for detailed analysis and visualizations.
 
-> Jetson platforms use different dependency stacks than dGPU. Thor uses CUDA 13 with PyTorch 2.10.0 from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130). Orin uses CUDA 12.6 with PyTorch 2.10.0 from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126). See the platform-specific setup sections below.
+> Jetson and Spark platforms use different dependency stacks than dGPU. Thor and Spark use CUDA 13 with PyTorch 2.10.0 from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130). Orin uses CUDA 12.6 with PyTorch 2.10.0 from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126). See the platform-specific setup sections below.
 ---
 
 ## Jetson Thor Setup
@@ -209,9 +234,9 @@ docker run --rm --runtime nvidia --gpus all \
   -e HF_TOKEN="${HF_TOKEN:-}" \
   gr00t-thor \
   python scripts/deployment/standalone_inference_script.py \
-    --model-path nvidia/GR00T-N1.6-3B \
-    --dataset-path demo_data/gr1.PickNPlace \
-    --embodiment-tag GR1 \
+    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+    --dataset-path demo_data/libero_demo \
+    --embodiment-tag LIBERO_PANDA \
     --traj-ids 0 \
     --inference-mode pytorch \
     --denoising-steps 4
@@ -251,6 +276,78 @@ and `torch.compile` need on Thor.
 
 ---
 
+## DGX Spark Setup
+
+Spark uses CUDA 13 and Python 3.12 like Thor, but requires a dedicated dependency stack and
+source-built `flash-attn` for `sm121`. There are two ways to run on Spark: Docker (recommended)
+or bare metal.
+
+### Docker (Recommended)
+
+Build the Spark container from the repo root:
+
+```bash
+cd docker && bash build.sh --profile=spark && cd ..
+```
+
+Run inference:
+
+```bash
+docker run --rm --runtime nvidia --gpus all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  --network host \
+  -v "$(pwd)":/workspace/repo \
+  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
+  -w /workspace/repo \
+  -e HF_TOKEN="${HF_TOKEN:-}" \
+  gr00t-spark \
+  python scripts/deployment/standalone_inference_script.py \
+    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+    --dataset-path demo_data/libero_demo \
+    --embodiment-tag LIBERO_PANDA \
+    --traj-ids 0 \
+    --inference-mode pytorch \
+    --denoising-steps 4
+```
+
+Run benchmarks:
+
+```bash
+docker run --rm --runtime nvidia --gpus all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  --network host \
+  -v "$(pwd)":/workspace/repo \
+  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
+  -w /workspace/repo \
+  gr00t-spark \
+  python scripts/deployment/benchmark_inference.py
+```
+
+### Bare Metal
+
+```bash
+# One-time install (temporarily copies the Spark pyproject.toml and uv.lock to repo root,
+# installs NVPL libs, uv, Python deps, source-builds flash-attn for sm121, and builds
+# torchcodec from source against the system FFmpeg runtime)
+bash scripts/deployment/spark/install_deps.sh
+
+# In each new shell
+source .venv/bin/activate
+source scripts/activate_spark.sh
+```
+
+Then run inference or benchmarks as shown in the Quick Start section above.
+Use `export_onnx_n1d6.py` and `build_tensorrt_engine.py` to prepare a Spark-specific TensorRT
+engine when you want the fastest action-head path. If you later rerun `uv sync`, rerun
+`bash scripts/deployment/spark/install_deps.sh` so the Spark-specific `flash-attn` build is
+restored and revalidated.
+
+---
+
 ## Jetson Orin Setup
 
 Orin uses CUDA 12.6 and Python 3.10 (JetPack 6.2), which require a different dependency stack than x86 or Thor.
@@ -279,9 +376,9 @@ docker run --rm --runtime nvidia --gpus all \
   -e HF_TOKEN="${HF_TOKEN:-}" \
   gr00t-orin \
   python scripts/deployment/standalone_inference_script.py \
-    --model-path nvidia/GR00T-N1.6-3B \
-    --dataset-path demo_data/gr1.PickNPlace \
-    --embodiment-tag GR1 \
+    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+    --dataset-path demo_data/libero_demo \
+    --embodiment-tag LIBERO_PANDA \
     --traj-ids 0 \
     --inference-mode pytorch \
     --denoising-steps 4
@@ -330,7 +427,7 @@ and `torch.compile` need on Orin.
 |----------|---------|-------------|
 | `--model-path` | (required) | Path to model checkpoint |
 | `--dataset-path` | (required) | Path to dataset (for input shape capture) |
-| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--embodiment-tag` | Auto-detected | Embodiment tag (auto-detected from model config if single embodiment) |
 | `--output-dir` | `./gr00t_n1d7_onnx` | Output directory for ONNX models |
 | `--export-mode` | `dit_only` | `dit_only`, `action_head`, or `full_pipeline` |
 | `--video-backend` | `torchcodec` | Video backend |
@@ -352,11 +449,11 @@ and `torch.compile` need on Orin.
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--model-path` | `nvidia/GR00T-N1.7-3B` | Path to model checkpoint |
-| `--dataset-path` | `demo_data/gr1.PickNPlace` | Path to dataset |
+| `--model-path` | (required) | Path to model checkpoint (local path) |
+| `--dataset-path` | `demo_data/libero_demo` | Path to dataset |
 | `--engine-dir` | `./gr00t_n1d7_engines` | Directory with TRT engines |
 | `--mode` | `action_head` | `action_head` or `n17_full_pipeline` |
-| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--embodiment-tag` | `LIBERO_PANDA` | Embodiment tag |
 
 ---
 

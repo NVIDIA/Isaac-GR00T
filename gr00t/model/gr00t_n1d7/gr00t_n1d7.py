@@ -10,7 +10,7 @@ from transformers.feature_extraction_utils import BatchFeature
 import tree
 
 from gr00t.configs.model.gr00t_n1d7 import Gr00tN1d7Config
-from gr00t.model.modules.dit import AlternateVLDiT, DiT
+from gr00t.model.modules.dit import AlternateVLDiT, DiT, SelfAttentionTransformer
 from gr00t.model.modules.embodiment_conditioned_mlp import (
     CategorySpecificMLP,
     MultiEmbodimentActionEncoder,
@@ -31,7 +31,6 @@ class Gr00tN1d7ActionHead(nn.Module):
         self.hidden_size = config.hidden_size
         self.input_embedding_dim = config.input_embedding_dim
 
-        # Initialize components directly from config
         if config.use_alternate_vl_dit:
             self.model = AlternateVLDiT(
                 **config.diffusion_model_cfg,
@@ -71,20 +70,18 @@ class Gr00tN1d7ActionHead(nn.Module):
             nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
         )
 
+        vl_self_attention_cfg = getattr(config, "vl_self_attention_cfg", None)
+        if vl_self_attention_cfg and vl_self_attention_cfg.get("num_layers", 0) > 0:
+            self.vl_self_attention = SelfAttentionTransformer(**vl_self_attention_cfg)
+        else:
+            self.vl_self_attention = nn.Identity()
+
         if config.add_pos_embed:
             self.position_embedding = nn.Embedding(config.max_seq_len, self.input_embedding_dim)
             nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
 
         # State dropout parameters
         self.state_dropout_prob = config.state_dropout_prob
-        self.mask_token = (
-            nn.Parameter(0.02 * torch.randn(1, 1, self.input_embedding_dim))
-            if self.state_dropout_prob > 0
-            else None
-        )
-
-        # State noise parameters
-        self.state_additive_noise_scale = config.state_additive_noise_scale
 
         self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
         self.num_timestep_buckets = config.num_timestep_buckets
@@ -106,12 +103,11 @@ class Gr00tN1d7ActionHead(nn.Module):
             self.action_decoder.requires_grad_(False)
             if self.config.add_pos_embed:
                 self.position_embedding.requires_grad_(False)
-            if self.state_dropout_prob > 0:
-                self.mask_token.requires_grad_(False)
         if not tune_diffusion_model:
             self.model.requires_grad_(False)
         if not tune_vlln:
             self.vlln.requires_grad_(False)
+            self.vl_self_attention.requires_grad_(False)
         logger.debug(f"Tune action head projector: {self.tune_projector}")
         logger.debug(f"Tune action head diffusion model: {self.tune_diffusion_model}")
         logger.debug(f"Tune action head vlln: {self.tune_vlln}")
@@ -138,6 +134,9 @@ class Gr00tN1d7ActionHead(nn.Module):
                     self.position_embedding.eval()
             if not self.tune_diffusion_model:
                 self.model.eval()
+            if not self.tune_vlln:
+                self.vlln.eval()
+                self.vl_self_attention.eval()
 
     def sample_time(self, batch_size, device, dtype):
         sample = self.beta_dist.sample([batch_size]).to(device, dtype=dtype)
@@ -147,6 +146,7 @@ class Gr00tN1d7ActionHead(nn.Module):
     def process_backbone_output(self, backbone_output: BatchFeature) -> BatchFeature:
         backbone_features = backbone_output["backbone_features"]
         backbone_features = self.vlln(backbone_features)
+        backbone_features = self.vl_self_attention(backbone_features)
         backbone_output["backbone_features"] = backbone_features
         return backbone_output
 
@@ -187,22 +187,14 @@ class Gr00tN1d7ActionHead(nn.Module):
         # Embed state.
         state_features = self.state_encoder(action_input.state, embodiment_id)
 
-        # Dropout state features.
-        if self.state_dropout_prob > 0:
+        # Dropout state features (training only): zero out dropped states.
+        if self.training and self.state_dropout_prob > 0:
             do_dropout = (
                 torch.rand(state_features.shape[0], device=state_features.device)
                 < self.state_dropout_prob
             )
             do_dropout = do_dropout[:, None, None].to(dtype=state_features.dtype)
-            state_features = state_features * (1 - do_dropout) + self.mask_token * do_dropout
-
-        # Add Gaussian noise to state features.
-        if self.training and self.state_additive_noise_scale > 0:
-            logger.debug(
-                f"Adding Gaussian noise to state features with scale {self.state_additive_noise_scale}"
-            )
-            noise = torch.randn_like(state_features) * self.state_additive_noise_scale
-            state_features = state_features + noise
+            state_features = state_features * (1 - do_dropout)
 
         # Embed noised action trajectory.
         actions = action_input.action

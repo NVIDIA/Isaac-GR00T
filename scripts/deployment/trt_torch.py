@@ -108,6 +108,13 @@ class Engine(object):
     def __call__(self, *args, **inputs):
         return self.forward(*args, **inputs)
 
+    def dtype_of(self, tensor_name: str) -> torch.dtype:
+        """Return the expected PyTorch dtype for a named input tensor."""
+        for name, _shape, dtype in self.in_meta:
+            if name == tensor_name:
+                return dtype
+        raise KeyError(f"Input tensor '{tensor_name}' not found in engine.")
+
     def set_runtime_tensor_shape(self, name, shape):
         """Set runtime input shape for dynamic dimensions."""
         self.execution_context.set_input_shape(name, shape)

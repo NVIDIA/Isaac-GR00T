@@ -1,6 +1,8 @@
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import random
 import re
 from typing import Any, Dict
 import warnings
@@ -39,15 +41,15 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.pr
 EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     ##### Pretrain embodiment ids #####
     "robocasa_panda_omron": 13,
-    "gr1_unified": 20,
-    "sim_behavior_r1_pro": 24,
-    "xdof": 23,
+    "sim_behavior_r1_pro": 23,
+    "xdof": 24,
     "agibot": 26,
     ##### Pre-registered posttrain embodiment ids #####
     "unitree_g1_full_body_with_waist_height_nav_cmd": 25,
     "simpler_env_google": 0,
     "simpler_env_widowx": 1,
-    "oxe_droid_joint_position_relative": 17,
+    "libero_sim": 2,
+    "oxe_droid_relative_eef_relative_joint": 24,
     "new_embodiment": 10,
 }
 
@@ -127,7 +129,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         clip_outliers: bool = True,
         image_crop_size: list[int] = None,
         image_target_size: list[int] = None,
-        shortest_image_edge: int = 512,
+        shortest_image_edge: int = 256,
         crop_fraction: float = 0.95,
         random_rotation_angle: int | None = None,
         color_jitter_params: dict[str, float] | None = None,
@@ -143,6 +145,13 @@ class Gr00tN1d7Processor(BaseProcessor):
         use_relative_action: bool = False,
         embodiment_id_mapping: dict[str, int] | None = None,
         transformers_loading_kwargs: dict = {"trust_remote_code": True},
+        # State augmentation
+        exclude_state: bool = False,
+        state_dropout_prob: float = 0.0,
+        # Normalization
+        use_mean_std: bool = False,
+        # Backward-compat params (stored but not actively used)
+        letter_box_transform: bool = False,
     ):
         self.modality_configs = parse_modality_configs(modality_configs)
 
@@ -158,10 +167,17 @@ class Gr00tN1d7Processor(BaseProcessor):
 
         # Save state action processor settings
         self.use_percentiles = use_percentiles
+        self.use_mean_std = use_mean_std
         self.clip_outliers = clip_outliers
         self.apply_sincos_state_encoding = apply_sincos_state_encoding
         self.use_relative_action = use_relative_action
         self.extra_augmentation_config = extra_augmentation_config
+
+        # State augmentation settings
+        self.exclude_state = exclude_state
+        self.state_dropout_prob = state_dropout_prob
+
+        self.letter_box_transform = letter_box_transform
 
         # Save VLM settings
         self.formalize_language = formalize_language
@@ -181,12 +197,15 @@ class Gr00tN1d7Processor(BaseProcessor):
         # Set padding side to 'left' for Flash Attention compatibility
         self.processor.tokenizer.padding_side = "left"
         self.embodiment_id_mapping = embodiment_id_mapping or EMBODIMENT_TAG_TO_PROJECTOR_INDEX
-        # handle the case where the fine-tuning embodiment tag is not in the pre-trained embodiment tag mapping
+        # Merge any missing pre-trained embodiment tags into the custom mapping
         for k, v in EMBODIMENT_TAG_TO_PROJECTOR_INDEX.items():
             if k not in self.embodiment_id_mapping:
                 self.embodiment_id_mapping[k] = v
         self.shortest_image_edge = shortest_image_edge
         self.crop_fraction = crop_fraction
+
+        # Statistics cache (mirrors state_action_processor.statistics for serialization)
+        self.statistics: dict[str, dict[str, dict[str, dict[str, list[float]]]]] = {}
 
         # Choose between torchvision and albumentations transforms
         self.use_albumentations = use_albumentations
@@ -234,6 +253,14 @@ class Gr00tN1d7Processor(BaseProcessor):
         override: bool = False,
     ) -> None:
         """Set dataset statistics for normalization."""
+        for key in statistics:
+            if key not in self.statistics or override:
+                if override:
+                    print(f"Overriding statistics for {key}")
+                self.statistics[key] = deepcopy(statistics[key])
+            else:
+                print(f"Embodiment tag {key} already in statistics, skipping updating")
+
         self.state_action_processor.set_statistics(statistics, override=override)
 
         # Compute action dimensions for convenience
@@ -266,6 +293,141 @@ class Gr00tN1d7Processor(BaseProcessor):
         return self.state_action_processor.unapply_action(
             out_dict, embodiment_tag.value, state=state
         )
+
+    def unapply(
+        self,
+        action: np.ndarray,
+        embodiment_tag: EmbodimentTag,
+        state: dict[str, np.ndarray] | None = None,
+        prev_action: dict[str, np.ndarray] | None = None,
+    ) -> dict[str, np.ndarray]:
+        """Undo action normalization and convert relative→absolute.
+
+        Args:
+            action: Normalized action array of shape (..., action_horizon, action_dim)
+            embodiment_tag: Embodiment tag
+            state: State observations with "state." prefixed keys (for relative actions)
+            prev_action: Unused (kept for API compatibility)
+
+        Returns:
+            Dict mapping "action.<key>" to unnormalized (absolute) action arrays.
+        """
+        out_dict = {}
+        start_idx = 0
+        joint_groups = self.modality_configs[embodiment_tag.value]["action"].modality_keys
+        action_horizon = len(self.modality_configs[embodiment_tag.value]["action"].delta_indices)
+        for key in joint_groups:
+            joint_dim = self.state_action_processor.norm_params[embodiment_tag.value]["action"][
+                key
+            ]["dim"].item()
+            out_dict[key] = action[..., :action_horizon, start_idx : start_idx + joint_dim]
+            start_idx += joint_dim
+
+        # Strip "state." prefix for StateActionProcessor
+        stripped_state = None
+        if state is not None:
+            stripped_state = {k.replace("state.", ""): v for k, v in state.items()}
+
+        result = self.state_action_processor.unapply_action(
+            out_dict, embodiment_tag.value, state=stripped_state
+        )
+        return {f"action.{key}": value for key, value in result.items()}
+
+    def process_observation(self, observation: dict[str, Any], embodiment_tag: EmbodimentTag):
+        """Process batched observation tensors for inference.
+
+        Args:
+            observation: Dict with keys like "video.<view>", "state.<key>", "<language_key>"
+                Video values expected as numpy arrays of shape (B, T, H, W, C).
+            embodiment_tag: Embodiment tag identifying the robot configuration.
+
+        Returns:
+            BatchFeature with tokenized VLM inputs, state, embodiment_id, and action_mask.
+        """
+        modality_config = self.modality_configs[embodiment_tag.value]
+        transformed_observation = {}
+
+        # Normalize states
+        state_keys = modality_config["state"].modality_keys
+        state_data = {key: observation[f"state.{key}"] for key in state_keys}
+        exclude_state = self.exclude_state or getattr(
+            modality_config["state"], "exclude_state", False
+        )
+        if exclude_state:
+            normalized_states = torch.cat(
+                [torch.from_numpy(np.zeros_like(state_data[key])) for key in state_keys], dim=-1
+            )
+        else:
+            norm_state_dict = self.state_action_processor.apply_state(
+                state=state_data, embodiment_tag=embodiment_tag.value
+            )
+            normalized_states = torch.cat(
+                [torch.from_numpy(norm_state_dict[key]) for key in state_keys], dim=-1
+            )
+
+        assert normalized_states.shape[1] <= self.max_state_dim, (
+            f"State dimension {normalized_states.shape[1]} exceeds max_state_dim {self.max_state_dim}"
+        )
+        padding_shape = (
+            *normalized_states.shape[:-1],
+            self.max_state_dim - normalized_states.shape[-1],
+        )
+        normalized_states = torch.cat([normalized_states, torch.zeros(padding_shape)], dim=-1)
+        transformed_observation["state"] = normalized_states
+
+        # Process images: observation values are (B, T, H, W, C) numpy arrays
+        image_keys = modality_config["video"].modality_keys
+        images_dict = {view: torch.from_numpy(observation[f"video.{view}"]) for view in image_keys}
+        images = torch.stack(
+            [images_dict[view] for view in image_keys], dim=2
+        )  # (B, T, V, H, W, C)
+        assert images.ndim == 6
+        B, T, V, img_H, img_W, img_C = images.shape
+
+        if self.use_albumentations:
+            images_flat = images.reshape(B * T * V, img_H, img_W, img_C)
+            pil_images = [Image.fromarray(img.numpy()) for img in images_flat]
+            transformed_pil, _ = apply_with_replay(self.eval_image_transform, pil_images)
+            transformed_stacked = torch.stack(transformed_pil)  # (B*T*V, C, H_new, W_new)
+            _, img_C_new, img_H_new, img_W_new = transformed_stacked.shape
+            transformed_images = transformed_stacked.reshape(
+                B, T * V, img_C_new, img_H_new, img_W_new
+            ).numpy()
+        else:
+            # Rearrange (B, T, V, H, W, C) → (B, T*V, C, H, W) for torchvision
+            images_perm = images.permute(0, 1, 2, 5, 3, 4).reshape(B, T * V, img_C, img_H, img_W)
+            transformed_images = self.eval_image_transform(images_perm).numpy()
+
+        language_key = modality_config["language"].modality_keys[0]
+        language = [
+            re.sub(r"[^\w\s]", "", lang.lower()) if self.formalize_language else lang
+            for lang in observation[language_key]
+        ]
+
+        texts, all_images = [], []
+        for i in range(B):
+            vlm_inputs = self._apply_vlm_processing(transformed_images[i], language[i])
+            vc = vlm_inputs["vlm_content"]
+            texts.append(vc["text"])
+            all_images.extend(vc["images"])
+        tokenized = self.processor(text=texts, images=all_images, return_tensors="pt", padding=True)
+        for k, v in tokenized.items():
+            transformed_observation[k] = v
+
+        embodiment_id = (
+            torch.ones(B, dtype=torch.int32) * self.embodiment_id_mapping[embodiment_tag.value]
+        )
+        transformed_observation["embodiment_id"] = embodiment_id
+
+        # Action mask: shape (B, max_action_horizon), 1 in the valid horizon window
+        action_config = modality_config["action"]
+        action_horizon = len(action_config.delta_indices)
+        action_mask = torch.zeros((B, self.max_action_horizon), dtype=torch.float32)
+        if action_horizon > 0:
+            action_mask[:, :action_horizon] = 1.0
+        transformed_observation["action_mask"] = action_mask
+
+        return BatchFeature(transformed_observation)
 
     def _apply_vlm_processing(self, images: np.ndarray, language: str) -> BatchFeature:
         """
@@ -313,7 +475,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         state_data = content.states
 
         # Use StateActionProcessor to handle relative conversion and normalization
-        normalized_states, normalized_actions = self.state_action_processor.apply(
+        norm_state_dict, normalized_actions = self.state_action_processor.apply(
             state=state_data,
             action=action_data,
             embodiment_tag=embodiment_tag.value,
@@ -359,11 +521,23 @@ class Gr00tN1d7Processor(BaseProcessor):
             normalized_actions = None
             action_mask = None
 
-        # Concatenate states
+        # Concatenate states with optional dropout/noise augmentation
         state_keys = self.modality_configs[embodiment_tag.value]["state"].modality_keys
-        normalized_states = torch.cat(
-            [torch.from_numpy(normalized_states[key]) for key in state_keys], dim=-1
+        exclude_state = self.exclude_state or getattr(
+            self.modality_configs[embodiment_tag.value]["state"], "exclude_state", False
         )
+        if exclude_state or (
+            self.state_dropout_prob > 0
+            and random.random() < self.state_dropout_prob
+            and self.training
+        ):
+            normalized_states = torch.cat(
+                [torch.from_numpy(np.zeros_like(state_data[key])) for key in state_keys], dim=-1
+            )
+        else:
+            normalized_states = torch.cat(
+                [torch.from_numpy(norm_state_dict[key]) for key in state_keys], dim=-1
+            )
         normalized_states = torch.cat(
             [
                 normalized_states,
@@ -480,6 +654,7 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "color_jitter_params": self.color_jitter_params,
                 "shortest_image_edge": self.shortest_image_edge,
                 "crop_fraction": self.crop_fraction,
+                "letter_box_transform": self.letter_box_transform,
                 # VLM settings
                 "model_name": self.model_name,
                 "model_type": self.model_type,
@@ -490,9 +665,13 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "max_action_horizon": self.max_action_horizon,
                 # StateActionProcessor settings
                 "use_percentiles": self.use_percentiles,
+                "use_mean_std": self.use_mean_std,
                 "clip_outliers": self.clip_outliers,
                 "apply_sincos_state_encoding": self.apply_sincos_state_encoding,
                 "use_relative_action": self.use_relative_action,
+                # State augmentation
+                "exclude_state": self.exclude_state,
+                "state_dropout_prob": self.state_dropout_prob,
             },
         }
         with open(main_config_file, "w") as f:
@@ -538,6 +717,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         processor_kwargs = config["processor_kwargs"]
         processor_kwargs["statistics"] = statistics
         processor_kwargs["embodiment_id_mapping"] = embodiment_id_mapping
+
         # Directly override other processor kwargs
         if kwargs:
             # Override modality configs while keeping pretrained embodiment configs
@@ -548,6 +728,11 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "random_rotation_angle",
                 "color_jitter_params",
                 "use_relative_action",
+                "exclude_state",
+                "state_dropout_prob",
+                "use_mean_std",
+                "model_name",
+                "model_type",
             ]
             for key in override_keys:
                 if key in kwargs:

@@ -1,17 +1,15 @@
 # GR00T DROID
 
-> **Note:** N1.7 finetuned checkpoint is not yet available. You can use the N1.6 checkpoint below with the [n1.6-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) branch, or finetune from the N1.7 base model.
-
 > **Note:** The DROID dataset contains multiple language instruction paraphrases per episode (`language_instruction`, `language_instruction_2`, `language_instruction_3`). These are used for language augmentation during training. At inference time, only the first language key is used.
 
-We provide a checkpoint that is post-trained on the [DROID](https://droid-dataset.github.io/) dataset - [GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID). Follow the instructions below to run inference for this model.
+The N1.7 base model supports DROID inference out of the box via the `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` embodiment tag.
 
 ## 1. Inference Server:
 
 On a machine with a sufficiently powerful GPU, start the policy server from the root folder of this repo:
 
 ```bash
-uv run python gr00t/eval/run_gr00t_server.py --embodiment-tag OXE_DROID --use-sim-policy-wrapper --model-path=nvidia/GR00T-N1.6-DROID
+uv run python gr00t/eval/run_gr00t_server.py --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT --model-path nvidia/GR00T-N1.7-3B
 ```
 
 ## 2. Control Script:

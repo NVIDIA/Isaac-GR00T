@@ -347,8 +347,16 @@ def build_full_pipeline(onnx_dir, engine_dir, precision="bf16", workspace_mb=819
 
     # Components: (name, onnx_file, engine_file)
     components = [
-        ("ViT", "vit_bf16.onnx", "vit_bf16.engine"),
+        # FP32 ViT preferred for accuracy; falls back to BF16 if only bf16 was exported.
+        (
+            "ViT",
+            "vit_fp32.onnx"
+            if os.path.exists(os.path.join(onnx_dir, "vit_fp32.onnx"))
+            else "vit_bf16.onnx",
+            "vit_bf16.engine",
+        ),
         ("LLM", "llm_bf16.onnx", "llm_bf16.engine"),
+        ("VL Self-Attention", "vl_self_attention.onnx", "vl_self_attention.engine"),
         ("State Encoder", "state_encoder.onnx", "state_encoder.engine"),
         ("Action Encoder", "action_encoder.onnx", "action_encoder.engine"),
         ("DiT", "dit_bf16.onnx", "dit_bf16.engine"),
