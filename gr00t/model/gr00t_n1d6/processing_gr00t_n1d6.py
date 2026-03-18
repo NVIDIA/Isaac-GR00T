@@ -50,7 +50,22 @@ def build_processor(model_name: str, transformers_loading_kwargs: dict) -> Proce
     eagle_path = os.path.join(
         os.path.dirname(__file__), "..", "modules", "nvidia", "Eagle-Block2A-2B-v2"
     )
-    return AutoProcessor.from_pretrained(eagle_path, **transformers_loading_kwargs)
+    processor = AutoProcessor.from_pretrained(eagle_path, **transformers_loading_kwargs)
+
+    # Ensure chat_template is set — transformers >=4.51 requires it for
+    # apply_chat_template() but AutoProcessor.from_pretrained does not
+    # always load it from the bundled chat_template.json / tokenizer_config.json.
+    if getattr(processor, "chat_template", None) is None:
+        for filename in ("chat_template.json", "tokenizer_config.json"):
+            template_path = os.path.join(eagle_path, filename)
+            if os.path.isfile(template_path):
+                with open(template_path, "r") as f:
+                    data = json.load(f)
+                if "chat_template" in data and data["chat_template"]:
+                    processor.chat_template = data["chat_template"]
+                    break
+
+    return processor
 
 
 class Gr00tN1d6DataCollator:
