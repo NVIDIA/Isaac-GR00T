@@ -56,7 +56,6 @@ def build_processor(model_name: str, transformers_loading_kwargs: dict) -> Proce
     # apply_chat_template() but AutoProcessor.from_pretrained does not
     # always load it from the bundled chat_template.json / tokenizer_config.json.
     if getattr(processor, "chat_template", None) is None:
-
         for filename in ("chat_template.json", "tokenizer_config.json"):
             template_path = os.path.join(eagle_path, filename)
             if os.path.isfile(template_path):
