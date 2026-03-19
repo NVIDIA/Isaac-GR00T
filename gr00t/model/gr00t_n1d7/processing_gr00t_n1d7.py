@@ -39,17 +39,23 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.pr
 
 ### Mapping from embodiment tag to projector index.
 EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
-    ##### Pretrain embodiment ids #####
+    ##### Pretrain embodiment ids (in base model) #####
+    "oxe_droid_relative_eef_relative_joint": 24,
+    "xdof_relative_eef_relative_joint": 27,
+    "xdof_relative_eef_relative_joint_subtask": 27,
+    "real_g1_relative_eef_relative_joints": 25,
+    "real_r1_pro_sharpa_relative_eef": 26,
+    "real_r1_pro_sharpa_relative_eef_human": 26,
+    "real_r1_pro_sharpa_relative_eef_maxinsights": 26,
+    "real_r1_pro_sharpa_relative_eef_mecka": 26,
+    ##### Posttrain embodiment ids #####
     "robocasa_panda_omron": 13,
-    "sim_behavior_r1_pro": 23,
-    "xdof": 24,
     "agibot": 26,
-    ##### Pre-registered posttrain embodiment ids #####
+    "sim_behavior_r1_pro": 23,
     "unitree_g1_full_body_with_waist_height_nav_cmd": 25,
     "simpler_env_google": 0,
     "simpler_env_widowx": 1,
     "libero_sim": 2,
-    "oxe_droid_relative_eef_relative_joint": 24,
     "new_embodiment": 10,
 }
 
