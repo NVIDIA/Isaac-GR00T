@@ -29,23 +29,33 @@ warnings.simplefilter("ignore", category=FutureWarning)
 Combined inference script supporting both PyTorch and TensorRT modes.
 
 Example commands:
- 
-# PyTorch mode (default):
+
+# Zero-shot inference with base model on bundled DROID demo data:
 python scripts/deployment/standalone_inference_script.py \
-  --model-path /path/to/checkpoint \
-  --dataset-path /path/to/dataset \
+  --model-path nvidia/GR00T-N1.7-3B \
+  --dataset-path demo_data/droid_sample \
+  --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
+  --traj-ids 1 2 \
+  --inference-mode pytorch \
+  --action-horizon 8
+
+# Finetuned model (e.g. LIBERO):
+python scripts/deployment/standalone_inference_script.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
   --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 \
-  --inference-mode pytorch
+  --inference-mode pytorch \
+  --action-horizon 8
 
 # TensorRT mode:
 python scripts/deployment/standalone_inference_script.py \
-  --model-path /path/to/checkpoint \
-  --dataset-path /path/to/dataset \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
   --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 \
-  --inference-mode tensorrt \
-  --trt-engine-path ./gr00t_n1d7_onnx/dit_model_bf16.trt
+  --inference-mode trt_full_pipeline \
+  --trt-engine-path ./gr00t_n1d7_engines
 """
 
 ###############################################################################
@@ -574,10 +584,10 @@ class ArgsConfig:
     video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "torchcodec"
     """Video backend to use for various codec options. h264: decord or av: torchvision_av"""
 
-    dataset_path: str = "demo_data/libero_demo/"
+    dataset_path: str = "demo_data/droid_sample"
     """Path to the dataset."""
 
-    embodiment_tag: EmbodimentTag = EmbodimentTag.LIBERO_PANDA
+    embodiment_tag: EmbodimentTag = EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT
     """Embodiment tag to use."""
 
     model_path: str | None = None
@@ -793,24 +803,33 @@ def main(args: ArgsConfig):
             logging.info(
                 f"  Total episode loading:       {total_episode_load:.4f}s  (avg: {total_episode_load / len(all_timings):.4f}s)"
             )
-            logging.info(
-                f"  Total data preparation:      {total_data_prep:.4f}s  (avg: {total_data_prep / total_inference_steps:.4f}s per step)"
-            )
-            logging.info(
-                f"  Total inference:             {total_inference:.4f}s  (avg: {total_inference / total_inference_steps:.4f}s per step)"
-            )
+            if total_inference_steps > 0:
+                logging.info(
+                    f"  Total data preparation:      {total_data_prep:.4f}s  (avg: {total_data_prep / total_inference_steps:.4f}s per step)"
+                )
+                logging.info(
+                    f"  Total inference:             {total_inference:.4f}s  (avg: {total_inference / total_inference_steps:.4f}s per step)"
+                )
+            else:
+                logging.info(
+                    f"  Total data preparation:      {total_data_prep:.4f}s  (no timed steps)"
+                )
+                logging.info(
+                    f"  Total inference:             {total_inference:.4f}s  (no timed steps)"
+                )
 
             logging.info("\nInference Statistics:")
             logging.info(f"  Total inference steps:       {total_inference_steps}")
-            logging.info(
-                f"  Avg inference time per step: {total_inference / total_inference_steps:.4f}s"
-            )
-
-            # Collect all inference times for min/max/p90
-            all_inf_times = [t for timing in all_timings for t in timing["inference_times"]]
-            logging.info(f"  Min inference time:          {min(all_inf_times):.4f}s")
-            logging.info(f"  Max inference time:          {max(all_inf_times):.4f}s")
-            logging.info(f"  P90 inference time:          {np.percentile(all_inf_times, 90):.4f}s")
+            if total_inference_steps > 0:
+                logging.info(
+                    f"  Avg inference time per step: {total_inference / total_inference_steps:.4f}s"
+                )
+                all_inf_times = [t for timing in all_timings for t in timing["inference_times"]]
+                logging.info(f"  Min inference time:          {min(all_inf_times):.4f}s")
+                logging.info(f"  Max inference time:          {max(all_inf_times):.4f}s")
+                logging.info(
+                    f"  P90 inference time:          {np.percentile(all_inf_times, 90):.4f}s"
+                )
 
     logging.info("=" * 80)
     logging.info("Done")

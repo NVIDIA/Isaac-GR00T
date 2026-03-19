@@ -1,14 +1,22 @@
 """Tests for EmbodimentTag enum consistency with N1.7 checkpoint.
 
 Ensures that:
-- All pretrain/posttrain tags (except NEW_EMBODIMENT) have matching
-  entries in the N1.7 MODALITY_CONFIGS and EMBODIMENT_TAG_TO_PROJECTOR_INDEX.
-- Removed N1.6 tags (OXE_GOOGLE, OXE_WIDOWX, GR1) are no longer
-  in the enum or configs.
+- All pretrain/posttrain tags have matching entries in the N1.7
+  EMBODIMENT_TAG_TO_PROJECTOR_INDEX.
+- Removed N1.6 tags are no longer in the enum or configs.
+- resolve() error messages categorize tags by usage (base model vs finetuned).
+- reverse_lookup() maps tag values back to enum names.
+- Tag category sets (PRETRAIN_TAGS, POSTTRAIN_TAGS, FINETUNE_ONLY_TAGS) are
+  exhaustive and non-overlapping.
 """
 
 from gr00t.configs.data.embodiment_configs import MODALITY_CONFIGS
-from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.embodiment_tags import (
+    FINETUNE_ONLY_TAGS,
+    POSTTRAIN_TAGS,
+    PRETRAIN_TAGS,
+    EmbodimentTag,
+)
 from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import EMBODIMENT_TAG_TO_PROJECTOR_INDEX
 import pytest
 
@@ -25,11 +33,20 @@ class TestEmbodimentTagResolve:
             ("new_embodiment", EmbodimentTag.NEW_EMBODIMENT),
             ("NEW_EMBODIMENT", EmbodimentTag.NEW_EMBODIMENT),
             ("unitree_g1", EmbodimentTag.UNITREE_G1),
+            ("real_g1", EmbodimentTag.REAL_G1),
             # By enum value (various cases)
             ("sim_behavior_r1_pro", EmbodimentTag.BEHAVIOR_R1_PRO),
             (
                 "oxe_droid_relative_eef_relative_joint",
                 EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT,
+            ),
+            (
+                "xdof_relative_eef_relative_joint",
+                EmbodimentTag.XDOF,
+            ),
+            (
+                "real_g1_relative_eef_relative_joints",
+                EmbodimentTag.REAL_G1,
             ),
             # Passthrough of existing enum
             (EmbodimentTag.XDOF, EmbodimentTag.XDOF),
@@ -47,10 +64,76 @@ class TestEmbodimentTagResolve:
     def test_resolve_error_lists_known_tags(self):
         with pytest.raises(ValueError, match="XDOF") as exc_info:
             EmbodimentTag.resolve("foo")
-        # Error message should list all known tags
         msg = str(exc_info.value)
         for tag in EmbodimentTag:
             assert tag.name in msg
+
+    def test_resolve_error_categorizes_tags(self):
+        """Error message should separate base-model, posttrain, and finetuning tags."""
+        with pytest.raises(ValueError) as exc_info:
+            EmbodimentTag.resolve("fake_tag")
+        msg = str(exc_info.value)
+        assert "Base model tags" in msg
+        assert "Posttrain tags" in msg
+        assert "Finetuning-only tags" in msg
+
+
+class TestReverseLookup:
+    """Verify reverse_lookup maps tag values back to enum names."""
+
+    def test_known_value(self):
+        assert EmbodimentTag.reverse_lookup("xdof_relative_eef_relative_joint") == "XDOF"
+        assert EmbodimentTag.reverse_lookup("libero_sim") == "LIBERO_PANDA"
+
+    def test_unknown_value_returns_as_is(self):
+        assert EmbodimentTag.reverse_lookup("some_internal_tag") == "some_internal_tag"
+
+
+class TestTagCategories:
+    """Verify PRETRAIN_TAGS, POSTTRAIN_TAGS, and FINETUNE_ONLY_TAGS are correct."""
+
+    def test_categories_are_exhaustive(self):
+        """Every enum member must be in exactly one category."""
+        all_categorized = PRETRAIN_TAGS | POSTTRAIN_TAGS | FINETUNE_ONLY_TAGS
+        for tag in EmbodimentTag:
+            assert tag in all_categorized, (
+                f"EmbodimentTag.{tag.name} is not in any category "
+                f"(PRETRAIN_TAGS, POSTTRAIN_TAGS, or FINETUNE_ONLY_TAGS)"
+            )
+
+    def test_categories_are_non_overlapping(self):
+        """No tag should appear in more than one category."""
+        assert not (PRETRAIN_TAGS & POSTTRAIN_TAGS), (
+            f"Overlap pretrain/posttrain: {PRETRAIN_TAGS & POSTTRAIN_TAGS}"
+        )
+        assert not (PRETRAIN_TAGS & FINETUNE_ONLY_TAGS), (
+            f"Overlap pretrain/finetune: {PRETRAIN_TAGS & FINETUNE_ONLY_TAGS}"
+        )
+        assert not (POSTTRAIN_TAGS & FINETUNE_ONLY_TAGS), (
+            f"Overlap posttrain/finetune: {POSTTRAIN_TAGS & FINETUNE_ONLY_TAGS}"
+        )
+
+    def test_new_embodiment_is_finetune_only(self):
+        assert EmbodimentTag.NEW_EMBODIMENT in FINETUNE_ONLY_TAGS
+
+    def test_pretrain_tags_match_base_model(self):
+        """Pretrain tags should match what's in the base model checkpoint."""
+        expected_values = {
+            "oxe_droid_relative_eef_relative_joint",
+            "xdof_relative_eef_relative_joint",
+            "xdof_relative_eef_relative_joint_subtask",
+            "real_g1_relative_eef_relative_joints",
+            "real_r1_pro_sharpa_relative_eef",
+            "real_r1_pro_sharpa_relative_eef_human",
+            "real_r1_pro_sharpa_relative_eef_maxinsights",
+            "real_r1_pro_sharpa_relative_eef_mecka",
+        }
+        actual_values = {tag.value for tag in PRETRAIN_TAGS}
+        assert actual_values == expected_values, (
+            f"PRETRAIN_TAGS values don't match base model.\n"
+            f"  Missing: {expected_values - actual_values}\n"
+            f"  Extra: {actual_values - expected_values}"
+        )
 
 
 class TestRemovedN16Tags:
@@ -78,29 +161,13 @@ class TestRemovedN16Tags:
 class TestEmbodimentTagConsistency:
     """Verify that all EmbodimentTag enum values have matching configs."""
 
-    # Tags that exist in the pretrained N1.7 checkpoint
-    N17_PRETRAINED_TAGS = {
-        EmbodimentTag.ROBOCASA_PANDA_OMRON,
-        EmbodimentTag.XDOF,
-        EmbodimentTag.AGIBOT,
-        EmbodimentTag.UNITREE_G1,
-        EmbodimentTag.SIMPLER_ENV_GOOGLE,
-        EmbodimentTag.SIMPLER_ENV_WIDOWX,
-        EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT,
-        EmbodimentTag.BEHAVIOR_R1_PRO,
-    }
-
-    def test_pretrained_tags_in_projector_index(self):
-        """Every pretrained tag must have a projector index mapping."""
-        for tag in self.N17_PRETRAINED_TAGS:
+    def test_all_tags_in_projector_index(self):
+        """Every tag must have a projector index mapping."""
+        for tag in EmbodimentTag:
             assert tag.value in EMBODIMENT_TAG_TO_PROJECTOR_INDEX, (
                 f"EmbodimentTag.{tag.name} ('{tag.value}') missing from "
                 f"EMBODIMENT_TAG_TO_PROJECTOR_INDEX"
             )
-
-    def test_new_embodiment_in_projector_index(self):
-        """NEW_EMBODIMENT is for fine-tuning and must also have a projector index."""
-        assert EmbodimentTag.NEW_EMBODIMENT.value in EMBODIMENT_TAG_TO_PROJECTOR_INDEX
 
     def test_no_extra_projector_entries(self):
         """EMBODIMENT_TAG_TO_PROJECTOR_INDEX should not have orphan keys."""
@@ -119,21 +186,19 @@ class TestEmbodimentTagConsistency:
                 f"MODALITY_CONFIGS has orphan key '{key}' with no matching EmbodimentTag"
             )
 
-    def test_posttrain_tags_in_modality_configs(self):
-        """Pre-registered posttrain tags must have a MODALITY_CONFIGS entry."""
-        # Pretrain tags get their modality config from the model checkpoint,
-        # only posttrain tags need an explicit entry in MODALITY_CONFIGS.
-        pretrain_tags = {
-            EmbodimentTag.ROBOCASA_PANDA_OMRON,
-            EmbodimentTag.XDOF,
-            EmbodimentTag.AGIBOT,
+    def test_posttrain_tags_with_builtin_configs_in_modality_configs(self):
+        """Posttrain tags that need built-in modality configs should have them."""
+        # These posttrain tags get configs from their finetuned checkpoint,
+        # not from MODALITY_CONFIGS.
+        checkpoint_config_tags = {
             EmbodimentTag.SIMPLER_ENV_GOOGLE,
             EmbodimentTag.SIMPLER_ENV_WIDOWX,
             EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT,
+            EmbodimentTag.ROBOCASA_PANDA_OMRON,
+            EmbodimentTag.AGIBOT,
         }
-        skip_tags = pretrain_tags | {EmbodimentTag.NEW_EMBODIMENT}
-        for tag in EmbodimentTag:
-            if tag in skip_tags:
+        for tag in POSTTRAIN_TAGS:
+            if tag in checkpoint_config_tags:
                 continue
             assert tag.value in MODALITY_CONFIGS, (
                 f"EmbodimentTag.{tag.name} ('{tag.value}') is a posttrain tag "

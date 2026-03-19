@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from transformers import AutoModel, AutoProcessor
 
-from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.embodiment_tags import FINETUNE_ONLY_TAGS, POSTTRAIN_TAGS, EmbodimentTag
 from gr00t.data.interfaces import BaseProcessor
 from gr00t.data.types import MessageType, ModalityConfig, VLAStepData
 
@@ -95,11 +95,35 @@ class Gr00tPolicy(BasePolicy):
         self.embodiment_tag = embodiment_tag
         all_modality_configs = self.processor.get_modality_configs()
         if self.embodiment_tag.value not in all_modality_configs:
-            supported = sorted(all_modality_configs.keys())
+            # Map raw checkpoint tag values to user-friendly enum names where possible.
+            supported_lines = []
+            for tag_value in sorted(all_modality_configs.keys()):
+                enum_name = EmbodimentTag.reverse_lookup(tag_value)
+                if enum_name != tag_value:
+                    supported_lines.append(f"  {enum_name:30s} (--embodiment-tag {enum_name})")
+                else:
+                    supported_lines.append(f"  {tag_value:30s} (internal, no public enum)")
+            supported_str = "\n".join(supported_lines)
+
+            hint = ""
+            if self.embodiment_tag in POSTTRAIN_TAGS:
+                hint = (
+                    f"\n\nHint: '{self.embodiment_tag.name}' is a posttrain tag that requires "
+                    f"a finetuned checkpoint, not the base model. "
+                    f"See the example READMEs for how to finetune and download checkpoints."
+                )
+            elif self.embodiment_tag in FINETUNE_ONLY_TAGS:
+                hint = (
+                    f"\n\nHint: '{self.embodiment_tag.name}' is for finetuning custom robots. "
+                    f"Use it with launch_finetune.py, not with the base model directly."
+                )
+
             raise ValueError(
-                f"Embodiment tag '{self.embodiment_tag.value}' "
-                f"(EmbodimentTag.{self.embodiment_tag.name}) is not supported "
-                f"by this checkpoint. Supported tags: {', '.join(supported)}"
+                f"Embodiment tag '{self.embodiment_tag.name}' "
+                f"(value='{self.embodiment_tag.value}') is not supported "
+                f"by this checkpoint.\n\n"
+                f"Supported tags in this checkpoint:\n{supported_str}"
+                f"{hint}"
             )
         self.modality_configs = {
             k: v
