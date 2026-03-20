@@ -1,7 +1,6 @@
-<!-- TODO: This example uses N1.6 checkpoint (nvidia/GR00T-N1.6-BEHAVIOR1k).
-     Update when N1.7 BEHAVIOR checkpoint is available. -->
-
 # BEHAVIOR Benchmark Results
+
+> **NOT SUPPORTED YET in N1.7 EA release:** No finetuned BEHAVIOR checkpoint is available for N1.7. The benchmark results and evaluation commands below reference the N1.6 checkpoint (`nvidia/GR00T-N1.6-BEHAVIOR1k`) which requires the [n1.6-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) branch. To use with N1.7, you must finetune from the base model (`nvidia/GR00T-N1.7-3B`) first using the finetune instructions below.
 
 <div align="center">
   <video width="640" controls>
@@ -12,9 +11,7 @@
 
 This is a benchmark of behavior1k from https://behavior.stanford.edu/
 
-> **Note:** N1.7 finetuned checkpoint is not yet available. You can use the N1.6 checkpoint below with the [n1.6-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) branch, or finetune from the N1.7 base model.
-
-We provide a checkpoint: `nvidia/GR00T-N1.6-BEHAVIOR1k` which is post-trained on all 50 tasks. You can use this checkpoint for evaluation. 
+We provide an N1.6 checkpoint: `nvidia/GR00T-N1.6-BEHAVIOR1k` which is post-trained on all 50 tasks (use with the n1.6-release branch only).
 
 ## Multi-task (50 tasks) performance
 We provide a base model pre-trained on all 50 tasks. It can do reasonably good on all tasks and serves as a good starting point for post-training. Here we use the metric `Task Progress`, which is a denser metric than `Q Score`. 
@@ -144,9 +141,9 @@ Then, run client server evaluation under the project root directory in separate 
 ```bash
 uv sync --python 3.10
 
-# replace the model path with the path to your finetuned checkpoint or use the provided checkpoint
+# replace the model path with the path to your finetuned checkpoint
 uv run python gr00t/eval/run_gr00t_server.py \
-    --model-path nvidia/GR00T-N1.6-BEHAVIOR1k \
+    --model-path <path-to-finetuned-behavior-checkpoint> \
     --embodiment-tag BEHAVIOR_R1_PRO \
     --use-sim-policy-wrapper
 ```

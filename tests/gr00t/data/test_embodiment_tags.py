@@ -194,8 +194,6 @@ class TestEmbodimentTagConsistency:
             EmbodimentTag.SIMPLER_ENV_GOOGLE,
             EmbodimentTag.SIMPLER_ENV_WIDOWX,
             EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT,
-            EmbodimentTag.ROBOCASA_PANDA_OMRON,
-            EmbodimentTag.AGIBOT,
         }
         for tag in POSTTRAIN_TAGS:
             if tag in checkpoint_config_tags:

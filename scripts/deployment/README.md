@@ -149,59 +149,6 @@ uv run python scripts/deployment/benchmark_inference.py \
 | H100 | TRT (n17_full_pipeline) | 3.29x | 7.62x |
 
 TODO: test compatibility and get results on other platforms
-### DiT-Only TRT (BF16, 4 denoising steps, single view)
-
-> The DiT-only mode (`--export-mode dit_only`) optimizes only the action head DiT,
-> leaving the backbone in PyTorch.
-
-GR00T N1.7 DiT-only inference timing:
-
-| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
-|--------|------|-----------------|----------|-------------|-----|-----------|
-| RTX 5090 | PyTorch Eager | 2 ms | 18 ms | 38 ms | 58 ms | 17.3 Hz |
-| RTX 5090 | torch.compile | 2 ms | 18 ms | 16 ms | 37 ms | 27.3 Hz |
-| RTX 5090 | TensorRT | 2 ms | 18 ms | 11 ms | 31 ms | 32.1 Hz |
-| H100 | PyTorch Eager | 4 ms | 23 ms | 49 ms | 77 ms | 13.0 Hz |
-| H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
-| H100 | TensorRT | 4 ms | 22 ms | 10 ms | 36 ms | 27.9 Hz |
-| RTX 4090 | PyTorch Eager | 2 ms | 25 ms | 55 ms | 82 ms | 12.2 Hz |
-| RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
-| RTX 4090 | TensorRT | 2 ms | 24 ms | 16 ms | 43 ms | 23.3 Hz |
-| Thor | PyTorch Eager | 5 ms | 38 ms | 74 ms | 117 ms | 8.6 Hz |
-| Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
-| Thor | TensorRT | 5 ms | 38 ms | 49 ms | 92 ms | 10.9 Hz |
-| Spark | PyTorch Eager | 2 ms | 33 ms | 76 ms | 112 ms | 8.9 Hz |
-| Spark | torch.compile | 2 ms | 33 ms | 54 ms | 89 ms | 11.2 Hz |
-| Spark | TensorRT | 2 ms | 32 ms | 48 ms | 84 ms | 11.9 Hz |
-| Orin | PyTorch Eager | 6 ms | 93 ms | 202 ms | 300 ms | 3.3 Hz |
-| Orin | torch.compile | 6 ms | 93 ms | 101 ms | 199 ms | 5.0 Hz |
-| Orin | TensorRT | 6 ms | 95 ms | 72 ms | 173 ms | 5.8 Hz |
-
-### Speedup vs PyTorch Eager
-
-| Device | Mode | E2E Speedup | Action Head Speedup |
-|--------|------|-------------|---------------------|
-| RTX 5090 | PyTorch Eager | 1.00x | 1.00x |
-| RTX 5090 | torch.compile | 1.58x | 2.32x |
-| RTX 5090 | TensorRT | 1.86x | 3.59x |
-| H100 | PyTorch Eager | 1.00x | 1.00x |
-| H100 | torch.compile | 2.02x | 4.60x |
-| H100 | TensorRT | 2.14x | 4.80x |
-| RTX 4090 | PyTorch Eager | 1.00x | 1.00x |
-| RTX 4090 | torch.compile | 1.87x | 3.26x |
-| RTX 4090 | TensorRT | 1.92x | 3.48x |
-| Thor | PyTorch Eager | 1.00x | 1.00x |
-| Thor | torch.compile | 1.11x | 1.20x |
-| Thor | TensorRT | 1.27x | 1.49x |
-| Spark | PyTorch Eager | 1.00x | 1.00x |
-| Spark | torch.compile | 1.25x | 1.41x |
-| Spark | TensorRT | 1.33x | 1.58x |
-| Orin | PyTorch Eager | 1.00x | 1.00x |
-| Orin | torch.compile | 1.50x | 2.00x |
-| Orin | TensorRT | 1.73x | 2.80x |
-
-> Run `python scripts/deployment/benchmark_inference.py` to generate benchmarks for your hardware.
-> See `GR00T_inference_timing.ipynb` for detailed analysis and visualizations.
 
 > Jetson and Spark platforms use different dependency stacks than dGPU. Thor and Spark use CUDA 13 with PyTorch 2.10.0 from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130). Orin uses CUDA 12.6 with PyTorch 2.10.0 from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126). See the platform-specific setup sections below.
 ---

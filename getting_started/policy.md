@@ -34,7 +34,7 @@ When running inference scripts (e.g., `standalone_inference_script.py`, `open_lo
 Determines which modality config the model uses (state/action keys, normalization). **Must match the robot type of your dataset.**
 
 The tag is **case-insensitive** and accepts either the enum name or the string value.
-For example, `--embodiment-tag xdof`, `--embodiment-tag XDOF`, and `--embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` all resolve correctly. An unknown tag will produce an error listing all known options.
+For example, `--embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` and `--embodiment-tag LIBERO_PANDA` all resolve correctly. An unknown tag will produce an error listing all known options.
 
 - **Pretrain tags** (e.g., `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT`, `XDOF`, `REAL_G1`) — use for zero-shot inference on datasets that match the pretrained embodiment. The modality config is loaded from the base model checkpoint.
 - **Posttrain tags** (e.g., `UNITREE_G1`, `BEHAVIOR_R1_PRO`, `LIBERO_PANDA`) — require a finetuned checkpoint. Passing these to the base model will produce an error.
@@ -42,27 +42,30 @@ For example, `--embodiment-tag xdof`, `--embodiment-tag XDOF`, and `--embodiment
 
 #### Known Embodiment Tags
 
-**Pretrain** (baked into the N1.7 base model `nvidia/GR00T-N1.7-3B`, inference-ready):
-- `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` / `oxe_droid_relative_eef_relative_joint` — DROID (relative EEF + joint)
-- `XDOF` / `xdof_relative_eef_relative_joint` — Generic X-DOF robot (relative EEF + joint)
-- `XDOF_SUBTASK` / `xdof_relative_eef_relative_joint_subtask` — Generic X-DOF robot (subtask variant)
-- `REAL_G1` / `real_g1_relative_eef_relative_joints` — Real-world Unitree G1 (relative EEF + joint)
-- `REAL_R1_PRO_SHARPA` / `real_r1_pro_sharpa_relative_eef` — Real-world R1 Pro Sharpa (relative EEF)
-- `REAL_R1_PRO_SHARPA_HUMAN` / `real_r1_pro_sharpa_relative_eef_human` — R1 Pro Sharpa (human teleop)
-- `REAL_R1_PRO_SHARPA_MAXINSIGHTS` / `real_r1_pro_sharpa_relative_eef_maxinsights` — R1 Pro Sharpa (MaxInsights, single-cam)
-- `REAL_R1_PRO_SHARPA_MECKA` / `real_r1_pro_sharpa_relative_eef_mecka` — R1 Pro Sharpa (Mecka, single-cam)
+**Pretrain tags** — baked into the base model (`nvidia/GR00T-N1.7-3B`), ready for zero-shot inference:
 
-**Posttrain** (require a finetuned checkpoint, not usable with the base model):
-- `LIBERO_PANDA` / `libero_sim` — LIBERO Panda robot → checkpoint: `nvidia/GR00T-N1.7-LIBERO`
-- `SIMPLER_ENV_GOOGLE` / `simpler_env_google` — SimplerEnv Google Robot → checkpoint: `nvidia/GR00T-N1.7-SimplerEnv-Fractal`
-- `SIMPLER_ENV_WIDOWX` / `simpler_env_widowx` — SimplerEnv WidowX → checkpoint: `nvidia/GR00T-N1.7-SimplerEnv-Bridge`
-- `UNITREE_G1` / `unitree_g1_full_body_with_waist_height_nav_cmd` — Unitree G1 full-body (sim) — no public checkpoint yet
-- `BEHAVIOR_R1_PRO` / `sim_behavior_r1_pro` — Behavior R1 Pro (sim) — no public checkpoint yet
-- `ROBOCASA_PANDA_OMRON` / `robocasa_panda_omron` — RoboCasa Panda with Omron base — no public checkpoint yet
-- `AGIBOT` / `agibot` — AgiBot robot — no public checkpoint yet
+| Tag | Robot / Data Source | Value |
+|-----|---------------------|-------|
+| `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | DROID (relative EEF + joint) | `oxe_droid_relative_eef_relative_joint` |
+| `XDOF` | Generic X-DOF (relative EEF + joint) | `xdof_relative_eef_relative_joint` |
+| `XDOF_SUBTASK` | Generic X-DOF (subtask variant) | `xdof_relative_eef_relative_joint_subtask` |
+| `REAL_G1` | Real-world Unitree G1 (relative EEF + joint) | `real_g1_relative_eef_relative_joints` |
+| `REAL_R1_PRO_SHARPA` | Real-world R1 Pro Sharpa (relative EEF) | `real_r1_pro_sharpa_relative_eef` |
+| `REAL_R1_PRO_SHARPA_HUMAN` | R1 Pro Sharpa — human teleop data | `real_r1_pro_sharpa_relative_eef_human` |
+| `REAL_R1_PRO_SHARPA_MAXINSIGHTS` | R1 Pro Sharpa — MaxInsights (single-cam) | `real_r1_pro_sharpa_relative_eef_maxinsights` |
+| `REAL_R1_PRO_SHARPA_MECKA` | R1 Pro Sharpa — Mecka (single-cam) | `real_r1_pro_sharpa_relative_eef_mecka` |
 
-**Finetuning** (for custom robots):
-- `NEW_EMBODIMENT` / `new_embodiment` — Any new embodiment
+**Posttrain tags** — require a finetuned checkpoint (not usable with the base model directly):
+
+| Tag | Robot | Value | Checkpoint |
+|-----|-------|-------|------------|
+| `LIBERO_PANDA` | LIBERO Panda | `libero_sim` | `nvidia/GR00T-N1.7-LIBERO` |
+| `SIMPLER_ENV_GOOGLE` | SimplerEnv Google Robot | `simpler_env_google` | `nvidia/GR00T-N1.7-SimplerEnv-Fractal` |
+| `SIMPLER_ENV_WIDOWX` | SimplerEnv WidowX | `simpler_env_widowx` | `nvidia/GR00T-N1.7-SimplerEnv-Bridge` |
+| `UNITREE_G1` | Unitree G1 (sim, full-body) | `unitree_g1_full_body_with_waist_height_nav_cmd` | No public checkpoint yet |
+| `BEHAVIOR_R1_PRO` | Galaxea R1 Pro (BEHAVIOR sim) | `sim_behavior_r1_pro` | No public checkpoint yet |
+
+**Generic tag** for any new robot: `NEW_EMBODIMENT` (requires `--modality-config-path`)
 
 > **Important:** Pretrain tags work with the base model for zero-shot inference. Posttrain tags require a finetuned checkpoint — using them with the base model will fail with an error listing the supported tags. You also cannot mix embodiment tags and datasets (e.g., `--embodiment-tag LIBERO_PANDA` expects LIBERO state keys and will fail on an SO100 dataset).
 

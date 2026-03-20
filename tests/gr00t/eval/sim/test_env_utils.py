@@ -14,7 +14,6 @@ class TestEnvPrefixMapping:
 
     def test_all_known_prefixes_present(self):
         expected_prefixes = {
-            "robocasa_panda_omron",
             "gr00tlocomanip_g1",
             "gr00tlocomanip_g1_sim",
             "gr00tlocomanip_g1_new",
@@ -45,10 +44,6 @@ class TestGetEmbodimentTagFromEnvName:
     """Test get_embodiment_tag_from_env_name() for all supported benchmarks."""
 
     # --- Benchmarks that already worked (via explicit checks or fallback) ---
-
-    def test_robocasa_panda(self):
-        tag = get_embodiment_tag_from_env_name("robocasa_panda_omron/CoffeeSetupMug")
-        assert tag == EmbodimentTag.ROBOCASA_PANDA_OMRON
 
     @pytest.mark.parametrize(
         "env_name",
@@ -88,11 +83,6 @@ class TestGetEmbodimentTagFromEnvName:
     def test_empty_string_raises_value_error(self):
         with pytest.raises(ValueError):
             get_embodiment_tag_from_env_name("")
-
-    def test_env_name_without_slash_still_works(self):
-        """Prefix-only env_name (no task) should still resolve."""
-        tag = get_embodiment_tag_from_env_name("robocasa_panda_omron")
-        assert tag == EmbodimentTag.ROBOCASA_PANDA_OMRON
 
     def test_multi_slash_uses_first_segment(self):
         """Only the first segment before '/' is used as the prefix."""
