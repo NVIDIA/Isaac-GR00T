@@ -8,7 +8,7 @@ For more information, see the [official repository](https://github.com/simpler-e
 
 # Fine-tune Simpler Env bridge dataset (WidowX robot)
 
-To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments via the shared `examples/finetune.sh` launcher. Please remember to set `WANDB_API_KEY` since `--use-wandb` is turned on by default. If you don't have a WANDB account, please remove this argument:
+To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments. Please remember to set `WANDB_API_KEY` since `--use-wandb` is turned on by default. If you don't have a WANDB account, please remove this argument:
 
 ```bash
 huggingface-cli download \
@@ -16,11 +16,14 @@ huggingface-cli download \
     --local-dir examples/SimplerEnv/bridge_orig_lerobot/
 
 # Copy the patches and run the finetune script
-cp -r examples/SimplerEnv/bridge_modality.json examples/SimplerEnv/bridge_orig_lerobot/meta/modality.json
+cp examples/SimplerEnv/bridge_modality.json examples/SimplerEnv/bridge_orig_lerobot/meta/modality.json
+```
+
+```bash
 NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
     --base-model-path nvidia/GR00T-N1.7-3B \
     --dataset-path examples/SimplerEnv/bridge_orig_lerobot/ \
-    --embodiment-tag OXE_WIDOWX \
+    --embodiment-tag SIMPLER_ENV_WIDOWX \
     --output-dir /tmp/bridge_finetune \
     --state-dropout-prob 0.8
 ```
@@ -35,10 +38,13 @@ huggingface-cli download \
 # Copy the patches and run the finetune script
 cp -r examples/SimplerEnv/fractal_modality.json examples/SimplerEnv/fractal20220817_data_lerobot/meta/modality.json
 uv run python examples/SimplerEnv/convert_av1_to_h264.py --root examples/SimplerEnv/fractal20220817_data_lerobot --jobs 16  # (Optional) if AV1 doesn't work on your machine
+```
+
+```bash
 NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
     --base-model-path nvidia/GR00T-N1.7-3B \
     --dataset-path examples/SimplerEnv/fractal20220817_data_lerobot/ \
-    --embodiment-tag OXE_GOOGLE \
+    --embodiment-tag SIMPLER_ENV_GOOGLE \
     --output-dir /tmp/fractal_finetune \
     --state-dropout-prob 0.5
 ```
@@ -94,7 +100,7 @@ gr00t/eval/sim/SimplerEnv/simpler_uv/.venv/bin/python gr00t/eval/rollout_policy.
 **Terminal 1 - Server:**
 ```bash
 uv run python gr00t/eval/run_gr00t_server.py \
-    --model-path nvidia/GR00T-N1.6-bridge \
+    --base-model-path nvidia/GR00T-N1.7-3B \
     --embodiment-tag OXE_WIDOWX \
     --use-sim-policy-wrapper
 ```
