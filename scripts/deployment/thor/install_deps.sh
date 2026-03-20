@@ -6,31 +6,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-TMP_DIR="$(mktemp -d)"
-RESTORE_ROOT_FILES=0
-
-restore_repo_root_files() {
-    if [ "$RESTORE_ROOT_FILES" -ne 1 ]; then
-        rm -rf "$TMP_DIR"
-        return
-    fi
-
-    if [ -f "$TMP_DIR/pyproject.toml.orig" ]; then
-        mv "$TMP_DIR/pyproject.toml.orig" "$REPO_ROOT/pyproject.toml"
-    else
-        rm -f "$REPO_ROOT/pyproject.toml"
-    fi
-
-    if [ -f "$TMP_DIR/uv.lock.orig" ]; then
-        mv "$TMP_DIR/uv.lock.orig" "$REPO_ROOT/uv.lock"
-    else
-        rm -f "$REPO_ROOT/uv.lock"
-    fi
-
-    rm -rf "$TMP_DIR"
-}
-
-trap restore_repo_root_files EXIT
 
 # Use sudo only when not already root
 SUDO=""
@@ -53,15 +28,7 @@ fi
 # ──────────────────────────────────────────────────────────────────────────────
 # Copy Thor-specific pyproject.toml to repo root
 # ──────────────────────────────────────────────────────────────────────────────
-if [ -f "$REPO_ROOT/pyproject.toml" ]; then
-    cp "$REPO_ROOT/pyproject.toml" "$TMP_DIR/pyproject.toml.orig"
-fi
-if [ -f "$REPO_ROOT/uv.lock" ]; then
-    cp "$REPO_ROOT/uv.lock" "$TMP_DIR/uv.lock.orig"
-fi
-
-RESTORE_ROOT_FILES=1
-echo "Temporarily copying Thor pyproject.toml and uv.lock to repo root..."
+echo "Copying Thor pyproject.toml and uv.lock to repo root..."
 cp "$SCRIPT_DIR/pyproject.toml" "$REPO_ROOT/pyproject.toml"
 cp "$SCRIPT_DIR/uv.lock" "$REPO_ROOT/uv.lock"
 
