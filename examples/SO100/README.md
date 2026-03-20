@@ -27,9 +27,14 @@ cp examples/SO100/modality.json examples/SO100/finish_sandwich_lerobot/izuluaga/
 
 ## Finetuning
 
-Run the finetuning script using absolute joint positions (feel free to experiment with relative positions):
+Run the shared finetune launcher directly, using absolute joint positions (feel free to experiment with relative positions):
 ```bash
-uv run bash examples/SO100/finetune_so100.sh
+CUDA_VISIBLE_DEVICES=0 NUM_GPUS=1 uv run bash examples/finetune.sh \
+  --base-model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path examples/SO100/finish_sandwich_lerobot/izuluaga/finish_sandwich \
+  --modality-config-path examples/SO100/so100_config.py \
+  --embodiment-tag NEW_EMBODIMENT \
+  --output-dir /tmp/so100_finetune
 ```
 
 ## Open-Loop Evaluation

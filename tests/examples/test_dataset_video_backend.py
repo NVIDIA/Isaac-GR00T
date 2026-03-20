@@ -13,7 +13,6 @@ from HuggingFace Hub using ``hf_hub_download`` (avoids full repo enumeration).
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from pathlib import Path
 import shutil
 
@@ -21,6 +20,10 @@ import cv2
 from gr00t.utils import video_utils
 import huggingface_hub
 import pytest
+from test_support.runtime import SHARED_DRIVE_ROOT, get_root
+
+
+REPO_ROOT = get_root()
 
 
 @dataclass(frozen=True)
@@ -79,7 +82,7 @@ class DatasetCatalogEntry:
         no videos are found after downloading.
         """
         shared_path = SHARED_DATASETS_ROOT / self.rel_path
-        repo_path = ROOT / self.rel_path
+        repo_path = REPO_ROOT / self.rel_path
 
         for candidate in (shared_path, repo_path):
             if candidate.exists() and self._scan_videos(candidate):
@@ -96,11 +99,8 @@ class DatasetCatalogEntry:
         )
 
 
-ROOT = Path(__file__).resolve().parents[2]
-SHARED_DRIVE_ROOT = Path(os.environ.get("CI_SHARED_DRIVE_PATH", "/shared"))
-SHARED_DATASETS_ROOT = Path(
-    os.environ.get("CI_SHARED_DATASETS_ROOT", str(SHARED_DRIVE_ROOT / "datasets/groot"))
-)
+SHARED_DATASETS_ROOT = SHARED_DRIVE_ROOT / "datasets"
+
 
 DATASET_CATALOG: tuple[DatasetCatalogEntry, ...] = (
     DatasetCatalogEntry(
@@ -183,7 +183,7 @@ def test_dataset_backend_policy_on_sample_video(entry: DatasetCatalogEntry) -> N
         assert len(frames) == nb_frames
         all_identical = all((frames[i] == frames[0]).all() for i in range(1, nb_frames))
         if all_identical:
-            debug_dir = ROOT / "debug_video_decoding" / entry.name
+            debug_dir = REPO_ROOT / "debug_video_decoding" / entry.name
             debug_dir.mkdir(parents=True, exist_ok=True)
 
             shutil.copy(video_path, debug_dir / video_path.name)

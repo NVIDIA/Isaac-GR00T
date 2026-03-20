@@ -49,7 +49,10 @@ uv pip install --editable "$PROJECT_REPO" --no-deps
 # PY
 
 # Assets for RoboCasa (kitchen)
-python "$ROBOCASA_REPO/robocasa/scripts/download_kitchen_assets.py" -y
+SKIP_DOWNLOAD_ASSETS=${SKIP_DOWNLOAD_ASSETS:-0}
+if [[ "$SKIP_DOWNLOAD_ASSETS" == "0" ]]; then
+    echo y | python "$ROBOCASA_REPO/robocasa/scripts/download_kitchen_assets.py"
+fi
 
 # Sanity import & env construction
 python - <<'PY'

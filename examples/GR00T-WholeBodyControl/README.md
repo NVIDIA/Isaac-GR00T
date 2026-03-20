@@ -38,7 +38,12 @@ git checkout
 git lfs pull
 
 cd ../../../
-uv run bash examples/GR00T-WholeBodyControl/finetune_g1.sh
+# Run the shared finetune launcher directly
+NUM_GPUS=8 uv run bash examples/finetune.sh \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path examples/GR00T-WholeBodyControl/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/unitree_g1.LMPnPAppleToPlateDC \
+    --embodiment-tag UNITREE_G1 \
+    --output-dir /tmp/g1_finetune
 ```
 
 # 2. Evaluate checkpoint

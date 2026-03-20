@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+import os
+import subprocess
+
+import pytest
+from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
+from test_support.runtime import (
+    assert_port_available,
+    build_shared_runtime_env,
+    find_nvidia_egl_vendor_file,
+    get_root,
+    run_subprocess_step,
+    wait_for_server_ready,
+)
+
+
+REPO_ROOT = get_root()
+
+README = REPO_ROOT / "examples/GR00T-WholeBodyControl/README.md"
+
+DEFAULT_SERVER_STARTUP_SECONDS = 180.0
+
+
+@pytest.mark.gpu
+@pytest.mark.timeout(600)
+def test_gr00t_wholebody_control_readme_eval_flow() -> None:
+    """Run the G1 LocoManipulation README server+client eval using the remote checkpoint."""
+
+    print(f"[egl] NVIDIA EGL vendor file: {find_nvidia_egl_vendor_file()}", flush=True)
+
+    env = build_shared_runtime_env(
+        "gr00t-wholebody-control", extra_env={"MUJOCO_GL": "egl", "PYOPENGL_PLATFORM": "egl"}
+    )
+    blocks = extract_code_blocks(README)
+
+    # Step 1: Setup sim
+    run_bash_blocks(
+        [find_block(blocks, "setup_GR00T_WholeBodyControl.sh", language="bash")],
+        cwd=REPO_ROOT,
+        env=env,
+        force_yes=True,
+    )
+
+    model_server_host = "127.0.0.1"
+    model_server_port = 5554
+
+    # Step 2: Server — remote checkpoint, inject test-specific flags
+    server_code = replace_once(
+        find_block(blocks, "nvidia/GR00T-N1.6-G1-PnPAppleToPlate", language="bash").code,
+        "uv run python gr00t/eval/run_gr00t_server.py",
+        "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
+    )
+    server_code += f" --device cuda:0 --host {model_server_host} --port {model_server_port}"
+
+    # Step 3: Rollout — README has no host/port flags; inject port and substitute test-safe values.
+    # Also add --policy_client_host and --policy_client_port since the test server uses a non-default port.
+    rollout_code = replace_once(
+        replace_once(
+            find_block(blocks, "GR00T-WholeBodyControl_uv/.venv/bin/python", language="bash").code,
+            "--n_episodes 10",
+            "--n_episodes 1",
+        ),
+        "--max_episode_steps=1440",
+        "--max_episode_steps=2",
+    )
+    rollout_code += f" --policy_client_host {model_server_host} --policy_client_port {model_server_port} --n_envs 1"
+
+    assert_port_available(model_server_host, model_server_port)
+    model_server_proc = subprocess.Popen(
+        ["bash", "-c", server_code],
+        cwd=REPO_ROOT,
+        env=env,
+    )
+    wait_for_server_ready(
+        proc=model_server_proc,
+        host=model_server_host,
+        port=model_server_port,
+        timeout_s=float(
+            os.getenv("G1_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
+        ),
+    )
+
+    try:
+        simulation_result, _ = run_subprocess_step(
+            ["bash", "-c", rollout_code],
+            step="g1_rollout",
+            cwd=REPO_ROOT,
+            env=env,
+            log_prefix="gr00t-wholebody-control",
+            failure_prefix="G1 LocoManipulation rollout failed",
+            output_tail_chars=4000,
+        )
+        simulation_output = (simulation_result.stdout or "") + (simulation_result.stderr or "")
+        assert "results:" in simulation_output, (
+            "Simulation output did not include expected 'results:' marker.\n"
+            f"output_tail=\n{simulation_output[-4000:]}"
+        )
+        assert "success rate:" in simulation_output, (
+            "Simulation output did not include expected 'success rate:' marker.\n"
+            f"output_tail=\n{simulation_output[-4000:]}"
+        )
+    finally:
+        if model_server_proc.poll() is None:
+            model_server_proc.terminate()
+            try:
+                model_server_proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                model_server_proc.kill()
+                model_server_proc.wait(timeout=15)

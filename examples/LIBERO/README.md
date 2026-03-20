@@ -30,9 +30,14 @@ huggingface-cli download \
 cp -r examples/LIBERO/modality.json examples/LIBERO/libero_10_no_noops_1.0.0_lerobot/meta/
 ```
 
-Run the finetune script:
+Run the shared finetune launcher directly:
 ```bash
-uv run bash examples/LIBERO/finetune_libero_10.sh
+NUM_GPUS=8 uv run bash examples/finetune.sh \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path examples/LIBERO/libero_10_no_noops_1.0.0_lerobot/ \
+    --embodiment-tag LIBERO_PANDA \
+    --output-dir /tmp/libero_10 \
+    --state-dropout-prob 0.8
 ```
 
 # Fine-tune LIBERO goal
@@ -48,9 +53,13 @@ cp -r examples/LIBERO/modality.json examples/LIBERO/libero_goal_no_noops_1.0.0_l
 cp examples/LIBERO/patches/episode_000082.mp4 examples/LIBERO/libero_goal_no_noops_1.0.0_lerobot/videos/chunk-000/observation.images.wrist_image/
 ```
 
-Run the finetune script:
+Run the shared finetune launcher directly:
 ```bash
-uv run bash examples/LIBERO/finetune_libero_goal.sh
+NUM_GPUS=8 uv run bash examples/finetune.sh \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path examples/LIBERO/libero_goal_no_noops_1.0.0_lerobot/ \
+    --embodiment-tag LIBERO_PANDA \
+    --output-dir /tmp/libero_goal
 ```
 
 # Fine-tune LIBERO object
@@ -64,9 +73,13 @@ huggingface-cli download \
 cp -r examples/LIBERO/modality.json examples/LIBERO/libero_object_no_noops_1.0.0_lerobot/meta/
 ```
 
-Run the finetune script:
+Run the shared finetune launcher directly:
 ```bash
-uv run bash examples/LIBERO/finetune_libero_object.sh
+NUM_GPUS=8 uv run bash examples/finetune.sh \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path examples/LIBERO/libero_object_no_noops_1.0.0_lerobot/ \
+    --embodiment-tag LIBERO_PANDA \
+    --output-dir /tmp/libero_object
 ```
 
 # Fine-tune LIBERO spatial
@@ -80,9 +93,13 @@ huggingface-cli download \
 cp -r examples/LIBERO/modality.json examples/LIBERO/libero_spatial_no_noops_1.0.0_lerobot/meta/
 ```
 
-Run the finetune script:
+Run the shared finetune launcher directly:
 ```bash
-uv run bash examples/LIBERO/finetune_libero_spatial.sh
+NUM_GPUS=8 uv run bash examples/finetune.sh \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path examples/LIBERO/libero_spatial_no_noops_1.0.0_lerobot/ \
+    --embodiment-tag LIBERO_PANDA \
+    --output-dir /tmp/libero_spatial
 ```
 
 # Evaluate checkpoint

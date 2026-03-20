@@ -88,9 +88,14 @@ huggingface-cli download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
 ```
 Using `sim_behavior_r1_pro.*` will download datasets for all 50 tasks. You can replace `sim_behavior_r1_pro.*` with a specific task.
 
-To launch training, run
+To launch training, run the shared `examples/finetune.sh` launcher directly:
 ```
-uv run bash examples/BEHAVIOR/finetune_BEHAVIOR.sh
+NUM_GPUS=8 uv run bash examples/finetune.sh \
+  --base-model-path nvidia/GR00T-N1.6-BEHAVIOR1k \
+  --dataset-path PATH_TO_BEHAVIOR_INDIVIDUAL_TASK_DATASET \
+  --embodiment-tag BEHAVIOR_R1_PRO \
+  --output-dir /tmp/BEHAVIOR_finetune \
+  --state-dropout-prob 0
 ```
 Notice the use of `BEHAVIOR_R1_PRO` embodiment tag.
 

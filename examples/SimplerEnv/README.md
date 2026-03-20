@@ -35,7 +35,7 @@ Provided checkpoint: [nvidia/GR00T-N1.6-fractal](https://huggingface.co/nvidia/G
 
 # Fine-tune Simpler Env bridge dataset (WidowX robot)
 
-To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments. Please remember to set `WANDB_API_KEY` since `--use-wandb` is turned on by default. If you don't have a WANDB account, please remove this argument:
+To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments via the shared `examples/finetune.sh` launcher. Please remember to set `WANDB_API_KEY` since `--use-wandb` is turned on by default. If you don't have a WANDB account, please remove this argument:
 
 ```bash
 huggingface-cli download \
@@ -44,7 +44,12 @@ huggingface-cli download \
 
 # Copy the patches and run the finetune script
 cp -r examples/SimplerEnv/bridge_modality.json examples/SimplerEnv/bridge_orig_lerobot/meta/modality.json
-uv run bash examples/SimplerEnv/finetune_bridge.sh
+NUM_GPUS=8 uv run bash examples/finetune.sh \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path examples/SimplerEnv/bridge_orig_lerobot/ \
+    --embodiment-tag OXE_WIDOWX \
+    --output-dir /tmp/bridge_finetune \
+    --state-dropout-prob 0.8
 ```
 
 # Fine-tune Simpler Env fractal dataset (Google robot)
@@ -58,7 +63,12 @@ huggingface-cli download \
 # Copy the patches and run the finetune script
 cp -r examples/SimplerEnv/fractal_modality.json examples/SimplerEnv/fractal20220817_data_lerobot/meta/modality.json
 uv run python convert_av1_to_h264.py --root fractal20220817_data_lerobot --jobs 16  # (Optional) if AV1 doesn't work on your machine
-uv run bash examples/SimplerEnv/finetune_fractal.sh
+NUM_GPUS=8 uv run bash examples/finetune.sh \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path examples/SimplerEnv/fractal20220817_data_lerobot/ \
+    --embodiment-tag OXE_GOOGLE \
+    --output-dir /tmp/bridge_finetune \
+    --state-dropout-prob 0.5
 ```
 
 # Evaluate checkpoint
@@ -72,6 +82,8 @@ bash gr00t/eval/sim/SimplerEnv/setup_SimplerEnv.sh
 ```
 
 Then, run client server evaluation under the project root directory in separate terminals:
+
+## Fractal (Google Robot) Evaluation
 
 **Terminal 1 - Server:**
 
@@ -101,6 +113,28 @@ gr00t/eval/sim/SimplerEnv/simpler_uv/.venv/bin/python gr00t/eval/rollout_policy.
     --policy_client_port 5555 \
     --max_episode_steps=300 \
     --env_name simpler_env_google/google_robot_pick_coke_can \
+    --n_action_steps 1 \
+    --n_envs 5
+```
+
+## Bridge (WidowX) Evaluation
+
+**Terminal 1 - Server:**
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --model-path nvidia/GR00T-N1.6-bridge \
+    --embodiment-tag OXE_WIDOWX \
+    --use-sim-policy-wrapper
+```
+
+**Terminal 2 - Client:**
+```bash
+gr00t/eval/sim/SimplerEnv/simpler_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
+    --n_episodes 10 \
+    --policy_client_host 127.0.0.1 \
+    --policy_client_port 5555 \
+    --max_episode_steps=300 \
+    --env_name simpler_env_widowx/widowx_spoon_on_towel \
     --n_action_steps 1 \
     --n_envs 5
 ```

@@ -34,10 +34,15 @@ The point navigation task uses the following input and output modalities defined
 
 ## Finetuning
 
-Run the finetuning script:
+Run the shared finetune launcher directly:
 
 ```bash
-uv run bash examples/PointNav/finetune_point_nav.sh
+CUDA_VISIBLE_DEVICES=0 NUM_GPUS=1 uv run bash examples/finetune.sh \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path <dataset_path> \
+    --modality-config-path examples/PointNav/modality_config.py \
+    --embodiment-tag NEW_EMBODIMENT \
+    --output-dir <output_dir>
 ```
 
 Remember to update the script with your dataset and output paths:
