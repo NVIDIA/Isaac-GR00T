@@ -56,9 +56,10 @@ Expected zero-shot performance on the base model (not finetuned):
 
 | Metric | Value |
 |--------|-------|
-| Average MSE | ~0.016 |
-| Average MAE | ~0.072 |
-| Inference per step | ~95 ms (H100) |
+| Average MSE | ~0.0149 |
+| Average MAE | ~0.0753 |
+| Inference per step (base) | ~262 ms (H100) |
+| Inference per step (finetuned) | ~253 ms (H100) |
 
 ## 2. Inference Server (for real-world deployment)
 

@@ -94,7 +94,7 @@ export NUM_GPUS=8
 
 torchrun --nproc_per_node=$NUM_GPUS --master_port=29500 \
     gr00t/experiment/launch_finetune.py \
-    --base_model_path nvidia/GR00T-N1.6-3B \
+    --base_model_path nvidia/GR00T-N1.7-3B \
     --dataset_path <YOUR_DATASET_WITH_MASKS> \
     --embodiment_tag <YOUR_EMBODIMENT_TAG> \
     --num_gpus $NUM_GPUS \

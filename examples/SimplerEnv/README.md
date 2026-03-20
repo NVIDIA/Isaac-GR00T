@@ -1,6 +1,3 @@
-<!-- TODO: This example uses N1.6 checkpoints (nvidia/GR00T-N1.6-bridge, nvidia/GR00T-N1.6-fractal).
-     Update when N1.7 SimplerEnv checkpoints are available. -->
-
 # SimplerEnv
 
 Framework for evaluating real-world robot manipulation policies (RT-1, RT-1-X, Octo) in simulation. Replicates common setups like Google Robot and WidowX+Bridge, with GPU-accelerated simulations (10-15x speedup). Offers visual matching and variant aggregation evaluation methods for robust policy assessment.
@@ -8,33 +5,6 @@ Framework for evaluating real-world robot manipulation policies (RT-1, RT-1-X, O
 For more information, see the [official repository](https://github.com/simpler-env/SimplerEnv).
 
 ---
-
-# SimplerEnv Bridge (WidowX robot) evaluation benchmark result
-Provided checkpoint: [nvidia/GR00T-N1.6-bridge](https://huggingface.co/nvidia/GR00T-N1.6-bridge)
-
-| Task                              | Success rate n1.6 (200) |
-| --------------------------------- | ------------------ |
-| widowx\_spoon\_on\_towel          | 129/200 (64.5%) |
-| widowx\_carrot\_on\_plate         | 131/200 (65.5%) |
-| widowx\_put\_eggplant\_in\_basket | 186/200 (93%) |
-| widowx\_stack\_cube               | 11/200 (5.5%) |
-| widowx\_put\_eggplant\_in\_sink** | 80/200 (40%) |
-| widowx\_close\_drawer**           | 141/200 (70.5%) |
-| widowx\_open\_drawer**            | 191/200 (95.5%) |
-| **Average**                       | **62.07%** |
-
-# SimplerEnv Fractal (Google robot) evaluation benchmark result
-Provided checkpoint: [nvidia/GR00T-N1.6-fractal](https://huggingface.co/nvidia/GR00T-N1.6-fractal)
-| Task                                     | Success Rate (200) |
-| ---------------------------------------- | ------------------ |
-| google\_robot\_pick\_coke\_can           | 195/200 (97.5%)    |
-| google\_robot\_pick\_object              | 174/200 (87%)      |
-| google\_robot\_move\_near                | 151/200 (75.5%)    |
-| google\_robot\_open\_drawer              | 88/200 (44%)       |
-| google\_robot\_close\_drawer             | 175/200 (87.5%)    |
-| google\_robot\_place\_in\_closed\_drawer | 29/200 (14.5%)     |
-| **Average**                              | **67.66%**            |
-
 
 # Fine-tune Simpler Env bridge dataset (WidowX robot)
 
@@ -48,7 +18,7 @@ huggingface-cli download \
 # Copy the patches and run the finetune script
 cp -r examples/SimplerEnv/bridge_modality.json examples/SimplerEnv/bridge_orig_lerobot/meta/modality.json
 NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
-    --base-model-path nvidia/GR00T-N1.6-3B \
+    --base-model-path nvidia/GR00T-N1.7-3B \
     --dataset-path examples/SimplerEnv/bridge_orig_lerobot/ \
     --embodiment-tag OXE_WIDOWX \
     --output-dir /tmp/bridge_finetune \
@@ -58,16 +28,15 @@ NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash ex
 # Fine-tune Simpler Env fractal dataset (Google robot)
 
 ```bash
-cd examples/SimplerEnv
 huggingface-cli download \
     --repo-type dataset IPEC-COMMUNITY/fractal20220817_data_lerobot \
     --local-dir examples/SimplerEnv/fractal20220817_data_lerobot/
 
 # Copy the patches and run the finetune script
 cp -r examples/SimplerEnv/fractal_modality.json examples/SimplerEnv/fractal20220817_data_lerobot/meta/modality.json
-uv run python convert_av1_to_h264.py --root fractal20220817_data_lerobot --jobs 16  # (Optional) if AV1 doesn't work on your machine
+uv run python examples/SimplerEnv/convert_av1_to_h264.py --root examples/SimplerEnv/fractal20220817_data_lerobot --jobs 16  # (Optional) if AV1 doesn't work on your machine
 NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
-    --base-model-path nvidia/GR00T-N1.6-3B \
+    --base-model-path nvidia/GR00T-N1.7-3B \
     --dataset-path examples/SimplerEnv/fractal20220817_data_lerobot/ \
     --embodiment-tag OXE_GOOGLE \
     --output-dir /tmp/fractal_finetune \
@@ -103,7 +72,7 @@ uv run python gr00t/eval/run_gr00t_server.py \
 **Option 2: Remote finetuned checkpoint (directly runnable)**
 ```bash
 uv run python gr00t/eval/run_gr00t_server.py \
-    --model-path nvidia/GR00T-N1.6-fractal \
+    --model-path nvidia/GR00T-N1.7-SimplerEnv-Fractal \
     --embodiment-tag SIMPLER_ENV_GOOGLE \
     --use-sim-policy-wrapper
 ```

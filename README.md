@@ -28,7 +28,7 @@
   </tr>
 </table>
 
-> We just released GR00T N1.7, the latest version of GR00T N1 with a new VLM backbone (Cosmos-Reason2-2B / Qwen3-VL) and improved performance.
+> We just released GR00T N1.7 Early Access, the latest version of GR00T N1 with a new VLM backbone (Cosmos-Reason2-2B / Qwen3-VL) and improved performance.
 
 > To use older versions: [N1.6](https://github.com/NVIDIA/Isaac-GR00T/) | [N1.5](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release)
 
@@ -57,8 +57,6 @@ GR00T N1.7 builds on N1.6 with a new VLM backbone and code-level improvements.
 ### Key Changes from N1.6
 
 - **New VLM backbone:** Cosmos-Reason2-2B (Qwen3-VL architecture), replacing the Eagle backbone used in N1.6. Supports flexible resolution and encodes images in their native aspect ratio without padding.
-- **State dropout regularization:** `state_dropout_prob` defaults to 0.8 (was 0.0 in N1.6) for improved generalization.
-- **Percentile normalization support:** Added `use_percentiles` option for action/state normalization.
 - Simplified data processing pipeline (`processing_gr00t_n1d7.py`).
 - Added full pipeline export to ONNX and TensorRT with improved frequency.
 - Added more supported robot embodiments.
@@ -87,7 +85,7 @@ The following improvements were introduced in N1.6 and carry forward in N1.7:
 
 GR00T relies on submodules for certain dependencies. Include them when cloning:
 
-Note: `git-lfs` may be required to download parquet data files in `/demo_data`. To install it, `sudo apt install git-lfs`.
+**Note:** `git-lfs` is **required** to download parquet data files in `/demo_data`. Install it before cloning: `sudo apt install git-lfs && git lfs install`.
 ```sh
 git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T
 cd Isaac-GR00T
@@ -120,12 +118,29 @@ uv sync --python 3.10
 ```
 GPU dependencies (flash-attn, TensorRT, etc.) are included in the default install.
 
+Verify the installation:
+```sh
+uv run python -c "import gr00t; print('GR00T installed successfully')"
+```
+
+> **`flash-attn` reinstall on every `uv run`:** Because we pin a specific `flash-attn` wheel URL in `pyproject.toml` (line 85), `uv` may show `Installing flash-attn...` on each invocation. This is a fast cached reinstall (not a rebuild) and is expected behavior. To suppress this, remove the `flash-attn` URL entry under `[tool.uv.sources]` in `pyproject.toml` after the initial install.
+
+<details>
+<summary><strong>Alternative: pip install (without uv)</strong></summary>
+
+If you prefer pip/conda over uv, create a Python 3.10 virtualenv and install:
+```sh
+python3.10 -m venv .venv && source .venv/bin/activate
+pip install -e .
+```
+Note: GPU dependencies (flash-attn, TensorRT) may require manual installation with pip. The `uv` workflow handles these automatically.
+</details>
+
 > **If fine-tuning fails with `CUDA_HOME is unset`:** Run `bash scripts/deployment/dgpu/install_deps.sh` once to configure CUDA paths, or manually `export CUDA_HOME=/usr/local/cuda`.
 
-> **CUDA 13.x Users (Thor, Spark, and other CUDA 13+ platforms):** PyTorch 2.7 pins Triton to 3.3.1, which does not recognize CUDA major version 13+. This causes a `RuntimeError` in Triton's `ptx_get_version()`. To fix this, locate Triton's compiler file (typically at `<your-venv>/lib/python3.10/site-packages/triton/backends/nvidia/compiler.py`) and add the following branch **before** the existing `if major == 12:` line:
-> ```python
-> if major == 13:
->     return 90 + minor
+> **CUDA 13.x Users (Thor, Spark, and other CUDA 13+ platforms):** PyTorch 2.7 pins Triton to 3.3.1, which does not recognize CUDA major version 13+. This causes a `RuntimeError` in Triton's `ptx_get_version()`. Run the patch script to fix:
+> ```sh
+> uv run bash scripts/patch_triton_cuda13.sh
 > ```
 
 <details>
@@ -190,36 +205,9 @@ For a containerized setup that avoids system-level dependency conflicts, see our
 
 ### Embodiment Tags
 
-Every inference or finetuning command requires an `--embodiment-tag`. The tag determines which modality config (state/action keys, normalization) the model uses. Tags are **case-insensitive** — `xdof`, `XDOF`, and `xdof_relative_eef_relative_joint` all resolve to the same tag.
+Every inference or finetuning command requires an `--embodiment-tag`. The tag determines which modality config (state/action keys, normalization) the model uses. Tags are **case-insensitive**.
 
-**Pretrain tags** — baked into the base model (`nvidia/GR00T-N1.7-3B`), ready for zero-shot inference:
-
-| Tag | Robot / Data Source | Value |
-|-----|---------------------|-------|
-| `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | DROID (relative EEF + joint) | `oxe_droid_relative_eef_relative_joint` |
-| `XDOF` | Generic X-DOF (relative EEF + joint) | `xdof_relative_eef_relative_joint` |
-| `XDOF_SUBTASK` | Generic X-DOF (subtask variant) | `xdof_relative_eef_relative_joint_subtask` |
-| `REAL_G1` | Real-world Unitree G1 (relative EEF + joint) | `real_g1_relative_eef_relative_joints` |
-| `REAL_R1_PRO_SHARPA` | Real-world R1 Pro Sharpa (relative EEF) | `real_r1_pro_sharpa_relative_eef` |
-| `REAL_R1_PRO_SHARPA_HUMAN` | R1 Pro Sharpa — human teleop data | `real_r1_pro_sharpa_relative_eef_human` |
-| `REAL_R1_PRO_SHARPA_MAXINSIGHTS` | R1 Pro Sharpa — MaxInsights (single-cam) | `real_r1_pro_sharpa_relative_eef_maxinsights` |
-| `REAL_R1_PRO_SHARPA_MECKA` | R1 Pro Sharpa — Mecka (single-cam) | `real_r1_pro_sharpa_relative_eef_mecka` |
-
-**Posttrain tags** — require a finetuned checkpoint (not usable with the base model directly):
-
-| Tag | Robot | Value | Checkpoint |
-|-----|-------|-------|------------|
-| `LIBERO_PANDA` | LIBERO Panda | `libero_sim` | `nvidia/GR00T-N1.7-LIBERO` |
-| `SIMPLER_ENV_GOOGLE` | SimplerEnv Google Robot | `simpler_env_google` | `nvidia/GR00T-N1.7-SimplerEnv-Fractal` |
-| `SIMPLER_ENV_WIDOWX` | SimplerEnv WidowX | `simpler_env_widowx` | `nvidia/GR00T-N1.7-SimplerEnv-Bridge` |
-| `UNITREE_G1` | Unitree G1 (sim, full-body) | `unitree_g1_full_body_with_waist_height_nav_cmd` | No public checkpoint yet |
-| `BEHAVIOR_R1_PRO` | Galaxea R1 Pro (BEHAVIOR sim) | `sim_behavior_r1_pro` | No public checkpoint yet |
-| `ROBOCASA_PANDA_OMRON` | RoboCasa Panda + Omron base | `robocasa_panda_omron` | No public checkpoint yet |
-| `AGIBOT` | AgiBot | `agibot` | No public checkpoint yet |
-
-**Generic tag** for any new robot: `NEW_EMBODIMENT` (requires `--modality-config-path` for finetuning)
-
-> **Note:** Pretrain tags have their modality configs embedded in the base model checkpoint and support zero-shot inference. Posttrain tags require a finetuned checkpoint — passing them to the base model will produce an error listing the supported tags. To finetune on a new robot, use `NEW_EMBODIMENT` with `--modality-config-path`.
+For the full list of pretrain and posttrain tags, see the [Policy API Guide — Embodiment Tags](getting_started/policy.md#--embodiment-tag).
 
 ---
 
@@ -247,7 +235,6 @@ The `modality.json` maps how the concatenated state/action arrays split into nam
 | `demo_data/droid_sample` | DROID (3 episodes) | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | Zero-shot inference with base model |
 | `demo_data/libero_demo` | LIBERO Panda (5 episodes) | `LIBERO_PANDA` | Inference with finetuned checkpoint |
 | `demo_data/cube_to_bowl_5` | SO100 arm (5 episodes) | `NEW_EMBODIMENT` | Fine-tuning custom embodiment example |
-| `demo_data/gr1.PickNPlace` | GR1 humanoid (5 episodes) | `REAL_G1` | Zero-shot inference with base model |
 
 > To generate more DROID episodes: `python scripts/download_droid_sample.py --num-episodes 10`
 
@@ -398,6 +385,7 @@ Replace `demo_data/cube_to_bowl_5` and `examples/SO100/so100_config.py` with you
 
 - Maximize batch size for your hardware and train for a few thousand steps.
 - Users may observe 5-6% variance between runs due to non-deterministic image augmentations. Keep this in mind when comparing to reported benchmarks.
+- **`--state_dropout_prob`** (default: 0.8 in model config, 0.0 in finetune CLI): Randomly drops state inputs during training to improve generalization and reduce state-dependency. The LIBERO and SimplerEnv finetune scripts set this to 0.8. If your task relies heavily on proprioceptive state, consider lowering this value.
 
 ---
 

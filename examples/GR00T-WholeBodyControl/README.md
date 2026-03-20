@@ -1,7 +1,6 @@
-<!-- TODO: This example uses N1.6 checkpoint (nvidia/GR00T-N1.6-G1-PnPAppleToPlate).
-     Update when N1.7 G1 checkpoint is available. -->
-
 # G1 LocoManipulation Benchmark
+
+> **NOT SUPPORTED YET in N1.7 EA release:** No finetuned G1 checkpoint is available for N1.7. The evaluation commands below reference the N1.6 checkpoint (`nvidia/GR00T-N1.6-G1-PnPAppleToPlate`) which requires the [n1.6-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) branch. To use with N1.7, finetune from the base model using the instructions below.
 
 This is our in-house loco-manipulation task built on MuJoCo, using the Unitree G1 humanoid robot with whole-body control. The task requires the robot to navigate, pick up objects, and place them at target locations while maintaining balance and coordination across the entire body.
 
@@ -15,7 +14,7 @@ This is our in-house loco-manipulation task built on MuJoCo, using the Unitree G
 
 **Note:** This task has high evaluation variance. Fluctuations of **±15%** are expected.
 
-You can skip (1) and directly evaluate with a trained checkpoint: `https://huggingface.co/nvidia/GR00T-N1.6-G1-PnPAppleToPlate`
+You can skip (1) if you already have a finetuned checkpoint. The N1.6 checkpoint (`nvidia/GR00T-N1.6-G1-PnPAppleToPlate`) works with the n1.6-release branch only.
 
 # 1. (Optional) Finetune model on the GR00T WholeBodyControl example dataset
 
@@ -73,7 +72,7 @@ uv run python gr00t/eval/run_gr00t_server.py \
     --use-sim-policy-wrapper
 ```
 
-**Option 2: Remote finetuned checkpoint (directly runnable)**
+**Option 2: N1.6 checkpoint (requires n1.6-release branch)**
 ```bash
 uv run python gr00t/eval/run_gr00t_server.py \
     --model-path nvidia/GR00T-N1.6-G1-PnPAppleToPlate \

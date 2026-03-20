@@ -198,6 +198,42 @@ MODALITY_CONFIGS = {
             modality_keys=["annotation.human.action.task_description"],
         ),
     },
+    "simpler_env_widowx": {
+        "video": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["image_0"],
+        ),
+        "state": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "pad", "gripper"],
+        ),
+        "action": ModalityConfig(
+            delta_indices=list(range(8)),
+            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
+        ),
+        "language": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["annotation.human.action.task_description"],
+        ),
+    },
+    "simpler_env_google": {
+        "video": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["image"],
+        ),
+        "state": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["x", "y", "z", "rx", "ry", "rz", "rw", "gripper"],
+        ),
+        "action": ModalityConfig(
+            delta_indices=list(range(8)),
+            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
+        ),
+        "language": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["annotation.human.action.task_description"],
+        ),
+    },
 }
 
 

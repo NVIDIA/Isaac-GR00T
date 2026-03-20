@@ -25,8 +25,6 @@ class EmbodimentTag(Enum):
     - REAL_R1_PRO_SHARPA_MECKA              -> "real_r1_pro_sharpa_relative_eef_mecka"
 
     Pre-registered posttrain tags (require finetuned checkpoint):
-    - ROBOCASA_PANDA_OMRON -> "robocasa_panda_omron"    (RoboCasa Panda + Omron base)
-    - AGIBOT               -> "agibot"                  (AgiBot robot)
     - UNITREE_G1           -> "unitree_g1_full_body_with_waist_height_nav_cmd"
     - SIMPLER_ENV_GOOGLE   -> "simpler_env_google"
     - SIMPLER_ENV_WIDOWX   -> "simpler_env_widowx"
@@ -83,18 +81,6 @@ class EmbodimentTag(Enum):
     """
 
     ##### Pre-registered posttrain embodiment tags #####
-
-    ROBOCASA_PANDA_OMRON = "robocasa_panda_omron"
-    """
-    The RoboCasa Panda robot with omron mobile base.
-    Requires a finetuned checkpoint — not in the base model's modality configs.
-    """
-
-    AGIBOT = "agibot"
-    """
-    The AgiBot robot.
-    Requires a finetuned checkpoint — not in the base model's modality configs.
-    """
 
     UNITREE_G1 = "unitree_g1_full_body_with_waist_height_nav_cmd"
     """
@@ -190,8 +176,6 @@ PRETRAIN_TAGS: frozenset[EmbodimentTag] = frozenset(
 
 POSTTRAIN_TAGS: frozenset[EmbodimentTag] = frozenset(
     {
-        EmbodimentTag.ROBOCASA_PANDA_OMRON,
-        EmbodimentTag.AGIBOT,
         EmbodimentTag.UNITREE_G1,
         EmbodimentTag.SIMPLER_ENV_GOOGLE,
         EmbodimentTag.SIMPLER_ENV_WIDOWX,

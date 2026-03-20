@@ -162,14 +162,14 @@ def get_gym_env(env_name: str, env_idx: int, total_n_envs: int):
 
     env_embodiment = get_embodiment_tag_from_env_name(env_name)
 
-    if env_embodiment in (EmbodimentTag.ROBOCASA_PANDA_OMRON,):
-        env_fn = get_robocasa_env_fn(env_name)
-
-    elif env_embodiment in (EmbodimentTag.UNITREE_G1,):
+    if env_embodiment in (EmbodimentTag.UNITREE_G1,):
         env_fn = get_groot_locomanip_env_fn(env_name)
 
     elif env_embodiment in (EmbodimentTag.SIMPLER_ENV_GOOGLE, EmbodimentTag.SIMPLER_ENV_WIDOWX):
         env_fn = get_simpler_env_fn(env_name)
+
+    elif env_embodiment in (EmbodimentTag.LIBERO_PANDA,):
+        env_fn = get_libero_env_fn(env_name)
 
     elif env_embodiment in (EmbodimentTag.BEHAVIOR_R1_PRO,):
         env_fn = get_behavior_env_fn(env_name, env_idx, total_n_envs)
@@ -438,17 +438,15 @@ def run_gr00t_sim_policy(
     policy_client_port: int | None = None,
     n_envs: int = 8,
     n_action_steps: int = 8,
+    video_dir: str | None = None,
 ):
     embodiment_tag = get_embodiment_tag_from_env_name(env_name)
 
-    if model_path:
-        video_dir = (
-            f"/tmp/sim_eval_videos_{model_path.replace('/', '_')}_ac{n_action_steps}_{uuid.uuid4()}"
-        )
-    else:
-        video_dir = (
-            f"/tmp/sim_eval_videos_{env_name.replace('/', '_')}_ac{n_action_steps}_{uuid.uuid4()}"
-        )
+    if video_dir is None:
+        if model_path:
+            video_dir = f"/tmp/sim_eval_videos_{model_path.split('/')[-3]}_ac{n_action_steps}_{uuid.uuid4()}"
+        else:
+            video_dir = f"/tmp/sim_eval_videos_{env_name}_ac{n_action_steps}_{uuid.uuid4()}"
     wrapper_configs = WrapperConfigs(
         video=VideoConfig(
             video_dir=video_dir,
@@ -495,7 +493,7 @@ class RolloutConfig:
     policy_client_port: int | None = None
     """Port for policy client."""
 
-    env_name: str = "robocasa_panda_omron/OpenDrawer_PandaOmron_Env"
+    env_name: str = "libero_sim/KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it"
     """Environment name."""
 
     n_envs: int = 8
@@ -503,6 +501,9 @@ class RolloutConfig:
 
     n_action_steps: int = 8
     """Number of action steps."""
+
+    video_dir: str | None = None
+    """Directory to save videos. If None, uses /tmp/sim_eval_videos_<env>_<uuid>."""
 
 
 if __name__ == "__main__":
@@ -527,6 +528,7 @@ if __name__ == "__main__":
         policy_client_port=args.policy_client_port,
         n_envs=args.n_envs,
         n_action_steps=args.n_action_steps,
+        video_dir=args.video_dir,
     )
     print("results: ", results)
     print("success rate: ", np.mean(results[1]))

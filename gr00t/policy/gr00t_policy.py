@@ -87,8 +87,17 @@ class Gr00tPolicy(BasePolicy):
         model.to(device=device, dtype=torch.bfloat16)
         self.model = model
 
-        # Load the processor for input/output transformation
-        self.processor: BaseProcessor = AutoProcessor.from_pretrained(model_dir)
+        # Load the processor for input/output transformation.
+        # Training saves processor files under a "processor/" subdirectory, but
+        # AutoProcessor expects them at the model root.  Fall back to the
+        # subdirectory when the root lacks a processor_config.json.
+        processor_dir = (
+            model_dir / "processor"
+            if (model_dir / "processor").is_dir()
+            and not (model_dir / "processor_config.json").exists()
+            else model_dir
+        )
+        self.processor: BaseProcessor = AutoProcessor.from_pretrained(processor_dir)
         self.processor.eval()
 
         # Store embodiment-specific configurations

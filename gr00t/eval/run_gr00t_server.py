@@ -100,6 +100,8 @@ def main(config: ServerConfig):
         port=config.port,
     )
 
+    print(f"\n✓ Server ready — listening on {config.host}:{config.port}\n")
+
     try:
         server.run()
     except KeyboardInterrupt:
