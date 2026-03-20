@@ -102,10 +102,10 @@ huggingface-cli download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
 > **Note**: The `--include` filter is applied client-side. The CLI must first enumerate
 > all files in the repository, which can take several minutes for this large dataset.
 
-To launch training, run the shared `examples/finetune.sh` launcher directly:
-```
+To launch training, run
+```bash
 NUM_GPUS=8 MAX_STEPS=150000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
-  --base-model-path nvidia/GR00T-N1.6-BEHAVIOR1k \
+  --base-model-path nvidia/GR00T-N1.7-3B \
   --dataset-path PATH_TO_BEHAVIOR_INDIVIDUAL_TASK_DATASET \
   --embodiment-tag BEHAVIOR_R1_PRO \
   --output-dir /tmp/BEHAVIOR_finetune \
