@@ -17,11 +17,18 @@ RUN cd /opt && git clone https://github.com/facebookresearch/pytorch3d.git
 RUN cd /opt/pytorch3d && pip install .
 
 COPY src/gr00t/ /workspace/gr00t/
-RUN cd /workspace/gr00t && uv sync && uv pip install -e .
+
+# Step 1: uv sync without tensorrt/onnx (avoids long build that can OOM/timeout)
+RUN cd /workspace/gr00t && \
+    sed -i '/"tensorrt>=/d; /"onnx>=/d' pyproject.toml && \
+    uv sync && uv pip install -e .
 
 WORKDIR /workspace/gr00t
 ENV VIRTUAL_ENV=/workspace/gr00t/.venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Step 2: Install tensorrt and onnx separately (inside the venv)
+RUN uv pip install "onnx>=1.20.0" "tensorrt>=10.14.1.48.post1"
 
 RUN apt-get update && apt-get install -y libegl1
 RUN mkdir -p /usr/share/glvnd/egl_vendor.d && \

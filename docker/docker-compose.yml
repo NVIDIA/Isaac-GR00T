@@ -1,0 +1,30 @@
+services:
+  gr00t:
+    image: gr00t-dev:configured
+    container_name: gr00t
+    ipc: host
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack:
+        soft: 67108864
+        hard: 67108864
+    volumes:
+      - /home/ailab/sangbum/Isaac-GR00T:/workspace/gr00t
+    working_dir: /workspace/gr00t
+    entrypoint: []
+    command: bash -c "pip install --no-deps -e . && sleep infinity"
+    environment:
+      - UV_PROJECT_ENVIRONMENT=/usr/local
+      - VIRTUAL_ENV=
+      - PATH=/usr/local/lib/python3.12/dist-packages/torch_tensorrt/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/mpi/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/ucx/bin:/opt/amazon/efa/bin:/opt/tensorrt/bin
