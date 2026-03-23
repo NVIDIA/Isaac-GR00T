@@ -1,3 +1,6 @@
+<!-- TODO: This example uses N1.6 checkpoint (nvidia/GR00T-N1.6-G1-PnPAppleToPlate).
+     Update when N1.7 G1 checkpoint is available. -->
+
 # G1 LocoManipulation Benchmark
 
 > **NOT SUPPORTED YET in N1.7 EA release:** No finetuned G1 checkpoint is available for N1.7. The evaluation commands below reference the N1.6 checkpoint (`nvidia/GR00T-N1.6-G1-PnPAppleToPlate`) which requires the [n1.6-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) branch. To use with N1.7, finetune from the base model using the instructions below.
