@@ -111,6 +111,53 @@ def verify_onnx_export(onnx_path: str) -> None:
     logger.info("  ONNX model verified successfully.")
 
 
+def verify_onnx_with_ort(
+    onnx_path: str,
+    pytorch_module: torch.nn.Module,
+    sample_inputs: dict[str, torch.Tensor],
+    output_names: list[str],
+    label: str = "model",
+) -> dict[str, float]:
+    """Run ONNX Runtime inference and compare against PyTorch output.
+
+    Returns dict of {output_name: cosine_similarity}.
+    Requires onnxruntime-gpu; skips gracefully if not installed.
+    """
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        logger.warning("  onnxruntime not installed — skipping ORT verification")
+        return {}
+
+    logger.info(f"  ORT verification for {label}...")
+
+    # Run PyTorch
+    with torch.inference_mode():
+        pt_inputs = tuple(sample_inputs[name] for name in sample_inputs)
+        pt_outputs = pytorch_module(*pt_inputs)
+        if not isinstance(pt_outputs, (tuple, list)):
+            pt_outputs = (pt_outputs,)
+
+    # Run ONNX Runtime
+    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    sess = ort.InferenceSession(onnx_path, providers=providers)
+    ort_inputs = {name: t.cpu().numpy() for name, t in sample_inputs.items()}
+    ort_outputs = sess.run(output_names, ort_inputs)
+
+    # Compare
+    results = {}
+    for i, name in enumerate(output_names):
+        pt_flat = pt_outputs[i].float().flatten().cpu()
+        ort_flat = torch.tensor(ort_outputs[i]).float().flatten()
+        cosine = torch.nn.functional.cosine_similarity(
+            pt_flat.unsqueeze(0), ort_flat.unsqueeze(0)
+        ).item()
+        results[name] = cosine
+        logger.info(f"    {name}: ORT vs PyTorch cosine = {cosine:.6f}")
+
+    return results
+
+
 # ============================================================
 # Input Capture
 # ============================================================
@@ -263,13 +310,21 @@ def _apply_rotary_real(x, cos, sin):
     return (x * cos + rotated * sin).to(orig_dtype)
 
 
-def _make_onnx_vision_attention_forward(attn_module):
+def _make_onnx_vision_attention_forward(attn_module, chunk_sizes=None):
     """Create an ONNX-exportable attention forward for a single VisionAttention.
 
-    Two key changes from the original:
-    1. Replaces cu_seqlens-based splitting with standard SDPA (single-image)
+    Three key changes from the original:
+    1. Replaces cu_seqlens-based splitting with static chunk splitting
+       (each image's patches attend only within their own chunk)
     2. Replaces apply_rotary_pos_emb_vision (uses complex numbers) with
        real-valued rotate_half implementation
+    3. Casts to float32 before softmax for TRT accuracy
+
+    Args:
+        attn_module: The VisionAttention module to wrap
+        chunk_sizes: List of ints, number of patches per image.
+            e.g. [256, 256] for 2 images of 256 patches each.
+            If None or single chunk, does full-sequence attention.
     """
 
     def forward(
@@ -286,18 +341,42 @@ def _make_onnx_vision_attention_forward(attn_module):
         q = _apply_rotary_real(q, cos, sin)
         k = _apply_rotary_real(k, cos, sin)
 
-        # Manual attention (avoids SDPA internals that may use complex types)
-        # q, k, v: [seq, num_heads, head_dim]
-        q = q.transpose(0, 1)  # [num_heads, seq, head_dim]
-        k = k.transpose(0, 1)
-        v = v.transpose(0, 1)
+        # Split by image chunks (mirrors cu_seqlens-based splitting in original)
+        # Each image's patches attend only within their own chunk.
+        if chunk_sizes is not None and len(chunk_sizes) > 1:
+            q_chunks = torch.split(q, chunk_sizes, dim=0)
+            k_chunks = torch.split(k, chunk_sizes, dim=0)
+            v_chunks = torch.split(v, chunk_sizes, dim=0)
 
-        attn_weights = torch.matmul(q, k.transpose(-2, -1)) * attn_module.scaling
-        attn_weights = F.softmax(attn_weights, dim=-1)
-        attn_output = torch.matmul(attn_weights, v)
+            attn_outputs = []
+            for q_c, k_c, v_c in zip(q_chunks, k_chunks, v_chunks):
+                # q_c, k_c, v_c: [chunk_seq, num_heads, head_dim]
+                q_c = q_c.transpose(0, 1)  # [num_heads, chunk_seq, head_dim]
+                k_c = k_c.transpose(0, 1)
+                v_c = v_c.transpose(0, 1)
 
-        # [num_heads, seq, head_dim] → [seq, num_heads * head_dim]
-        attn_output = attn_output.transpose(0, 1)
+                w = torch.matmul(q_c, k_c.transpose(-2, -1)) * attn_module.scaling
+                w = w.to(torch.float32)
+                w = F.softmax(w, dim=-1)
+                w = w.to(v_c.dtype)
+                out = torch.matmul(w, v_c)  # [num_heads, chunk_seq, head_dim]
+                attn_outputs.append(out.transpose(0, 1))  # [chunk_seq, num_heads, head_dim]
+
+            attn_output = torch.cat(attn_outputs, dim=0)  # [seq, num_heads, head_dim]
+        else:
+            # Single image: full-sequence attention
+            q = q.transpose(0, 1)  # [num_heads, seq, head_dim]
+            k = k.transpose(0, 1)
+            v = v.transpose(0, 1)
+
+            attn_weights = torch.matmul(q, k.transpose(-2, -1)) * attn_module.scaling
+            attn_weights = attn_weights.to(torch.float32)
+            attn_weights = F.softmax(attn_weights, dim=-1)
+            attn_weights = attn_weights.to(v.dtype)
+            attn_output = torch.matmul(attn_weights, v)
+            attn_output = attn_output.transpose(0, 1)  # [seq, num_heads, head_dim]
+
+        # [seq, num_heads, head_dim] → [seq, num_heads * head_dim]
         attn_output = attn_output.reshape(seq_length, -1).contiguous()
         attn_output = attn_module.proj(attn_output)
         return attn_output
@@ -305,8 +384,13 @@ def _make_onnx_vision_attention_forward(attn_module):
     return forward
 
 
-def _patch_vision_attention_for_export(vision_model):
+def _patch_vision_attention_for_export(vision_model, chunk_sizes=None):
     """Monkey-patch all VisionAttention.forward with ONNX-friendly versions.
+
+    Args:
+        vision_model: The vision model whose attention blocks to patch
+        chunk_sizes: List of ints, patches per image (from grid_thw).
+            Enables per-image attention splitting. If None, full-sequence attention.
 
     Returns list of original forwards for restoration after export.
     """
@@ -314,8 +398,11 @@ def _patch_vision_attention_for_export(vision_model):
     for block in vision_model.blocks:
         attn = block.attn
         originals.append(attn.forward)
-        attn.forward = _make_onnx_vision_attention_forward(attn)
-    logger.info(f"  Patched {len(originals)} vision attention blocks for ONNX export")
+        attn.forward = _make_onnx_vision_attention_forward(attn, chunk_sizes=chunk_sizes)
+    info = f"  Patched {len(originals)} vision attention blocks for ONNX export"
+    if chunk_sizes and len(chunk_sizes) > 1:
+        info += f" (chunk_sizes={chunk_sizes})"
+    logger.info(info)
     return originals
 
 
@@ -408,11 +495,17 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True):
     dtype = torch.bfloat16 if use_bf16 else torch.float32
     vision = vision.to(dtype).eval().cuda()
 
-    # Patch attention for ONNX export (standard SDPA, no cu_seqlens splitting)
-    originals = _patch_vision_attention_for_export(vision)
+    # Compute chunk sizes from grid_thw for per-image attention splitting
+    # grid_thw: [num_images, 3] where each row is (temporal, height, width)
+    # cu_seqlens derived as: patches_per_image = h * w, repeated t times
+    grid_thw = captured_vit.grid_thw.to(device="cuda")
+    chunk_sizes = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]).tolist()
+    logger.info(f"  grid_thw: {grid_thw.tolist()}, chunk_sizes: {chunk_sizes}")
+
+    # Patch attention for ONNX export with per-image chunk splitting
+    originals = _patch_vision_attention_for_export(vision, chunk_sizes=chunk_sizes)
 
     # Build wrapper with pre-computed position embeddings
-    grid_thw = captured_vit.grid_thw.to(device="cuda")
     wrapper = Qwen3VisionForExport(vision, grid_thw)
     wrapper = wrapper.to(dtype).eval().cuda()
 
@@ -420,7 +513,6 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True):
     pixel_values = torch.randn(captured_vit.pixel_values_shape, dtype=dtype, device="cuda")
 
     logger.info(f"  pixel_values: {pixel_values.shape} ({pixel_values.dtype})")
-    logger.info(f"  grid_thw (baked in): {grid_thw.tolist()}")
 
     precision_tag = "bf16" if use_bf16 else "fp32"
     output_path = os.path.join(output_dir, f"vit_{precision_tag}.onnx")
@@ -441,12 +533,23 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True):
             export_params=True,
         )
 
-    # Restore original attention
-    _restore_vision_attention(vision, originals)
-
     logger.info("  ViT exported successfully!")
     _consolidate_external_data(output_path)
     verify_onnx_export(output_path)
+
+    # ORT verification: compare ONNX output against PyTorch wrapper
+    # Must run BEFORE restoring attention, since wrapper uses patched attention
+    verify_onnx_with_ort(
+        onnx_path=output_path,
+        pytorch_module=wrapper,
+        sample_inputs={"pixel_values": pixel_values},
+        output_names=output_names,
+        label="ViT",
+    )
+
+    # Restore original attention
+    _restore_vision_attention(vision, originals)
+
     return output_path
 
 

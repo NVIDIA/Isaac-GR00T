@@ -1,7 +1,9 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import partial
 from pathlib import Path
+import sys
 import time
 from typing import Any
 import uuid
@@ -14,6 +16,14 @@ import gymnasium as gym
 import numpy as np
 from tqdm import tqdm
 import tyro
+
+
+class TrtMode(str, Enum):
+    """TensorRT inference modes."""
+
+    N17_FULL_PIPELINE = "n17_full_pipeline"
+    VIT_LLM_ONLY = "vit_llm_only"
+    ACTION_HEAD = "action_head"
 
 
 @dataclass
@@ -173,6 +183,9 @@ def get_gym_env(env_name: str, env_idx: int, total_n_envs: int):
 
     elif env_embodiment in (EmbodimentTag.BEHAVIOR_R1_PRO,):
         env_fn = get_behavior_env_fn(env_name, env_idx, total_n_envs)
+
+    elif env_embodiment in (EmbodimentTag.LIBERO_PANDA,):
+        env_fn = get_libero_env_fn(env_name)
     else:
         raise ValueError(f"Invalid environment name: {env_name}")
 
@@ -411,6 +424,8 @@ def create_gr00t_sim_policy(
     embodiment_tag: EmbodimentTag,
     policy_client_host: str = "",
     policy_client_port: int | None = None,
+    trt_engine_path: str = "",
+    trt_mode: TrtMode = TrtMode.N17_FULL_PIPELINE,
 ) -> BasePolicy:
     from gr00t.policy.gr00t_policy import Gr00tPolicy, Gr00tSimPolicyWrapper
 
@@ -419,13 +434,19 @@ def create_gr00t_sim_policy(
 
         policy = PolicyClient(host=policy_client_host, port=policy_client_port)
     else:
-        policy = Gr00tSimPolicyWrapper(
-            Gr00tPolicy(
-                embodiment_tag=embodiment_tag,
-                model_path=model_path,
-                device=0,
-            )
+        gr00t_policy = Gr00tPolicy(
+            embodiment_tag=embodiment_tag,
+            model_path=model_path,
+            device=0,
         )
+        if trt_engine_path:
+            deploy_dir = str(Path(__file__).resolve().parents[2] / "scripts" / "deployment")
+            if deploy_dir not in sys.path:
+                sys.path.insert(0, deploy_dir)
+            from trt_model_forward import setup_tensorrt_engines
+
+            setup_tensorrt_engines(gr00t_policy, trt_engine_path, mode=trt_mode)
+        policy = Gr00tSimPolicyWrapper(gr00t_policy)
     return policy
 
 
@@ -439,6 +460,8 @@ def run_gr00t_sim_policy(
     n_envs: int = 8,
     n_action_steps: int = 8,
     video_dir: str | None = None,
+    trt_engine_path: str = "",
+    trt_mode: TrtMode = TrtMode.N17_FULL_PIPELINE,
 ):
     embodiment_tag = get_embodiment_tag_from_env_name(env_name)
 
@@ -460,7 +483,12 @@ def run_gr00t_sim_policy(
     )
 
     policy = create_gr00t_sim_policy(
-        model_path, embodiment_tag, policy_client_host, policy_client_port
+        model_path,
+        embodiment_tag,
+        policy_client_host,
+        policy_client_port,
+        trt_engine_path=trt_engine_path,
+        trt_mode=trt_mode,
     )
 
     results = run_rollout_gymnasium_policy(
@@ -505,6 +533,12 @@ class RolloutConfig:
     video_dir: str | None = None
     """Directory to save videos. If None, uses /tmp/sim_eval_videos_<env>_<uuid>."""
 
+    trt_engine_path: str = ""
+    """Path to TRT engine directory. If set, uses TRT inference instead of PyTorch."""
+
+    trt_mode: TrtMode = TrtMode.N17_FULL_PIPELINE
+    """TRT mode: 'n17_full_pipeline' (all engines), 'vit_llm_only', or 'action_head'."""
+
 
 if __name__ == "__main__":
     args = tyro.cli(RolloutConfig)
@@ -529,6 +563,8 @@ if __name__ == "__main__":
         n_envs=args.n_envs,
         n_action_steps=args.n_action_steps,
         video_dir=args.video_dir,
+        trt_engine_path=args.trt_engine_path,
+        trt_mode=args.trt_mode,
     )
     print("results: ", results)
     print("success rate: ", np.mean(results[1]))
