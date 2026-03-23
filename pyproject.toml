@@ -93,6 +93,7 @@ flash-attn = ["torch==2.7.1", "numpy==1.26.4", "triton==3.3.1"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+addopts = "--import-mode=importlib"
 markers = [
     "gpu: tests that require a GPU",
 ]

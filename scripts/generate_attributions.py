@@ -34,7 +34,7 @@ def _get_direct_deps() -> list[str]:
     in_section = False
     for line in pyproject.read_text().splitlines():
         stripped = line.strip()
-        if stripped in ("dependencies = [", "dev = ["):
+        if stripped == "dependencies = [":
             in_section = True
             continue
         if in_section and stripped == "]":
