@@ -50,14 +50,13 @@ uv run bash examples/SimplerEnv/finetune_bridge.sh
 # Fine-tune Simpler Env fractal dataset (Google robot)
 
 ```bash
-cd examples/SimplerEnv
 huggingface-cli download \
     --repo-type dataset IPEC-COMMUNITY/fractal20220817_data_lerobot \
     --local-dir examples/SimplerEnv/fractal20220817_data_lerobot/
 
 # Copy the patches and run the finetune script
 cp -r examples/SimplerEnv/fractal_modality.json examples/SimplerEnv/fractal20220817_data_lerobot/meta/modality.json
-uv run python convert_av1_to_h264.py --root fractal20220817_data_lerobot --jobs 16  # (Optional) if AV1 doesn't work on your machine
+uv run python examples/SimplerEnv/convert_av1_to_h264.py --root examples/SimplerEnv/fractal20220817_data_lerobot --jobs 16  # (Optional) if AV1 doesn't work on your machine
 uv run bash examples/SimplerEnv/finetune_fractal.sh
 ```
 
