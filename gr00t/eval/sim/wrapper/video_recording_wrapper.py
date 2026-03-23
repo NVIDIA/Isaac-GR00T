@@ -8,6 +8,21 @@ from gr00t.utils.video_utils import get_accumulate_timestamp_idxs
 import gymnasium as gym
 import numpy as np
 
+# MJPEG live streaming (optional)
+_mjpeg_server_started = False
+_mjpeg_update_frame = None
+
+_FRAME_PATH = "/tmp/robocasa_live_frame.jpg"
+
+def _push_live_frame(frame_rgb):
+    """Write frame to shared file for MJPEG server to pick up."""
+    try:
+        frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(_FRAME_PATH + ".tmp", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        os.replace(_FRAME_PATH + ".tmp", _FRAME_PATH)
+    except Exception:
+        pass
+
 
 class VideoRecorder:
     def __init__(
@@ -358,6 +373,11 @@ class VideoRecordingWrapper(gym.Wrapper):
                 frame = np.concatenate(video_frames, axis=1)
             assert frame.dtype == np.uint8
 
+            # Scale up for better video quality and readable text
+            scale = 2
+            h, w = frame.shape[:2]
+            frame = cv2.resize(frame, (w * scale, h * scale), interpolation=cv2.INTER_LINEAR)
+
             if self.overlay_text:
                 # Droid dataset has "language.language_instruction"
                 auto_language_key = [
@@ -420,6 +440,9 @@ class VideoRecordingWrapper(gym.Wrapper):
                 )
 
             self.video_recorder.write_frame(frame)
+
+            # Push frame to MJPEG live stream (file-based, works across processes)
+            _push_live_frame(frame)
 
         info = result[-1]
         self.is_success |= info["success"]

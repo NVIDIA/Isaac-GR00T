@@ -38,7 +38,7 @@ class VideoConfig:
     fps: int = 20
     codec: str = "h264"
     input_pix_fmt: str = "rgb24"
-    crf: int = 22
+    crf: int = 10
     thread_type: str = "FRAME"
     thread_count: int = 1
     overlay_text: bool = True

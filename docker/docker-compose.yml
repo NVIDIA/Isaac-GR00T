@@ -2,6 +2,7 @@ services:
   gr00t:
     image: gr00t-dev:configured
     container_name: gr00t
+    network_mode: host
     ipc: host
     stdin_open: true
     tty: true
@@ -20,7 +21,7 @@ services:
         soft: 67108864
         hard: 67108864
     volumes:
-      - /home/ailab/sangbum/Isaac-GR00T:/workspace/gr00t
+      - /home/ailab/sangbum/NVIDIA/Isaac-GR00T:/workspace/gr00t
     working_dir: /workspace/gr00t
     entrypoint: []
     command: bash -c "pip install --no-deps -e . && sleep infinity"
