@@ -99,5 +99,5 @@ class Eagle3_VLConfig(PretrainedConfig):
         output["template"] = self.template
         output["image_token_index"] = self.image_token_index
         output["_attn_implementation"] = self._attn_implementation
-        output["_attn_implementation_autoset"] = self._attn_implementation_autoset
+        output["_attn_implementation_internal"] = self._attn_implementation_internal
         return output

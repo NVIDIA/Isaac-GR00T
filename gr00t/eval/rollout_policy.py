@@ -421,10 +421,12 @@ def run_gr00t_sim_policy(
 
     if model_path:
         video_dir = (
-            f"/tmp/sim_eval_videos_{model_path.split('/')[-3]}_ac{n_action_steps}_{uuid.uuid4()}"
+            f"/tmp/sim_eval_videos_{model_path.replace('/', '_')}_ac{n_action_steps}_{uuid.uuid4()}"
         )
     else:
-        video_dir = f"/tmp/sim_eval_videos_{env_name}_ac{n_action_steps}_{uuid.uuid4()}"
+        video_dir = (
+            f"/tmp/sim_eval_videos_{env_name.replace('/', '_')}_ac{n_action_steps}_{uuid.uuid4()}"
+        )
     wrapper_configs = WrapperConfigs(
         video=VideoConfig(
             video_dir=video_dir,

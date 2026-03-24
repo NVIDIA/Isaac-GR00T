@@ -13,7 +13,7 @@ version = "0.1.0"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "albumentations==1.4.18",
-    "opencv-python-headless==4.13.0.92",
+    "opencv-python-headless>=4.5,<4.13",
     "av==16.1.0",
     "diffusers==0.35.1",
     "dm-tree==0.1.8",
@@ -29,12 +29,12 @@ dependencies = [
     "tyro==0.9.17",
     "click==8.1.8",
     "datasets==3.6.0",
-    "cryptography>=44.0.0",
+    "cryptography==42.0.8",
     "einops==0.8.1",
     "gitpython==3.1.46",
     "gymnasium==1.2.2",
     "matplotlib==3.10.1",
-    "numpy==2.2.6",
+    "numpy==1.26.4",
     "omegaconf==2.3.0",
     "scipy==1.15.3",
     # torchcodec has no aarch64 Linux wheel — built from source on aarch64 by install_deps.sh
@@ -73,7 +73,8 @@ triton = [
     { index = "pytorch-cu128", marker = "sys_platform == 'linux' and (platform_machine == 'aarch64')" },
 ]
 flash-attn = [
-    { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+    { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.10'" },
+    { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiFALSE-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.12'" },
 ]
 
 [tool.uv.extra-build-dependencies]
