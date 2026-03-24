@@ -762,7 +762,7 @@ def main(args: ArgsConfig):
                 traj_id,
                 actual_steps,
                 args.action_horizon,
-                save_plot_path=None,
+                save_plot_path=args.save_plot_path,
             )
 
             logging.info(f"MSE for trajectory {traj_id}: {mse}, MAE: {mae}")
