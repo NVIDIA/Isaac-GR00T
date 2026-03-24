@@ -18,16 +18,16 @@ Supports five inference modes:
 Usage:
     # Basic benchmark (Eager + torch.compile)
     python scripts/deployment/benchmark_inference.py \
-        --model-path nvidia/GR00T-N1.7-3B
+        --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10
 
     # With DiT-only TRT
     python scripts/deployment/benchmark_inference.py \
-        --model-path nvidia/GR00T-N1.7-3B \
+        --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
         --trt-engine-path ./gr00t_n1d7_onnx/dit_model_bf16.trt
 
     # With full-pipeline TRT (6 engines)
     python scripts/deployment/benchmark_inference.py \
-        --model-path nvidia/GR00T-N1.7-3B \
+        --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
         --trt-engine-path ./gr00t_n1d7_engines \
         --trt-mode n17_full_pipeline
 """
@@ -322,8 +322,8 @@ def print_markdown_table(results, device_name, denoising_steps):
 class BenchmarkConfig:
     """Configuration for GR00T inference benchmarking."""
 
-    model_path: str = "nvidia/GR00T-N1.7-3B"
-    """Path to model checkpoint."""
+    model_path: str = "checkpoints/GR00T-N1.7-LIBERO/libero_10"
+    """Path to model checkpoint (local path, e.g. checkpoints/GR00T-N1.7-LIBERO/libero_10)."""
 
     dataset_path: str | None = None
     """Path to dataset. Defaults to demo_data/libero_demo."""

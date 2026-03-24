@@ -298,10 +298,16 @@ Build the Thor container from the repo root:
 cd docker && bash build.sh --profile=thor && cd ..
 ```
 
-Run inference:
+Download the finetuned model (run once, on the host):
 
 ```bash
-docker run --rm --runtime nvidia --gpus all \
+huggingface-cli download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
+```
+
+Start an interactive Docker session (recommended for multi-step TRT work):
+
+```bash
+docker run -it --rm --runtime nvidia --gpus all \
   --ipc=host \
   --ulimit memlock=-1 \
   --ulimit stack=67108864 \
@@ -311,28 +317,48 @@ docker run --rm --runtime nvidia --gpus all \
   -w /workspace/repo \
   -e HF_TOKEN="${HF_TOKEN:-}" \
   gr00t-thor \
-  python scripts/deployment/standalone_inference_script.py \
-    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-    --dataset-path demo_data/libero_demo \
-    --embodiment-tag LIBERO_PANDA \
-    --traj-ids 0 \
-    --inference-mode pytorch \
-    --denoising-steps 4
+  bash
 ```
 
-Run benchmarks:
+Then inside the container, run the full pipeline:
 
 ```bash
-docker run --rm --runtime nvidia --gpus all \
-  --ipc=host \
-  --ulimit memlock=-1 \
-  --ulimit stack=67108864 \
-  --network host \
-  -v "$(pwd)":/workspace/repo \
-  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
-  -w /workspace/repo \
-  gr00t-thor \
-  python scripts/deployment/benchmark_inference.py
+# Step 1: PyTorch inference (quick sanity check)
+python scripts/deployment/standalone_inference_script.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --embodiment-tag LIBERO_PANDA \
+  --traj-ids 0 \
+  --inference-mode pytorch \
+  --denoising-steps 4
+
+# Step 2: Export to ONNX
+python scripts/deployment/export_onnx_n1d7.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --output-dir ./gr00t_n1d7_onnx \
+  --export-mode full_pipeline \
+  --embodiment-tag LIBERO_PANDA
+
+# Step 3: Build TensorRT engines
+python scripts/deployment/build_tensorrt_engine.py \
+  --mode full_pipeline \
+  --onnx-dir ./gr00t_n1d7_onnx \
+  --engine-dir ./gr00t_n1d7_engines \
+  --precision bf16
+
+# Step 4: Verify TRT accuracy
+python scripts/deployment/verify_n1d7_trt.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --engine-dir ./gr00t_n1d7_engines \
+  --mode n17_full_pipeline
+
+# Step 5: Benchmark (PyTorch + torch.compile + TRT)
+python scripts/deployment/benchmark_inference.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --trt-engine-path ./gr00t_n1d7_engines \
+  --trt-mode n17_full_pipeline
 ```
 
 ### Bare Metal
@@ -368,10 +394,16 @@ Build the Spark container from the repo root:
 cd docker && bash build.sh --profile=spark && cd ..
 ```
 
-Run inference:
+Download the finetuned model (run once, on the host):
 
 ```bash
-docker run --rm --runtime nvidia --gpus all \
+huggingface-cli download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
+```
+
+Start an interactive Docker session (recommended for multi-step TRT work):
+
+```bash
+docker run -it --rm --runtime nvidia --gpus all \
   --ipc=host \
   --ulimit memlock=-1 \
   --ulimit stack=67108864 \
@@ -381,28 +413,48 @@ docker run --rm --runtime nvidia --gpus all \
   -w /workspace/repo \
   -e HF_TOKEN="${HF_TOKEN:-}" \
   gr00t-spark \
-  python scripts/deployment/standalone_inference_script.py \
-    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-    --dataset-path demo_data/libero_demo \
-    --embodiment-tag LIBERO_PANDA \
-    --traj-ids 0 \
-    --inference-mode pytorch \
-    --denoising-steps 4
+  bash
 ```
 
-Run benchmarks:
+Then inside the container, run the full pipeline:
 
 ```bash
-docker run --rm --runtime nvidia --gpus all \
-  --ipc=host \
-  --ulimit memlock=-1 \
-  --ulimit stack=67108864 \
-  --network host \
-  -v "$(pwd)":/workspace/repo \
-  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
-  -w /workspace/repo \
-  gr00t-spark \
-  python scripts/deployment/benchmark_inference.py
+# Step 1: PyTorch inference (quick sanity check)
+python scripts/deployment/standalone_inference_script.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --embodiment-tag LIBERO_PANDA \
+  --traj-ids 0 \
+  --inference-mode pytorch \
+  --denoising-steps 4
+
+# Step 2: Export to ONNX
+python scripts/deployment/export_onnx_n1d7.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --output-dir ./gr00t_n1d7_onnx \
+  --export-mode full_pipeline \
+  --embodiment-tag LIBERO_PANDA
+
+# Step 3: Build TensorRT engines
+python scripts/deployment/build_tensorrt_engine.py \
+  --mode full_pipeline \
+  --onnx-dir ./gr00t_n1d7_onnx \
+  --engine-dir ./gr00t_n1d7_engines \
+  --precision bf16
+
+# Step 4: Verify TRT accuracy
+python scripts/deployment/verify_n1d7_trt.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --engine-dir ./gr00t_n1d7_engines \
+  --mode n17_full_pipeline
+
+# Step 5: Benchmark (PyTorch + torch.compile + TRT)
+python scripts/deployment/benchmark_inference.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --trt-engine-path ./gr00t_n1d7_engines \
+  --trt-mode n17_full_pipeline
 ```
 
 ### Bare Metal
@@ -440,10 +492,16 @@ Build the Orin container from the repo root:
 cd docker && bash build.sh --profile=orin && cd ..
 ```
 
-Run inference:
+Download the finetuned model (run once, on the host):
 
 ```bash
-docker run --rm --runtime nvidia --gpus all \
+huggingface-cli download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
+```
+
+Start an interactive Docker session (recommended for multi-step TRT work):
+
+```bash
+docker run -it --rm --runtime nvidia --gpus all \
   --ipc=host \
   --ulimit memlock=-1 \
   --ulimit stack=67108864 \
@@ -453,28 +511,48 @@ docker run --rm --runtime nvidia --gpus all \
   -w /workspace/repo \
   -e HF_TOKEN="${HF_TOKEN:-}" \
   gr00t-orin \
-  python scripts/deployment/standalone_inference_script.py \
-    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-    --dataset-path demo_data/libero_demo \
-    --embodiment-tag LIBERO_PANDA \
-    --traj-ids 0 \
-    --inference-mode pytorch \
-    --denoising-steps 4
+  bash
 ```
 
-Run benchmarks:
+Then inside the container, run the full pipeline:
 
 ```bash
-docker run --rm --runtime nvidia --gpus all \
-  --ipc=host \
-  --ulimit memlock=-1 \
-  --ulimit stack=67108864 \
-  --network host \
-  -v "$(pwd)":/workspace/repo \
-  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
-  -w /workspace/repo \
-  gr00t-orin \
-  python scripts/deployment/benchmark_inference.py
+# Step 1: PyTorch inference (quick sanity check)
+python scripts/deployment/standalone_inference_script.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --embodiment-tag LIBERO_PANDA \
+  --traj-ids 0 \
+  --inference-mode pytorch \
+  --denoising-steps 4
+
+# Step 2: Export to ONNX
+python scripts/deployment/export_onnx_n1d7.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --output-dir ./gr00t_n1d7_onnx \
+  --export-mode full_pipeline \
+  --embodiment-tag LIBERO_PANDA
+
+# Step 3: Build TensorRT engines
+python scripts/deployment/build_tensorrt_engine.py \
+  --mode full_pipeline \
+  --onnx-dir ./gr00t_n1d7_onnx \
+  --engine-dir ./gr00t_n1d7_engines \
+  --precision bf16
+
+# Step 4: Verify TRT accuracy
+python scripts/deployment/verify_n1d7_trt.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --engine-dir ./gr00t_n1d7_engines \
+  --mode n17_full_pipeline
+
+# Step 5: Benchmark (PyTorch + torch.compile + TRT)
+python scripts/deployment/benchmark_inference.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --trt-engine-path ./gr00t_n1d7_engines \
+  --trt-mode n17_full_pipeline
 ```
 
 ### Bare Metal
