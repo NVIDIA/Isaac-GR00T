@@ -98,23 +98,33 @@ gr00t/eval/sim/SimplerEnv/simpler_uv/.venv/bin/python gr00t/eval/rollout_policy.
 ## Bridge (WidowX) Evaluation
 
 **Terminal 1 - Server:**
+
+**Option 1: Local finetuned checkpoint**
 ```bash
 uv run python gr00t/eval/run_gr00t_server.py \
-    --base-model-path nvidia/GR00T-N1.7-3B \
-    --embodiment-tag OXE_WIDOWX \
+    --model-path /tmp/bridge_finetune/checkpoint-30000 \
+    --embodiment-tag SIMPLER_ENV_WIDOWX \
+    --use-sim-policy-wrapper
+```
+
+**Option 2: Remote finetuned checkpoint (directly runnable)**
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --model-path nvidia/GR00T-N1.7-SimplerEnv-Bridge \
+    --embodiment-tag SIMPLER_ENV_WIDOWX \
     --use-sim-policy-wrapper
 ```
 
 **Terminal 2 - Client:**
 ```bash
 gr00t/eval/sim/SimplerEnv/simpler_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
-    --n_episodes 10 \
-    --policy_client_host 127.0.0.1 \
-    --policy_client_port 5555 \
-    --max_episode_steps=300 \
-    --env_name simpler_env_widowx/widowx_spoon_on_towel \
-    --n_action_steps 4 \
-    --n_envs 5
+    --n-episodes 10 \
+    --policy-client-host 127.0.0.1 \
+    --policy-client-port 5555 \
+    --max-episode-steps 300 \
+    --env-name simpler_env_widowx/widowx_spoon_on_towel \
+    --n-action-steps 4 \
+    --n-envs 5
 ```
 
 Other supported tasks are: 

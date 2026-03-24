@@ -59,7 +59,7 @@ so100_config = {
     ),
     "language": ModalityConfig(
         delta_indices=[0],
-        modality_keys=["annotation.human.action.task_description"],
+        modality_keys=["annotation.human.task_description"],
     ),
 }
 
@@ -129,4 +129,4 @@ uv run python gr00t/eval/open_loop_eval.py \
 
 The evaluation generates visualizations comparing predicted actions against ground truth trajectories:
 
-<img src="../media/open_loop_eval_so100.jpeg" width="800" alt="Open loop evaluation results showing predicted vs ground truth trajectories" />
+<img src="../media/open_loop_eval_so100.jpg" width="800" alt="Open loop evaluation results showing predicted vs ground truth trajectories" />
