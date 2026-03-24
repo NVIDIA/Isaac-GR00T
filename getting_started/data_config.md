@@ -100,7 +100,7 @@ For the SO-100 example:
 - **Video keys**: Must match keys in `meta/modality.json` under `"video"` (e.g., `"front"`, `"wrist"`)
 - **State keys**: Must match keys in `meta/modality.json` under `"state"` (e.g., `"single_arm"`, `"gripper"`)
 - **Action keys**: Must match keys in `meta/modality.json` under `"action"` (e.g., `"single_arm"`, `"gripper"`)
-- **Language keys**: Must match keys in `meta/modality.json` under `"annotation"` (e.g., `"annotation.human.action.task_description"`)
+- **Language keys**: Must match keys in `meta/modality.json` under `"annotation"` (e.g., `"annotation.human.task_description"` for SO-100)
 
 ### Optional Fields
 
@@ -236,7 +236,7 @@ Defines which language annotations to use:
 ```python
 "language": ModalityConfig(
     delta_indices=[0],
-    modality_keys=["annotation.human.action.task_description"],  # Must match annotation keys in meta/modality.json
+    modality_keys=["annotation.human.task_description"],  # Must match annotation keys in meta/modality.json
 )
 ```
 

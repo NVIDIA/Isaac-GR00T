@@ -419,7 +419,7 @@ source scripts/activate_spark.sh
 ```
 
 Then run inference or benchmarks as shown in the Quick Start section above.
-Use `export_onnx_n1d6.py` and `build_tensorrt_engine.py` to prepare a Spark-specific TensorRT
+Use `export_onnx_n1d7.py` and `build_tensorrt_engine.py` to prepare a Spark-specific TensorRT
 engine when you want the fastest action-head path. If you later rerun `uv sync`, rerun
 `bash scripts/deployment/spark/install_deps.sh` so the Spark-specific `flash-attn` build is
 restored and revalidated.

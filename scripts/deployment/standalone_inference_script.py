@@ -724,10 +724,13 @@ def main(args: ArgsConfig):
     all_mae = []
     all_timings = []
     pred_actions = []
+    obs = None
 
     for traj_id in args.traj_ids:
-        if traj_id >= len(dataset):
-            logging.warning(f"Trajectory ID {traj_id} is out of range. Skipping.")
+        if traj_id < 0 or traj_id >= len(dataset):
+            logging.warning(
+                f"Trajectory ID {traj_id} is out of range. Dataset has {len(dataset)} trajectories (valid IDs: 0-{len(dataset) - 1}). Skipping."
+            )
             continue
 
         logging.info(f"Running trajectory: {traj_id}")
@@ -830,6 +833,11 @@ def main(args: ArgsConfig):
                 logging.info(
                     f"  P90 inference time:          {np.percentile(all_inf_times, 90):.4f}s"
                 )
+
+    if len(pred_actions) == 0:
+        raise ValueError(
+            f"No valid trajectories to process. Requested IDs {args.traj_ids} are all out of range (dataset has {len(dataset)} trajectories, valid IDs: 0-{len(dataset) - 1})."
+        )
 
     logging.info("=" * 80)
     logging.info("Done")

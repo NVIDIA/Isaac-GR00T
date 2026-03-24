@@ -272,8 +272,7 @@ python gr00t/eval/run_gr00t_server.py \
     --model-path /path/to/your/checkpoint \
     --device cuda:0 \
     --host 0.0.0.0 \
-    --port 5555 \
-    --strict True
+    --port 5555
 ```
 
 **Parameters:**
@@ -282,7 +281,7 @@ python gr00t/eval/run_gr00t_server.py \
 - `--device`: Device to run inference on (`cuda:0`, `cuda:1`, `cpu`, etc.)
 - `--host`: Host address (`127.0.0.1` for local only, `0.0.0.0` to accept external connections)
 - `--port`: Port number (default: 5555)
-- `--strict`: Enable input/output validation (default: True)
+- `--strict` / `--no-strict`: Enable or disable input/output validation (default: True)
 - `--use-sim-policy-wrapper`: Whether to use `Gr00tSimPolicyWrapper` for GR00T simulation environments (default: False)
 
 Once started, the server will display:
