@@ -27,7 +27,7 @@ dependencies = [
     "torch==2.10.0",
     "triton==3.5.1",
     "torchvision==0.25.0",
-    "transformers==4.51.3",
+    "transformers==4.57.6",
     "tyro==0.9.17",
     "click==8.1.8",
     "datasets==3.6.0",
@@ -41,7 +41,6 @@ dependencies = [
     "scipy==1.15.3",
     "wandb==0.23.0",
     "pyzmq==27.0.1",
-    "torchcodec==0.10.0",
     "flash-attn==2.8.3",
     "onnx>=1.20.0",
     "onnxscript",
@@ -66,7 +65,6 @@ include = ["gr00t*"]
 [tool.uv.sources]
 torch = [{ index = "jetson-jp6-cu126" }]
 torchvision = [{ index = "jetson-jp6-cu126" }]
-torchcodec = [{ index = "jetson-jp6-cu126" }]
 triton = [{ index = "jetson-jp6-cu126" }]
 flash-attn = [{ index = "jetson-jp6-cu126" }]
 diffusers = [{ index = "jetson-jp6-cu126" }]

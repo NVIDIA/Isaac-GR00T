@@ -56,7 +56,7 @@ class Qwen3Backbone(torch.nn.Module):
             raise ImportError(
                 "Qwen3VLForConditionalGeneration is not available. "
                 "Please upgrade transformers to a version that supports Qwen3-VL: "
-                "pip install transformers>=4.52.0"
+                "pip install transformers>=4.57.0"
             )
 
         super().__init__()
