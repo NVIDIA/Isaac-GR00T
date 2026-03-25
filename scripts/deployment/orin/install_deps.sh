@@ -49,6 +49,7 @@ uv sync
 
 VENV_DIR="${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}"
 VENV_PYTHON="${VENV_DIR}/bin/python"
+
 SITE_PKGS="${VENV_DIR}/lib/python${PYTHON_VERSION}/site-packages"
 
 echo "Installing package in editable mode..."
@@ -61,6 +62,15 @@ uv pip install --python "$VENV_PYTHON" -e .
 # ──────────────────────────────────────────────────────────────────────────────
 echo "Installing nvidia-cudss-cu12 (no-deps to avoid system CUDA conflicts)..."
 uv pip install --python "$VENV_PYTHON" --no-deps nvidia-cudss-cu12
+
+# ──────────────────────────────────────────────────────────────────────────────
+# JetPack system packages (TensorRT, etc.) — expose to the venv via .pth file.
+# TRT is shipped as a system Python package on JetPack and is not available on
+# PyPI; adding the system dist-packages path makes it importable from the venv.
+# ──────────────────────────────────────────────────────────────────────────────
+echo "Linking JetPack system packages (TensorRT) into venv..."
+echo "/usr/lib/python${PYTHON_VERSION}/dist-packages" \
+    > "${SITE_PKGS}/jetpack-system-packages.pth"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # torchcodec — build from source against system FFmpeg

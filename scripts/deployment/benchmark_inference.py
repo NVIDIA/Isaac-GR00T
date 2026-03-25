@@ -49,6 +49,7 @@ Usage:
 """
 
 from dataclasses import dataclass
+import gc
 import os
 import sys
 import time
@@ -402,7 +403,7 @@ def main(args: BenchmarkConfig | None = None):
     print("Loading policy...")
     policy = Gr00tPolicy(
         model_path=args.model_path,
-        embodiment_tag=EmbodimentTag(args.embodiment_tag),
+        embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
         device=device,
         strict=True,
     )
@@ -433,7 +434,7 @@ def main(args: BenchmarkConfig | None = None):
                     episode_data,
                     step_index=step_idx,
                     modality_configs=modality_config,
-                    embodiment_tag=EmbodimentTag(args.embodiment_tag),
+                    embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
                     allow_padding=False,
                 )
                 obs = {
@@ -453,7 +454,7 @@ def main(args: BenchmarkConfig | None = None):
             episode_data,
             step_index=0,
             modality_configs=modality_config,
-            embodiment_tag=EmbodimentTag(args.embodiment_tag),
+            embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
             allow_padding=False,
         )
 
@@ -513,9 +514,15 @@ def main(args: BenchmarkConfig | None = None):
         print("(This may take a while due to JIT compilation on first run)")
         print("-" * 50)
 
+        # Free the eager policy before loading the compiled instance to avoid
+        # holding two full model copies in GPU memory simultaneously (OOM on Orin).
+        del policy
+        torch.cuda.empty_cache()
+        gc.collect()
+
         policy_compiled = Gr00tPolicy(
             model_path=args.model_path,
-            embodiment_tag=EmbodimentTag(args.embodiment_tag),
+            embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
             device=device,
             strict=True,
         )
@@ -555,12 +562,25 @@ def main(args: BenchmarkConfig | None = None):
         print(f"Benchmarking {trt_label}...")
         print("-" * 50)
 
+        # Free whichever policy is still in memory before loading TRT, to avoid
+        # holding two full model copies in GPU memory simultaneously (OOM on Orin).
+        try:
+            del policy_compiled
+        except NameError:
+            pass
+        try:
+            del policy
+        except NameError:
+            pass
+        torch.cuda.empty_cache()
+        gc.collect()
+
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from standalone_inference_script import replace_dit_with_tensorrt
 
         policy_trt = Gr00tPolicy(
             model_path=args.model_path,
-            embodiment_tag=EmbodimentTag(args.embodiment_tag),
+            embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
             device=device,
             strict=True,
         )
@@ -572,7 +592,11 @@ def main(args: BenchmarkConfig | None = None):
         else:
             from standalone_inference_script import replace_dit_with_tensorrt
 
-            replace_dit_with_tensorrt(policy_trt, args.trt_engine_path)
+            # dit_only mode: trt_engine_path may be a directory; resolve the engine file
+            dit_engine_path = args.trt_engine_path
+            if os.path.isdir(dit_engine_path):
+                dit_engine_path = os.path.join(dit_engine_path, "dit_bf16.engine")
+            replace_dit_with_tensorrt(policy_trt, dit_engine_path)
 
         # TensorRT needs extra warmup for engine initialization and CUDA context setup
         trt_warmup = max(args.warmup + 5, 10)

@@ -695,7 +695,10 @@ def main(args: ArgsConfig):
             logging.info("  TRT full-pipeline mode enabled")
         elif args.inference_mode == "tensorrt":
             logging.info(f"Replacing DiT with TensorRT engine: {args.trt_engine_path}")
-            replace_dit_with_tensorrt(policy, args.trt_engine_path)
+            dit_engine_path = args.trt_engine_path
+            if os.path.isdir(dit_engine_path):
+                dit_engine_path = os.path.join(dit_engine_path, "dit_bf16.engine")
+            replace_dit_with_tensorrt(policy, dit_engine_path)
             logging.info("  TensorRT DiT-only mode enabled")
         else:
             logging.info("  PyTorch mode enabled")

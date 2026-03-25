@@ -38,24 +38,7 @@ uv run python scripts/deployment/standalone_inference_script.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
   --embodiment-tag LIBERO_PANDA \
-  --traj-ids 0 1 2 3 4\
-  --inference-mode pytorch \
-  --action-horizon 8
----
-
-## TensorRT pipeline
-
-First, download the finetuned model to a local directory (HuggingFace does not support nested repo paths directly):
-```bash
-uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
-```
-
-```bash
-python scripts/deployment/standalone_inference_script.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --dataset-path demo_data/libero_demo \
-  --embodiment-tag LIBERO_PANDA \
-  --traj-ids 0 1 2 \
+  --traj-ids 0 1 2 3 4 \
   --inference-mode pytorch \
   --action-horizon 8
 ```
@@ -86,9 +69,7 @@ The `dit_only` export mode (`--export-mode dit_only`) optimizes only the action 
 
 ### Step 0: Download Model and Dataset
 
-Download a finetuned model (HuggingFace does not support nested repo paths directly):
-
-First, download the finetuned model to a local directory (HuggingFace does not support nested repo paths directly):
+Download the finetuned model to a local directory (HuggingFace does not support nested repo paths directly):
 
 ```bash
 uv run hf download nvidia/GR00T-N1.7-LIBERO \
@@ -170,12 +151,18 @@ uv run python scripts/deployment/benchmark_inference.py \
 | H100 | PyTorch Eager | 7 ms | 50 ms | 99 ms | 156 ms | 6.4 Hz |
 | H100 | torch.compile | 7 ms | 51 ms | 14 ms | 72 ms | 13.9 Hz |
 | H100 | **TRT (n17_full_pipeline)** | **7 ms** | **27 ms** | **13 ms** | **47 ms** | **21.1 Hz** |
+| Orin | PyTorch Eager | 10 ms | 128 ms | 204 ms | 341 ms | 2.9 Hz |
+| Orin | torch.compile | 10 ms | 127 ms | 79 ms | 217 ms | 4.6 Hz |
+| Orin | **TRT (dit_only)** | **10 ms** | **127 ms** | **78 ms** | **215 ms** | **4.7 Hz** |
 
 | Device | Mode | E2E Speedup | Action Head Speedup |
 |--------|------|-------------|---------------------|
 | H100 | PyTorch Eager | 1.00x | 1.00x |
 | H100 | torch.compile | 2.16x | 7.31x |
 | H100 | TRT (n17_full_pipeline) | 3.29x | 7.62x |
+| Orin | PyTorch Eager | 1.00x | 1.00x |
+| Orin | torch.compile | 1.57x | 2.58x |
+| Orin | TRT (dit_only) | 1.59x | 2.61x |
 
 ```
 Hardware: NVIDIA H100 80GB HBM3
@@ -313,7 +300,7 @@ docker run -it --rm --runtime nvidia --gpus all \
   --ulimit stack=67108864 \
   --network host \
   -v "$(pwd)":/workspace/repo \
-  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
+  -v "${HF_HOME:-${HOME}/.cache/huggingface}":/root/.cache/huggingface \
   -w /workspace/repo \
   -e HF_TOKEN="${HF_TOKEN:-}" \
   gr00t-thor \
@@ -409,7 +396,7 @@ docker run -it --rm --runtime nvidia --gpus all \
   --ulimit stack=67108864 \
   --network host \
   -v "$(pwd)":/workspace/repo \
-  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
+  -v "${HF_HOME:-${HOME}/.cache/huggingface}":/root/.cache/huggingface \
   -w /workspace/repo \
   -e HF_TOKEN="${HF_TOKEN:-}" \
   gr00t-spark \
@@ -507,7 +494,7 @@ docker run -it --rm --runtime nvidia --gpus all \
   --ulimit stack=67108864 \
   --network host \
   -v "$(pwd)":/workspace/repo \
-  -v "${HOME}/.cache/huggingface":/root/.cache/huggingface \
+  -v "${HF_HOME:-${HOME}/.cache/huggingface}":/root/.cache/huggingface \
   -w /workspace/repo \
   -e HF_TOKEN="${HF_TOKEN:-}" \
   gr00t-orin \
@@ -541,18 +528,18 @@ python scripts/deployment/build_tensorrt_engine.py \
   --engine-dir ./gr00t_n1d7_engines \
   --precision bf16
 
-# Step 4: Verify TRT accuracy
+# Step 4: Verify TRT accuracy (backbone TRT not supported on Orin; use action_head mode)
 python scripts/deployment/verify_n1d7_trt.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
   --engine-dir ./gr00t_n1d7_engines \
-  --mode n17_full_pipeline
+  --mode action_head
 
-# Step 5: Benchmark (PyTorch + torch.compile + TRT)
+# Step 5: Benchmark PyTorch + torch.compile + TRT DiT
 python scripts/deployment/benchmark_inference.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --trt-engine-path ./gr00t_n1d7_engines \
-  --trt-mode n17_full_pipeline
+  --trt-mode dit_only
 ```
 
 ### Bare Metal
@@ -571,7 +558,25 @@ source scripts/activate_orin.sh
 Then run inference or benchmarks as shown in the Quick Start section above.
 The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
 and `torch.compile` need on Orin.
-> Experiments on Thor and Orin used different dependency stacks. Thor with CUDA 13, PyTorch 2.9, using supporting packages sourced from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130); and Orin with CUDA 12.6, PyTorch 2.8, using supporting packages sourced from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126).
+
+> **Orin storage tip:** If your eMMC root is low on space, redirect the HuggingFace cache to an NVMe SSD with `export HF_HOME=/path/to/ssd/.cache/huggingface` before downloading models.
+
+> **Orin TRT limitations:** TRT 10.3 on Orin does not support the backbone (LLM) engine — the build step will report a failure for `llm_bf16.engine` and that is expected. The remaining 6 engines build successfully. Use `--mode action_head` for verification and `--trt-mode dit_only` for inference:
+> ```bash
+> python scripts/deployment/verify_n1d7_trt.py \
+>   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+>   --dataset-path demo_data/libero_demo \
+>   --engine-dir ./gr00t_n1d7_engines \
+>   --mode action_head
+>
+> python scripts/deployment/standalone_inference_script.py \
+>   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+>   --dataset-path demo_data/libero_demo \
+>   --embodiment-tag LIBERO_PANDA \
+>   --traj-ids 0 \
+>   --inference-mode tensorrt \
+>   --trt-engine-path ./gr00t_n1d7_engines
+> ```
 
 ---
 
