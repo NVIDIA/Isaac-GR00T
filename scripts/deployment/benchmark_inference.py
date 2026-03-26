@@ -55,7 +55,6 @@ import sys
 import time
 from typing import Literal
 
-import gr00t
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
@@ -342,8 +341,8 @@ class BenchmarkConfig:
     model_path: str = "checkpoints/GR00T-N1.7-LIBERO/libero_10"
     """Path to model checkpoint (local path, e.g. checkpoints/GR00T-N1.7-LIBERO/libero_10)."""
 
-    dataset_path: str | None = None
-    """Path to dataset. Defaults to demo_data/libero_demo."""
+    dataset_path: str = "demo_data/libero_demo"
+    """Path to dataset."""
 
     embodiment_tag: str = "libero_sim"
     """Embodiment tag to use."""
@@ -380,11 +379,6 @@ def main(args: BenchmarkConfig | None = None):
         print("ERROR: No CUDA GPU detected. Benchmarking requires a GPU.")
         sys.exit(1)
     device_name = get_device_name()
-
-    # Default dataset path
-    if args.dataset_path is None:
-        repo_path = os.path.dirname(os.path.dirname(gr00t.__file__))
-        args.dataset_path = os.path.join(repo_path, "demo_data/libero_demo")
 
     print("=" * 100)
     print("GR00T INFERENCE BENCHMARK")
