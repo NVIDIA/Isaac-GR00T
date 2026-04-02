@@ -37,7 +37,7 @@ The tag is **case-insensitive** and accepts either the enum name or the string v
 For example, `--embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` and `--embodiment-tag LIBERO_PANDA` all resolve correctly. An unknown tag will produce an error listing all known options.
 
 - **Pretrain tags** (e.g., `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT`, `XDOF`, `REAL_G1`) — use for zero-shot inference on datasets that match the pretrained embodiment. The modality config is loaded from the base model checkpoint.
-- **Posttrain tags** (e.g., `UNITREE_G1`, `BEHAVIOR_R1_PRO`, `LIBERO_PANDA`) — require a finetuned checkpoint. Passing these to the base model will produce an error.
+- **Posttrain tags** (`OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT`, `LIBERO_PANDA`, `SIMPLER_ENV_GOOGLE`, `SIMPLER_ENV_WIDOWX`) — require a finetuned checkpoint. Passing these to the base model will produce an error.
 - **`NEW_EMBODIMENT`** — use for custom robots. Requires a `--modality-config-path` during finetuning. After finetuning, the config is saved in the checkpoint and loaded automatically during inference.
 
 #### Known Embodiment Tags
@@ -59,11 +59,10 @@ For example, `--embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` and `--emb
 
 | Tag | Robot | Value | Checkpoint |
 |-----|-------|-------|------------|
+| `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | DROID (relative EEF + joint) | `oxe_droid_relative_eef_relative_joint` | `nvidia/GR00T-N1.7-DROID` |
 | `LIBERO_PANDA` | LIBERO Panda | `libero_sim` | `nvidia/GR00T-N1.7-LIBERO` |
 | `SIMPLER_ENV_GOOGLE` | SimplerEnv Google Robot | `simpler_env_google` | `nvidia/GR00T-N1.7-SimplerEnv-Fractal` |
 | `SIMPLER_ENV_WIDOWX` | SimplerEnv WidowX | `simpler_env_widowx` | `nvidia/GR00T-N1.7-SimplerEnv-Bridge` |
-| `UNITREE_G1` | Unitree G1 (sim, full-body) | `unitree_g1_full_body_with_waist_height_nav_cmd` | No public checkpoint yet |
-| `BEHAVIOR_R1_PRO` | Galaxea R1 Pro (BEHAVIOR sim) | `sim_behavior_r1_pro` | No public checkpoint yet |
 
 **Generic tag** for any new robot: `NEW_EMBODIMENT` (requires `--modality-config-path`)
 
@@ -97,6 +96,7 @@ The inference scripts produce:
 
 | Dataset | Embodiment Tag | Notes |
 |---------|---------------|-------|
+| `demo_data/droid_sample` | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | DROID — works with base model (zero-shot) or finetuned `nvidia/GR00T-N1.7-DROID` |
 | `demo_data/libero_demo` | `LIBERO_PANDA` | LIBERO Panda — uses finetuned checkpoint from `nvidia/GR00T-N1.7-LIBERO` (must be downloaded locally first, see [README](../README.md)) |
 | `demo_data/cube_to_bowl_5` | `NEW_EMBODIMENT` | SO100 arm — only works with a finetuned checkpoint, not the base model |
 

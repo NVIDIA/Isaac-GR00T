@@ -335,13 +335,11 @@ Each benchmark has a self-contained README with dataset download, finetune, and 
 
 | Benchmark | Embodiment | Guide |
 |-----------|-----------|-------|
+| DROID | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | [examples/DROID/README.md](examples/DROID/README.md) |
 | LIBERO | `LIBERO_PANDA` | [examples/LIBERO/README.md](examples/LIBERO/README.md) |
 | SimplerEnv (Fractal) | `SIMPLER_ENV_GOOGLE` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
 | SimplerEnv (Bridge) | `SIMPLER_ENV_WIDOWX` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
 | SO100 | `NEW_EMBODIMENT` | [examples/SO100/README.md](examples/SO100/README.md) |
-| BEHAVIOR | `BEHAVIOR_R1_PRO` | [examples/BEHAVIOR/README.md](examples/BEHAVIOR/README.md) |
-| GR00T-WholeBodyControl | `UNITREE_G1` | [examples/GR00T-WholeBodyControl/README.md](examples/GR00T-WholeBodyControl/README.md) |
-| PointNav | — | [examples/PointNav/README.md](examples/PointNav/README.md) |
 
 ### Fine-tune on Your Own Robot ("NEW_EMBODIMENT")
 
@@ -441,16 +439,14 @@ We support evaluation on public benchmarks using a server-client architecture. T
 
 You can use [the verification script](scripts/eval/check_sim_eval_ready.py) to verify that all dependencies are properly configured.
 
-**Zero-shot** (evaluate with the base model, no finetuning):
-- [DROID](examples/DROID/README.md) — real-world DROID robot
+**Both Zero-shot and Finetuned** (evaluate with the base model, no finetuning):
+- [DROID](examples/DROID/README.md)
 
 **Finetuned** (evaluate with finetuned checkpoints):
 - [LIBERO](examples/LIBERO/README.md) — LIBERO benchmark (Franka Panda)
 - [SimplerEnv](examples/SimplerEnv/README.md) — Google Robot (Fractal) and WidowX (Bridge)
 - [SO100](examples/SO100/README.md) — SO100 custom embodiment workflow
-- [BEHAVIOR](examples/BEHAVIOR/README.md) — BEHAVIOR-1K (Galaxea R1 Pro)
-- [GR00T-WholeBodyControl](examples/GR00T-WholeBodyControl/README.md) — Unitree G1 whole-body
-- [PointNav](examples/PointNav/README.md) — Point navigation
+
 
 <details>
 <summary><strong>Adding a New Sim Benchmark</strong></summary>
