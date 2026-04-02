@@ -11,7 +11,8 @@ Prepare your data in **GR00T-flavored LeRobot v2 format** by following the [data
 Define your own modality configuration by following the [modality config guide](data_config.md). Below is an example configuration that corresponds to the demo data:
 ```python
 from gr00t.configs.data.embodiment_configs import register_modality_config
-from gr00t.data.types import ModalityConfig
+from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.types import ActionConfig, ActionFormat, ActionRepresentation, ActionType, ModalityConfig
 
 
 so100_config = {
@@ -56,11 +57,7 @@ so100_config = {
     ),
 }
 
-register_modality_config(so100_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)
-```
-
-**Important:** Register your modality configuration under the `EmbodimentTag.NEW_EMBODIMENT` tag:
-```python
+# Important: always register under EmbodimentTag.NEW_EMBODIMENT for custom embodiments
 register_modality_config(so100_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)
 ```
 
@@ -71,14 +68,14 @@ We'll use `gr00t/experiment/launch_finetune.py` as the entry point. Ensure that 
 ### View Available Arguments
 ```bash
 # Display all available arguments
-python gr00t/experiment/launch_finetune.py --help
+uv run python gr00t/experiment/launch_finetune.py --help
 ```
 
 ### Execute Fine-tuning
 ```bash
 # Configure for single GPU
 export NUM_GPUS=1
-CUDA_VISIBLE_DEVICES=0 python \
+CUDA_VISIBLE_DEVICES=0 uv run python \
     gr00t/experiment/launch_finetune.py \
     --base-model-path nvidia/GR00T-N1.6-3B \
     --dataset-path ./demo_data/cube_to_bowl_5 \
@@ -112,7 +109,7 @@ CUDA_VISIBLE_DEVICES=0 python \
 
 After finetuning, evaluate the model's performance using open loop evaluation:
 ```bash
-python gr00t/eval/open_loop_eval.py \
+uv run python gr00t/eval/open_loop_eval.py \
     --dataset-path ./demo_data/cube_to_bowl_5 \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path /tmp/so100/checkpoint-2000 \

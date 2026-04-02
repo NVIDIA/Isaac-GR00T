@@ -69,14 +69,20 @@ def find_block(
     keyword: str,
     *,
     language: str | None = None,
+    occurrence: int = 1,
 ) -> CodeBlock:
-    """Return the first block whose code contains keyword."""
+    """Return the Nth block (1-based) whose code contains keyword."""
+    count = 0
     for block in blocks:
         if language is not None and block.language != language:
             continue
         if keyword in block.code:
-            return block
-    raise ValueError(f"No block containing {keyword!r} found (language={language!r})")
+            count += 1
+            if count == occurrence:
+                return block
+    raise ValueError(
+        f"No block containing {keyword!r} found (language={language!r}, occurrence={occurrence})"
+    )
 
 
 def replace_once(text: str, old: str, new: str) -> str:
@@ -125,6 +131,17 @@ def run_bash_blocks(
             raise AssertionError(
                 f"bash block failed (returncode={result.returncode})\noutput:\n{output}"
             )
+
+
+def run_readme_python_blocks(
+    blocks: list[CodeBlock | str],
+    readme_path: pathlib.Path,
+    repo_root: pathlib.Path,
+) -> None:
+    """Combine blocks (CodeBlock or raw string) and execute as a single Python script."""
+    parts = [b if isinstance(b, str) else b.code for b in blocks]
+    combined = CodeBlock(language="python", code="\n".join(parts), heading="", line_number=0)
+    run_python_blocks([combined], readme_path=readme_path, repo_root=repo_root)
 
 
 def run_python_blocks(
