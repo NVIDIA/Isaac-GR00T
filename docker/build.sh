@@ -4,15 +4,7 @@ set -x
 
 export DOCKER_BUILDKIT=1
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-
-# Copy gr00t directory to src/gr00t
-mkdir -p $DIR/src
-rm -rf /tmp/gr00t
-
-echo $DIR
-
-cp -r $DIR/../ /tmp/gr00t
-cp -r /tmp/gr00t $DIR/src/
+REPO_ROOT="$DIR/.."
 
 # Parse --profile and filter script-specific flags before passing to docker
 profile="default"
@@ -35,23 +27,28 @@ if [ "$profile" = "thor" ]; then
     image_name="gr00t-thor"
     docker build "${docker_args[@]}" \
         --network host \
-        -f $DIR/../scripts/deployment/thor/Dockerfile \
-        -t $image_name $DIR \
-        && echo Image $image_name BUILT SUCCESSFULLY
+        -f "$REPO_ROOT/scripts/deployment/thor/Dockerfile" \
+        -t "$image_name" "$REPO_ROOT" \
+        && echo "Image $image_name BUILT SUCCESSFULLY"
+elif [ "$profile" = "spark" ]; then
+    image_name="gr00t-spark"
+    docker build "${docker_args[@]}" \
+        --network host \
+        -f "$REPO_ROOT/scripts/deployment/spark/Dockerfile" \
+        -t "$image_name" "$REPO_ROOT" \
+        && echo "Image $image_name BUILT SUCCESSFULLY"
 elif [ "$profile" = "orin" ]; then
     image_name="gr00t-orin"
     docker build "${docker_args[@]}" \
         --network host \
-        -f $DIR/../scripts/deployment/orin/Dockerfile \
-        -t $image_name $DIR \
-        && echo Image $image_name BUILT SUCCESSFULLY
+        -f "$REPO_ROOT/scripts/deployment/orin/Dockerfile" \
+        -t "$image_name" "$REPO_ROOT" \
+        && echo "Image $image_name BUILT SUCCESSFULLY"
 else
-    image_name="gr00t-dev"
+    image_name="gr00t"
     docker build "${docker_args[@]}" \
-        --platform linux/amd64 \
         --network host \
-        -t $image_name $DIR \
-        && echo Image $image_name BUILT SUCCESSFULLY
+        -f "$DIR/Dockerfile" \
+        -t "$image_name" "$REPO_ROOT" \
+        && echo "Image $image_name BUILT SUCCESSFULLY"
 fi
-
-rm -rf $DIR/src/

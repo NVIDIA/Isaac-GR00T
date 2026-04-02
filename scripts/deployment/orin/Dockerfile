@@ -11,12 +11,12 @@ RUN apt-get update && apt-get install -y \
     autoconf automake texinfo tmux ffmpeg \
     libopenblas-dev
 
-COPY src/gr00t/ /workspace/gr00t/
+COPY . /workspace/
 
 # install_deps.sh copies orin/pyproject.toml to repo root before uv sync
 ENV DOCKER_CONTAINER=1
 ENV UV_PROJECT_ENVIRONMENT=/opt/gr00t-venv
-RUN cd /workspace/gr00t && bash scripts/deployment/orin/install_deps.sh
+RUN cd /workspace && bash scripts/deployment/orin/install_deps.sh
 
 # Activate the venv by default and expose nvidia pip package libs (cudss)
 ENV VIRTUAL_ENV=/opt/gr00t-venv
