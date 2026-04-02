@@ -69,7 +69,7 @@ The following improvements were introduced in N1.6 and carry forward in N1.7:
 - 2x larger DiT action head (32 layers vs 16 in N1.5).
 - Removed N1.5's post-VLM 4-layer transformer adapter; instead unfreezes top 4 VLM layers during pretraining.
 - State-relative action chunks for most embodiments (vs absolute joint angles / EEF positions in N1.5).
-- Expanded pretraining data: bimanual YAM arms, AGIBot Genie1, simulated Galaxea R1 Pro (BEHAVIOR), Unitree G1 whole-body locomanipulation.
+- Expanded pretraining data: bimanual YAM arms, AGIBot Genie1, Unitree G1 whole-body locomanipulation.
 - Faster dataloader with sharded dataloader support.
 - Flexible training configuration.
 
@@ -340,6 +340,8 @@ Each benchmark has a self-contained README with dataset download, finetune, and 
 | SimplerEnv (Fractal) | `SIMPLER_ENV_GOOGLE` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
 | SimplerEnv (Bridge) | `SIMPLER_ENV_WIDOWX` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
 | SO100 | `NEW_EMBODIMENT` | [examples/SO100/README.md](examples/SO100/README.md) |
+| GR00T-WholeBodyControl | `UNITREE_G1` | [examples/GR00T-WholeBodyControl/README.md](examples/GR00T-WholeBodyControl/README.md) |
+| PointNav | — | [examples/PointNav/README.md](examples/PointNav/README.md) |
 
 ### Fine-tune on Your Own Robot ("NEW_EMBODIMENT")
 
@@ -446,14 +448,15 @@ You can use [the verification script](scripts/eval/check_sim_eval_ready.py) to v
 - [LIBERO](examples/LIBERO/README.md) — LIBERO benchmark (Franka Panda)
 - [SimplerEnv](examples/SimplerEnv/README.md) — Google Robot (Fractal) and WidowX (Bridge)
 - [SO100](examples/SO100/README.md) — SO100 custom embodiment workflow
-
+- [GR00T-WholeBodyControl](examples/GR00T-WholeBodyControl/README.md) — Unitree G1 whole-body
+- [PointNav](examples/PointNav/README.md) — Point navigation
 
 <details>
 <summary><strong>Adding a New Sim Benchmark</strong></summary>
 
 Each sim benchmark registers its environments under a gym env_name with the format `{prefix}/{task_name}` (e.g., `libero_sim/LIVING_ROOM_SCENE2_put_soup_in_basket`). The evaluation framework uses the prefix to look up the corresponding `EmbodimentTag` via a mapping in [`gr00t/eval/sim/env_utils.py`](gr00t/eval/sim/env_utils.py).
 
-> **Important:** The env_name prefix and the `EmbodimentTag` value are often different. For example, `sim_behavior_r1_pro` maps to `EmbodimentTag.BEHAVIOR_R1_PRO` (`"sim_behavior_r1_pro"`). Do not assume they match.
+> **Important:** The env_name prefix and the `EmbodimentTag` value are often different. For example, `libero_sim` maps to `EmbodimentTag.LIBERO_PANDA` (`"libero_sim"`). Do not assume they match.
 
 To add a new benchmark:
 

@@ -239,17 +239,17 @@ def test_libero_readme_workflow_executes_via_subprocess() -> None:
             replace_once(
                 replace_once(
                     find_block(blocks, "libero_uv/.venv/bin/python", language="bash").code,
-                    "--n_episodes 10",
-                    "--n_episodes 1",
+                    "--n-episodes 10",
+                    "--n-episodes 1",
                 ),
-                "--policy_client_port 5555",
-                f"--policy_client_port {model_server_port}",
+                "--policy-client-port 5555",
+                f"--policy-client-port {model_server_port}",
             ),
-            "--max_episode_steps=720",
-            "--max_episode_steps=2",
+            "--max-episode-steps 720",
+            "--max-episode-steps 2",
         ),
-        "--n_envs 5",
-        "--n_envs 1",
+        "--n-envs 5",
+        "--n-envs 1",
     )
 
     assert_port_available(model_server_host, model_server_port)

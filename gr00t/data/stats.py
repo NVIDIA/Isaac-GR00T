@@ -17,14 +17,15 @@
 
 """
 Calculate dataset statistics for LeRobot datasets.
-Note: Please update the `gr00t/configs/data/embodiment_configs.py` file with the correct modality configurations for the dataset you are using before running this script.
 
 Usage:
-    python gr00t/data/stats.py <dataset_path> <embodiment_tag>
+    python gr00t/data/stats.py --dataset-path <dataset_path> --embodiment-tag <embodiment_tag>
+    python gr00t/data/stats.py --dataset-path <dataset_path> --embodiment-tag <embodiment_tag> --modality-config-path <config.py>
 
 Args:
     dataset_path: Path to the dataset.
-    embodiment_tag: Embodiment tag to use to load modality configurations from `gr00t/configs/data/embodiment_configs.py`.
+    embodiment_tag: Embodiment tag to use to load modality configurations.
+    modality_config_path: Optional path to a .py config file for custom embodiment tags not in the built-in registry.
 """
 
 import json
@@ -249,7 +250,32 @@ def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) 
         json.dump(to_json_serializable(dict(stats)), f, indent=4)
 
 
-def main(dataset_path: Path | str, embodiment_tag: EmbodimentTag):
+def main(
+    dataset_path: Path | str,
+    embodiment_tag: EmbodimentTag,
+    modality_config_path: str | None = None,
+):
+    """Generate dataset statistics.
+
+    Args:
+        dataset_path: Path to the dataset.
+        embodiment_tag: Embodiment tag for modality configurations.
+        modality_config_path: Optional path to a .py modality config file. Required for custom
+            embodiment tags not in the built-in MODALITY_CONFIGS registry.
+    """
+    if modality_config_path is not None:
+        import importlib
+        import sys
+
+        config_path = Path(modality_config_path)
+        if config_path.exists() and config_path.suffix == ".py":
+            sys.path.append(str(config_path.parent))
+            importlib.import_module(config_path.stem)
+            print(f"Loaded modality config: {config_path}")
+        else:
+            raise FileNotFoundError(
+                f"Modality config path does not exist or is not a .py file: {modality_config_path}"
+            )
     generate_stats(dataset_path)
     generate_rel_stats(dataset_path, embodiment_tag)
 

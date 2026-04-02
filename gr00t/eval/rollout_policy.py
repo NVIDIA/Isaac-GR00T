@@ -168,20 +168,6 @@ def get_libero_env_fn(
     return env_fn
 
 
-def get_behavior_env_fn(
-    env_name: str,
-    env_idx: int,
-    total_n_envs: int,
-):
-    def env_fn():
-        from gr00t.eval.sim.BEHAVIOR.behavior_env import register_behavior_envs
-
-        register_behavior_envs()
-        return gym.make(env_name, env_idx=env_idx, total_n_envs=total_n_envs)
-
-    return env_fn
-
-
 def get_gym_env(env_name: str, env_idx: int, total_n_envs: int):
     """Create Ray environment factory function without wrappers."""
 
@@ -196,11 +182,6 @@ def get_gym_env(env_name: str, env_idx: int, total_n_envs: int):
     elif env_embodiment in (EmbodimentTag.LIBERO_PANDA,):
         env_fn = get_libero_env_fn(env_name)
 
-    elif env_embodiment in (EmbodimentTag.BEHAVIOR_R1_PRO,):
-        env_fn = get_behavior_env_fn(env_name, env_idx, total_n_envs)
-
-    elif env_embodiment in (EmbodimentTag.LIBERO_PANDA,):
-        env_fn = get_libero_env_fn(env_name)
     else:
         raise ValueError(f"Invalid environment name: {env_name}")
 

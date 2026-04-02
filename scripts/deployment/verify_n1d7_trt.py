@@ -40,8 +40,8 @@ from gr00t.policy.gr00t_policy import Gr00tPolicy
 class VerifyConfig:
     """Configuration for TRT verification."""
 
-    model_path: str = ""
-    """Path to model checkpoint."""
+    model_path: str
+    """Path to model checkpoint (required)."""
 
     dataset_path: str = "demo_data/libero_demo"
     """Path to dataset."""

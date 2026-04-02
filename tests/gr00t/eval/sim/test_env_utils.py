@@ -32,7 +32,6 @@ class TestEnvPrefixMapping:
             "gr00tlocomanip_g1",
             "gr00tlocomanip_g1_sim",
             "gr00tlocomanip_g1_new",
-            "sim_behavior_r1_pro",
             "simpler_env_google",
             "simpler_env_widowx",
             "libero_sim",
@@ -70,10 +69,6 @@ class TestGetEmbodimentTagFromEnvName:
     )
     def test_locomanip_g1(self, env_name):
         assert get_embodiment_tag_from_env_name(env_name) == EmbodimentTag.UNITREE_G1
-
-    def test_behavior_r1_pro(self):
-        tag = get_embodiment_tag_from_env_name("sim_behavior_r1_pro/turning_on_radio")
-        assert tag == EmbodimentTag.BEHAVIOR_R1_PRO
 
     # --- Issue #479 fixes: these were broken before ---
 

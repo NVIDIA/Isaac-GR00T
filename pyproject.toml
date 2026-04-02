@@ -32,6 +32,7 @@ dependencies = [
     "cryptography==42.0.8",
     "einops==0.8.1",
     "gitpython==3.1.46",
+    "jsonlines==4.0.0",
     "gymnasium==1.2.2",
     "matplotlib==3.10.1",
     "numpy==1.26.4",
