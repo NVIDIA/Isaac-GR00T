@@ -19,10 +19,10 @@ uv pip install setuptools wheel
 
 # Core deps
 uv pip install torch==2.5.1 torchvision==0.20.1
-# Linux-only: preinstall flash-attn to avoid compiling inside other wheels
+# Linux-only: preinstall flash-attn-4 (CuTE DSL)
 INSTALL_FLASH_ATTN=${INSTALL_FLASH_ATTN:-1}
 if [[ "$(uname -s)" == "Linux" && "$INSTALL_FLASH_ATTN" == "1" ]]; then
-  uv pip install --no-build-isolation flash-attn==2.7.4.post1 || echo "flash-attn install skipped/failed; continuing"
+  uv pip install flash-attn-4 || echo "flash-attn-4 install skipped/failed; continuing"
 fi
 
 # Sim stack

@@ -119,35 +119,10 @@ export C_INCLUDE_PATH="${CUDA_HOME}/include:${C_INCLUDE_PATH:-}"
 export CPLUS_INCLUDE_PATH="${CUDA_HOME}/include:${CPLUS_INCLUDE_PATH:-}"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# flash-attn — source build for Spark sm121
+# flash-attn-4 (CuTE DSL) — JIT-compiled, no source build needed
 # ──────────────────────────────────────────────────────────────────────────────
-echo "Installing build dependencies for flash-attn source build..."
-$SUDO apt-get update -qq
-$SUDO apt-get install -y --no-install-recommends \
-    cmake \
-    git \
-    ninja-build \
-    python3-dev
-
-echo "Rebuilding flash-attn from source for Spark..."
-uv pip install --python "$VENV_PYTHON" pip
-export MAX_JOBS="${MAX_JOBS:-1}"
-export NVCC_THREADS="${NVCC_THREADS:-1}"
-export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"
-export FLASH_ATTN_CUDA_ARCHS="${FLASH_ATTN_CUDA_ARCHS:-121}"
-export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-12.1}"
-rm -rf /tmp/flash-attn
-git clone --depth 1 --branch v2.8.3 https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attn
-rm -rf /tmp/flash-attn/csrc/cutlass
-git clone --depth 1 https://github.com/NVIDIA/cutlass.git /tmp/flash-attn/csrc/cutlass
-rm -rf /tmp/flash-attn/.git
-sed -i 's/FLASH_ATTN_CUDA_ARCHS", "80;90;100;120"/FLASH_ATTN_CUDA_ARCHS", "121"/' /tmp/flash-attn/setup.py
-perl -0pi -e 's/if bare_metal_version >= Version\\("12\\.8"\\) and "100" in cuda_archs\\(\\):\\n            cc_flag\\.append\\("-gencode"\\)\\n            cc_flag\\.append\\("arch=compute_100,code=sm_100"\\)\\n        if bare_metal_version >= Version\\("12\\.8"\\) and "120" in cuda_archs\\(\\):\\n            cc_flag\\.append\\("-gencode"\\)\\n            cc_flag\\.append\\("arch=compute_120,code=sm_120"\\)/if bare_metal_version >= Version("12.8") and "100" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_100,code=sm_100")\\n        if bare_metal_version >= Version("12.8") and "120" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_120,code=sm_120")\\n        if bare_metal_version >= Version("12.8") and "121" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_121,code=sm_121")/' /tmp/flash-attn/setup.py
-"$VENV_PYTHON" -m pip install \
-    --no-build-isolation \
-    --force-reinstall \
-    --no-deps \
-    /tmp/flash-attn
+echo "Installing flash-attn-4 (CuTE DSL)..."
+uv pip install --python "$VENV_PYTHON" "flash-attn-4[cu13]"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # torchcodec — build from source against system FFmpeg

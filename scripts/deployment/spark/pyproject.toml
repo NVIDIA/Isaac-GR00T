@@ -49,6 +49,7 @@ dependencies = [
     # Revisit if the Jetson AI Lab torch packages start vendoring them or declaring them reliably.
     "nvidia-cudnn-cu13",
     "nvidia-cudss-cu13",
+    "flash-attn-4",
 ]
 
 [project.optional-dependencies]

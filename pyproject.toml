@@ -44,7 +44,7 @@ dependencies = [
     "deepspeed==0.17.6; platform_machine != 'aarch64' or sys_platform != 'linux'",
     # triton is needed on aarch64 (GB200) but ships with torch on x86_64
     "triton==3.3.1; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "flash-attn==2.7.4.post1",
+    "flash-attn-4",
     "onnx>=1.20.0",
     "tensorrt>=10.14.1.48.post1",
 ]
@@ -71,12 +71,11 @@ torchvision = [{ index = "pytorch-cu128" }]
 triton = [
     { index = "pytorch-cu128", marker = "sys_platform == 'linux' and (platform_machine == 'aarch64')" },
 ]
-flash-attn = [
-    { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+flash-attn-4 = [
+    { index = "nvidia-pypi", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 
 [tool.uv.extra-build-dependencies]
-flash-attn = ["torch==2.7.1", "numpy==1.26.4", "triton==3.3.1"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"

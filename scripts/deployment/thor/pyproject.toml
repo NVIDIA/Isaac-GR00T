@@ -46,7 +46,7 @@ dependencies = [
     # Revisit if the Jetson AI Lab torch packages start vendoring them or declaring them reliably.
     "nvidia-cudnn-cu13",
     "nvidia-cudss-cu13",
-    "flash-attn==2.8.4",
+    "flash-attn-4",
     "onnx>=1.20.0",
     "onnxscript",
     "tensorrt>=10.14.1.48.post1",
@@ -68,15 +68,11 @@ include = ["gr00t*"]
 
 [tool.uv]
 
-[tool.uv.extra-build-dependencies]
-flash-attn = ["torch==2.10.0", "numpy==1.26.4", "triton==3.5.0"]
-
 [tool.uv.sources]
 torch = [{ index = "jetson-sbsa-cu130" }]
 torchvision = [{ index = "jetson-sbsa-cu130" }]
 torchcodec = [{ index = "jetson-sbsa-cu130" }]
 triton = [{ index = "jetson-sbsa-cu130" }]
-flash-attn = [{ index = "jetson-sbsa-cu130" }]
 diffusers = [{ index = "jetson-sbsa-cu130" }]
 
 [tool.pytest.ini_options]
