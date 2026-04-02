@@ -27,13 +27,13 @@ uv pip install setuptools wheel
 # Heavy deps first
 uv pip install torch==2.5.1 torchvision==0.20.1
 
-# Preinstall flash-attn to avoid builds inside other installs.
+# Preinstall flash-attn-4 (CuTE DSL).
 # Guard it to Linux only (flash-attn not supported on macOS).
 INSTALL_FLASH_ATTN=${INSTALL_FLASH_ATTN:-1}
 if [[ "$(uname -s)" == "Linux" && "$INSTALL_FLASH_ATTN" == "1" ]]; then
-  uv pip install --no-build-isolation flash-attn==2.7.4.post1 || echo "flash-attn install skipped/failed; continuing"
+  uv pip install flash-attn-4 || echo "flash-attn-4 install skipped/failed; continuing"
 else
-  echo "Skipping flash-attn (non-Linux or INSTALL_FLASH_ATTN=0)"
+  echo "Skipping flash-attn-4 (non-Linux or INSTALL_FLASH_ATTN=0)"
 fi
 
 # Core sim deps: robosuite first (as per README), then this repo editable

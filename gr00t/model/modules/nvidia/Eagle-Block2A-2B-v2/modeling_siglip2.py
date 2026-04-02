@@ -56,40 +56,20 @@ from typing import Dict
 logger = logging.get_logger(__name__)
 
 
-import inspect
 import os
 from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
 
-from transformers.utils import (
-    is_flash_attn_2_available,
-    is_flash_attn_greater_or_equal,
-    logging,
-)
-from transformers.integrations.flash_attention import (
-    flash_attention_forward as original_flash_attention_forward,
-)
+from transformers.utils import logging
 
-flash_241 = is_flash_attn_greater_or_equal("2.4.1")
+from flash_attn.cute import flash_attn_varlen_func
+
 deterministic_g = os.environ.get("FLASH_ATTENTION_DETERMINISTIC", "0") == "1"
 
 
 logger = logging.get_logger(__name__)
-
-
-if is_flash_attn_2_available():
-    from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
-    from flash_attn import (
-        flash_attn_func,
-        flash_attn_varlen_func,
-        flash_attn_varlen_qkvpacked_func,
-    )
-
-    _flash_supports_window_size = "window_size" in list(
-        inspect.signature(flash_attn_func).parameters
-    )
 
 
 def _flash_attention_forward(
@@ -99,11 +79,8 @@ def _flash_attention_forward(
     attention_mask: torch.Tensor,
     query_length: int,
     is_causal: bool,
-    dropout: float = 0.0,
-    position_ids: Optional[torch.Tensor] = None,
     softmax_scale: Optional[float] = None,
     sliding_window: Optional[int] = None,
-    use_top_left_mask: bool = False,
     softcap: Optional[float] = None,
     deterministic: bool = None,
     cu_seq_lens_q: Optional[torch.LongTensor] = None,
@@ -113,50 +90,18 @@ def _flash_attention_forward(
     target_dtype: Optional[torch.dtype] = None,
     **kwargs,
 ):
-    """
-    Calls the forward method of Flash Attention - if the input hidden states contain at least one padding token
-    first unpad the input, then computes the attention scores and pad the final attention scores.
-    Args:
-        query_states (`torch.Tensor`):
-            Input query states to be passed to Flash Attention API
-        key_states (`torch.Tensor`):
-            Input key states to be passed to Flash Attention API
-        value_states (`torch.Tensor`):
-            Input value states to be passed to Flash Attention API
-        attention_mask (`torch.Tensor`):
-            The padding mask - corresponds to a tensor of size `(batch_size, seq_len)` where 0 stands for the
-            position of padding tokens and 1 for the position of non-padding tokens.
-        dropout (`int`, *optional*):
-            Attention dropout
-        softmax_scale (`float`, *optional*):
-            The scaling of QK^T before applying softmax. Default to 1 / sqrt(head_dim)
-        use_sliding_windows (`bool`, *optional*):
-            Whether to activate sliding window attention.
-    """
+    causal = is_causal
 
-    if not use_top_left_mask:
-        causal = is_causal
-    else:
-        # TODO: Remove the `query_length != 1` check once Flash Attention for RoCm is bumped to 2.1. For details, please see the comment in LlamaFlashAttention2 __init__.
-        causal = is_causal and query_length != 1
-    # Assuming 4D tensors, key_states.shape[1] is the key/value sequence length (source length).
     use_sliding_windows = (
-        _flash_supports_window_size
-        and sliding_window is not None
+        sliding_window is not None
         and key_states.shape[1] > sliding_window
     )
-    flash_kwargs = (
-        {"window_size": (sliding_window, sliding_window)} if use_sliding_windows else {}
-    )
-    if flash_241:
-        if deterministic is None:
-            deterministic = deterministic_g
-        flash_kwargs["deterministic"] = deterministic
+    window_size = (sliding_window, sliding_window) if use_sliding_windows else (None, None)
 
-    if softcap is not None:
-        flash_kwargs["softcap"] = softcap
+    if deterministic is None:
+        deterministic = deterministic_g
 
-    attn_output = flash_attn_varlen_func(
+    attn_output, _ = flash_attn_varlen_func(
         query_states[0],
         key_states[0],
         value_states[0],
@@ -164,18 +109,14 @@ def _flash_attention_forward(
         cu_seqlens_k=cu_seq_lens_k,
         max_seqlen_q=max_length_q,
         max_seqlen_k=max_length_k,
-        dropout_p=dropout,
         softmax_scale=softmax_scale,
         causal=causal,
-        **flash_kwargs,
+        window_size=window_size,
+        softcap=softcap if softcap is not None else 0.0,
+        deterministic=deterministic,
     )
 
     return attn_output
-
-
-from transformers.utils import is_flash_attn_greater_or_equal_2_10
-
-_use_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
 
 
 def flash_attention_forward_for_packing(
@@ -192,24 +133,16 @@ def flash_attention_forward_for_packing(
     **kwargs,
 ) -> Tuple[torch.Tensor, None]:
 
-    # This is before the transpose
     seq_len = query.shape[2]
 
-    # FA2 uses non-transposed inputs
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
 
-    # In PEFT, usually we cast the layer norms in float32 for training stability reasons
-    # therefore the input hidden states gets silently casted in float32. Hence, we need
-    # cast them back in the correct dtype just to be sure everything works as expected.
-    # This might slowdown training & inference so it is recommended to not cast the LayerNorms
-    # in fp32. (usually our RMSNorm modules handle it correctly)
     target_dtype = None
     if query.dtype == torch.float32:
         if torch.is_autocast_enabled():
             target_dtype = torch.get_autocast_gpu_dtype()
-        # Handle the case where the model is quantized
         elif hasattr(module.config, "_pre_quantization_dtype"):
             target_dtype = module.config._pre_quantization_dtype
         else:
@@ -219,7 +152,6 @@ def flash_attention_forward_for_packing(
                 if isinstance(layer, torch.nn.Linear)
             ).weight.dtype
 
-    # FA2 always relies on the value set in the module, so remove it if present in kwargs to avoid passing it twice
     kwargs.pop("is_causal", None)
 
     cu_seqlens = F.pad(
@@ -237,11 +169,9 @@ def flash_attention_forward_for_packing(
         attention_mask,
         query_length=seq_len,
         is_causal=module.is_causal,
-        dropout=dropout,
         softmax_scale=scaling,
         sliding_window=sliding_window,
         softcap=softcap,
-        use_top_left_mask=_use_top_left_mask,
         target_dtype=target_dtype,
         cu_seq_lens_q=cu_seqlens,
         cu_seq_lens_k=cu_seqlens,

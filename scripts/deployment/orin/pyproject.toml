@@ -1,5 +1,5 @@
 # Orin platform pyproject.toml — Jetson Orin (aarch64, JetPack 6.2, CUDA 12.6, Python 3.10)
-# Uses jetson-jp6-cu126 index for torch/torchvision/triton/flash-attn/diffusers
+# Uses jetson-jp6-cu126 index for torch/torchvision/triton/diffusers
 # (generic pytorch-cu128 wheels don't support Orin's sm_87 GPU).
 
 [tool.uv.workspace]
@@ -42,7 +42,7 @@ dependencies = [
     "wandb==0.23.0",
     "pyzmq==27.0.1",
     "torchcodec==0.10.0",
-    "flash-attn==2.8.3",
+    "flash-attn-4",
     "onnx>=1.20.0",
     "onnxscript",
 ]
@@ -68,7 +68,6 @@ torch = [{ index = "jetson-jp6-cu126" }]
 torchvision = [{ index = "jetson-jp6-cu126" }]
 torchcodec = [{ index = "jetson-jp6-cu126" }]
 triton = [{ index = "jetson-jp6-cu126" }]
-flash-attn = [{ index = "jetson-jp6-cu126" }]
 diffusers = [{ index = "jetson-jp6-cu126" }]
 
 [tool.pytest.ini_options]
