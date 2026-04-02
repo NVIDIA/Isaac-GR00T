@@ -14,4 +14,4 @@ external dependencies (checkpoints, datasets, network access, etc.).
 
 | Directory | Used by | Description |
 |-----------|---------|-------------|
-| `processor_config/` | `tests/gr00t/model/test_variable_image_size.py` | Minimal `Gr00tN1d7Processor` config (sim_behavior_r1_pro only) |
+| `processor_config/` | `tests/gr00t/model/test_variable_image_size.py` | Minimal `Gr00tN1d7Processor` config (libero_sim only) |

@@ -55,7 +55,7 @@ delta_indices=[-2, -1, 0]
 delta_indices=list(range(0, 16))
 ```
 
-> **Note:** If you modify `delta_indices` for the action modality (e.g., changing the action horizon from 16 to 8), you **must** regenerate the dataset statistics by re-running `python gr00t/data/stats.py <dataset_path> <embodiment_tag>`. The normalization statistics (especially `meta/relative_stats.json`) are computed based on the original `delta_indices` length, and a mismatch will cause errors during training.
+> **Note:** If you modify `delta_indices` for the action modality (e.g., changing the action horizon from 16 to 8), you **must** regenerate the dataset statistics by re-running `python gr00t/data/stats.py --dataset-path <dataset_path> --embodiment-tag <embodiment_tag>`. The normalization statistics (especially `meta/relative_stats.json`) are computed based on the original `delta_indices` length, and a mismatch will cause errors during training.
 
 <details>
 <summary>Example: What happens if you change <code>delta_indices</code> without regenerating stats?</summary>
@@ -87,7 +87,7 @@ IndexError: boolean index did not match indexed array along dimension 0;
 dimension is 8 but corresponding boolean dimension is 16
 ```
 
-**Fix:** Re-run `python gr00t/data/stats.py <dataset_path> <embodiment_tag>` after changing `delta_indices` to regenerate matching statistics.
+**Fix:** Re-run `python gr00t/data/stats.py --dataset-path <dataset_path> --embodiment-tag <embodiment_tag>` after changing `delta_indices` to regenerate matching statistics.
 
 </details>
 

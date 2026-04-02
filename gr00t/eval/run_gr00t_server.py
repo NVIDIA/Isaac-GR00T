@@ -14,8 +14,11 @@
 # limitations under the License.
 
 from dataclasses import dataclass
+import importlib
 import json
 import os
+from pathlib import Path
+import sys
 
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.policy.gr00t_policy import Gr00tPolicy
@@ -74,12 +77,11 @@ def main(config: ServerConfig):
     print(f"  Host: {config.host}")
     print(f"  Port: {config.port}")
 
-    # check if the model path exists
-    if config.model_path.startswith("/") and not os.path.exists(config.model_path):
-        raise FileNotFoundError(f"Model path {config.model_path} does not exist")
-
     # Create and start the server
     if config.model_path is not None:
+        # check if the model path exists
+        if config.model_path.startswith("/") and not os.path.exists(config.model_path):
+            raise FileNotFoundError(f"Model path {config.model_path} does not exist")
         policy = Gr00tPolicy(
             embodiment_tag=config.embodiment_tag,
             model_path=config.model_path,
@@ -87,13 +89,25 @@ def main(config: ServerConfig):
             strict=config.strict,
         )
     elif config.dataset_path is not None:
-        if config.modality_config_path is None:
+        if config.modality_config_path is not None:
+            config_path = Path(config.modality_config_path)
+            if config_path.suffix == ".py":
+                sys.path.append(str(config_path.parent))
+                importlib.import_module(config_path.stem)
+                print(f"Loaded modality config: {config_path}")
+            elif config_path.suffix == ".json":
+                with open(config.modality_config_path, "r") as f:
+                    modality_configs = json.load(f)
+            else:
+                raise ValueError(
+                    f"Unsupported modality config format: {config_path.suffix}. Use .py or .json"
+                )
+
+        # For .py configs (or no config path), look up from the registry
+        if config.modality_config_path is None or config.modality_config_path.endswith(".py"):
             from gr00t.configs.data.embodiment_configs import MODALITY_CONFIGS
 
             modality_configs = MODALITY_CONFIGS[config.embodiment_tag.value]
-        else:
-            with open(config.modality_config_path, "r") as f:
-                modality_configs = json.load(f)
         policy = ReplayPolicy(
             dataset_path=config.dataset_path,
             modality_configs=modality_configs,

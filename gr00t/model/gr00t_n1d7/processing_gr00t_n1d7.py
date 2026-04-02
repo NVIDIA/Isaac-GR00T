@@ -64,7 +64,6 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "real_r1_pro_sharpa_relative_eef_maxinsights": 26,
     "real_r1_pro_sharpa_relative_eef_mecka": 26,
     ##### Posttrain embodiment ids #####
-    "sim_behavior_r1_pro": 23,
     "unitree_g1_full_body_with_waist_height_nav_cmd": 25,
     "simpler_env_google": 0,
     "simpler_env_widowx": 1,

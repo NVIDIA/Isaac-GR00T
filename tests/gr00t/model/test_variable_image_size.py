@@ -150,7 +150,7 @@ class TestProcessorVariableImageSize:
 
     def test_variable_size_vlm_inputs(self, processor):
         """Test _get_vlm_inputs with different aspect ratio images across views."""
-        embodiment_tag = "sim_behavior_r1_pro"
+        embodiment_tag = "libero_sim"
         image_keys = processor.modality_configs[embodiment_tag]["video"].modality_keys
 
         # Create mock images with different sizes per view
@@ -178,7 +178,7 @@ class TestProcessorVariableImageSize:
 
     def test_same_size_vlm_inputs(self, processor):
         """Test _get_vlm_inputs with same size images (regression test)."""
-        embodiment_tag = "sim_behavior_r1_pro"
+        embodiment_tag = "libero_sim"
         image_keys = processor.modality_configs[embodiment_tag]["video"].modality_keys
 
         mock_images = {}

@@ -28,7 +28,7 @@ import torchvision
 # Neither decord nor torchcodec is imported at module level:
 # - decord bundles its own FFmpeg shared libraries which conflict with torchcodec's,
 #   causing torchcodec to silently fail (see GitHub issue #423).
-# - Merely importing decord crashes certain simulators (e.g. BEHAVIOR Isaac Sim).
+# - Merely importing decord crashes certain simulators.
 # - Lazy-importing both avoids loading unnecessary packages when only one backend is used.
 # Both are instead lazily imported only when explicitly requested via video_backend=<name>.
 

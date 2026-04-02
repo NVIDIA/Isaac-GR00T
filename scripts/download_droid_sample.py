@@ -335,7 +335,7 @@ def extract_episodes(cache_dir: Path, output_dir: Path, num_episodes: int) -> No
     else:
         logger.warning(
             "  stats.json not found in source. Generate it with:\n"
-            f"    python gr00t/data/stats.py {output_dir} OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
+            f"    python gr00t/data/stats.py --dataset-path {output_dir} --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
         )
 
     # meta/episodes.jsonl

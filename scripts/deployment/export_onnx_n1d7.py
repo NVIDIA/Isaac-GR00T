@@ -1447,11 +1447,11 @@ def main(args):
 class ExportConfig:
     """Configuration for exporting GR00T N1.7 model to ONNX."""
 
-    model_path: str = ""
-    """Path to the model checkpoint."""
+    model_path: str
+    """Path to the model checkpoint (required)."""
 
-    dataset_path: str = ""
-    """Path to the dataset (used to capture input shapes)."""
+    dataset_path: str
+    """Path to the dataset (required, used to capture input shapes)."""
 
     embodiment_tag: Optional[EmbodimentTag] = None
     """Embodiment tag. If not provided, auto-detected from model's processor_config.json."""
@@ -1471,10 +1471,6 @@ class ExportConfig:
 
 if __name__ == "__main__":
     args = tyro.cli(ExportConfig)
-    if not args.model_path:
-        raise ValueError("Please provide --model-path")
-    if not args.dataset_path:
-        raise ValueError("Please provide --dataset-path")
     if args.embodiment_tag is None:
         # Auto-detect from model's processor_config.json
         config_file = Path(args.model_path) / "processor_config.json"

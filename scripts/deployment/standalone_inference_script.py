@@ -605,8 +605,8 @@ class ArgsConfig:
     embodiment_tag: EmbodimentTag = EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT
     """Embodiment tag to use."""
 
-    model_path: str | None = None
-    """Path to the model checkpoint."""
+    model_path: str
+    """Path to the model checkpoint (required)."""
 
     inference_mode: Literal["pytorch", "tensorrt", "trt_full_pipeline"] = "pytorch"
     """Inference mode: 'pytorch' (default), 'tensorrt' (DiT-only TRT), or 'trt_full_pipeline' (all engines)."""
@@ -658,7 +658,6 @@ def main(args: ArgsConfig):
 
     # Extract global_step and checkpoint directory name from checkpoint path
     global_step = None
-    assert local_model_path is not None, "Provide valid model_path for inference"
     if local_model_path:
         # Search for pattern "checkpoint-{number}" anywhere in the path
         match = re.search(r"checkpoint-(\d+)", local_model_path)
@@ -679,34 +678,31 @@ def main(args: ArgsConfig):
     logging.info("=" * 80)
     model_load_start = time.time()
 
-    if local_model_path is not None:
-        policy = Gr00tPolicy(
-            embodiment_tag=args.embodiment_tag,
-            model_path=local_model_path,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-        )
+    policy = Gr00tPolicy(
+        embodiment_tag=args.embodiment_tag,
+        model_path=local_model_path,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+    )
 
-        # Apply inference mode
-        if args.inference_mode == "trt_full_pipeline":
-            logging.info(f"Loading full-pipeline TRT engines from: {args.trt_engine_path}")
-            from trt_model_forward import setup_tensorrt_engines
+    # Apply inference mode
+    if args.inference_mode == "trt_full_pipeline":
+        logging.info(f"Loading full-pipeline TRT engines from: {args.trt_engine_path}")
+        from trt_model_forward import setup_tensorrt_engines
 
-            setup_tensorrt_engines(policy, args.trt_engine_path, mode="n17_full_pipeline")
-            logging.info("  TRT full-pipeline mode enabled")
-        elif args.inference_mode == "tensorrt":
-            logging.info(f"Replacing DiT with TensorRT engine: {args.trt_engine_path}")
-            dit_engine_path = args.trt_engine_path
-            if os.path.isdir(dit_engine_path):
-                dit_engine_path = os.path.join(dit_engine_path, "dit_bf16.engine")
-            replace_dit_with_tensorrt(policy, dit_engine_path)
-            logging.info("  TensorRT DiT-only mode enabled")
-        else:
-            logging.info("  PyTorch mode enabled")
-
-        if torch.cuda.is_available():
-            torch.backends.cudnn.benchmark = True
+        setup_tensorrt_engines(policy, args.trt_engine_path, mode="n17_full_pipeline")
+        logging.info("  TRT full-pipeline mode enabled")
+    elif args.inference_mode == "tensorrt":
+        logging.info(f"Replacing DiT with TensorRT engine: {args.trt_engine_path}")
+        dit_engine_path = args.trt_engine_path
+        if os.path.isdir(dit_engine_path):
+            dit_engine_path = os.path.join(dit_engine_path, "dit_bf16.engine")
+        replace_dit_with_tensorrt(policy, dit_engine_path)
+        logging.info("  TensorRT DiT-only mode enabled")
     else:
-        assert 0, "Please provide valid model_path argument for inference"
+        logging.info("  PyTorch mode enabled")
+
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
     model_load_time = time.time() - model_load_start
     logging.info(f"Model loading time: {model_load_time:.4f} seconds")
 

@@ -68,17 +68,17 @@ def test_gr00t_wholebody_control_readme_eval_flow() -> None:
     server_code += f" --device cuda:0 --host {model_server_host} --port {model_server_port}"
 
     # Step 3: Rollout — README has no host/port flags; inject port and substitute test-safe values.
-    # Also add --policy_client_host and --policy_client_port since the test server uses a non-default port.
+    # Also add --policy-client-host and --policy-client-port since the test server uses a non-default port.
     rollout_code = replace_once(
         replace_once(
             find_block(blocks, "GR00T-WholeBodyControl_uv/.venv/bin/python", language="bash").code,
-            "--n_episodes 10",
-            "--n_episodes 1",
+            "--n-episodes 10",
+            "--n-episodes 1",
         ),
-        "--max_episode_steps=1440",
-        "--max_episode_steps=2",
+        "--max-episode-steps 1440",
+        "--max-episode-steps 2",
     )
-    rollout_code += f" --policy_client_host {model_server_host} --policy_client_port {model_server_port} --n_envs 1"
+    rollout_code += f" --policy-client-host {model_server_host} --policy-client-port {model_server_port} --n-envs 1"
 
     assert_port_available(model_server_host, model_server_port)
     model_server_proc = subprocess.Popen(

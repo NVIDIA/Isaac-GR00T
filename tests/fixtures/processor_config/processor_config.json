@@ -2,7 +2,7 @@
   "processor_class": "Gr00tN1d7Processor",
   "processor_kwargs": {
     "modality_configs": {
-      "sim_behavior_r1_pro": {
+      "libero_sim": {
         "video": {
           "delta_indices": [
             0

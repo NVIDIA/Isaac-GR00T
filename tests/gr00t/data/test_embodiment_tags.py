@@ -50,7 +50,7 @@ class TestEmbodimentTagResolve:
             ("unitree_g1", EmbodimentTag.UNITREE_G1),
             ("real_g1", EmbodimentTag.REAL_G1),
             # By enum value (various cases)
-            ("sim_behavior_r1_pro", EmbodimentTag.BEHAVIOR_R1_PRO),
+            ("libero_sim", EmbodimentTag.LIBERO_PANDA),
             (
                 "oxe_droid_relative_eef_relative_joint",
                 EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT,

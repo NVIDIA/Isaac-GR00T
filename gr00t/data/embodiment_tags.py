@@ -43,7 +43,6 @@ class EmbodimentTag(Enum):
     - UNITREE_G1           -> "unitree_g1_full_body_with_waist_height_nav_cmd"
     - SIMPLER_ENV_GOOGLE   -> "simpler_env_google"
     - SIMPLER_ENV_WIDOWX   -> "simpler_env_widowx"
-    - BEHAVIOR_R1_PRO      -> "sim_behavior_r1_pro"
     - LIBERO_PANDA         -> "libero_sim"
 
     Finetuning tag (for custom robots):
@@ -110,11 +109,6 @@ class EmbodimentTag(Enum):
     SIMPLER_ENV_WIDOWX = "simpler_env_widowx"
     """
     The SimplerEnv WidowX robot.
-    """
-
-    BEHAVIOR_R1_PRO = "sim_behavior_r1_pro"
-    """
-    The Behavior R1 Pro robot.
     """
 
     LIBERO_PANDA = "libero_sim"
@@ -194,7 +188,6 @@ POSTTRAIN_TAGS: frozenset[EmbodimentTag] = frozenset(
         EmbodimentTag.UNITREE_G1,
         EmbodimentTag.SIMPLER_ENV_GOOGLE,
         EmbodimentTag.SIMPLER_ENV_WIDOWX,
-        EmbodimentTag.BEHAVIOR_R1_PRO,
         EmbodimentTag.LIBERO_PANDA,
     }
 )

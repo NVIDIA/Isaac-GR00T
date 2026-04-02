@@ -275,17 +275,17 @@ def test_robocasa_readme_eval_flow() -> None:
             replace_once(
                 replace_once(
                     find_block(blocks, "robocasa_uv/.venv/bin/python", language="bash").code,
-                    "--n_episodes 10",
-                    "--n_episodes 1",
+                    "--n-episodes 10",
+                    "--n-episodes 1",
                 ),
-                "--policy_client_port 5555",
-                f"--policy_client_port {model_server_port}",
+                "--policy-client-port 5555",
+                f"--policy-client-port {model_server_port}",
             ),
-            "--max_episode_steps=720",
-            "--max_episode_steps=2",
+            "--max-episode-steps 720",
+            "--max-episode-steps 2",
         ),
-        "--n_envs 5",
-        "--n_envs 1",
+        "--n-envs 5",
+        "--n-envs 1",
     )
 
     LOGGER.info(
