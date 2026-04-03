@@ -16,6 +16,8 @@ sudo apt install libegl1-mesa-dev libglu1-mesa
 bash gr00t/eval/sim/robocasa/setup_RoboCasa.sh
 ```
 
+> **Optional: Mink IK for GR1 whole-body tasks.** For GR1 humanoid tasks that require whole-body inverse kinematics, install [Mink](https://github.com/kevinzakka/mink): `pip install mink-ik`. Without Mink, robosuite falls back to a simpler IK solver, which may reduce task success rates (we observed ~5 percentage points lower in our testing). Mink is not required for Panda arm tasks.
+
 #### Downloading RoboCasa Datasets (Optional)
 
 To download RoboCasa demonstration datasets, you **must** use the robocasa venv created by the setup script above (the main project venv does not have `robosuite` installed, which `robocasa` requires at import time):

@@ -366,6 +366,9 @@ class BenchmarkConfig:
     skip_compile: bool = False
     """Skip torch.compile benchmark (can take a while due to JIT compilation)."""
 
+    batch_size: int = 1
+    """Batch size for TRT inference. Must match the batch size used during ONNX export."""
+
     use_trajectory: bool = False
     """Benchmark on full trajectory instead of single data point. This cycles through all steps in an episode for more realistic benchmarking."""
 
@@ -463,6 +466,16 @@ def main(args: BenchmarkConfig | None = None):
             "state": {k: step_data.states[k][None] for k in step_data.states},
             "language": {modality_config["language"].modality_keys[0]: [[step_data.text]]},
         }
+
+    # Tile observations to match the batch size baked into TRT engines
+    if args.batch_size > 1:
+        from verify_n1d7_trt import _tile_observation
+
+        print(f"Tiling observations to batch_size={args.batch_size}")
+        if isinstance(observation, list):
+            observation = [_tile_observation(obs, args.batch_size) for obs in observation]
+        else:
+            observation = _tile_observation(observation, args.batch_size)
 
     results = {}
 

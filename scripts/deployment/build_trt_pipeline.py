@@ -314,6 +314,7 @@ def _run_verify(cfg: PipelineConfig, engine_dir: str, embodiment_tag, log_fp) ->
         engine_dir=engine_dir,
         mode=verify_mode,
         embodiment_tag=embodiment_tag,
+        batch_size=cfg.batch_size,
     )
     with _redirect_to_log(log_fp, tee=True):
         cosine = verify_main(verify_cfg)
@@ -340,6 +341,7 @@ def _run_benchmark(cfg: PipelineConfig, engine_dir: str, embodiment_tag, log_fp)
         num_iterations=cfg.num_iterations,
         warmup=cfg.warmup,
         skip_compile=cfg.skip_compile,
+        batch_size=cfg.batch_size,
     )
     with _redirect_to_log(log_fp, tee=True):
         benchmark_main(benchmark_cfg)
@@ -400,86 +402,92 @@ def main(cfg: PipelineConfig | None = None) -> None:
     log_path = cfg.log_file or os.path.join(cfg.output_dir, "pipeline.log")
     log_fp = open(log_path, "w")
 
-    # Resolve embodiment tag once
-    embodiment_tag = _resolve_embodiment(cfg.model_path, cfg.embodiment_tag)
+    try:
+        # Resolve embodiment tag once
+        embodiment_tag = _resolve_embodiment(cfg.model_path, cfg.embodiment_tag)
 
-    total = len(steps)
-    results: dict[str, str] = {}
-    cosine_val: float | None = None
+        total = len(steps)
+        results: dict[str, str] = {}
+        cosine_val: float | None = None
 
-    print("=" * 60)
-    print("GR00T TensorRT Deployment Pipeline")
-    print("=" * 60)
-    print(f"  Model:        {cfg.model_path}")
-    print(f"  Dataset:      {cfg.dataset_path}")
-    print(f"  Embodiment:   {embodiment_tag}")
-    print(f"  Export mode:  {cfg.export_mode}")
-    print(f"  Batch size:   {cfg.batch_size}")
-    print(f"  Precision:    {cfg.precision}")
-    print(f"  Output:       {cfg.output_dir}")
-    print(f"  Steps:        {', '.join(s.value for s in steps)}")
-    print(f"  Log file:     {log_path}")
+        print("=" * 60)
+        print("GR00T TensorRT Deployment Pipeline")
+        print("=" * 60)
+        print(f"  Model:        {cfg.model_path}")
+        print(f"  Dataset:      {cfg.dataset_path}")
+        print(f"  Embodiment:   {embodiment_tag}")
+        print(f"  Export mode:  {cfg.export_mode}")
+        print(f"  Batch size:   {cfg.batch_size}")
+        print(f"  Precision:    {cfg.precision}")
+        print(f"  Output:       {cfg.output_dir}")
+        print(f"  Steps:        {', '.join(s.value for s in steps)}")
+        print(f"  Log file:     {log_path}")
 
-    for i, step in enumerate(steps, 1):
-        t0 = time.time()  # fallback for error handler
-        try:
-            if step is Step.EXPORT:
-                _print_header(i, total, "Exporting ONNX models...")
-                t0 = time.time()
-                _run_export(cfg, onnx_dir, embodiment_tag, log_fp)
+        for i, step in enumerate(steps, 1):
+            t0 = time.time()  # fallback for error handler
+            try:
+                if step is Step.EXPORT:
+                    _print_header(i, total, "Exporting ONNX models...")
+                    t0 = time.time()
+                    _run_export(cfg, onnx_dir, embodiment_tag, log_fp)
+                    elapsed = time.time() - t0
+                    n = _count_files(onnx_dir, ".onnx")
+                    _print_result(
+                        i, total, f"Export complete -- {n} ONNX files in {onnx_dir}", elapsed
+                    )
+                    results[step.value] = f"{n} ONNX files ({_fmt_elapsed(elapsed)})"
+
+                elif step is Step.BUILD:
+                    _print_header(i, total, "Building TensorRT engines...")
+                    t0 = time.time()
+                    _run_build(cfg, onnx_dir, engine_dir, log_fp)
+                    elapsed = time.time() - t0
+                    n = _count_files(engine_dir, ".engine")
+                    _print_result(
+                        i, total, f"Build complete -- {n} engines in {engine_dir}", elapsed
+                    )
+                    results[step.value] = f"{n} engines ({_fmt_elapsed(elapsed)})"
+
+                elif step is Step.VERIFY:
+                    _print_header(i, total, "Verifying TRT accuracy...")
+                    t0 = time.time()
+                    cosine_val = _run_verify(cfg, engine_dir, embodiment_tag, log_fp)
+                    elapsed = time.time() - t0
+                    status = "PASS" if cosine_val and cosine_val > 0.99 else "FAIL"
+                    cos_str = f"{cosine_val:.6f}" if cosine_val is not None else "N/A"
+                    _print_result(
+                        i, total, f"Verify complete -- cosine={cos_str} {status}", elapsed
+                    )
+                    results[step.value] = f"cosine={cos_str} {status} ({_fmt_elapsed(elapsed)})"
+
+                elif step is Step.BENCHMARK:
+                    _print_header(i, total, "Running benchmark...")
+                    t0 = time.time()
+                    _run_benchmark(cfg, engine_dir, embodiment_tag, log_fp)
+                    elapsed = time.time() - t0
+                    _print_result(i, total, "Benchmark complete", elapsed)
+                    results[step.value] = f"done ({_fmt_elapsed(elapsed)})"
+
+            except Exception as e:
                 elapsed = time.time() - t0
-                n = _count_files(onnx_dir, ".onnx")
-                _print_result(i, total, f"Export complete -- {n} ONNX files in {onnx_dir}", elapsed)
-                results[step.value] = f"{n} ONNX files ({_fmt_elapsed(elapsed)})"
+                print(f"\n[Step {i}/{total}] FAILED: {step.value} ({_fmt_elapsed(elapsed)})")
+                print(f"  Error: {e}")
+                print(f"  See full log: {log_path}")
+                # Write traceback to log
+                log_fp.write(f"\n{'=' * 60}\nSTEP FAILED: {step.value}\n{'=' * 60}\n")
+                log_fp.write(traceback.format_exc())
+                sys.exit(1)
 
-            elif step is Step.BUILD:
-                _print_header(i, total, "Building TensorRT engines...")
-                t0 = time.time()
-                _run_build(cfg, onnx_dir, engine_dir, log_fp)
-                elapsed = time.time() - t0
-                n = _count_files(engine_dir, ".engine")
-                _print_result(i, total, f"Build complete -- {n} engines in {engine_dir}", elapsed)
-                results[step.value] = f"{n} engines ({_fmt_elapsed(elapsed)})"
-
-            elif step is Step.VERIFY:
-                _print_header(i, total, "Verifying TRT accuracy...")
-                t0 = time.time()
-                cosine_val = _run_verify(cfg, engine_dir, embodiment_tag, log_fp)
-                elapsed = time.time() - t0
-                status = "PASS" if cosine_val and cosine_val > 0.99 else "FAIL"
-                cos_str = f"{cosine_val:.6f}" if cosine_val is not None else "N/A"
-                _print_result(i, total, f"Verify complete -- cosine={cos_str} {status}", elapsed)
-                results[step.value] = f"cosine={cos_str} {status} ({_fmt_elapsed(elapsed)})"
-
-            elif step is Step.BENCHMARK:
-                _print_header(i, total, "Running benchmark...")
-                t0 = time.time()
-                _run_benchmark(cfg, engine_dir, embodiment_tag, log_fp)
-                elapsed = time.time() - t0
-                _print_result(i, total, "Benchmark complete", elapsed)
-                results[step.value] = f"done ({_fmt_elapsed(elapsed)})"
-
-        except Exception as e:
-            elapsed = time.time() - t0
-            print(f"\n[Step {i}/{total}] FAILED: {step.value} ({_fmt_elapsed(elapsed)})")
-            print(f"  Error: {e}")
-            print(f"  See full log: {log_path}")
-            # Write traceback to log
-            log_fp.write(f"\n{'=' * 60}\nSTEP FAILED: {step.value}\n{'=' * 60}\n")
-            log_fp.write(traceback.format_exc())
-            log_fp.close()
-            sys.exit(1)
-
-    log_fp.close()
-
-    # Final summary
-    print(f"\n{'=' * 60}")
-    print("TRT Pipeline Complete!")
-    print(f"{'=' * 60}")
-    for step_name, result in results.items():
-        print(f"  {step_name:12s}  {result}")
-    print(f"  {'log':12s}  {log_path}")
-    print(f"{'=' * 60}")
+        # Final summary
+        print(f"\n{'=' * 60}")
+        print("TRT Pipeline Complete!")
+        print(f"{'=' * 60}")
+        for step_name, result in results.items():
+            print(f"  {step_name:12s}  {result}")
+        print(f"  {'log':12s}  {log_path}")
+        print(f"{'=' * 60}")
+    finally:
+        log_fp.close()
 
 
 if __name__ == "__main__":
