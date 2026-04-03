@@ -101,6 +101,8 @@ uv run python scripts/deployment/build_trt_pipeline.py \
 
 > **Note:** Engine build takes ~2-5 minutes depending on GPU. Engines are GPU-architecture-specific and must be rebuilt for different GPUs.
 
+> **Batch size:** The `--batch-size` value is baked as a **static** dimension into the ONNX and TRT models. Engines built with one batch size cannot be used with a different batch size at runtime. If you need a different batch size, re-run the full pipeline (`--steps export,build,verify`) with the new `--batch-size` value.
+
 You can also run a subset of steps:
 
 ```bash
@@ -468,7 +470,7 @@ and `torch.compile` need on Orin.
 | `--embodiment-tag` | Auto-detected | Embodiment tag (auto-detected from processor_config.json if single embodiment) |
 | `--output-dir` | `./gr00t_trt_deployment` | Root output directory. ONNX → `<output-dir>/onnx/`, engines → `<output-dir>/engines/` |
 | `--precision` | `bf16` | Precision for ONNX export and TRT engine build (`bf16`, `fp16`, `fp32`) |
-| `--batch-size` | `1` | Batch size baked into exported ONNX/TRT models |
+| `--batch-size` | `1` | Batch size baked into exported ONNX/TRT models (static — see note below) |
 | `--export-mode` | `full_pipeline` | Export mode: `dit_only`, `action_head`, or `full_pipeline` |
 | `--video-backend` | `torchcodec` | Video backend for dataset loading |
 | `--workspace` | `8192` | TRT builder workspace size in MB |

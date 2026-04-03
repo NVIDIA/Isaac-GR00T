@@ -111,6 +111,8 @@ CUDA_VISIBLE_DEVICES=0 uv run python \
 | `--max-steps` | Total number of training steps |
 | `--use-wandb` | Enable Weights & Biases logging for experiment tracking |
 
+> **Note:** Validation during fine-tuning is disabled by default (`eval_strategy="no"` in the training config). To enable periodic validation, pass `--eval-strategy steps --eval-steps 500` (runs validation every 500 steps) or `--eval-strategy epoch` (runs validation every epoch). You can also adjust `--eval-batch-size` (default: 2).
+
 ## Step 4: Open Loop Evaluation
 
 After finetuning, evaluate the model's performance using open loop evaluation:

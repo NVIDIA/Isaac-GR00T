@@ -145,6 +145,10 @@ Note: GPU dependencies (flash-attn, TensorRT) may require manual installation wi
 > uv run bash scripts/patch_triton_cuda13.sh
 > ```
 
+> **GB300 (sm_103) Users:** Triton 3.3.1 (pinned by PyTorch 2.7) does not support the GB300 GPU architecture (sm_103). `torch.compile` will fail on GB300. Use PyTorch eager mode or TensorRT inference instead. Triton 3.5.1+ adds sm_103 support but is not yet compatible with the pinned PyTorch version.
+
+> **aarch64 Video Backend:** On aarch64 platforms (Thor, Orin), `torchcodec` is the required video backend. Pre-built wheels are not available for aarch64, so it is built from source during `install_deps.sh`. If you encounter `NotImplementedError` from the video backend, ensure `torchcodec` was built successfully during setup. Other backends (decord, pyav) are not supported on aarch64.
+
 <details>
 <summary><strong>DGX Spark</strong> (tested with DGX Spark GB10)</summary>
 
