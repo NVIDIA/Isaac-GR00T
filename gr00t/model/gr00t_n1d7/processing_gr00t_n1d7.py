@@ -462,8 +462,8 @@ class Gr00tN1d7Processor(BaseProcessor):
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": language},
                     *[{"type": "image", "image": img} for img in pil_images],
+                    {"type": "text", "text": language},
                 ],
             }
         ]
