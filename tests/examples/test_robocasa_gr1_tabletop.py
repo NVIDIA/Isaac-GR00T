@@ -67,7 +67,12 @@ def _ensure_robocasa_submodule() -> None:
 
 
 def _point_repo_assets_to_shared() -> None:
-    """Symlink heavy repo asset directories to their shared PVC counterparts."""
+    """Symlink heavy repo asset directories to their shared PVC counterparts.
+
+    If the shared location contains symlinks back to the repo (from
+    _move_repo_assets_to_shared), the repo paths already have the actual
+    files and no symlink creation is needed.
+    """
     ROBOCASA_ASSETS_SHARED_DIR.parent.mkdir(parents=True, exist_ok=True)
     ROBOCASA_ASSETS_REPO_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -85,13 +90,26 @@ def _point_repo_assets_to_shared() -> None:
                 continue
             repo_dir.unlink()
         elif repo_dir.exists():
+            # Check if shared_dir is a symlink pointing back to repo_dir.
+            # If so, the repo already has the actual files and we should
+            # keep them instead of creating circular symlinks.
+            if shared_dir.is_symlink() and shared_dir.resolve() == repo_dir.resolve():
+                # Shared points to repo, so repo already has the files.
+                # No need to create symlinks.
+                continue
             shutil.rmtree(repo_dir)
 
         repo_dir.symlink_to(shared_dir, target_is_directory=True)
 
 
 def _move_repo_assets_to_shared() -> None:
-    """Move downloaded repo asset directories into the shared PVC cache."""
+    """Move downloaded repo asset directories into the shared PVC cache.
+
+    Uses symlinks instead of copying to avoid cross-device copy overhead.
+    The shared location will have symlinks pointing to the repo assets,
+    which allows _shared_assets_ready() to detect that assets are available
+    for subsequent runs.
+    """
     ROBOCASA_ASSETS_SHARED_DIR.mkdir(parents=True, exist_ok=True)
     for rel in REQUIRED_ASSET_DIRS:
         src = ROBOCASA_ASSETS_REPO_DIR / rel
@@ -104,7 +122,10 @@ def _move_repo_assets_to_shared() -> None:
                 shutil.rmtree(dst)
             else:
                 dst.unlink()
-        shutil.move(str(src), str(dst))
+        # Use symlink instead of move to avoid cross-device copy overhead.
+        # This creates a symlink from shared -> repo, allowing subsequent
+        # runs to detect that assets are available without copying.
+        dst.symlink_to(src, target_is_directory=True)
 
 
 def _remove_dangling_repo_asset_symlinks() -> None:
