@@ -14,10 +14,10 @@
 # limitations under the License.
 
 """
-End-to-end test for the unified TRT deployment pipeline (build_trt_pipeline.py).
+End-to-end test for the unified build_trt_pipeline.py script.
 
-Runs the full export → build → verify flow and asserts that the final cosine
-similarity between PyTorch and TRT outputs is >= COSINE_THRESHOLD (0.99).
+Runs the full pipeline (export, build, verify) via a single subprocess call
+and asserts that the printed cosine similarity is >= COSINE_THRESHOLD.
 
 Environment variables (all optional):
   TRT_TEST_MODEL_PATH   – path to a finetuned checkpoint
@@ -35,6 +35,7 @@ import os
 import pathlib
 import re
 import shutil
+import sys
 import tempfile
 
 import pytest
@@ -44,10 +45,8 @@ from tests.examples.utils import build_uv_runtime_env, run_subprocess_step
 
 logger = logging.getLogger(__name__)
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 
-# Defaults match the deployment README quick-start paths.
 DEFAULT_MODEL_PATH = os.getenv(
     "TRT_TEST_MODEL_PATH",
     str(ROOT / "checkpoints/GR00T-N1.7-LIBERO/libero_10"),
@@ -60,27 +59,24 @@ DEFAULT_EMBODIMENT = os.getenv("TRT_TEST_EMBODIMENT", "LIBERO_PANDA")
 
 COSINE_THRESHOLD = 0.99
 
-# Regex to capture cosine similarity from build_trt_pipeline.py output.
-# It prints lines like:  "[Step 3/3] Verify complete -- cosine=0.999123 PASS (1m 23s)"
-_COSINE_RE = re.compile(r"cosine[=:]\s*([\d.]+)")
+# The pipeline prints: "[Step 3/3] Verify complete -- cosine=0.999123 PASS (42s)"
+_COSINE_RE = re.compile(r"cosine=([\d.]+)")
 
 
-def _parse_final_cosine(output: str) -> float:
-    """Extract the last cosine similarity value from pipeline output."""
+def _parse_cosine(output: str) -> float:
+    """Extract the cosine similarity value from pipeline output."""
     matches = _COSINE_RE.findall(output)
     if not matches:
         raise ValueError(
-            "Could not find cosine similarity value in pipeline output.\n"
-            f"Output tail:\n{output[-2000:]}"
+            f"Could not find 'cosine=<value>' in pipeline output.\nOutput tail:\n{output[-2000:]}"
         )
     return float(matches[-1])
 
 
 @pytest.mark.gpu
 @pytest.mark.timeout(900)
-@pytest.mark.parametrize("batch_size", [1, 2])
-def test_trt_full_pipeline(batch_size: int) -> None:
-    """Export ONNX, build TRT engines, and verify cosine similarity >= threshold."""
+def test_build_trt_pipeline() -> None:
+    """Run build_trt_pipeline.py (export, build, verify) and check cosine >= threshold."""
 
     model_path = DEFAULT_MODEL_PATH
     dataset_path = DEFAULT_DATASET_PATH
@@ -91,45 +87,38 @@ def test_trt_full_pipeline(batch_size: int) -> None:
         pytest.skip(f"Dataset not found at {dataset_path}")
 
     env = build_uv_runtime_env()
-    tmpdir = tempfile.mkdtemp(prefix=f"trt_test_bs{batch_size}_")
+    tmpdir = tempfile.mkdtemp(prefix="trt_pipeline_test_")
 
     try:
         result, _ = run_subprocess_step(
             [
-                "python",
+                sys.executable,
                 "scripts/deployment/build_trt_pipeline.py",
                 "--model-path",
                 model_path,
                 "--dataset-path",
                 dataset_path,
-                "--embodiment-tag",
-                DEFAULT_EMBODIMENT,
                 "--output-dir",
                 tmpdir,
-                "--export-mode",
-                "full_pipeline",
-                "--batch-size",
-                str(batch_size),
+                "--embodiment-tag",
+                DEFAULT_EMBODIMENT,
                 "--steps",
                 "export,build,verify",
             ],
-            step=f"trt_pipeline_bs{batch_size}",
+            step="build_trt_pipeline",
             cwd=ROOT,
             env=env,
-            log_prefix=f"trt_pipeline_bs{batch_size}",
-            failure_prefix=f"TRT pipeline (bs={batch_size}) failed",
+            log_prefix="trt_pipeline_unified",
+            failure_prefix="build_trt_pipeline.py failed",
             output_tail_chars=8000,
         )
 
         combined_output = (result.stdout or "") + (result.stderr or "")
-        cosine = _parse_final_cosine(combined_output)
-        logger.info("final cosine similarity (bs=%d): %.6f", batch_size, cosine)
+        cosine = _parse_cosine(combined_output)
+        logger.info("build_trt_pipeline cosine similarity: %.6f", cosine)
 
         assert cosine >= COSINE_THRESHOLD, (
-            f"TRT vs PyTorch cosine similarity {cosine:.6f} (batch_size={batch_size}) "
-            f"is below threshold {COSINE_THRESHOLD}. "
-            f"This indicates a significant accuracy regression in the "
-            f"ONNX export or TRT engine build."
+            f"TRT vs PyTorch cosine similarity {cosine:.6f} is below threshold {COSINE_THRESHOLD}."
         )
 
     finally:

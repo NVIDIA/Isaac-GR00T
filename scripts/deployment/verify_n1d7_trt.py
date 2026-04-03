@@ -55,6 +55,29 @@ class VerifyConfig:
     embodiment_tag: EmbodimentTag = EmbodimentTag.LIBERO_PANDA
     """Embodiment tag to use."""
 
+    batch_size: int = 1
+    """Batch size for TRT inference. If > 1, tiles the observation and takes slice [0] for comparison."""
+
+
+def _tile_observation(obs, n):
+    """Tile a single observation dict to batch size n."""
+    tiled = {}
+    for modality, entries in obs.items():
+        tiled[modality] = {}
+        for key, val in entries.items():
+            if isinstance(val, list):
+                # language: [["text"]] -> [["text"]] * n
+                tiled[modality][key] = val * n
+            else:
+                # numpy/tensor: repeat along batch dim 0
+                import numpy as np
+
+                if isinstance(val, np.ndarray):
+                    tiled[modality][key] = np.repeat(val, n, axis=0)
+                else:
+                    tiled[modality][key] = val.repeat(n, *([1] * (val.ndim - 1)))
+    return tiled
+
 
 def main(args: VerifyConfig | None = None):
     if args is None:
@@ -152,12 +175,24 @@ def main(args: VerifyConfig | None = None):
     if pt_vit_input is not None and getattr(policy.model.backbone, "vit_engine", None) is not None:
         vit_dtype = policy.model.backbone.vit_engine.dtype_of("pixel_values")
         pv = pt_vit_input.to(vit_dtype).cuda().contiguous()
+        # For batch_size > 1, tile pixel_values to match engine's expected num_patches
+        if args.batch_size > 1:
+            pv = pv.repeat(args.batch_size, 1)
         policy.model.backbone.vit_engine.set_runtime_tensor_shape("pixel_values", pv.shape)
         vit_result = policy.model.backbone.vit_engine(pv)
-        trt_vit_output = vit_result["image_embeds"].detach().clone()
+        # Take first batch's merged patches for comparison
+        num_merged = (
+            pt_vit_output.shape[0]
+            if pt_vit_output is not None
+            else vit_result["image_embeds"].shape[0] // args.batch_size
+        )
+        trt_vit_output = vit_result["image_embeds"][:num_merged].detach().clone()
 
     print("[5] Running TRT inference...")
     obs2 = prepare_observation(policy, dataset, traj_idx=0)
+    if args.batch_size > 1:
+        print(f"  Tiling observation to batch_size={args.batch_size}")
+        obs2 = _tile_observation(obs2, args.batch_size)
     torch.manual_seed(42)
     with torch.inference_mode():
         result2 = policy.get_action(obs2)
@@ -168,6 +203,9 @@ def main(args: VerifyConfig | None = None):
     trt_arrays = []
     for k in sorted(action_dict2.keys()):
         v = action_dict2[k]
+        # For batch_size > 1, take slice [0] to compare against single PyTorch output
+        if args.batch_size > 1 and hasattr(v, "shape") and v.shape[0] == args.batch_size:
+            v = v[0:1]
         t = torch.tensor(v) if not isinstance(v, torch.Tensor) else v
         trt_arrays.append(t.float().flatten())
     trt_act = torch.cat(trt_arrays)
@@ -189,7 +227,9 @@ def main(args: VerifyConfig | None = None):
     # Step 3b: Compare backbone outputs (before vl_self_attention)
     if pt_backbone_features is not None and trt_backbone_features is not None:
         bb_pt = pt_backbone_features.float().flatten()
-        bb_trt = trt_backbone_features.float().flatten()
+        # For batch_size > 1, take slice [0] to match PyTorch single-batch output
+        trt_bb = trt_backbone_features[:1] if args.batch_size > 1 else trt_backbone_features
+        bb_trt = trt_bb.float().flatten()
         bb_cosine = cosine_similarity(bb_pt.unsqueeze(0), bb_trt.unsqueeze(0)).item()
         bb_l1 = (bb_pt - bb_trt).abs().mean().item()
         bb_linf = (bb_pt - bb_trt).abs().max().item()
@@ -211,17 +251,14 @@ def main(args: VerifyConfig | None = None):
     print(f"  L1 Mean Error:     {l1:.6f}")
     print(f"  L∞ Max Error:      {linf:.6f}")
 
-    full_pipeline = args.mode == "n17_full_pipeline"
     if cosine > 0.999:
-        print("\n  ✓ PASS — TRT matches PyTorch")
+        print("\n  PASS — TRT matches PyTorch")
     elif cosine > 0.99:
-        print("\n  ~ WARN — Minor drift detected")
-    elif full_pipeline and cosine > 0.94:
-        print("\n  ~ EXPECTED — full_pipeline mode compares flash_attention_2 (PyTorch)")
-        print("    vs eager attention (TRT/ONNX) — these are numerically non-equivalent")
-        print("    algorithms; ~0.96 cosine is normal. Use action_head mode for 0.999 cosine.")
+        print("\n  WARN — Minor drift detected")
     else:
-        print("\n  ✗ FAIL — Significant divergence")
+        print("\n  FAIL — Significant divergence")
+
+    return cosine
 
 
 if __name__ == "__main__":
