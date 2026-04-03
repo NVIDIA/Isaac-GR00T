@@ -32,7 +32,7 @@ def _cleanup_dataset_path() -> None:
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(1800)
 def test_so100_readme_workflow_executes_via_subprocess() -> None:
     """Run the README's bash commands in order, with minor test-only substitutions."""
 

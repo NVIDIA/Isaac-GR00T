@@ -131,7 +131,7 @@ def _build_runtime_env(
 
 # may need to increase timeout since first run may need to download assets
 @pytest.mark.gpu
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_robocasa_gr1_tabletop_readme_eval_flow():
     """
     Tests the directions given in https://gitlab-master.nvidia.com/gr00t-release/Isaac-GR00T/-/blob/main/examples/robocasa-gr1-tabletop-tasks/README.md

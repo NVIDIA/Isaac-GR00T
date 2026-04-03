@@ -36,6 +36,7 @@ def test_modality_config_block() -> None:
 
 
 @pytest.mark.gpu
+@pytest.mark.timeout(1800)
 def test_open_loop_eval() -> None:
     """Run Step 3 (finetune) then Step 4 (open-loop eval) from finetune_new_embodiment.md."""
     blocks = extract_code_blocks(FINETUNE_README)

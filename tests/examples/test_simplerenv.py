@@ -123,7 +123,7 @@ def _run_simplerenv_eval(
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_simplerenv_fractal_readme_eval_flow() -> None:
     """Run the SimplerEnv README server+client eval using the remote fractal (Google robot) checkpoint."""
     env = build_shared_runtime_env("simplerenv")
@@ -139,7 +139,7 @@ def test_simplerenv_fractal_readme_eval_flow() -> None:
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_simplerenv_bridge_readme_eval_flow() -> None:
     """Run the SimplerEnv README server+client eval using the remote bridge (WidowX robot) checkpoint."""
     env = build_shared_runtime_env("simplerenv")

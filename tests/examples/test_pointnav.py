@@ -177,6 +177,7 @@ def _prepare_pointnav_dataset(env: dict[str, str]) -> pathlib.Path:
 
 
 @pytest.mark.gpu
+@pytest.mark.timeout(1800)
 def test_pointnav_readme_finetune_executes_via_subprocess() -> None:
     """Run the PointNav README finetune script with a minimal step count."""
 

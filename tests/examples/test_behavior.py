@@ -30,7 +30,7 @@ DEFAULT_SERVER_STARTUP_SECONDS = 180.0
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_behavior_readme_eval_flow() -> None:
     """Run the BEHAVIOR README server+client eval using the remote BEHAVIOR1k checkpoint."""
 

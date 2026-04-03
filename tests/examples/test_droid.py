@@ -21,7 +21,7 @@ DEFAULT_SERVER_STARTUP_SECONDS = 180.0
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(1800)
 def test_droid_readme_server_starts() -> None:
     """Verify the DROID inference server starts and accepts connections."""
 

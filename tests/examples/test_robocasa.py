@@ -206,7 +206,7 @@ def _build_runtime_env(skip_download_assets: str) -> dict[str, str]:
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(1200)
+@pytest.mark.timeout(2700)
 def test_robocasa_readme_eval_flow() -> None:
     """Run the RoboCasa README server+client eval using the remote GR00T-N1.6-3B checkpoint."""
 

@@ -23,7 +23,7 @@ DEFAULT_SERVER_STARTUP_SECONDS = 180.0
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(1800)
 def test_gr00t_wholebody_control_readme_eval_flow() -> None:
     """Run the G1 LocoManipulation README server+client eval using the remote checkpoint."""
 

@@ -146,7 +146,7 @@ def _prepare_libero_dataset(blocks: list, env: dict[str, str]) -> None:
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(1800)
 def test_libero_readme_workflow_executes_via_subprocess() -> None:
     """Run the LIBERO README finetune (libero_spatial) then server+client eval."""
 
