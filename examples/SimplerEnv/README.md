@@ -11,7 +11,7 @@ For more information, see the [official repository](https://github.com/simpler-e
 To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments. Please remember to set `WANDB_API_KEY` since `--use-wandb` is turned on by default. If you don't have a WANDB account, please remove this argument:
 
 ```bash
-huggingface-cli download \
+uv run hf download \
     --repo-type dataset IPEC-COMMUNITY/bridge_orig_lerobot \
     --local-dir examples/SimplerEnv/bridge_orig_lerobot/
 
@@ -31,7 +31,7 @@ NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash ex
 # Fine-tune Simpler Env fractal dataset (Google robot)
 
 ```bash
-huggingface-cli download \
+uv run hf download \
     --repo-type dataset IPEC-COMMUNITY/fractal20220817_data_lerobot \
     --local-dir examples/SimplerEnv/fractal20220817_data_lerobot/
 

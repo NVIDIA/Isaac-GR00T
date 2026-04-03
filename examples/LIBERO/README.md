@@ -22,7 +22,7 @@ For more information, see the [official website](https://libero-project.github.i
 To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments. Please remember to set `WANDB_API_KEY` since `--use-wandb` is turned on by default. If you don't have a WANDB account, please remove this argument:
 
 ```bash
-huggingface-cli download \
+uv run hf download \
     --repo-type dataset IPEC-COMMUNITY/libero_10_no_noops_1.0.0_lerobot \
     --local-dir examples/LIBERO/libero_10_no_noops_1.0.0_lerobot/
 
@@ -43,7 +43,7 @@ NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash exa
 # Fine-tune LIBERO goal
 
 ```bash
-huggingface-cli download \
+uv run hf download \
     --repo-type dataset IPEC-COMMUNITY/libero_goal_no_noops_1.0.0_lerobot \
     --local-dir examples/LIBERO/libero_goal_no_noops_1.0.0_lerobot/
 
@@ -65,7 +65,7 @@ NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash exa
 # Fine-tune LIBERO object
 
 ```bash
-huggingface-cli download \
+uv run hf download \
     --repo-type dataset IPEC-COMMUNITY/libero_object_no_noops_1.0.0_lerobot \
     --local-dir examples/LIBERO/libero_object_no_noops_1.0.0_lerobot/
 
@@ -85,7 +85,7 @@ NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash exa
 # Fine-tune LIBERO spatial
 
 ```bash
-huggingface-cli download \
+uv run hf download \
     --repo-type dataset IPEC-COMMUNITY/libero_spatial_no_noops_1.0.0_lerobot \
     --local-dir examples/LIBERO/libero_spatial_no_noops_1.0.0_lerobot/
 

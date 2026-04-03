@@ -35,18 +35,21 @@ GPU dependencies (`flash-attn`, `onnx`, `tensorrt`) are included in the default 
 
 Download the finetuned model to a local directory (HuggingFace does not support nested repo paths directly):
 
-```
+```bash
 uv run hf download nvidia/GR00T-N1.7-LIBERO \
   --include "libero_10/config.json" "libero_10/embodiment_id.json" \
   "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" \
   "libero_10/processor_config.json" "libero_10/statistics.json" \
   --local-dir checkpoints/GR00T-N1.7-LIBERO
 ```
+
 For demo dataset setup, see the [Getting Started section in the main README](../../README.md#getting-started).
 
-## Quick Start: PyTorch Mode
+---
 
-Run inference on demo trajectories using PyTorch.
+## Quick Start: PyTorch Inference
+
+Run inference on demo trajectories using PyTorch (no TRT setup needed):
 
 ```bash
 uv run python scripts/deployment/standalone_inference_script.py \
@@ -62,7 +65,8 @@ uv run python scripts/deployment/standalone_inference_script.py \
 
 ## TensorRT Acceleration
 
-The `n17_full_pipeline` mode accelerates all model components with TRT engines:
+The `n17_full_pipeline` mode accelerates all model components with TRT engines.
+Speedup varies by platform — see benchmark tables below for measured results on each device.
 
 | Component | Engine | Notes |
 |-----------|--------|-------|
@@ -82,53 +86,48 @@ Lightweight ops remain in PyTorch: `embed_tokens`, `masked_scatter`, `get_rope_i
 The `dit_only` export mode (`--export-mode dit_only`) optimizes only the action head DiT, leaving the backbone in PyTorch. This was the default in N1.6. For N1.7, **full_pipeline is recommended** as it accelerates the backbone (ViT + LLM) which dominates inference time.
 </details>
 
-### Step 1: Export to ONNX
+### Build TRT Engines
+
+The unified `build_trt_pipeline.py` script runs all steps (export ONNX → build engines → verify accuracy → benchmark) in a single command:
 
 ```bash
-uv run python scripts/deployment/export_onnx_n1d7.py \
+uv run python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --output-dir ./gr00t_n1d7_onnx \
-  --export-mode full_pipeline \
-  --embodiment-tag LIBERO_PANDA
+  --embodiment-tag libero_sim
 ```
 
-**Output:** ONNX files in `./gr00t_n1d7_onnx/` (LLM, VL Self-Attention, State Encoder, Action Encoder, DiT, Action Decoder)
-
-> **Finetuned models:** Replace `--model-path` with your checkpoint path. The export pipeline is identical for base and finetuned models.
-
-### Step 2: Build TensorRT Engines
-
-```bash
-uv run python scripts/deployment/build_tensorrt_engine.py \
-  --mode full_pipeline \
-  --onnx-dir ./gr00t_n1d7_onnx \
-  --engine-dir ./gr00t_n1d7_engines \
-  --precision bf16
-```
+> **Finetuned models:** Replace `--model-path` with your checkpoint path. The pipeline is identical for base and finetuned models.
 
 > **Note:** Engine build takes ~2-5 minutes depending on GPU. Engines are GPU-architecture-specific and must be rebuilt for different GPUs.
 
-### Step 3: Verify Accuracy
+You can also run a subset of steps:
 
 ```bash
-uv run python scripts/deployment/verify_n1d7_trt.py \
+# Export + build only (skip verify and benchmark)
+uv run python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --engine-dir ./gr00t_n1d7_engines \
-  --mode n17_full_pipeline
+  --embodiment-tag libero_sim \
+  --steps export,build
 ```
 
-Expected output: `Cosine Similarity: 0.999+` (PASS).
+<details>
+<summary>What each step does</summary>
 
-### Step 4: Run Benchmark
+The pipeline runs 4 steps in sequence:
 
-```bash
-uv run python scripts/deployment/benchmark_inference.py \
-    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-    --trt-engine-path ./gr00t_n1d7_engines \
-    --trt-mode n17_full_pipeline
-```
+1. **Export to ONNX** (`export`) — Exports all model components (LLM, VL Self-Attention, State Encoder, Action Encoder, DiT, Action Decoder) to ONNX format under `<output-dir>/onnx/`.
+2. **Build TensorRT Engines** (`build`) — Compiles each ONNX model into a GPU-specific TensorRT engine under `<output-dir>/engines/`.
+3. **Verify Accuracy** (`verify`) — Runs PyTorch vs TRT output comparison. Expected: `Cosine Similarity: 0.999+` (PASS).
+4. **Benchmark** (`benchmark`) — Measures E2E latency for PyTorch Eager, torch.compile, and TRT modes.
+
+Each step can be run individually via `--steps <step>`. Verbose logs are written to `<output-dir>/pipeline.log`.
+</details>
+
+---
+
+## Performance
 
 ### Benchmark Results
 
@@ -149,9 +148,32 @@ GR00T N1.7 Inference Timing (4 denoising steps):
 | Orin | torch.compile | 10 ms | 127 ms | 79 ms | 217 ms | 4.6 Hz | 1.57x |
 | Orin | **TensorRT (dit_only)** | **10 ms** | **127 ms** | **78 ms** | **215 ms** | **4.7 Hz** | **1.59x** |
 
+<details>
+<summary>Raw benchmark output (H100)</summary>
+
+```
+Hardware: NVIDIA H100 80GB HBM3
+Model: checkpoints/GR00T-N1.7-LIBERO/libero_10
+Action Horizon: 40, Denoising Steps: 4
+
+PyTorch Eager:
+  E2E:             median=164.7 ms, mean=164.5 ± 2.6 ms (6.1 Hz)
+  Backbone:        52.53 ms | Action Head: 103.30 ms
+
+torch.compile:
+  E2E:             median=72.7 ms, mean=73.0 ± 1.1 ms (13.8 Hz)
+  Backbone:        51.99 ms | Action Head: 13.58 ms
+
+TensorRT (n17_full_pipeline):
+  E2E:             median=29.6 ms, mean=29.9 ± 0.8 ms (33.8 Hz)
+  Backbone:        9.30 ms  | Action Head: 13.21 ms
+```
+</details>
+
 ### Standalone Inference with TRT
 
 The standalone inference script serves as both an accuracy validation and a reference for deploying TRT inference in your own code. It runs per-step inference on real trajectories and compares action predictions:
+
 ```bash
 uv run python scripts/deployment/standalone_inference_script.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
@@ -159,15 +181,15 @@ uv run python scripts/deployment/standalone_inference_script.py \
   --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 3 4 \
   --inference-mode trt_full_pipeline \
-  --trt-engine-path ./gr00t_n1d7_engines \
+  --trt-engine-path ./gr00t_trt_deployment/engines \
   --save-plot-path ./output/trt_inference.png
 ```
 
-Expected accuracy: MSE/MAE match PyTorch within noise. TRT produces identical action quality. Speedup varies by platform.
+Expected accuracy: MSE/MAE match PyTorch within noise. TRT produces identical action quality. Speedup varies by platform — run `build_trt_pipeline.py --steps benchmark` on your hardware for exact numbers.
 
 ### Optional: LIBERO Closed-Loop Sim Evaluation
 
-To validate TRT accuracy in end-to-end robotic tasks, run the LIBERO closed-loop evaluation. This requires a separate environment setup (simulator + dependencies).
+To validate TRT accuracy in end-to-end robotic tasks, run the LIBERO closed-loop evaluation. This requires a separate environment setup (~10-30 min, MuJoCo simulator + dependencies).
 
 <details>
 <summary>Setup, commands, and results (H100, 20 episodes)</summary>
@@ -179,6 +201,10 @@ Task: `KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it`, 20 episodes
 | PyTorch | 100% (20/20) |
 | TRT (n17_full_pipeline) | 95% (19/20) |
 
+Difference is within simulation noise (p >> 0.05).
+
+> **Note:** Use `--n-envs 1` for TRT evaluation (ViT engine has static shapes for single-observation inference).
+
 ```bash
 # One-time LIBERO setup (~10 min)
 bash gr00t/eval/sim/LIBERO/setup_libero.sh
@@ -187,41 +213,28 @@ bash gr00t/eval/sim/LIBERO/setup_libero.sh
 source gr00t/eval/sim/LIBERO/libero_uv/.venv/bin/activate
 uv pip install diffusers transformers accelerate safetensors torchcodec
 
-# PyTorch baseline
-python gr00t/eval/rollout_policy.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --env-name "libero_sim/KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it" \
-  --n-episodes 20 --n-envs 1 --max-episode-steps 504
-
-# TRT full pipeline
+# TRT full pipeline evaluation
 python gr00t/eval/rollout_policy.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --env-name "libero_sim/KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it" \
   --n-episodes 20 --n-envs 1 --max-episode-steps 504 \
-  --trt-engine-path ./gr00t_n1d7_engines \
+  --trt-engine-path ./gr00t_trt_deployment/engines \
   --trt-mode n17_full_pipeline
 ```
 </details>
 
-> Run `python scripts/deployment/benchmark_inference.py` to generate benchmarks for your hardware.
+> Run `python scripts/deployment/build_trt_pipeline.py --steps benchmark` to generate benchmarks for your hardware.
 
-> Jetson and Spark platforms use different dependency stacks than dGPU. Thor and Spark use CUDA 13 with PyTorch 2.10.0 from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130). Orin uses CUDA 12.6 with PyTorch 2.10.0 from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126). See the platform-specific setup sections below.
 ---
 
 ## Platform-Specific Setup
+
+> Jetson and Spark platforms use different dependency stacks than dGPU. Thor and Spark use CUDA 13 with PyTorch 2.10.0 from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130). Orin uses CUDA 12.6 with PyTorch 2.10.0 from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126).
 
 ### Jetson Thor Setup
 
 Thor uses CUDA 13 and Python 3.12, which require a different dependency stack than x86 or Orin.
 Tested with JetPack 7.1.
-
-> **Performance tip:** For best inference performance, set maximum power mode and lock clocks before running:
-> ```bash
-> sudo nvpmodel -m 0   # MAXN: maximum power mode
-> sudo jetson_clocks   # lock all clocks to maximum frequency
-> ```
-> Run `sudo nvpmodel -q` to verify the active mode. The benchmark numbers above were collected with these settings.
-
 There are two ways to run on Thor: Docker (recommended) or bare metal.
 
 <details>
@@ -236,11 +249,10 @@ cd docker && bash build.sh --profile=thor && cd ..
 Download the finetuned model (run once, on the host):
 
 ```bash
-huggingface-cli download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
+uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
 ```
 
-Start an interactive Docker session (recommended for multi-step TRT work).
-**Run from the repo root** so `$(pwd)` mounts the full repo into the container:
+Start an interactive Docker session (recommended for multi-step TRT work):
 
 ```bash
 docker run -it --rm --runtime nvidia --gpus all \
@@ -256,45 +268,13 @@ docker run -it --rm --runtime nvidia --gpus all \
   bash
 ```
 
-Then inside the container, run the full pipeline:
+Then inside the container, run the full TRT pipeline (export, build, verify, benchmark):
 
 ```bash
-# Step 1: PyTorch inference (quick sanity check)
-python scripts/deployment/standalone_inference_script.py \
+python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --embodiment-tag LIBERO_PANDA \
-  --traj-ids 0 \
-  --inference-mode pytorch \
-  --denoising-steps 4
-
-# Step 2: Export to ONNX
-python scripts/deployment/export_onnx_n1d7.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --dataset-path demo_data/libero_demo \
-  --output-dir ./gr00t_n1d7_onnx \
-  --export-mode full_pipeline \
-  --embodiment-tag LIBERO_PANDA
-
-# Step 3: Build TensorRT engines
-python scripts/deployment/build_tensorrt_engine.py \
-  --mode full_pipeline \
-  --onnx-dir ./gr00t_n1d7_onnx \
-  --engine-dir ./gr00t_n1d7_engines \
-  --precision bf16
-
-# Step 4: Verify TRT accuracy
-python scripts/deployment/verify_n1d7_trt.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --dataset-path demo_data/libero_demo \
-  --engine-dir ./gr00t_n1d7_engines \
-  --mode n17_full_pipeline
-
-# Step 5: Benchmark (PyTorch + torch.compile + TRT)
-python scripts/deployment/benchmark_inference.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --trt-engine-path ./gr00t_n1d7_engines \
-  --trt-mode n17_full_pipeline
+  --embodiment-tag libero_sim
 ```
 </details>
 
@@ -312,7 +292,7 @@ source .venv/bin/activate
 source scripts/activate_thor.sh
 ```
 
-Then run inference or benchmarks as shown in the Quick Start section above.
+Then run the TRT pipeline or PyTorch inference as shown in the [TensorRT Acceleration](#tensorrt-acceleration) and [Quick Start](#quick-start-pytorch-inference) sections above.
 The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
 and `torch.compile` need on Thor.
 </details>
@@ -337,11 +317,10 @@ cd docker && bash build.sh --profile=spark && cd ..
 Download the finetuned model (run once, on the host):
 
 ```bash
-huggingface-cli download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
+uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
 ```
 
-Start an interactive Docker session (recommended for multi-step TRT work).
-**Run from the repo root** so `$(pwd)` mounts the full repo into the container:
+Start an interactive Docker session (recommended for multi-step TRT work):
 
 ```bash
 docker run -it --rm --runtime nvidia --gpus all \
@@ -357,45 +336,13 @@ docker run -it --rm --runtime nvidia --gpus all \
   bash
 ```
 
-Then inside the container, run the full pipeline:
+Then inside the container, run the full TRT pipeline (export, build, verify, benchmark):
 
 ```bash
-# Step 1: PyTorch inference (quick sanity check)
-python scripts/deployment/standalone_inference_script.py \
+python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --embodiment-tag LIBERO_PANDA \
-  --traj-ids 0 \
-  --inference-mode pytorch \
-  --denoising-steps 4
-
-# Step 2: Export to ONNX
-python scripts/deployment/export_onnx_n1d7.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --dataset-path demo_data/libero_demo \
-  --output-dir ./gr00t_n1d7_onnx \
-  --export-mode full_pipeline \
-  --embodiment-tag LIBERO_PANDA
-
-# Step 3: Build TensorRT engines
-python scripts/deployment/build_tensorrt_engine.py \
-  --mode full_pipeline \
-  --onnx-dir ./gr00t_n1d7_onnx \
-  --engine-dir ./gr00t_n1d7_engines \
-  --precision bf16
-
-# Step 4: Verify TRT accuracy
-python scripts/deployment/verify_n1d7_trt.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --dataset-path demo_data/libero_demo \
-  --engine-dir ./gr00t_n1d7_engines \
-  --mode n17_full_pipeline
-
-# Step 5: Benchmark (PyTorch + torch.compile + TRT)
-python scripts/deployment/benchmark_inference.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --trt-engine-path ./gr00t_n1d7_engines \
-  --trt-mode n17_full_pipeline
+  --embodiment-tag libero_sim
 ```
 </details>
 
@@ -413,27 +360,19 @@ source .venv/bin/activate
 source scripts/activate_spark.sh
 ```
 
-Then run inference or benchmarks as shown in the Quick Start section above.
-Use `export_onnx_n1d7.py` and `build_tensorrt_engine.py` to prepare a Spark-specific TensorRT
-engine when you want the fastest action-head path. If you later rerun `uv sync`, rerun
-`bash scripts/deployment/spark/install_deps.sh` so the Spark-specific `flash-attn` build is
-restored and revalidated.
+Then run the TRT pipeline or PyTorch inference as shown in the [TensorRT Acceleration](#tensorrt-acceleration) and [Quick Start](#quick-start-pytorch-inference) sections above.
+If you later rerun `uv sync`, rerun `bash scripts/deployment/spark/install_deps.sh` so the
+Spark-specific `flash-attn` build is restored and revalidated.
 </details>
 
 ---
 
 ### Jetson Orin Setup
 
+> **Note:** On Orin, only the DiT (action head) TRT export is currently supported. Use `--export-mode dit_only` instead of `full_pipeline`. Full pipeline support is in progress.
+
 Orin uses CUDA 12.6 and Python 3.10 (JetPack 6.2), which require a different dependency stack than x86 or Thor.
 Tested with JetPack 6.2.
-
-> **Performance tip:** For best inference performance, set maximum power mode and lock clocks before running:
-> ```bash
-> sudo nvpmodel -m 0   # MAXN: maximum power mode
-> sudo jetson_clocks   # lock all clocks to maximum frequency
-> ```
-> Run `sudo nvpmodel -q` to verify the active mode. The benchmark numbers above were collected with these settings.
-
 There are two ways to run on Orin: Docker (recommended) or bare metal.
 
 <details>
@@ -448,11 +387,10 @@ cd docker && bash build.sh --profile=orin && cd ..
 Download the finetuned model (run once, on the host):
 
 ```bash
-huggingface-cli download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
+uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
 ```
 
-Start an interactive Docker session (recommended for multi-step TRT work).
-**Run from the repo root** so `$(pwd)` mounts the full repo into the container:
+Start an interactive Docker session (recommended for multi-step TRT work):
 
 ```bash
 docker run -it --rm --runtime nvidia --gpus all \
@@ -468,45 +406,14 @@ docker run -it --rm --runtime nvidia --gpus all \
   bash
 ```
 
-Then inside the container, run the full pipeline:
+Then inside the container, run the TRT pipeline (DiT-only on Orin):
 
 ```bash
-# Step 1: PyTorch inference (quick sanity check)
-python scripts/deployment/standalone_inference_script.py \
+python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --embodiment-tag LIBERO_PANDA \
-  --traj-ids 0 \
-  --inference-mode pytorch \
-  --denoising-steps 4
-
-# Step 2: Export to ONNX
-python scripts/deployment/export_onnx_n1d7.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --dataset-path demo_data/libero_demo \
-  --output-dir ./gr00t_n1d7_onnx \
-  --export-mode full_pipeline \
-  --embodiment-tag LIBERO_PANDA
-
-# Step 3: Build TensorRT engines
-python scripts/deployment/build_tensorrt_engine.py \
-  --mode full_pipeline \
-  --onnx-dir ./gr00t_n1d7_onnx \
-  --engine-dir ./gr00t_n1d7_engines \
-  --precision bf16
-
-# Step 4: Verify TRT accuracy (backbone TRT not supported on Orin; use action_head mode)
-python scripts/deployment/verify_n1d7_trt.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --dataset-path demo_data/libero_demo \
-  --engine-dir ./gr00t_n1d7_engines \
-  --mode action_head
-
-# Step 5: Benchmark PyTorch + torch.compile + TRT DiT
-python scripts/deployment/benchmark_inference.py \
-  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-  --trt-engine-path ./gr00t_n1d7_engines \
-  --trt-mode dit_only
+  --embodiment-tag libero_sim \
+  --export-mode dit_only
 ```
 </details>
 
@@ -524,7 +431,7 @@ source .venv/bin/activate
 source scripts/activate_orin.sh
 ```
 
-Then run inference or benchmarks as shown in the Quick Start section above.
+Then run the TRT pipeline (with `--export-mode dit_only`) or PyTorch inference as shown in the [TensorRT Acceleration](#tensorrt-acceleration) and [Quick Start](#quick-start-pytorch-inference) sections above.
 The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
 and `torch.compile` need on Orin.
 </details>
@@ -533,11 +440,11 @@ and `torch.compile` need on Orin.
 
 > **Orin TRT limitations:** TRT 10.3 on Orin does not support the backbone (LLM) engine — the build step will report a failure for `llm_bf16.engine` and that is expected. The remaining 6 engines build successfully. Use `--mode action_head` for verification and `--trt-mode dit_only` for inference:
 > ```bash
-> python scripts/deployment/verify_n1d7_trt.py \
+> python scripts/deployment/build_trt_pipeline.py \
 >   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
 >   --dataset-path demo_data/libero_demo \
->   --engine-dir ./gr00t_n1d7_engines \
->   --mode action_head
+>   --export-mode action_head \
+>   --steps verify
 >
 > python scripts/deployment/standalone_inference_script.py \
 >   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
@@ -552,68 +459,33 @@ and `torch.compile` need on Orin.
 
 ## Command-Line Arguments
 
-### `export_onnx_n1d7.py`
+### `build_trt_pipeline.py`
 
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--model-path` | (required) | Path to model checkpoint |
-| `--dataset-path` | (required) | Path to dataset (for input shape capture) |
-| `--embodiment-tag` | Auto-detected | Embodiment tag (auto-detected from model config if single embodiment) |
-| `--output-dir` | `./gr00t_n1d7_onnx` | Output directory for ONNX models |
-| `--export-mode` | `dit_only` | `dit_only`, `action_head`, or `full_pipeline` |
-| `--video-backend` | `torchcodec` | Video backend |
-| `--precision` | `bf16` | Export precision (`bf16`) |
-
-### `build_tensorrt_engine.py`
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--mode` | `single` | `single` (one engine) or `full_pipeline` (all 6) |
-| `--onnx-dir` | `./gr00t_n1d7_onnx` | Directory with ONNX models (full_pipeline mode) |
-| `--engine-dir` | `./gr00t_n1d7_engines` | Directory to save engines (full_pipeline mode) |
-| `--onnx` | — | Path to single ONNX model (single mode) |
-| `--engine` | — | Path to save single engine (single mode) |
-| `--precision` | `bf16` | Precision (`fp32`, `fp16`, `bf16`) |
-| `--workspace` | `8192` | Workspace size in MB |
-
-### `verify_n1d7_trt.py`
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--model-path` | (required) | Path to model checkpoint (local path) |
-| `--dataset-path` | `demo_data/libero_demo` | Path to dataset |
-| `--engine-dir` | `./gr00t_n1d7_engines` | Directory with TRT engines |
-| `--mode` | `action_head` | `action_head` or `n17_full_pipeline` |
-| `--embodiment-tag` | `LIBERO_PANDA` | Embodiment tag |
-
-### `benchmark_inference.py`
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--model-path` | `checkpoints/GR00T-N1.7-LIBERO/libero_10` | Path to model checkpoint (local path) |
-| `--dataset-path` | `demo_data/libero_demo` | Path to dataset |
-| `--embodiment-tag` | `libero_sim` | Embodiment tag to use |
-| `--trt-engine-path` | — | Path to TensorRT engines. If not provided, TensorRT benchmark is skipped |
+| `--dataset-path` | `demo_data/libero_demo` | Path to dataset (LeRobot format) |
+| `--embodiment-tag` | Auto-detected | Embodiment tag (auto-detected from processor_config.json if single embodiment) |
+| `--output-dir` | `./gr00t_trt_deployment` | Root output directory. ONNX → `<output-dir>/onnx/`, engines → `<output-dir>/engines/` |
+| `--precision` | `bf16` | Precision for ONNX export and TRT engine build (`bf16`, `fp16`, `fp32`) |
+| `--batch-size` | `1` | Batch size baked into exported ONNX/TRT models |
+| `--export-mode` | `full_pipeline` | Export mode: `dit_only`, `action_head`, or `full_pipeline` |
+| `--video-backend` | `torchcodec` | Video backend for dataset loading |
+| `--workspace` | `8192` | TRT builder workspace size in MB |
 | `--num-iterations` | `20` | Number of benchmark iterations |
 | `--warmup` | `5` | Number of warmup iterations |
-| `--seed` | `42` | Random seed for reproducibility |
-| `--trt-mode` | `dit_only` | TRT mode: `dit_only`, `n17_full_pipeline`, or `vit_llm_only` |
-| `--skip-compile` | `false` | Skip torch.compile benchmark (can take a while due to JIT compilation) |
-| `--use-trajectory` | `false` | Benchmark on full trajectory instead of single data point for more realistic timing |
-
----
+| `--skip-compile` | `false` | Skip torch.compile benchmark |
+| `--steps` | `all` | Steps to run: `all` or comma-separated subset of `export,build,verify,benchmark` |
+| `--log-file` | `<output-dir>/pipeline.log` | Log file path |
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `standalone_inference_script.py` | Main inference script (PyTorch, DiT-only TRT, or full-pipeline TRT) |
-| `export_onnx_n1d7.py` | Export N1.7 model components to ONNX (ViT, LLM, action head) |
-| `build_tensorrt_engine.py` | Build TensorRT engines from ONNX models |
+| `build_trt_pipeline.py` | Unified pipeline: export ONNX, build engines, verify, benchmark |
+| `standalone_inference_script.py` | Main inference script (PyTorch + DiT-only TensorRT) |
 | `trt_torch.py` | TRT Engine wrapper class (load, bind, execute) |
 | `trt_model_forward.py` | TRT forward functions and setup (backbone + action head) |
-| `verify_n1d7_trt.py` | Accuracy verification (PyTorch vs TRT output comparison) |
-| `benchmark_inference.py` | Benchmark timing for data processing, backbone, action head |
 
 ---
 
@@ -624,7 +496,7 @@ and `torch.compile` need on Orin.
 - Ensure you have enough GPU memory (16GB+ recommended for full pipeline)
 - Try reducing workspace size: `--workspace 4096`
 - Ensure TensorRT version matches your CUDA version
-- LLM engine requires `batch_size` dimension handling — update `build_tensorrt_engine.py` if using custom shape profiles
+- LLM engine requires `batch_size` dimension handling when using custom shape profiles
 
 ### ONNX Export Issues
 
@@ -636,4 +508,4 @@ and `torch.compile` need on Orin.
 
 - If cosine < 0.99: check that LLM export does NOT include the final RMSNorm (backbone returns pre-norm `hidden_states[-1]`)
 - If output magnitude is ~12x too small: this is the norm bug — see above
-- Run `verify_n1d7_trt.py --mode action_head` first to isolate backbone vs action head drift
+- Run `build_trt_pipeline.py --steps verify --export-mode action_head` first to isolate backbone vs action head drift

@@ -321,7 +321,7 @@ uv run python gr00t/eval/open_loop_eval.py \
 
 > **Tip:** If you get `ZMQError: Address already in use`, the default port 5555 is occupied. Use `--port <other_port>`.
 
-For connecting to a real robot (e.g., DROID hardware), see [examples/DROID/README.md](examples/DROID/README.md). For faster inference with TensorRT (up to 42 Hz on H100), see the [Deployment & Inference Guide](scripts/deployment/README.md).
+For connecting to a real robot (e.g., DROID hardware), see [examples/DROID/README.md](examples/DROID/README.md). For faster inference with TensorRT, see the [Deployment & Inference Guide](scripts/deployment/README.md).
 
 See the complete [Policy API Guide](getting_started/policy.md) for documentation on observation/action formats, batched inference, and troubleshooting.
 
@@ -335,7 +335,6 @@ Each benchmark has a self-contained README with dataset download, finetune, and 
 
 | Benchmark | Embodiment | Guide |
 |-----------|-----------|-------|
-| DROID | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | [examples/DROID/README.md](examples/DROID/README.md) |
 | LIBERO | `LIBERO_PANDA` | [examples/LIBERO/README.md](examples/LIBERO/README.md) |
 | SimplerEnv (Fractal) | `SIMPLER_ENV_GOOGLE` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
 | SimplerEnv (Bridge) | `SIMPLER_ENV_WIDOWX` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
@@ -441,8 +440,8 @@ We support evaluation on public benchmarks using a server-client architecture. T
 
 You can use [the verification script](scripts/eval/check_sim_eval_ready.py) to verify that all dependencies are properly configured.
 
-**Both Zero-shot and Finetuned** (evaluate with the base model, no finetuning):
-- [DROID](examples/DROID/README.md)
+**Zero-shot** (evaluate with the base model, no finetuning):
+- [DROID](examples/DROID/README.md) — real-world DROID robot
 
 **Finetuned** (evaluate with finetuned checkpoints):
 - [LIBERO](examples/LIBERO/README.md) — LIBERO benchmark (Franka Panda)

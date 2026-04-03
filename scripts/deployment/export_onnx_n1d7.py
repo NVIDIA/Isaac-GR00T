@@ -489,16 +489,16 @@ class Qwen3VisionForExport(torch.nn.Module):
 # ============================================================
 
 
-def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True):
+def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True, batch_size=1):
     """Export Qwen3-VL Vision Model to ONNX.
 
     Pre-computes position/rotary embeddings for the captured grid_thw to avoid
     ComplexDouble ops. Monkey-patches attention to use standard SDPA (valid for
     single-image inference where all patches attend to all patches).
 
-    Input: pixel_values [num_patches, C*T*pH*pW]
-    Output: image_embeds [num_merged_patches, hidden_dim],
-            deepstack_features [num_layers, num_merged_patches, hidden_dim]
+    Input: pixel_values [num_patches * batch_size, C*T*pH*pW]
+    Output: image_embeds [num_merged_patches * batch_size, hidden_dim],
+            deepstack_features [num_layers, num_merged_patches * batch_size, hidden_dim]
     """
     logger.info("\n" + "=" * 80)
     logger.info("Exporting ViT (Qwen3-VL Vision) to ONNX")
@@ -515,6 +515,9 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True):
     # grid_thw: [num_images, 3] where each row is (temporal, height, width)
     # cu_seqlens derived as: patches_per_image = h * w, repeated t times
     grid_thw = captured_vit.grid_thw.to(device="cuda")
+    # For batch_size > 1, repeat grid_thw to tile position embeddings for all batch elements
+    if batch_size > 1:
+        grid_thw = grid_thw.repeat(batch_size, 1)
     chunk_sizes = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]).tolist()
     logger.info(f"  grid_thw: {grid_thw.tolist()}, chunk_sizes: {chunk_sizes}")
 
@@ -526,7 +529,11 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True):
     wrapper = wrapper.to(dtype).eval().cuda()
 
     # Input: only pixel_values (grid_thw is baked into pre-computed buffers)
-    pixel_values = torch.randn(captured_vit.pixel_values_shape, dtype=dtype, device="cuda")
+    # For batch_size > 1, scale num_patches by batch_size
+    pv_shape = captured_vit.pixel_values_shape
+    if batch_size > 1:
+        pv_shape = (pv_shape[0] * batch_size, pv_shape[1])
+    pixel_values = torch.randn(pv_shape, dtype=dtype, device="cuda")
 
     logger.info(f"  pixel_values: {pixel_values.shape} ({pixel_values.dtype})")
 
@@ -574,7 +581,7 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True):
 # ============================================================
 
 
-def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True):
+def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True, batch_size=1):
     """Export the Qwen3-VL text model (LLM) to ONNX.
 
     The LLM receives inputs_embeds (with vision tokens already scattered in),
@@ -783,9 +790,9 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True):
     seq_len = captured_llm.inputs_embeds.shape[1]
     hidden_size = text_config.hidden_size
 
-    inputs_embeds = torch.randn(1, seq_len, hidden_size, dtype=dtype, device="cuda")
-    attention_mask = torch.ones(1, seq_len, dtype=torch.int64, device="cuda")
-    position_ids = torch.zeros(3, 1, seq_len, dtype=torch.int64, device="cuda")
+    inputs_embeds = torch.randn(batch_size, seq_len, hidden_size, dtype=dtype, device="cuda")
+    attention_mask = torch.ones(batch_size, seq_len, dtype=torch.int64, device="cuda")
+    position_ids = torch.zeros(3, batch_size, seq_len, dtype=torch.int64, device="cuda")
 
     export_inputs = [inputs_embeds, attention_mask, position_ids]
     input_names = ["inputs_embeds", "attention_mask", "position_ids"]
@@ -800,13 +807,22 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True):
     if num_deepstack > 0 and captured_llm.visual_pos_masks is not None:
         # Use actual captured mask so masked_scatter sizes match deepstack
         vis_mask = captured_llm.visual_pos_masks.to(device="cuda")
+        if vis_mask.shape[0] == 1 and batch_size > 1:
+            vis_mask = vis_mask.expand(batch_size, -1)
         export_inputs.append(vis_mask)
         input_names.append("visual_pos_masks")
         llm_dynamic_axes["visual_pos_masks"] = {1: "seq_len"}
 
         for i in range(num_deepstack):
             ds = captured_llm.deepstack_visual_embeds[i]
-            ds_dummy = torch.randn_like(ds, dtype=dtype, device="cuda")
+            # deepstack is [num_vis_tokens, hidden_size] — no batch dim.
+            # masked_scatter fills all B*num_vis_tokens positions, so repeat for batch_size > 1.
+            if batch_size > 1:
+                ds_dummy = torch.randn(
+                    batch_size * ds.shape[0], ds.shape[1], dtype=dtype, device="cuda"
+                )
+            else:
+                ds_dummy = torch.randn_like(ds, dtype=dtype, device="cuda")
             export_inputs.append(ds_dummy)
             name = f"deepstack_{i}"
             input_names.append(name)
@@ -892,7 +908,7 @@ def prepare_observation(policy, dataset, traj_idx=0):
 # ============================================================
 
 
-def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=True):
+def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=True, batch_size=1):
     """Export the vl_self_attention (SelfAttentionTransformer) to ONNX.
 
     This module sits between VLLN and the DiT, transforming backbone
@@ -915,7 +931,7 @@ def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=Tr
     model = vl_sa.to(dtype).eval().cuda()
 
     hidden_states = torch.randn(
-        1, vl_seq_len, config.backbone_embedding_dim, dtype=dtype, device="cuda"
+        batch_size, vl_seq_len, config.backbone_embedding_dim, dtype=dtype, device="cuda"
     )
     logger.info(f"  hidden_states: {hidden_states.shape} ({hidden_states.dtype})")
 
@@ -948,7 +964,7 @@ def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=Tr
 # ============================================================
 
 
-def export_state_encoder_to_onnx(policy, output_dir, use_bf16=True):
+def export_state_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=1):
     """Export the state encoder (CategorySpecificMLP) to ONNX.
 
     N1.7 change: input_dim = max_state_dim * state_history_length.
@@ -970,8 +986,8 @@ def export_state_encoder_to_onnx(policy, output_dir, use_bf16=True):
 
     # N1.7: state is flattened to [B, 1, max_state_dim * state_history_length]
     state_input_dim = config.max_state_dim * config.state_history_length
-    state = torch.randn(1, 1, state_input_dim, dtype=dtype, device="cuda")
-    embodiment_id = torch.zeros(1, dtype=torch.int64, device="cuda")
+    state = torch.randn(batch_size, 1, state_input_dim, dtype=dtype, device="cuda")
+    embodiment_id = torch.zeros(batch_size, dtype=torch.int64, device="cuda")
 
     logger.info(f"  state: {state.shape} ({state.dtype})")
     logger.info(f"  embodiment_id: {embodiment_id.shape} ({embodiment_id.dtype})")
@@ -1005,7 +1021,7 @@ def export_state_encoder_to_onnx(policy, output_dir, use_bf16=True):
 # ============================================================
 
 
-def export_action_encoder_to_onnx(policy, output_dir, use_bf16=True):
+def export_action_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=1):
     """Export the action encoder (MultiEmbodimentActionEncoder) to ONNX.
 
     Input: actions [B, action_horizon, max_action_dim], timesteps [B], embodiment_id [B]
@@ -1022,10 +1038,10 @@ def export_action_encoder_to_onnx(policy, output_dir, use_bf16=True):
     model = action_encoder.to(dtype).eval().cuda()
 
     actions = torch.randn(
-        1, config.action_horizon, config.max_action_dim, dtype=dtype, device="cuda"
+        batch_size, config.action_horizon, config.max_action_dim, dtype=dtype, device="cuda"
     )
-    timesteps = torch.zeros(1, dtype=torch.int64, device="cuda")
-    embodiment_id = torch.zeros(1, dtype=torch.int64, device="cuda")
+    timesteps = torch.zeros(batch_size, dtype=torch.int64, device="cuda")
+    embodiment_id = torch.zeros(batch_size, dtype=torch.int64, device="cuda")
 
     logger.info(f"  actions: {actions.shape} ({actions.dtype})")
     logger.info(f"  timesteps: {timesteps.shape} ({timesteps.dtype})")
@@ -1056,7 +1072,7 @@ def export_action_encoder_to_onnx(policy, output_dir, use_bf16=True):
 # ============================================================
 
 
-def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True):
+def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batch_size=1):
     """Export the DiT (AlternateVLDiT) to ONNX.
 
     N1.7: image_mask and backbone_attention_mask are always present
@@ -1078,9 +1094,14 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True):
     dtype = torch.bfloat16 if use_bf16 else torch.float32
     dit_model = dit_model.to(dtype).cuda()
 
-    sa_embs = torch.randn(captured_inputs.sa_embs.shape, dtype=dtype, device="cuda")
-    vl_embs = torch.randn(captured_inputs.vl_embs.shape, dtype=dtype, device="cuda")
-    timestep = torch.ones(captured_inputs.timestep.shape, dtype=torch.int64, device="cuda")
+    # Use captured shapes but replace batch dim (index 0) with batch_size
+    sa_shape = (batch_size,) + captured_inputs.sa_embs.shape[1:]
+    vl_shape = (batch_size,) + captured_inputs.vl_embs.shape[1:]
+    ts_shape = (batch_size,)
+
+    sa_embs = torch.randn(sa_shape, dtype=dtype, device="cuda")
+    vl_embs = torch.randn(vl_shape, dtype=dtype, device="cuda")
+    timestep = torch.ones(ts_shape, dtype=torch.int64, device="cuda")
 
     export_inputs = [sa_embs, vl_embs, timestep]
     input_names = ["sa_embs", "vl_embs", "timestep"]
@@ -1088,14 +1109,14 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True):
     has_backbone_mask = captured_inputs.backbone_attention_mask is not None
 
     if has_image_mask:
-        image_mask = torch.ones(captured_inputs.image_mask.shape, dtype=torch.bool, device="cuda")
+        im_shape = (batch_size,) + captured_inputs.image_mask.shape[1:]
+        image_mask = torch.ones(im_shape, dtype=torch.bool, device="cuda")
         export_inputs.append(image_mask)
         input_names.append("image_mask")
 
     if has_backbone_mask:
-        backbone_attention_mask = torch.ones(
-            captured_inputs.backbone_attention_mask.shape, dtype=torch.bool, device="cuda"
-        )
+        bm_shape = (batch_size,) + captured_inputs.backbone_attention_mask.shape[1:]
+        backbone_attention_mask = torch.ones(bm_shape, dtype=torch.bool, device="cuda")
         export_inputs.append(backbone_attention_mask)
         input_names.append("backbone_attention_mask")
 
@@ -1179,7 +1200,7 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True):
 # ============================================================
 
 
-def export_action_decoder_to_onnx(policy, output_dir, use_bf16=True):
+def export_action_decoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=1):
     """Export the action decoder (CategorySpecificMLP) to ONNX.
 
     Input: model_output [B, sa_seq_len, hidden_size], embodiment_id [B]
@@ -1197,8 +1218,10 @@ def export_action_decoder_to_onnx(policy, output_dir, use_bf16=True):
 
     # sa_seq_len = 1 (state) + action_horizon
     sa_seq_len = 1 + config.action_horizon
-    model_output = torch.randn(1, sa_seq_len, config.hidden_size, dtype=dtype, device="cuda")
-    embodiment_id = torch.zeros(1, dtype=torch.int64, device="cuda")
+    model_output = torch.randn(
+        batch_size, sa_seq_len, config.hidden_size, dtype=dtype, device="cuda"
+    )
+    embodiment_id = torch.zeros(batch_size, dtype=torch.int64, device="cuda")
 
     logger.info(f"  model_output: {model_output.shape} ({model_output.dtype})")
     logger.info(f"  embodiment_id: {embodiment_id.shape} ({embodiment_id.dtype})")
@@ -1237,6 +1260,7 @@ def main(args):
     logger.info(f"Dataset path: {args.dataset_path}")
     logger.info(f"Embodiment: {args.embodiment_tag}")
     logger.info(f"Export mode: {args.export_mode}")
+    logger.info(f"Batch size: {args.batch_size}")
     logger.info(f"Output directory: {args.output_dir}")
     logger.info("=" * 80)
 
@@ -1347,6 +1371,7 @@ def main(args):
         "embodiment_tag": str(args.embodiment_tag),
         "export_mode": args.export_mode,
         "precision": args.precision,
+        "batch_size": args.batch_size,
     }
     os.makedirs(args.output_dir, exist_ok=True)
     metadata_path = os.path.join(args.output_dir, "export_metadata.json")
@@ -1355,6 +1380,7 @@ def main(args):
     logger.info(f"  Saved export metadata to {metadata_path}")
 
     # Step 4: Export
+    bs = args.batch_size
     if args.export_mode == "dit_only":
         logger.info("\n[Step 4] Exporting DiT to ONNX (dit_only mode)...")
         dit_output_path = os.path.join(args.output_dir, "dit_bf16.onnx")
@@ -1363,6 +1389,7 @@ def main(args):
             captured_inputs=dit_capture,
             output_path=dit_output_path,
             use_bf16=True,
+            batch_size=bs,
         )
 
     elif args.export_mode == "action_head":
@@ -1370,11 +1397,11 @@ def main(args):
 
         # 4a. State Encoder
         logger.info("\n--- [4a] State Encoder ---")
-        export_state_encoder_to_onnx(policy, args.output_dir, use_bf16=True)
+        export_state_encoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
 
         # 4b. Action Encoder
         logger.info("\n--- [4b] Action Encoder ---")
-        export_action_encoder_to_onnx(policy, args.output_dir, use_bf16=True)
+        export_action_encoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
 
         # 4c. DiT
         logger.info("\n--- [4c] DiT ---")
@@ -1384,37 +1411,39 @@ def main(args):
             captured_inputs=dit_capture,
             output_path=dit_output_path,
             use_bf16=True,
+            batch_size=bs,
         )
 
         # 4d. Action Decoder
         logger.info("\n--- [4d] Action Decoder ---")
-        export_action_decoder_to_onnx(policy, args.output_dir, use_bf16=True)
+        export_action_decoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
 
     elif args.export_mode == "full_pipeline":
         logger.info("\n[Step 4] Exporting full pipeline to ONNX...")
         logger.info("  (ViT TRT + LLM TRT + Action Head TRT)")
 
         # 4a. ViT — exported in FP32 to avoid TRT BF16 kernel fusion accuracy issues
+        # ViT is patch-level: for batch_size > 1, num_patches scales by batch_size
         logger.info("\n--- [4a] ViT (Qwen3-VL Vision, FP32 for TRT accuracy) ---")
-        export_vit_to_onnx(policy, args.output_dir, vit_capture, use_bf16=False)
+        export_vit_to_onnx(policy, args.output_dir, vit_capture, use_bf16=False, batch_size=bs)
 
         # 4b. LLM
         logger.info("\n--- [4b] LLM (Qwen3-VL Text Model) ---")
-        export_llm_to_onnx(policy, llm_capture, args.output_dir, use_bf16=True)
+        export_llm_to_onnx(policy, llm_capture, args.output_dir, use_bf16=True, batch_size=bs)
 
         # 4c. VL Self-Attention (if present)
         logger.info("\n--- [4c] VL Self-Attention ---")
         export_vl_self_attention_to_onnx(
-            policy, args.output_dir, vl_seq_len=vl_seq_len, use_bf16=True
+            policy, args.output_dir, vl_seq_len=vl_seq_len, use_bf16=True, batch_size=bs
         )
 
         # 4d. State Encoder
         logger.info("\n--- [4d] State Encoder ---")
-        export_state_encoder_to_onnx(policy, args.output_dir, use_bf16=True)
+        export_state_encoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
 
         # 4e. Action Encoder
         logger.info("\n--- [4e] Action Encoder ---")
-        export_action_encoder_to_onnx(policy, args.output_dir, use_bf16=True)
+        export_action_encoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
 
         # 4f. DiT
         logger.info("\n--- [4f] DiT ---")
@@ -1424,11 +1453,12 @@ def main(args):
             captured_inputs=dit_capture,
             output_path=dit_output_path,
             use_bf16=True,
+            batch_size=bs,
         )
 
         # 4g. Action Decoder
         logger.info("\n--- [4g] Action Decoder ---")
-        export_action_decoder_to_onnx(policy, args.output_dir, use_bf16=True)
+        export_action_decoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
 
     # Summary
     logger.info("\n" + "=" * 80)
@@ -1467,6 +1497,9 @@ class ExportConfig:
 
     precision: Literal["bf16", "fp8"] = "bf16"
     """Export precision: 'bf16' (default) or 'fp8' (TODO for N1.7)."""
+
+    batch_size: int = 1
+    """Batch size baked into the exported ONNX models (default: 1)."""
 
 
 if __name__ == "__main__":
