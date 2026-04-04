@@ -233,6 +233,34 @@ def create_eval_env(
     return env
 
 
+class _RobustAsyncVectorEnv(gym.vector.AsyncVectorEnv):
+    """AsyncVectorEnv that tolerates variable-shaped info arrays across envs.
+
+    Gymnasium's default _add_info pre-allocates a numpy array based on the
+    first env's value shape and then assigns subsequent envs into it.  When
+    envs return differently-shaped values (e.g. variable-length contact arrays)
+    the assignment raises ValueError.  We catch that and fall back to a plain
+    Python list for that key so the rest of the step can proceed normally.
+    """
+
+    def _add_info(self, infos, info, env_num):
+        for k, v in info.items():
+            if k not in infos:
+                infos[k] = [None] * self.num_envs
+                infos[f"_{k}"] = np.zeros(self.num_envs, dtype=bool)
+            if isinstance(infos[k], np.ndarray):
+                try:
+                    infos[k][env_num] = v
+                except (ValueError, TypeError):
+                    lst = list(infos[k])
+                    lst[env_num] = v
+                    infos[k] = lst
+            else:
+                infos[k][env_num] = v
+            infos[f"_{k}"][env_num] = True
+        return infos
+
+
 def run_rollout_gymnasium_policy(
     env_name: str,
     policy: BasePolicy,
@@ -270,7 +298,7 @@ def run_rollout_gymnasium_policy(
     if n_envs == 1:
         env = gym.vector.SyncVectorEnv(env_fns)
     else:
-        env = gym.vector.AsyncVectorEnv(
+        env = _RobustAsyncVectorEnv(
             env_fns,
             shared_memory=False,
             context="spawn",
