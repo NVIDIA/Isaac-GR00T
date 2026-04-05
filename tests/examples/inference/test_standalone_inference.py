@@ -34,15 +34,13 @@ import pathlib
 import subprocess
 
 import pytest
-
-from tests.examples.utils import build_uv_runtime_env, run_subprocess_step
+from test_support.runtime import SHARED_DRIVE_ROOT, build_uv_runtime_env, run_subprocess_step
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 
 _HF_REPO_ID = "nvidia/GR00T-N1.7-LIBERO"
 _HF_SUBDIR = "libero_10"
-SHARED_DRIVE_ROOT = pathlib.Path("/shared")
 SHARED_LIBERO_MODEL = SHARED_DRIVE_ROOT / "models/GR00T-N1.7-LIBERO/libero_10"
 
 

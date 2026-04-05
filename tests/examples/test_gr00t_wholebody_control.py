@@ -27,6 +27,7 @@ from test_support.runtime import (
     find_nvidia_egl_vendor_file,
     get_root,
     run_subprocess_step,
+    start_server_process,
     wait_for_server_ready,
 )
 
@@ -38,6 +39,11 @@ README = REPO_ROOT / "examples/GR00T-WholeBodyControl/README.md"
 
 @pytest.mark.gpu
 @pytest.mark.timeout(1800)
+@pytest.mark.skip(
+    reason="UNITREE_G1 is a posttrain tag requiring a finetuned checkpoint; "
+    "the base model's pretrain tags (e.g. REAL_G1) have incompatible video "
+    "horizon with the G1 sim environment. Re-enable when an N1.7 G1 checkpoint is available."
+)
 def test_gr00t_wholebody_control_readme_eval_flow() -> None:
     """Run the G1 LocoManipulation README server+client eval using the remote checkpoint."""
 
@@ -59,11 +65,20 @@ def test_gr00t_wholebody_control_readme_eval_flow() -> None:
     model_server_host = "127.0.0.1"
     model_server_port = 5554
 
-    # Step 2: Server — remote checkpoint, inject test-specific flags
+    # Step 2: Server — use the base model with REAL_G1 pretrain tag (no finetuned
+    # G1 checkpoint for N1.7 yet; UNITREE_G1 is a posttrain tag that requires one).
     server_code = replace_once(
-        find_block(blocks, "nvidia/GR00T-N1.6-G1-PnPAppleToPlate", language="bash").code,
-        "uv run python gr00t/eval/run_gr00t_server.py",
-        "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
+        replace_once(
+            replace_once(
+                find_block(blocks, "nvidia/GR00T-N1.6-G1-PnPAppleToPlate", language="bash").code,
+                "uv run python gr00t/eval/run_gr00t_server.py",
+                "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
+            ),
+            "nvidia/GR00T-N1.6-G1-PnPAppleToPlate",
+            "nvidia/GR00T-N1.7-3B",
+        ),
+        "--embodiment-tag UNITREE_G1",
+        "--embodiment-tag REAL_G1",
     )
     server_code += f" --device cuda:0 --host {model_server_host} --port {model_server_port}"
 
@@ -81,11 +96,7 @@ def test_gr00t_wholebody_control_readme_eval_flow() -> None:
     rollout_code += f" --policy-client-host {model_server_host} --policy-client-port {model_server_port} --n-envs 1"
 
     assert_port_available(model_server_host, model_server_port)
-    model_server_proc = subprocess.Popen(
-        ["bash", "-c", server_code],
-        cwd=REPO_ROOT,
-        env=env,
-    )
+    model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
     wait_for_server_ready(
         proc=model_server_proc,
         host=model_server_host,
@@ -93,6 +104,7 @@ def test_gr00t_wholebody_control_readme_eval_flow() -> None:
         timeout_s=float(
             os.getenv("G1_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
         ),
+        server_log=server_log,
     )
 
     try:

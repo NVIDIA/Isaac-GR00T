@@ -22,6 +22,7 @@ import pathlib
 import re
 import socket
 import subprocess
+import tempfile
 import time
 
 
@@ -248,17 +249,55 @@ def assert_port_available(host: str, port: int) -> None:
             ) from exc
 
 
+def start_server_process(
+    server_code: str,
+    *,
+    cwd: pathlib.Path,
+    env: dict[str, str],
+) -> tuple[subprocess.Popen, pathlib.Path]:
+    """Start a model server subprocess with stderr captured to a temp file.
+
+    Returns the Popen object and the path to the stderr log file.  On failure
+    the caller should read and print the log so CI output includes the error.
+    """
+    stderr_log = pathlib.Path(tempfile.mktemp(prefix="server_stderr_", suffix=".log"))
+    stderr_fh = open(stderr_log, "w")  # noqa: SIM115
+    proc = subprocess.Popen(
+        ["bash", "-c", server_code],
+        cwd=cwd,
+        env=env,
+        stdout=stderr_fh,
+        stderr=stderr_fh,
+    )
+    return proc, stderr_log
+
+
+def _dump_server_log(log_path: pathlib.Path, tail_chars: int = 8000) -> str:
+    """Read the tail of a server log file and return it as a string."""
+    try:
+        text = log_path.read_text()
+        return text[-tail_chars:] if len(text) > tail_chars else text
+    except OSError:
+        return "<server log not available>"
+
+
 def wait_for_server_ready(
     proc: subprocess.Popen,
     host: str,
     port: int,
     timeout_s: float,
+    server_log: pathlib.Path | None = None,
 ) -> None:
     """Wait until the server accepts TCP connections, or raise if it dies/times out."""
     deadline = time.monotonic() + timeout_s
     while True:
         if proc.poll() is not None:
-            raise AssertionError(f"Model server failed to start.\nreturncode={proc.returncode}")
+            log_info = ""
+            if server_log is not None:
+                log_info = f"\nServer output:\n{_dump_server_log(server_log)}"
+            raise AssertionError(
+                f"Model server failed to start.\nreturncode={proc.returncode}{log_info}"
+            )
         try:
             with socket.create_connection((host, port), timeout=1.0):
                 elapsed = time.monotonic() - deadline + timeout_s
@@ -273,10 +312,13 @@ def wait_for_server_ready(
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait(timeout=15)
+                log_info = ""
+                if server_log is not None:
+                    log_info = f"\nServer output:\n{_dump_server_log(server_log)}"
                 raise AssertionError(
                     "Model server did not become ready before timeout.\n"
                     f"timeout_seconds={timeout_s}\n"
-                    "Set the corresponding env var to override."
+                    f"Set the corresponding env var to override.{log_info}"
                 )
             time.sleep(0.5)
 
