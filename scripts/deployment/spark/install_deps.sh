@@ -52,6 +52,18 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
+# CUDA dev packages — Spark BSP only ships runtime libs; cmake builds (e.g.
+# flash-attn, torchcodec) need the compiler and headers.
+# ──────────────────────────────────────────────────────────────────────────────
+if ! dpkg -s cuda-nvcc-13-0 &>/dev/null; then
+    echo "Installing CUDA dev packages (nvcc, cudart-dev, nvrtc-dev)..."
+    $SUDO apt-get install -y --no-install-recommends \
+        cuda-nvcc-13-0 cuda-cudart-dev-13-0 cuda-nvrtc-dev-13-0
+else
+    echo "CUDA dev packages already installed."
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Python environment
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -86,35 +98,72 @@ export C_INCLUDE_PATH="${CUDA_HOME}/include:${C_INCLUDE_PATH:-}"
 export CPLUS_INCLUDE_PATH="${CUDA_HOME}/include:${CPLUS_INCLUDE_PATH:-}"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# flash-attn — source build for Spark sm121
+# flash-attn — prebuilt wheel or source build for Spark sm121
+#
+# Priority: 1) local wheel in wheels/  2) PVC cache  3) source build
+# After a source build the wheel is saved to the PVC cache so subsequent
+# runs (and other CI jobs) can skip the expensive compilation.
 # ──────────────────────────────────────────────────────────────────────────────
-echo "Installing build dependencies for flash-attn source build..."
-$SUDO apt-get update -qq
-$SUDO apt-get install -y --no-install-recommends \
-    cmake \
-    git \
-    ninja-build \
-    python3-dev
+FLASH_ATTN_WHL=""
 
-echo "Rebuilding flash-attn from source for Spark..."
-uv pip install --python "$VENV_PYTHON" pip
-export MAX_JOBS="${MAX_JOBS:-1}"
-export NVCC_THREADS="${NVCC_THREADS:-1}"
-export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"
-export FLASH_ATTN_CUDA_ARCHS="${FLASH_ATTN_CUDA_ARCHS:-121}"
-export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-12.1}"
-rm -rf /tmp/flash-attn
-git clone --depth 1 --branch v2.8.3 https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attn
-rm -rf /tmp/flash-attn/csrc/cutlass
-git clone --depth 1 https://github.com/NVIDIA/cutlass.git /tmp/flash-attn/csrc/cutlass
-rm -rf /tmp/flash-attn/.git
-sed -i 's/FLASH_ATTN_CUDA_ARCHS", "80;90;100;120"/FLASH_ATTN_CUDA_ARCHS", "121"/' /tmp/flash-attn/setup.py
-perl -0pi -e 's/if bare_metal_version >= Version\\("12\\.8"\\) and "100" in cuda_archs\\(\\):\\n            cc_flag\\.append\\("-gencode"\\)\\n            cc_flag\\.append\\("arch=compute_100,code=sm_100"\\)\\n        if bare_metal_version >= Version\\("12\\.8"\\) and "120" in cuda_archs\\(\\):\\n            cc_flag\\.append\\("-gencode"\\)\\n            cc_flag\\.append\\("arch=compute_120,code=sm_120"\\)/if bare_metal_version >= Version("12.8") and "100" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_100,code=sm_100")\\n        if bare_metal_version >= Version("12.8") and "120" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_120,code=sm_120")\\n        if bare_metal_version >= Version("12.8") and "121" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_121,code=sm_121")/' /tmp/flash-attn/setup.py
-"$VENV_PYTHON" -m pip install \
-    --no-build-isolation \
-    --force-reinstall \
-    --no-deps \
-    /tmp/flash-attn
+# 1) Check for a prebuilt wheel shipped in-repo (git-lfs tracked)
+LOCAL_WHL=$(find "$SCRIPT_DIR/wheels" -name 'flash_attn-*.whl' -print -quit 2>/dev/null || true)
+if [ -n "$LOCAL_WHL" ]; then
+    echo "Found local flash-attn wheel: $LOCAL_WHL"
+    FLASH_ATTN_WHL="$LOCAL_WHL"
+fi
+
+# 2) Check shared cache directory (set GROOT_CACHE_DIR to enable)
+if [ -z "$FLASH_ATTN_WHL" ] && [ -n "${GROOT_CACHE_DIR:-}" ]; then
+    PVC_WHL_DIR="${GROOT_CACHE_DIR}/wheels/spark"
+    PVC_WHL=$(find "$PVC_WHL_DIR" -name 'flash_attn-*.whl' -print -quit 2>/dev/null || true)
+    if [ -n "$PVC_WHL" ]; then
+        echo "Found PVC-cached flash-attn wheel: $PVC_WHL"
+        FLASH_ATTN_WHL="$PVC_WHL"
+    fi
+fi
+
+if [ -n "$FLASH_ATTN_WHL" ]; then
+    echo "Installing flash-attn from prebuilt wheel..."
+    uv pip install --python "$VENV_PYTHON" --force-reinstall --no-deps "$FLASH_ATTN_WHL"
+else
+    echo "No prebuilt flash-attn wheel found — building from source (this takes 45-90 min)..."
+    echo "To skip this in the future, commit the built wheel to scripts/deployment/spark/wheels/"
+
+    $SUDO apt-get update -qq
+    $SUDO apt-get install -y --no-install-recommends \
+        cmake \
+        git \
+        ninja-build \
+        python3-dev
+
+    uv pip install --python "$VENV_PYTHON" pip
+    export MAX_JOBS="${MAX_JOBS:-$(nproc)}"
+    export NVCC_THREADS="${NVCC_THREADS:-1}"
+    export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-$(nproc)}"
+    export FLASH_ATTN_CUDA_ARCHS="${FLASH_ATTN_CUDA_ARCHS:-121}"
+    export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-12.1}"
+    rm -rf /tmp/flash-attn
+    git clone --depth 1 --branch v2.8.3 https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attn
+    rm -rf /tmp/flash-attn/csrc/cutlass
+    git clone --depth 1 https://github.com/NVIDIA/cutlass.git /tmp/flash-attn/csrc/cutlass
+    rm -rf /tmp/flash-attn/.git
+    sed -i 's/FLASH_ATTN_CUDA_ARCHS", "80;90;100;120"/FLASH_ATTN_CUDA_ARCHS", "121"/' /tmp/flash-attn/setup.py
+    perl -0pi -e 's/if bare_metal_version >= Version\\("12\\.8"\\) and "100" in cuda_archs\\(\\):\\n            cc_flag\\.append\\("-gencode"\\)\\n            cc_flag\\.append\\("arch=compute_100,code=sm_100"\\)\\n        if bare_metal_version >= Version\\("12\\.8"\\) and "120" in cuda_archs\\(\\):\\n            cc_flag\\.append\\("-gencode"\\)\\n            cc_flag\\.append\\("arch=compute_120,code=sm_120"\\)/if bare_metal_version >= Version("12.8") and "100" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_100,code=sm_100")\\n        if bare_metal_version >= Version("12.8") and "120" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_120,code=sm_120")\\n        if bare_metal_version >= Version("12.8") and "121" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_121,code=sm_121")/' /tmp/flash-attn/setup.py
+    "$VENV_PYTHON" -m pip install \
+        --no-build-isolation \
+        --force-reinstall \
+        --no-deps \
+        /tmp/flash-attn
+
+    # Cache the built wheel for future runs
+    BUILT_WHL=$(find /tmp/flash-attn/dist -name 'flash_attn-*.whl' -print -quit 2>/dev/null || true)
+    if [ -n "$BUILT_WHL" ] && [ -n "${GROOT_CACHE_DIR:-}" ]; then
+        mkdir -p "${GROOT_CACHE_DIR}/wheels/spark"
+        cp "$BUILT_WHL" "${GROOT_CACHE_DIR}/wheels/spark/"
+        echo "Cached built wheel to ${GROOT_CACHE_DIR}/wheels/spark/"
+    fi
+fi
 
 # ──────────────────────────────────────────────────────────────────────────────
 # torchcodec — build from source against system FFmpeg

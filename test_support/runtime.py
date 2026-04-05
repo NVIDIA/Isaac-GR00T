@@ -47,6 +47,46 @@ def get_root() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parents[1]
 
 
+def resolve_shared_model_path(
+    repo_id: str,
+    *,
+    subdir: str | None = None,
+    allow_patterns: list[str] | None = None,
+) -> pathlib.Path:
+    """Return a shared model path, downloading once if not present.
+
+    Models are stored at ``SHARED_DRIVE_ROOT/models/<repo_name>/`` so all tests
+    share a single copy.  If *subdir* is given the returned path points to that
+    subdirectory (useful for HF repos with nested checkpoint folders).
+
+    Args:
+        repo_id: HuggingFace repo id, e.g. ``"nvidia/GR00T-N1.7-3B"``.
+        subdir: Optional subdirectory within the downloaded repo.
+        allow_patterns: Optional list of file patterns to download (passed to
+            ``snapshot_download``).  If ``None`` the entire repo is fetched.
+    """
+    model_name = repo_id.split("/")[-1]
+    model_root = SHARED_DRIVE_ROOT / "models" / model_name
+    target = model_root / subdir if subdir else model_root
+
+    # Quick check: already downloaded?
+    if target.is_dir() and any(target.iterdir()):
+        return target
+
+    token = os.environ.get("HF_TOKEN", "")
+    assert token, "HF_TOKEN is required to download gated models. Set via: export HF_TOKEN=hf_..."
+
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(
+        repo_id=repo_id,
+        local_dir=str(model_root),
+        token=token,
+        **({"allow_patterns": allow_patterns} if allow_patterns else {}),
+    )
+    return target
+
+
 EGL_VENDOR_DIRS = [
     pathlib.Path("/usr/share/glvnd/egl_vendor.d"),
     pathlib.Path("/etc/glvnd/egl_vendor.d"),

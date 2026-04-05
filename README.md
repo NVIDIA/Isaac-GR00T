@@ -8,7 +8,8 @@
     <a href="https://developer.nvidia.com/isaac/gr00t"><strong>Website</strong></a> |
     <a href="https://huggingface.co/nvidia/GR00T-N1.7-3B"><strong>Model</strong></a> |
     <a href="https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim"><strong>Dataset</strong></a> |
-    <a href="https://arxiv.org/abs/2503.14734"><strong>Paper</strong></a>
+    <a href="https://arxiv.org/abs/2503.14734"><strong>Paper</strong></a> |
+    <a href="https://developer.nvidia.com/isaac"><strong>NVIDIA Isaac</strong></a>
   </p>
 </div>
 
@@ -61,17 +62,6 @@ GR00T N1.7 builds on N1.6 with a new VLM backbone and code-level improvements.
 - **New VLM backbone:** Cosmos-Reason2-2B (Qwen3-VL architecture), replacing the Eagle backbone used in N1.6. Supports flexible resolution and encodes images in their native aspect ratio without padding.
 - Simplified data processing pipeline (`processing_gr00t_n1d7.py`).
 - Added full pipeline export to ONNX and TensorRT with improved frequency.
-- Added more supported robot embodiments.
-
-### Inherited from N1.6 (vs N1.5)
-
-The following improvements were introduced in N1.6 and carry forward in N1.7:
-- 2x larger DiT action head (32 layers vs 16 in N1.5).
-- Removed N1.5's post-VLM 4-layer transformer adapter; instead unfreezes top 4 VLM layers during pretraining.
-- State-relative action chunks for most embodiments (vs absolute joint angles / EEF positions in N1.5).
-- Expanded pretraining data: bimanual YAM arms, AGIBot Genie1, Unitree G1 whole-body locomanipulation.
-- Faster dataloader with sharded dataloader support.
-- Flexible training configuration.
 
 ---
 
@@ -125,7 +115,8 @@ Verify the installation:
 uv run python -c "import gr00t; print('GR00T installed successfully')"
 ```
 
-> **`flash-attn` reinstall on every `uv run`:** Because we pin a specific `flash-attn` wheel URL in `pyproject.toml` (line 85), `uv` may show `Installing flash-attn...` on each invocation. This is a fast cached reinstall (not a rebuild) and is expected behavior. To suppress this, remove the `flash-attn` URL entry under `[tool.uv.sources]` in `pyproject.toml` after the initial install.
+> **`flash-attn` message on every `uv run`:** You may see `Installing flash-attn...` each time you run `uv run`. This is a known `uv` behavior with URL-pinned wheel sources — `uv` re-validates the cached wheel against the source URL on each invocation. It is **not** rebuilding from source; the wheel is already cached locally and the operation takes 2-3 seconds. This only affects x86_64 platforms. 
+> To suppress it, remove the `flash-attn` entries under `[tool.uv.sources]` in your local `pyproject.toml` after the initial install. But that will break `uv lock` and cause flash-attn to build from source on next lock regeneration.
 
 <details>
 <summary><strong>Alternative: pip install (without uv)</strong></summary>

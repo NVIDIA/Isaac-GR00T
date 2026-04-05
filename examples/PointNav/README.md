@@ -8,7 +8,7 @@ To generate and prepare the dataset, follow the [COMPASS GR00T Post-training Gui
 
 1. Train residual RL specialists
 2. Collect specialist distillation data
-3. Convert HDF5 dataset to GR00T LeRobot format using `scripts/hdf5_to_lerobot_episodic.py`
+3. Convert HDF5 dataset to GR00T LeRobot format using the COMPASS conversion script (see [COMPASS docs](https://github.com/NVlabs/COMPASS?tab=readme-ov-file#gr00t-post-training-with-compass-datasets))
 
 For a quick start, a pre-collected G1 robot dataset is available on [HuggingFace](https://huggingface.co/nvidia/COMPASS/blob/main/gr00t_post_training_g1.zip).
 

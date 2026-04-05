@@ -10,7 +10,7 @@ This feature is controlled via the `--extra_augmentation_config` argument, which
 
 1. **Segmentation masks** must be pre-generated and stored alongside your dataset. The dataset's `info.json` must include a `mask_path` template, and `modality.json` must define a `"mask"` section mapping camera views.
 
-2. **Albumentations transforms** must be enabled (`--use_albumentations_transforms` is automatically set when `--extra_augmentation_config` is provided via `launch_finetune.py`).
+2. **Albumentations transforms** are enabled by default in N1.7 (`use_albumentations_transforms=True` in model config). No extra flag is needed.
 
 ---
 
@@ -94,21 +94,21 @@ export NUM_GPUS=8
 
 torchrun --nproc_per_node=$NUM_GPUS --master_port=29500 \
     gr00t/experiment/launch_finetune.py \
-    --base_model_path nvidia/GR00T-N1.7-3B \
-    --dataset_path <YOUR_DATASET_WITH_MASKS> \
-    --embodiment_tag <YOUR_EMBODIMENT_TAG> \
-    --num_gpus $NUM_GPUS \
-    --output_dir /tmp/mask_augmentation_run \
-    --save_steps 1000 \
-    --save_total_limit 5 \
-    --max_steps 20000 \
-    --warmup_ratio 0.05 \
-    --weight_decay 1e-5 \
-    --learning_rate 1e-4 \
-    --use_wandb \
-    --global_batch_size 640 \
-    --dataloader_num_workers 4 \
-    --extra_augmentation_config '{"background_noise_transforms": [{"target_mask_values": [0], "p": 0.9}], "masked_region_transforms": [{"target_mask_values": [4], "p": 1.0, "alpha_range": [0, 1]}]}'
+    --base-model-path nvidia/GR00T-N1.7-3B \
+    --dataset-path <YOUR_DATASET_WITH_MASKS> \
+    --embodiment-tag <YOUR_EMBODIMENT_TAG> \
+    --num-gpus $NUM_GPUS \
+    --output-dir /tmp/mask_augmentation_run \
+    --save-steps 1000 \
+    --save-total-limit 5 \
+    --max-steps 20000 \
+    --warmup-ratio 0.05 \
+    --weight-decay 1e-5 \
+    --learning-rate 1e-4 \
+    --use-wandb \
+    --global-batch-size 640 \
+    --dataloader-num-workers 4 \
+    --extra-augmentation-config '{"background_noise_transforms": [{"target_mask_values": [0], "p": 0.9}], "masked_region_transforms": [{"target_mask_values": [4], "p": 1.0, "alpha_range": [0, 1]}]}'
 ```
 
 ---

@@ -14,9 +14,9 @@ Run inference with PyTorch or TensorRT acceleration for the GR00T N1.7 policy.
 | Platform | Installation |
 |----------|-------------|
 | **dGPU** (H100, A100, RTX 4090/5090, L20, RTX Pro 5000/6000, etc.) | `uv sync` — GPU deps (`flash-attn`, `onnx`, `tensorrt`) included |
-| **Jetson Thor** | [Jetson Thor Setup](#jetson-thor-setup) (Docker or bare metal) |
-| **DGX Spark** | [DGX Spark Setup](#dgx-spark-setup) (Docker or bare metal) |
-| **Jetson Orin** | [Jetson Orin Setup](#jetson-orin-setup) (Docker or bare metal) |
+| **[Jetson Thor](https://developer.nvidia.com/embedded/jetson)** | [Jetson Thor Setup](#jetson-thor-setup) (Docker or bare metal) |
+| **[DGX Spark](https://developer.nvidia.com/dgx-spark)** | [DGX Spark Setup](#dgx-spark-setup) (Docker or bare metal) |
+| **[Jetson Orin](https://developer.nvidia.com/embedded/jetson)** | [Jetson Orin Setup](#jetson-orin-setup) (Docker or bare metal) |
 
 - dGPU local environment: use the installation commands below, then use the PyTorch or TensorRT commands in this guide
 - Thor Docker or bare metal: skip to [Jetson Thor Setup](#jetson-thor-setup)
@@ -94,7 +94,7 @@ The unified `build_trt_pipeline.py` script runs all steps (export ONNX → build
 uv run python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --embodiment-tag libero_sim
+  --embodiment-tag LIBERO_PANDA
 ```
 
 > **Finetuned models:** Replace `--model-path` with your checkpoint path. The pipeline is identical for base and finetuned models.
@@ -110,7 +110,7 @@ You can also run a subset of steps:
 uv run python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --embodiment-tag libero_sim \
+  --embodiment-tag LIBERO_PANDA \
   --steps export,build
 ```
 
@@ -133,42 +133,61 @@ Each step can be run individually via `--steps <step>`. Verbose logs are written
 
 ### Benchmark Results
 
-GR00T N1.7 Inference Timing (4 denoising steps):
+GR00T N1.7 Inference Timing (4 denoising steps, 1 camera):
 
 | Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency | E2E Speedup |
 |--------|------|-----------------|----------|-------------|-----|-----------|-------------|
-| H100 | PyTorch Eager | 7 ms | 50 ms | 99 ms | 156 ms | 6.4 Hz | 1.00x |
-| H100 | torch.compile | 7 ms | 51 ms | 14 ms | 72 ms | 13.9 Hz | 2.16x |
-| H100 | **TensorRT (n17_full_pipeline)** | **7 ms** | **10 ms** | **13 ms** | **31 ms** | **32.7 Hz** | **5.11x** |
-| Thor | PyTorch Eager | 8 ms | 55 ms | 75 ms | 139 ms | 7.2 Hz | 1.00x |
-| Thor | torch.compile | 8 ms | 57 ms | 68 ms | 133 ms | 7.5 Hz | 1.10x |
-| Thor | **TRT (n17_full_pipeline)** | **8 ms** | **30 ms** | **57 ms** | **94 ms** | **10.6 Hz** | **1.32x** |
-| Spark | PyTorch Eager | 13 ms | 38 ms | 75 ms | 126 ms | 7.9 Hz | 1.00x |
-| Spark | torch.compile | 13 ms | 39 ms | 56 ms | 109 ms | 9.2 Hz | 1.16x |
-| Spark | **TensorRT (n17_full_pipeline)** | **13 ms** | **33 ms** | **52 ms** | **99 ms** | **10.1 Hz** | **1.28x** |
-| Orin | PyTorch Eager | 10 ms | 128 ms | 204 ms | 341 ms | 2.9 Hz | 1.00x |
-| Orin | torch.compile | 10 ms | 127 ms | 79 ms | 217 ms | 4.6 Hz | 1.57x |
-| Orin | **TensorRT (dit_only)** | **10 ms** | **127 ms** | **78 ms** | **215 ms** | **4.7 Hz** | **1.59x** |
+| **dGPU** | | | | | | | |
+| H100 80GB HBM3 | PyTorch Eager | 6.2 ms | 31.3 ms | 48.2 ms | 85.8 ms | 11.7 Hz | 1.00x |
+| | torch.compile | 6.2 ms | 30.4 ms | 12.0 ms | 48.6 ms | 20.6 Hz | 1.77x |
+| | **TensorRT (Full Pipeline)** | **6.2 ms** | **8.8 ms** | **12.3 ms** | **27.9 ms** | **35.9 Hz** | **3.08x** |
+| H20 96GB HBM3 | PyTorch Eager | 5.33 ms | 30.8 ms | 47.3 ms | 83.4 ms | 12.0 Hz | 1.00x |
+| | torch.compile | 5.33 ms | 31.1 ms | 13.3 ms | 49.7 ms | 20.1 Hz | 1.68x |
+| | **TensorRT (Full Pipeline)** | **5.33 ms** | **14.2 ms** | **14.5 ms** | **34.0 ms** | **29.4 Hz** | **2.45x** |
+| RTX Pro 6000 Blackwell | PyTorch Eager | 4.8 ms | 29.3 ms | 44.0 ms | 78.4 ms | 12.8 Hz | 1.00x |
+| | torch.compile | 4.8 ms | 29.4 ms | 16.5 ms | 50.7 ms | 19.7 Hz | 1.55x |
+| | **TensorRT (Full Pipeline)** | **4.8 ms** | **9.9 ms** | **13.2 ms** | **27.9 ms** | **35.9 Hz** | **2.81x** |
+| RTX Pro 5000 72GB | PyTorch Eager | 8.85 ms | 54.01 ms | 63.19 ms | 126.4 ms | 7.9 Hz | 1.00x |
+| | torch.compile | 8.85 ms | 55.74 ms | 20.38 ms | 84.9 ms | 11.8 Hz | 1.49x |
+| | **TensorRT (Full Pipeline)** | **8.85 ms** | **14.37 ms** | **17.33 ms** | **40.5 ms** | **24.7 Hz** | **3.13x** |
+| L40 | PyTorch Eager | 6.6 ms | 42.8 ms | 78.9 ms | 128.3 ms | 7.8 Hz | 1.00x |
+| | torch.compile | 6.6 ms | 42.7 ms | 19.8 ms | 69.0 ms | 14.5 Hz | 1.86x |
+| | **TensorRT (Full Pipeline)** | **6.6 ms** | **13.1 ms** | **18.8 ms** | **38.4 ms** | **26.0 Hz** | **3.34x** |
+| L20 | PyTorch Eager | 5.7 ms | 47.58 ms | 86.92 ms | 140.3 ms | 7.1 Hz | 1.00x |
+| | torch.compile | 5.7 ms | 47.2 ms | 20.18 ms | 73.1 ms | 13.7 Hz | 1.92x |
+| | **TensorRT (Full Pipeline)** | **5.7 ms** | **17.27 ms** | **19.79 ms** | **42.8 ms** | **23.3 Hz** | **3.28x** |
+| **Jetson / Spark** | | | | | | | |
+| DGX Spark | PyTorch Eager | 13.14 ms | 38.22 ms | 74.94 ms | 126.4 ms | 7.9 Hz | 1.00x |
+| | torch.compile | 13.14 ms | 39.23 ms | 56.49 ms | 108.8 ms | 9.2 Hz | 1.16x |
+| | **TensorRT (Full Pipeline)** | **13.14 ms** | **33.43 ms** | **52.37 ms** | **98.6 ms** | **10.1 Hz** | **1.28x** |
+| AGX Thor | PyTorch Eager | 8.21 ms | 55.26 ms | 81.65 ms | 144.9 ms | 6.9 Hz | 1.00x |
+| | torch.compile | 8.21 ms | 55.59 ms | 64.66 ms | 128.4 ms | 7.8 Hz | 1.13x |
+| | **TensorRT (Full Pipeline)** | **8.21 ms** | **28.89 ms** | **56.64 ms** | **93.8 ms** | **10.7 Hz** | **1.54x** |
+| Orin | PyTorch Eager | 9.45 ms | 127.6 ms | 205.39 ms | 342.8 ms | 2.9 Hz | 1.00x |
+| | torch.compile | 9.45 ms | 128.59 ms | 78.94 ms | 217.0 ms | 4.6 Hz | 1.58x |
+| | **TensorRT (DiT-only)** | **9.45 ms** | **128.38 ms** | **78.6 ms** | **216.5 ms** | **4.6 Hz** | **1.58x** |
+
+> **Note:** Orin uses DiT-only TensorRT (`--inference-mode tensorrt`) because TRT 10.3 does not support the backbone engine. All other platforms use the full pipeline (`--inference-mode trt_full_pipeline`).
 
 <details>
-<summary>Raw benchmark output (H100)</summary>
+<summary>Raw benchmark output (H100 80GB HBM3)</summary>
 
 ```
 Hardware: NVIDIA H100 80GB HBM3
 Model: checkpoints/GR00T-N1.7-LIBERO/libero_10
-Action Horizon: 40, Denoising Steps: 4
+1 camera, Denoising Steps: 4
 
 PyTorch Eager:
-  E2E:             median=164.7 ms, mean=164.5 ± 2.6 ms (6.1 Hz)
-  Backbone:        52.53 ms | Action Head: 103.30 ms
+  E2E:             85.8 ms (11.7 Hz)
+  Data Processing: 6.2 ms | Backbone: 31.3 ms | Action Head: 48.2 ms
 
 torch.compile:
-  E2E:             median=72.7 ms, mean=73.0 ± 1.1 ms (13.8 Hz)
-  Backbone:        51.99 ms | Action Head: 13.58 ms
+  E2E:             48.6 ms (20.6 Hz), 1.77x speedup
+  Data Processing: 6.2 ms | Backbone: 30.4 ms | Action Head: 12.0 ms
 
-TensorRT (n17_full_pipeline):
-  E2E:             median=29.6 ms, mean=29.9 ± 0.8 ms (33.8 Hz)
-  Backbone:        9.30 ms  | Action Head: 13.21 ms
+TensorRT (Full Pipeline):
+  E2E:             27.9 ms (35.9 Hz), 3.08x speedup
+  Data Processing: 6.2 ms | Backbone: 8.8 ms  | Action Head: 12.3 ms
 ```
 </details>
 
@@ -276,7 +295,7 @@ Then inside the container, run the full TRT pipeline (export, build, verify, ben
 python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --embodiment-tag libero_sim
+  --embodiment-tag LIBERO_PANDA
 ```
 </details>
 
@@ -344,7 +363,7 @@ Then inside the container, run the full TRT pipeline (export, build, verify, ben
 python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --embodiment-tag libero_sim
+  --embodiment-tag LIBERO_PANDA
 ```
 </details>
 
@@ -414,7 +433,7 @@ Then inside the container, run the TRT pipeline (DiT-only on Orin):
 python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --embodiment-tag libero_sim \
+  --embodiment-tag LIBERO_PANDA \
   --export-mode dit_only
 ```
 </details>
@@ -440,7 +459,7 @@ and `torch.compile` need on Orin.
 
 > **Orin storage tip:** If your eMMC root is low on space, redirect the HuggingFace cache to an NVMe SSD with `export HF_HOME=/path/to/ssd/.cache/huggingface` before downloading models.
 
-> **Orin TRT limitations:** TRT 10.3 on Orin does not support the backbone (LLM) engine — the build step will report a failure for `llm_bf16.engine` and that is expected. The remaining 6 engines build successfully. Use `--mode action_head` for verification and `--trt-mode dit_only` for inference:
+> **Orin TRT limitations:** TRT 10.3 on Orin does not support the backbone (LLM) engine — the build step will report a failure for `llm_bf16.engine` and that is expected. The remaining 6 engines build successfully. Use `--export-mode action_head` for verification and `--inference-mode tensorrt` (DiT-only TRT, backbone runs in PyTorch) for inference:
 > ```bash
 > python scripts/deployment/build_trt_pipeline.py \
 >   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
@@ -479,6 +498,25 @@ and `torch.compile` need on Orin.
 | `--skip-compile` | `false` | Skip torch.compile benchmark |
 | `--steps` | `all` | Steps to run: `all` or comma-separated subset of `export,build,verify,benchmark` |
 | `--log-file` | `<output-dir>/pipeline.log` | Log file path |
+
+### `standalone_inference_script.py`
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model-path` | (required) | Path to model checkpoint |
+| `--dataset-path` | `demo_data/droid_sample` | Path to dataset (LeRobot format) |
+| `--embodiment-tag` | Auto-detected | Robot embodiment tag |
+| `--traj-ids` | `[0]` | Episode indices to evaluate (space-separated) |
+| `--steps` | `200` | Max steps per trajectory (capped by actual length) |
+| `--action-horizon` | `16` | Action prediction horizon |
+| `--inference-mode` | `pytorch` | `pytorch`, `tensorrt` (DiT-only TRT), or `trt_full_pipeline` (all engines) |
+| `--trt-engine-path` | `./gr00t_n1d7_engines` | Directory containing pre-built TRT engines |
+| `--denoising-steps` | `4` | Diffusion denoising iterations |
+| `--save-plot-path` | `None` | Save per-trajectory GT-vs-predicted comparison plots |
+| `--video-backend` | `torchcodec` | Video decoder: `torchcodec`, `decord`, or `torchvision_av` |
+| `--skip-timing-steps` | `1` | Initial steps excluded from timing stats (warmup) |
+| `--host` / `--port` | `127.0.0.1` / `5555` | Server address (when using client mode without `--model-path`) |
+| `--seed` | `42` | Random seed for reproducibility |
 
 ## Files
 

@@ -20,10 +20,13 @@ policy = Gr00tPolicy(
 ```
 
 **Parameters:**
-- `model_path`: Path to your trained model checkpoint directory
-- `embodiment_tag`: The embodiment tag you used during training (e.g., `EmbodimentTag.NEW_EMBODIMENT`)
-- `device`: Device to run inference on (`"cuda:0"`, `"cpu"`, or integer device index)
-- `strict`: Whether to validate inputs/outputs (recommended during development, can disable in production)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `embodiment_tag` | `EmbodimentTag \| str` | *(required)* | Robot type; accepts enum or case-insensitive string (e.g., `"NEW_EMBODIMENT"`) |
+| `model_path` | `str` | *(required)* | Path to model checkpoint directory (local path or HuggingFace model ID) |
+| `device` | `str \| int` | *(required)* | Inference device: `"cuda:0"`, `0`, or `"cpu"` |
+| `strict` | `bool` | `True` | Validates observation shapes and dtypes at runtime. Recommended during development; disable in production for speed |
 
 ## Inference Parameter Guide
 
@@ -262,12 +265,27 @@ For many use cases, especially when working with real robots or distributed syst
 - **Separate compute resources**: Run policy inference on a GPU server while controlling the robot from a different machine
 - **Dependency isolation**: Avoid dependency issues with the client policy
 
+```mermaid
+sequenceDiagram
+    participant Robot as Robot / Sim Client
+    participant Client as PolicyClient (ZMQ REQ)
+    participant Server as PolicyServer (ZMQ REP)
+    participant Policy as Gr00tPolicy (GPU)
+
+    Robot->>Client: observation dict
+    Client->>Server: msgpack(endpoint="get_action", data=obs)
+    Server->>Policy: policy.get_action(obs)
+    Policy-->>Server: (action_dict, info_dict)
+    Server-->>Client: msgpack(action, info)
+    Client-->>Robot: action dict
+```
+
 #### Starting the Policy Server
 
 Launch the server using the `run_gr00t_server.py` script:
 
 ```bash
-python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path /path/to/your/checkpoint \
     --device cuda:0 \
@@ -331,21 +349,40 @@ action, info = policy.get_action(observation)
 The `PolicyClient` implements the same `BasePolicy` interface, so it's a drop-in replacement:
 
 ```python
-# Get modality configuration
+# Get modality configuration from the server
 modality_configs = policy.get_modality_config()
 
-# Get action
+# Get action — returns (action_dict, info_dict)
 action, info = policy.get_action(observation, options=None)
 
-# Reset policy state
+# Reset policy state (e.g., switch episode in ReplayPolicy)
 info = policy.reset(options=None)
 
-# Check server health
+# Check server health — returns True if server responds
 is_alive = policy.ping()
 
-# Shutdown the server (optional)
+# Shutdown the server remotely (optional)
 policy.kill_server()
 ```
+
+#### Server API Reference
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `policy` | `BasePolicy` | *(required)* | The policy instance to serve (e.g., `Gr00tPolicy`, `ReplayPolicy`) |
+| `host` | `str` | `"*"` | Bind address. `"*"` accepts connections on all interfaces |
+| `port` | `int` | `5555` | TCP port for ZMQ REP socket |
+| `api_token` | `str` | `None` | If set, clients must include a matching token in every request |
+
+**Built-in endpoints:** `get_action`, `reset`, `get_modality_config`, `ping`, `kill`. Custom endpoints can be added via `server.register_endpoint(name, handler)`.
+
+#### Error Handling
+
+The server-client uses ZeroMQ REQ/REP sockets over TCP with msgpack serialization.
+
+- **Timeout:** If the server does not respond within `timeout_ms`, the ZMQ socket will raise `zmq.error.Again`. The default 15 s timeout accommodates cold-start model loading on the first call.
+- **Connection loss:** If `ping()` returns `False`, the client automatically recreates its ZMQ socket for the next attempt. Your control loop should retry or halt.
+- **Server-side errors:** Exceptions in the policy are caught, serialized as `{"error": "..."}`, and re-raised as `RuntimeError` on the client side.
 
 #### Debugging with ReplayPolicy
 
@@ -363,7 +400,7 @@ This eliminates the need for a trained model during the development phase.
 Instead of providing `--model-path`, use `--dataset-path` to start the server in replay mode:
 
 ```bash
-python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --dataset-path /path/to/lerobot_dataset \
     --embodiment-tag NEW_EMBODIMENT \
     --host 0.0.0.0 \
@@ -415,14 +452,14 @@ Here's a complete example of using ReplayPolicy to validate a simulation setup:
 
 ```bash
 # Terminal 1: Start the replay server
-python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --dataset-path <your_dataset_path> \
     --embodiment-tag <YOUR_EMBODIMENT_TAG> \
     --action-horizon 8 \
     --use-sim-policy-wrapper
 
 # Terminal 2: Run evaluation with the replay policy
-python gr00t/eval/rollout_policy.py \
+uv run python gr00t/eval/rollout_policy.py \
     --n-episodes 1 \
     --policy-client-host 127.0.0.1 \
     --policy-client-port 5555 \
@@ -514,7 +551,7 @@ When training a model, you can optimize the dataloading speed vs memory usage vi
 
 examples:
 ```bash
-python gr00t/experiment/launch_finetune.py \
+uv run python gr00t/experiment/launch_finetune.py \
     .... \
     --num-shards-per-epoch 100 \
     --dataloader-num-workers 2

@@ -22,6 +22,7 @@ from gr00t.data.types import (
 
 
 so100_config = {
+    # Video: use current frame only ([0]); list camera view names matching modality.json
     "video": ModalityConfig(
         delta_indices=[0],
         modality_keys=[
@@ -29,6 +30,7 @@ so100_config = {
             "wrist",
         ],
     ),
+    # State: current proprioceptive reading; keys must match modality.json "state" entries
     "state": ModalityConfig(
         delta_indices=[0],
         modality_keys=[
@@ -36,20 +38,21 @@ so100_config = {
             "gripper",
         ],
     ),
+    # Action: 16-step prediction horizon; each key needs an ActionConfig
     "action": ModalityConfig(
-        delta_indices=list(range(0, 16)),
+        delta_indices=list(range(0, 16)),  # predict 16 future steps
         modality_keys=[
             "single_arm",
             "gripper",
         ],
         action_configs=[
-            # single_arm
+            # single_arm: RELATIVE = delta from current state (better generalization)
             ActionConfig(
                 rep=ActionRepresentation.RELATIVE,
-                type=ActionType.NON_EEF,
+                type=ActionType.NON_EEF,       # joint-space, not end-effector
                 format=ActionFormat.DEFAULT,
             ),
-            # gripper
+            # gripper: ABSOLUTE = target position (binary open/close works better absolute)
             ActionConfig(
                 rep=ActionRepresentation.ABSOLUTE,
                 type=ActionType.NON_EEF,
@@ -57,6 +60,7 @@ so100_config = {
             ),
         ],
     ),
+    # Language: task instruction from annotation field in the dataset
     "language": ModalityConfig(
         delta_indices=[0],
         modality_keys=["annotation.human.task_description"],
@@ -126,6 +130,21 @@ uv run python gr00t/eval/open_loop_eval.py \
     --steps 400 \
     --modality-keys single_arm gripper
 ```
+
+### `open_loop_eval.py` Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--dataset-path` | `demo_data/cube_to_bowl_5/` | Path to LeRobot-format dataset |
+| `--embodiment-tag` | `new_embodiment` | Robot embodiment tag (case-insensitive) |
+| `--model-path` | `None` | Path to checkpoint. If omitted, connects to a running server via `--host`/`--port` |
+| `--traj-ids` | `[0]` | Episode indices to evaluate (space-separated, e.g., `0 1 2`) |
+| `--action-horizon` | `16` | Action steps predicted per inference call |
+| `--steps` | `200` | Max steps per trajectory (capped by actual trajectory length) |
+| `--denoising-steps` | `4` | Diffusion denoising iterations |
+| `--save-plot-path` | `None` | Directory to save GT-vs-predicted comparison plots |
+| `--modality-keys` | `None` | Action keys to plot. If omitted, plots all action dimensions |
+| `--host` / `--port` | `127.0.0.1` / `5555` | Server address when `--model-path` is omitted |
 
 ### Example Evaluation Result
 
