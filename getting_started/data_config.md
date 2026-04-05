@@ -27,7 +27,7 @@ so100_config = {
     "language": ModalityConfig(...),
 }
 
-register_modality_config(so100_config)
+register_modality_config(so100_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)
 ```
 
 ## Understanding `ModalityConfig`
@@ -38,18 +38,17 @@ Each `ModalityConfig` specifies two required fields and several optional ones:
 
 **1. `delta_indices` (list[int])**
 
-Defines which temporal offsets to sample relative to the current timestep. This enables:
-- **Historical context**: Use negative indices (e.g., `[-2, -1, 0]`) to include past observations
-- **Current observation**: Use `[0]` for the current timestep
-- **Future actions**: Use positive indices (e.g., `list(range(0, 16))`) for action prediction horizons
+Defines which temporal offsets to sample relative to the current timestep:
+- Current observation: Use [0] for the current timestep (recommended for video and state)                                                                     
+- Future actions: Use positive indices (e.g., list(range(0, 16))) for action prediction horizons                                                            
+
+> **Note:** Negative indices (e.g., [-2, -1, 0]) are supported by the data loader for historical context, but no current N1.7 embodiment config uses them. Stick with [0] for video and state unless you have a specific reason to stack frames.
 
 Examples:
 ```python
 # Single current frame for video
 delta_indices=[0]
 
-# Last 3 frames for video (temporal stacking)
-delta_indices=[-2, -1, 0]
 
 # 16-step action prediction horizon
 delta_indices=list(range(0, 16))
@@ -122,7 +121,7 @@ Specifies which keys should use mean/standard deviation normalization instead of
 
 **5. `action_configs` (list[ActionConfig] | None)**
 
-Required for the `"action"` modality. Defines how each action modality should be interpreted and transformed. The list must have the same length as `modality_keys`, and each element corresponds to the action modality for the corresponding `modality_key`. See more details in the [Action Modality](#understanding-actionconfig) section.
+Required for the `"action"` modality. Defines how each action modality should be interpreted and transformed. The list must have the **same length and same order** as `modality_keys` — `action_configs[0]` applies to `modality_keys[0]`, `action_configs[1]` to `modality_keys[1]`, etc. A mismatch in ordering will silently apply the wrong representation (e.g., RELATIVE to a gripper that should be ABSOLUTE). See more details in the [Action Modality](#understanding-actionconfig) section.
 
 ## Configuring Each Modality
 
@@ -326,7 +325,7 @@ your_modality_config = {
     ...
 }
 
-register_modality_config(your_modality_config)
+register_modality_config(your_modality_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)
 ```
 
 Save your configuration to a Python file and pass the path to the `modality_config_path` argument when running the finetuning script.

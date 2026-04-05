@@ -52,6 +52,18 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
+# CUDA dev packages — Thor BSP only ships runtime libs; cmake builds (e.g.
+# torchcodec) need the compiler and headers.
+# ──────────────────────────────────────────────────────────────────────────────
+if ! dpkg -s cuda-nvcc-13-0 &>/dev/null; then
+    echo "Installing CUDA dev packages (nvcc, cudart-dev, nvrtc-dev)..."
+    $SUDO apt-get install -y --no-install-recommends \
+        cuda-nvcc-13-0 cuda-cudart-dev-13-0 cuda-nvrtc-dev-13-0
+else
+    echo "CUDA dev packages already installed."
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Python environment
 # ──────────────────────────────────────────────────────────────────────────────
 

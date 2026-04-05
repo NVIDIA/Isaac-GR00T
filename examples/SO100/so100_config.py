@@ -25,46 +25,34 @@ from gr00t.data.types import (
 
 
 so100_config = {
+    # Video: current frame only; keys must match "video" entries in meta/modality.json
     "video": ModalityConfig(
         delta_indices=[0],
-        modality_keys=["front", "wrist"],
+        modality_keys=["front", "wrist"],  # front third-person view + wrist egocentric
     ),
+    # State: current proprioceptive reading; keys must match "state" entries in meta/modality.json
     "state": ModalityConfig(
         delta_indices=[0],
         modality_keys=[
-            "single_arm",
-            "gripper",
+            "single_arm",  # joint positions
+            "gripper",  # gripper state
         ],
     ),
+    # Action: 16-step prediction horizon; one ActionConfig per modality key
     "action": ModalityConfig(
-        delta_indices=[
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-        ],
+        delta_indices=list(range(0, 16)),  # predict 16 future steps
         modality_keys=[
             "single_arm",
             "gripper",
         ],
         action_configs=[
+            # single_arm: RELATIVE = delta from current state (better generalization)
             ActionConfig(
                 rep=ActionRepresentation.RELATIVE,
-                type=ActionType.NON_EEF,
+                type=ActionType.NON_EEF,  # joint-space, not end-effector
                 format=ActionFormat.DEFAULT,
             ),
+            # gripper: ABSOLUTE = target position (binary open/close works better absolute)
             ActionConfig(
                 rep=ActionRepresentation.ABSOLUTE,
                 type=ActionType.NON_EEF,
@@ -72,6 +60,7 @@ so100_config = {
             ),
         ],
     ),
+    # Language: task instruction from annotation field in the dataset
     "language": ModalityConfig(
         delta_indices=[0],
         modality_keys=["annotation.human.task_description"],

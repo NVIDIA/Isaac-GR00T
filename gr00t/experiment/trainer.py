@@ -339,4 +339,23 @@ class Gr00tTrainer(Trainer):
             if self.args.local_rank in (-1, 0):
                 self.log({"train_accuracy": acc_mean})
 
+                # Log a sample of ground-truth vs predicted action tokens from
+                # the first batch element so users can verify the model is
+                # learning the right behaviors.
+                shifted_labels = inputs["labels"][:1, 1:].cpu()
+                shifted_preds = preds[:1, :-1]
+                mask_0 = shifted_labels[0] != -100
+                gt_tokens = shifted_labels[0][mask_0][:20]
+                if self.action_offset is not None:
+                    gt_tokens = gt_tokens - self.action_offset
+                gt_sample = gt_tokens.tolist()
+                pred_sample = shifted_preds[0][mask_0[: shifted_preds.shape[1]]][:20].tolist()
+                logging.info(
+                    "Step %d — GT vs Pred (first 20 action tokens, batch[0]):\n"
+                    "  GT:   %s\n  Pred: %s",
+                    self.state.global_step,
+                    gt_sample,
+                    pred_sample,
+                )
+
         return (loss, outputs) if return_outputs else loss

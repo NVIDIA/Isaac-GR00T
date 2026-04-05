@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide shows how to convert your robot data to work with our flavor of the [LeRobot dataset V2 format](https://github.com/huggingface/lerobot?tab=readme-ov-file#the-lerobotdataset-format) -- `GR00T LeRobot`. While we have added additional structure, our schema maintains full compatibility with the upstream LeRobot v2. The additional metadata and structure allow for more detailed specification and language annotations for your robot data.
+This guide shows how to convert your robot data to work with our flavor of the [LeRobot dataset V2 format](https://github.com/huggingface/lerobot?tab=readme-ov-file#the-lerobotdataset-format) ([LeRobot docs](https://huggingface.co/docs/lerobot)) -- `GR00T LeRobot`. While we have added additional structure, our schema maintains full compatibility with the upstream LeRobot v2. The additional metadata and structure allow for more detailed specification and language annotations for your robot data.
 
 > The TLDR: Add a `meta/modality.json` file to your LeRobot v2 dataset and follow the schema below.
 
@@ -57,16 +57,16 @@ Each parquet file will contain:
 Here is a sample of the `cube_to_bowl` dataset that is present in the [demo_data](../demo_data/cube_to_bowl_5/) directory.
 ```
 {
-    "observation.state":[-0.01147082911843003,...,0], // concatenated state array based on the modality.json file
-    "action":[-0.010770668025204974,...0], // concatenated action array based on the modality.json file
-    "timestamp":0.04999995231628418, // timestamp of the observation
-    "annotation.human.action.task_description":0, // index of the task description in the meta/tasks.jsonl file
-    "task_index":0, // index of the task in the meta/tasks.jsonl file
-    "annotation.human.validity":1, // index of the task in the meta/tasks.jsonl file
-    "episode_index":0, // index of the episode
-    "index":0, // index of the observation. This is a global index across all observations in the dataset.
-    "next.reward":0, // reward of the next observation
-    "next.done":false // whether the episode is done
+    "observation.state":[-0.01,...,0],       // 1D array: all state modalities concatenated per modality.json order
+    "action":[-0.010,...,0],                 // 1D array: all action modalities concatenated per modality.json order
+    "timestamp":0.049,                       // float: wall-clock time of this observation (seconds)
+    "annotation.human.action.task_description":0,  // int: index into meta/tasks.jsonl for the language instruction
+    "task_index":0,                          // int: task identifier (same as annotation index for single-task)
+    "annotation.human.validity":1,           // int: index into meta/tasks.jsonl for validity label
+    "episode_index":0,                       // int: which episode this frame belongs to
+    "index":0,                               // int: global frame index across all episodes in the dataset
+    "next.reward":0,                         // float: reward at the next timestep (0 if unused)
+    "next.done":false                        // bool: true if this is the last frame of the episode
 }
 ```
 

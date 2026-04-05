@@ -52,7 +52,7 @@ COPY groot_infra/pyproject.toml groot_infra/pyproject.toml
 
 RUN <<EOF
 set -e
-UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv sync --frozen --no-install-workspace --all-packages --extra dev --no-cache
+UV_PREVIEW=1 UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv sync --frozen --no-install-workspace --all-packages --extra dev --no-cache
 EOF
 
 # Install workspace packages
