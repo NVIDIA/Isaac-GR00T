@@ -216,7 +216,7 @@ dependencies = [
     { name = "jmespath" },
     { name = "s3transfer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/f6/b280afd91b2284744c0bb26afa1272bd60270726b4d3999fc27b68200854/boto3-1.42.77.tar.gz", hash = "sha256:c6d9b05e5b86767d4c6ef762f155c891366e5951162f71d030e109fe531f4fd9", size = 112773, upload-time = "2026-03-26T19:25:35.365Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/04/7c/d7a533916d1afc9e17f8594203a85799d42f7c5751464fbdb25ead8db9d2/boto3-1.42.70.tar.gz", hash = "sha256:d060b0d83d2832e403671b9a895e73c3b025df8bb5896d89e401b0678705aac4", size = 112808, upload-time = "2026-03-17T19:43:22.445Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/18/a1/128e3676fb9b4fd965a93554e5e07045975ee6bd6e9fdb536cdffa32e99e/boto3-1.42.70-py3-none-any.whl", hash = "sha256:18a108c4d5df89a200b3949de0d39c0879b100c455e3229ea38275dd392db0f4", size = 140554, upload-time = "2026-03-17T19:43:20.406Z" },
 ]
@@ -771,6 +771,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "boto3" },
     { name = "build" },
     { name = "ipython" },
     { name = "pre-commit" },
@@ -783,6 +784,7 @@ dev = [
 requires-dist = [
     { name = "albumentations", specifier = "==1.4.18" },
     { name = "av", specifier = "==16.1.0" },
+    { name = "boto3", marker = "extra == 'dev'" },
     { name = "build", marker = "extra == 'dev'" },
     { name = "click", specifier = "==8.1.8" },
     { name = "cryptography", specifier = "==42.0.8" },
@@ -2708,7 +2710,6 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux'",
     "platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux'",
 ]
 dependencies = [
     { name = "setuptools", marker = "platform_machine != 'aarch64' and sys_platform == 'linux'" },

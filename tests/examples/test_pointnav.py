@@ -40,6 +40,7 @@ from test_support.runtime import (
     has_rt_core_gpu,
     hf_hub_download_cmd,
     run_subprocess_step,
+    start_server_process,
     wait_for_server_ready,
 )
 
@@ -59,8 +60,8 @@ SHARED_POINTNAV_DIR = TEST_CACHE_PATH / "datasets/pointnav"
 SHARED_POINTNAV_DATASET = SHARED_POINTNAV_DIR / _DATASET_NAME
 
 # GR00T base model — downloaded once to shared storage and reused by the finetune step.
-_GROOT_MODEL_REPO_ID = "nvidia/GR00T-N1.6-3B"
-SHARED_GROOT_MODEL = TEST_CACHE_PATH / "models/GR00T-N1.6-3B"
+_GROOT_MODEL_REPO_ID = "nvidia/GR00T-N1.7-3B"
+SHARED_GROOT_MODEL = SHARED_DRIVE_ROOT / "models/GR00T-N1.7-3B"
 
 
 def _dataset_ready(path: pathlib.Path) -> bool:
@@ -85,7 +86,7 @@ def _groot_model_complete(path: pathlib.Path) -> bool:
 
 
 def _prepare_groot_model(env: dict[str, str]) -> pathlib.Path:
-    """Return the GR00T-N1.6-3B model path, downloading to shared storage if needed.
+    """Return the GR00T-N1.7-3B model path, downloading to shared storage if needed.
 
     Using a pre-downloaded local copy avoids HF hub cache inconsistencies
     (e.g. stale index JSON with missing shard files) that cause
@@ -106,7 +107,7 @@ def _prepare_groot_model(env: dict[str, str]) -> pathlib.Path:
         return SHARED_GROOT_MODEL
 
     token = os.environ.get("HF_TOKEN", "")
-    assert token, "HF_TOKEN is required to download the gated nvidia/GR00T-N1.6-3B model"
+    assert token, "HF_TOKEN is required to download the gated nvidia/GR00T-N1.7-3B model"
     SHARED_GROOT_MODEL.mkdir(parents=True, exist_ok=True)
     run_subprocess_step(
         [
@@ -244,8 +245,8 @@ def test_pointnav_readme_finetune_executes_via_subprocess() -> None:
             "SAVE_STEPS=2000",
             f"SAVE_STEPS={TRAINING_STEPS}",
         ),
-        "GLOBAL_BATCH_SIZE=32",
-        "GLOBAL_BATCH_SIZE=2",
+        "nvidia/GR00T-N1.7-3B",
+        str(groot_model_path),
     )
     run_bash_blocks([finetune_code], cwd=REPO_ROOT, env=env)
 
@@ -265,11 +266,7 @@ def test_pointnav_readme_finetune_executes_via_subprocess() -> None:
 
     # Step 3: Launch server, run COMPASS eval, then tear down.
     assert_port_available(model_server_host, model_server_port)
-    model_server_proc = subprocess.Popen(
-        ["bash", "-c", server_code],
-        cwd=REPO_ROOT,
-        env=env,
-    )
+    model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
     try:
         wait_for_server_ready(
             proc=model_server_proc,
@@ -278,6 +275,7 @@ def test_pointnav_readme_finetune_executes_via_subprocess() -> None:
             timeout_s=float(
                 os.getenv("POINTNAV_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
             ),
+            server_log=server_log,
         )
 
         # Step 4: COMPASS evaluation — runs against the live GR00T server.

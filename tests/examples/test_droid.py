@@ -25,6 +25,7 @@ from test_support.runtime import (
     assert_port_available,
     build_shared_runtime_env,
     get_root,
+    start_server_process,
     wait_for_server_ready,
 )
 
@@ -54,11 +55,7 @@ def test_droid_readme_server_starts() -> None:
     server_code += f" --device cuda:0 --host {model_server_host} --port {model_server_port}"
 
     assert_port_available(model_server_host, model_server_port)
-    model_server_proc = subprocess.Popen(
-        ["bash", "-c", server_code],
-        cwd=REPO_ROOT,
-        env=env,
-    )
+    model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
     try:
         wait_for_server_ready(
             proc=model_server_proc,
@@ -67,6 +64,7 @@ def test_droid_readme_server_starts() -> None:
             timeout_s=float(
                 os.getenv("DROID_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
             ),
+            server_log=server_log,
         )
     finally:
         if model_server_proc.poll() is None:

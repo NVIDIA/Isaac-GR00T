@@ -28,6 +28,7 @@ from test_support.runtime import (
     get_root,
     has_rt_core_gpu,
     run_subprocess_step,
+    start_server_process,
     wait_for_server_ready,
 )
 
@@ -94,16 +95,13 @@ def _run_simplerenv_eval(
     )
 
     assert_port_available(model_server_host, model_server_port)
-    model_server_proc = subprocess.Popen(
-        ["bash", "-c", server_code],
-        cwd=REPO_ROOT,
-        env=env,
-    )
+    model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
     wait_for_server_ready(
         proc=model_server_proc,
         host=model_server_host,
         port=model_server_port,
         timeout_s=float(os.getenv(server_startup_env_var, str(DEFAULT_SERVER_STARTUP_SECONDS))),
+        server_log=server_log,
     )
 
     try:
@@ -145,7 +143,7 @@ def test_simplerenv_fractal_readme_eval_flow() -> None:
     _run_simplerenv_eval(
         env=env,
         blocks=blocks,
-        server_model_key="nvidia/GR00T-N1.6-fractal",
+        server_model_key="nvidia/GR00T-N1.7-SimplerEnv-Fractal",
         client_env_name_old="simpler_env_google/google_robot_pick_coke_can",
         client_env_name_new="simpler_env_google/google_robot_pick_coke_can",
         server_startup_env_var="SIMPLERENV_SERVER_STARTUP_SECONDS",
@@ -161,7 +159,7 @@ def test_simplerenv_bridge_readme_eval_flow() -> None:
     _run_simplerenv_eval(
         env=env,
         blocks=blocks,
-        server_model_key="nvidia/GR00T-N1.6-bridge",
+        server_model_key="nvidia/GR00T-N1.7-SimplerEnv-Bridge",
         client_env_name_old="simpler_env_widowx/widowx_spoon_on_towel",
         client_env_name_new="simpler_env_widowx/widowx_spoon_on_towel",
         server_startup_env_var="SIMPLERENV_SERVER_STARTUP_SECONDS",

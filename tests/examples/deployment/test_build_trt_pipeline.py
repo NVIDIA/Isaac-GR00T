@@ -39,8 +39,7 @@ import sys
 import tempfile
 
 import pytest
-
-from tests.examples.utils import build_uv_runtime_env, run_subprocess_step
+from test_support.runtime import build_uv_runtime_env, run_subprocess_step
 
 
 logger = logging.getLogger(__name__)

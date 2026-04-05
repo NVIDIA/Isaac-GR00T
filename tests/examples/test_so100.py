@@ -61,10 +61,14 @@ def test_so100_readme_workflow_executes_via_subprocess() -> None:
 
     try:
         # Step 1: Convert dataset (README: Handling the dataset)
+        # The lerobot_conversion sub-project has its own dependencies (different
+        # numpy/pyarrow versions).  Remove UV_PROJECT_ENVIRONMENT so uv creates
+        # an isolated venv for it instead of contaminating the main one.
+        convert_env = {k: v for k, v in env.items() if k != "UV_PROJECT_ENVIRONMENT"}
         run_bash_blocks(
             [find_block(blocks, "convert_v3_to_v2.py", language="bash")],
             cwd=REPO_ROOT,
-            env=env,
+            env=convert_env,
         )
 
         # Step 2: Copy modality.json (README cp command)

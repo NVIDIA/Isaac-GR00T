@@ -30,6 +30,7 @@ from test_support.runtime import (
     build_shared_runtime_env,
     get_root,
     run_subprocess_step,
+    start_server_process,
     wait_for_server_ready,
 )
 
@@ -221,8 +222,11 @@ def _build_runtime_env(skip_download_assets: str) -> dict[str, str]:
 
 @pytest.mark.gpu
 @pytest.mark.timeout(2700)
+@pytest.mark.skip(
+    reason="ROBOCASA_PANDA_OMRON embodiment tag is not supported in N1.7; no finetuned checkpoint available"
+)
 def test_robocasa_readme_eval_flow() -> None:
-    """Run the RoboCasa README server+client eval using the remote GR00T-N1.6-3B checkpoint."""
+    """Run the RoboCasa README server+client eval using the remote GR00T-N1.7-3B checkpoint."""
 
     # Environment setup:
     # 1) If assets already exist on shared PVC, reuse them by symlinking.
@@ -261,11 +265,16 @@ def test_robocasa_readme_eval_flow() -> None:
     model_server_host = "127.0.0.1"
     model_server_port = 5551
 
-    # Step 2: Server — inject test-specific flags
+    # Step 2: Server — replace placeholder checkpoint path with the base model
+    # (no finetuned robocasa checkpoint exists yet; base model is enough to test the pipeline).
     server_code = replace_once(
-        find_block(blocks, "ROBOCASA_PANDA_OMRON", language="bash").code,
-        "uv run python gr00t/eval/run_gr00t_server.py",
-        "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
+        replace_once(
+            find_block(blocks, "ROBOCASA_PANDA_OMRON", language="bash").code,
+            "uv run python gr00t/eval/run_gr00t_server.py",
+            "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
+        ),
+        "<path-to-finetuned-robocasa-checkpoint>",
+        "nvidia/GR00T-N1.7-3B",
     )
     server_code += f" --device cuda:0 --host {model_server_host} --port {model_server_port}"
 
@@ -274,7 +283,7 @@ def test_robocasa_readme_eval_flow() -> None:
         replace_once(
             replace_once(
                 replace_once(
-                    find_block(blocks, "robocasa_uv/.venv/bin/python", language="bash").code,
+                    find_block(blocks, "rollout_policy.py", language="bash").code,
                     "--n-episodes 10",
                     "--n-episodes 1",
                 ),
@@ -293,11 +302,7 @@ def test_robocasa_readme_eval_flow() -> None:
         env.get("UV_PROJECT_ENVIRONMENT", "<unset>"),
     )
     assert_port_available(model_server_host, model_server_port)
-    model_server_proc = subprocess.Popen(
-        ["bash", "-c", server_code],
-        cwd=REPO_ROOT,
-        env=env,
-    )
+    model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
     wait_for_server_ready(
         proc=model_server_proc,
         host=model_server_host,
@@ -305,6 +310,7 @@ def test_robocasa_readme_eval_flow() -> None:
         timeout_s=float(
             os.getenv("ROBOCASA_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
         ),
+        server_log=server_log,
     )
 
     try:

@@ -30,6 +30,7 @@ from test_support.runtime import (
     find_nvidia_egl_vendor_file,
     get_root,
     run_subprocess_step,
+    start_server_process,
     wait_for_server_ready,
 )
 
@@ -224,11 +225,11 @@ def test_libero_readme_workflow_executes_via_subprocess() -> None:
     # Step 4: Server — inject test-specific flags and replace checkpoint path
     server_code = replace_once(
         replace_once(
-            find_block(blocks, "/tmp/libero_spatial/checkpoint-20000", language="bash").code,
+            find_block(blocks, "checkpoints/GR00T-N1.7-LIBERO/libero_10", language="bash").code,
             "uv run python gr00t/eval/run_gr00t_server.py",
             "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
         ),
-        "/tmp/libero_spatial/checkpoint-20000/",
+        "checkpoints/GR00T-N1.7-LIBERO/libero_10",
         str(MODEL_CHECKPOINT),
     )
     server_code += f" --device cuda:0 --host {model_server_host} --port {model_server_port}"
@@ -253,11 +254,7 @@ def test_libero_readme_workflow_executes_via_subprocess() -> None:
     )
 
     assert_port_available(model_server_host, model_server_port)
-    model_server_proc = subprocess.Popen(
-        ["bash", "-c", server_code],
-        cwd=REPO_ROOT,
-        env=env,
-    )
+    model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
     wait_for_server_ready(
         proc=model_server_proc,
         host=model_server_host,
@@ -265,6 +262,7 @@ def test_libero_readme_workflow_executes_via_subprocess() -> None:
         timeout_s=float(
             os.getenv("LIBERO_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
         ),
+        server_log=server_log,
     )
 
     try:
