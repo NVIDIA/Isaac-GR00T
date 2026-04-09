@@ -236,7 +236,7 @@ def test_pointnav_readme_finetune_executes_via_subprocess() -> None:
                         "<output_dir>",
                         str(MODEL_CHECKPOINT.parent),
                     ),
-                    "nvidia/GR00T-N1.6-3B",
+                    "nvidia/GR00T-N1.7-3B",
                     str(groot_model_path),
                 ),
                 "MAX_STEPS=40000",
@@ -245,8 +245,8 @@ def test_pointnav_readme_finetune_executes_via_subprocess() -> None:
             "SAVE_STEPS=2000",
             f"SAVE_STEPS={TRAINING_STEPS}",
         ),
-        "nvidia/GR00T-N1.7-3B",
-        str(groot_model_path),
+        "GLOBAL_BATCH_SIZE=32",
+        "GLOBAL_BATCH_SIZE=2",
     )
     run_bash_blocks([finetune_code], cwd=REPO_ROOT, env=env)
 
