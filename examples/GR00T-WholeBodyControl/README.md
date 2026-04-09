@@ -39,7 +39,7 @@ git lfs pull
 
 cd ../../../
 # Run the shared finetune launcher directly
-NUM_GPUS=8 uv run bash examples/finetune.sh \
+NUM_GPUS=8 MAX_STEPS=10000 GLOBAL_BATCH_SIZE=1024 DATALOADER_NUM_WORKERS=6 uv run bash examples/finetune.sh \
     --base-model-path nvidia/GR00T-N1.6-3B \
     --dataset-path examples/GR00T-WholeBodyControl/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/unitree_g1.LMPnPAppleToPlateDC \
     --embodiment-tag UNITREE_G1 \

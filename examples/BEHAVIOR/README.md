@@ -90,7 +90,7 @@ Using `sim_behavior_r1_pro.*` will download datasets for all 50 tasks. You can r
 
 To launch training, run the shared `examples/finetune.sh` launcher directly:
 ```
-NUM_GPUS=8 uv run bash examples/finetune.sh \
+NUM_GPUS=8 MAX_STEPS=150000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
   --base-model-path nvidia/GR00T-N1.6-BEHAVIOR1k \
   --dataset-path PATH_TO_BEHAVIOR_INDIVIDUAL_TASK_DATASET \
   --embodiment-tag BEHAVIOR_R1_PRO \

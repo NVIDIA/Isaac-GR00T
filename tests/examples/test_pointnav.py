@@ -207,19 +207,31 @@ def test_pointnav_readme_finetune_executes_via_subprocess() -> None:
     finetune_code = replace_once(
         replace_once(
             replace_once(
-                find_block(
-                    blocks,
-                    "--modality-config-path examples/PointNav/modality_config.py",
-                    language="bash",
-                ).code,
-                "<dataset_path>",
-                str(dataset_path),
+                replace_once(
+                    replace_once(
+                        replace_once(
+                            find_block(
+                                blocks,
+                                "--modality-config-path examples/PointNav/modality_config.py",
+                                language="bash",
+                            ).code,
+                            "<dataset_path>",
+                            str(dataset_path),
+                        ),
+                        "<output_dir>",
+                        str(MODEL_CHECKPOINT.parent),
+                    ),
+                    "nvidia/GR00T-N1.6-3B",
+                    str(groot_model_path),
+                ),
+                "MAX_STEPS=40000",
+                f"MAX_STEPS={TRAINING_STEPS}",
             ),
-            "<output_dir>",
-            str(MODEL_CHECKPOINT.parent),
+            "SAVE_STEPS=2000",
+            f"SAVE_STEPS={TRAINING_STEPS}",
         ),
-        "nvidia/GR00T-N1.6-3B",
-        str(groot_model_path),
+        "GLOBAL_BATCH_SIZE=32",
+        "GLOBAL_BATCH_SIZE=2",
     )
     run_bash_blocks([finetune_code], cwd=REPO_ROOT, env=env)
 

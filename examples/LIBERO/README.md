@@ -32,7 +32,7 @@ cp -r examples/LIBERO/modality.json examples/LIBERO/libero_10_no_noops_1.0.0_ler
 
 Run the shared finetune launcher directly:
 ```bash
-NUM_GPUS=8 uv run bash examples/finetune.sh \
+NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
     --base-model-path nvidia/GR00T-N1.6-3B \
     --dataset-path examples/LIBERO/libero_10_no_noops_1.0.0_lerobot/ \
     --embodiment-tag LIBERO_PANDA \
@@ -55,7 +55,7 @@ cp examples/LIBERO/patches/episode_000082.mp4 examples/LIBERO/libero_goal_no_noo
 
 Run the shared finetune launcher directly:
 ```bash
-NUM_GPUS=8 uv run bash examples/finetune.sh \
+NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
     --base-model-path nvidia/GR00T-N1.6-3B \
     --dataset-path examples/LIBERO/libero_goal_no_noops_1.0.0_lerobot/ \
     --embodiment-tag LIBERO_PANDA \
@@ -75,7 +75,7 @@ cp -r examples/LIBERO/modality.json examples/LIBERO/libero_object_no_noops_1.0.0
 
 Run the shared finetune launcher directly:
 ```bash
-NUM_GPUS=8 uv run bash examples/finetune.sh \
+NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
     --base-model-path nvidia/GR00T-N1.6-3B \
     --dataset-path examples/LIBERO/libero_object_no_noops_1.0.0_lerobot/ \
     --embodiment-tag LIBERO_PANDA \
@@ -95,7 +95,7 @@ cp -r examples/LIBERO/modality.json examples/LIBERO/libero_spatial_no_noops_1.0.
 
 Run the shared finetune launcher directly:
 ```bash
-NUM_GPUS=8 uv run bash examples/finetune.sh \
+NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
     --base-model-path nvidia/GR00T-N1.6-3B \
     --dataset-path examples/LIBERO/libero_spatial_no_noops_1.0.0_lerobot/ \
     --embodiment-tag LIBERO_PANDA \

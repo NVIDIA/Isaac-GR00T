@@ -18,6 +18,8 @@ DATASET_PATH=""
 MODALITY_CONFIG_PATH=""
 EMBODIMENT_TAG=""
 OUTPUT_DIR=""
+EXPERIMENT_NAME=""
+WANDB_PROJECT=""
 STATE_DROPOUT_PROB=""
 EXTRA_ARGS=()
 
@@ -54,6 +56,14 @@ while [ "$#" -gt 0 ]; do
             ;;
         --output-dir)
             OUTPUT_DIR="$2"
+            shift 2
+            ;;
+        --experiment-name)
+            EXPERIMENT_NAME="$2"
+            shift 2
+            ;;
+        --wandb-project)
+            WANDB_PROJECT="$2"
             shift 2
             ;;
         --state-dropout-prob)
@@ -114,6 +124,12 @@ LAUNCH_CMD=(
 
 if [ -n "$MODALITY_CONFIG_PATH" ]; then
     LAUNCH_CMD+=(--modality_config_path "$MODALITY_CONFIG_PATH")
+fi
+if [ -n "$EXPERIMENT_NAME" ]; then
+    LAUNCH_CMD+=(--experiment_name "$EXPERIMENT_NAME")
+fi
+if [ -n "$WANDB_PROJECT" ]; then
+    LAUNCH_CMD+=(--wandb_project "$WANDB_PROJECT")
 fi
 
 if [ -n "$STATE_DROPOUT_PROB" ]; then

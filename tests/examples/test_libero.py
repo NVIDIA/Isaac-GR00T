@@ -160,22 +160,31 @@ def test_libero_readme_workflow_executes_via_subprocess() -> None:
     # Step 1: Download + copy modality once, preferring the shared mounted dataset cache.
     _prepare_libero_dataset(blocks, env)
 
-    # Step 2: Finetune — env overrides keep the run short
+    # Step 2: Finetune — inline README values are replaced to keep the run short
     finetune_code = replace_once(
-        find_block(blocks, "--output-dir /tmp/libero_spatial", language="bash").code,
-        "NUM_GPUS=8",
-        "NUM_GPUS=1",
+        replace_once(
+            replace_once(
+                replace_once(
+                    find_block(blocks, "--output-dir /tmp/libero_spatial", language="bash").code,
+                    "NUM_GPUS=8",
+                    "NUM_GPUS=1",
+                ),
+                "MAX_STEPS=20000",
+                f"MAX_STEPS={TRAINING_STEPS}",
+            ),
+            "SAVE_STEPS=1000",
+            f"SAVE_STEPS={TRAINING_STEPS}",
+        ),
+        "GLOBAL_BATCH_SIZE=640",
+        "GLOBAL_BATCH_SIZE=2",
     )
     run_bash_blocks(
         [finetune_code],
         cwd=REPO_ROOT,
         env={
             **env,
-            "SAVE_STEPS": str(TRAINING_STEPS),
-            "MAX_STEPS": str(TRAINING_STEPS),
             "USE_WANDB": "0",
             "DATALOADER_NUM_WORKERS": "0",
-            "GLOBAL_BATCH_SIZE": "2",
             "SHARD_SIZE": "64",
             "NUM_SHARDS_PER_EPOCH": "1",
             # Limit to one GPU so HuggingFace Trainer uses plain single-device

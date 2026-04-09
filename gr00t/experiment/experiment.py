@@ -116,6 +116,8 @@ def run(config: Config):
 
     # Setup
     setup_logging()
+    if global_rank != 0:
+        logging.getLogger().setLevel(logging.WARNING)
     set_seed(config.data.seed)
 
     # Validate config

@@ -101,6 +101,12 @@ class FinetuneConfig:
     output_dir: str = "./outputs"
     """Directory where model checkpoints, logs, and outputs are saved."""
 
+    experiment_name: str | None = None
+    """Optional experiment name used as the W&B run name. Defaults to the output directory basename."""
+
+    wandb_project: str = "finetune-gr00t-n1d6"
+    """W&B project name to log runs to."""
+
     save_steps: int = 1000
     """Frequency (in training steps) at which to save checkpoints."""
 

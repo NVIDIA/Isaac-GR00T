@@ -37,7 +37,7 @@ The point navigation task uses the following input and output modalities defined
 Run the shared finetune launcher directly:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 NUM_GPUS=1 uv run bash examples/finetune.sh \
+CUDA_VISIBLE_DEVICES=0 NUM_GPUS=1 MAX_STEPS=40000 GLOBAL_BATCH_SIZE=32 SAVE_STEPS=2000 uv run bash examples/finetune.sh \
     --base-model-path nvidia/GR00T-N1.6-3B \
     --dataset-path <dataset_path> \
     --modality-config-path examples/PointNav/modality_config.py \

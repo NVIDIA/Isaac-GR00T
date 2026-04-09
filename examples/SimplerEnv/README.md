@@ -44,7 +44,7 @@ huggingface-cli download \
 
 # Copy the patches and run the finetune script
 cp -r examples/SimplerEnv/bridge_modality.json examples/SimplerEnv/bridge_orig_lerobot/meta/modality.json
-NUM_GPUS=8 uv run bash examples/finetune.sh \
+NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
     --base-model-path nvidia/GR00T-N1.6-3B \
     --dataset-path examples/SimplerEnv/bridge_orig_lerobot/ \
     --embodiment-tag OXE_WIDOWX \
@@ -63,11 +63,11 @@ huggingface-cli download \
 # Copy the patches and run the finetune script
 cp -r examples/SimplerEnv/fractal_modality.json examples/SimplerEnv/fractal20220817_data_lerobot/meta/modality.json
 uv run python convert_av1_to_h264.py --root fractal20220817_data_lerobot --jobs 16  # (Optional) if AV1 doesn't work on your machine
-NUM_GPUS=8 uv run bash examples/finetune.sh \
+NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
     --base-model-path nvidia/GR00T-N1.6-3B \
     --dataset-path examples/SimplerEnv/fractal20220817_data_lerobot/ \
     --embodiment-tag OXE_GOOGLE \
-    --output-dir /tmp/bridge_finetune \
+    --output-dir /tmp/fractal_finetune \
     --state-dropout-prob 0.5
 ```
 
@@ -135,7 +135,7 @@ gr00t/eval/sim/SimplerEnv/simpler_uv/.venv/bin/python gr00t/eval/rollout_policy.
     --policy_client_port 5555 \
     --max_episode_steps=300 \
     --env_name simpler_env_widowx/widowx_spoon_on_towel \
-    --n_action_steps 1 \
+    --n_action_steps 4 \
     --n_envs 5
 ```
 
