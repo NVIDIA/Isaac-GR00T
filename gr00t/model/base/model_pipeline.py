@@ -21,6 +21,7 @@ from gr00t.configs.base_config import Config
 from gr00t.data.collator import BasicDataCollator
 from gr00t.data.dataset.factory import DatasetFactory
 from gr00t.data.interfaces import BaseProcessor
+from gr00t.experiment.dist_utils import get_rank
 import numpy as np
 import torch
 from transformers import PreTrainedModel
@@ -83,7 +84,8 @@ class BasicPipeline(ModelPipeline):
     def _create_model(self):
         # Load model
         model = self.model_class(self.config.model)
-        print("Model Config: ", model.config)
+        if get_rank() == 0:
+            print("Model Config: ", model.config)
 
         # unfreeze the model first
         for name, param in model.named_parameters():
