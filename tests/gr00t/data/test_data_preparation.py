@@ -115,8 +115,9 @@ class TestModalityJson:
     def test_video_keys_have_original_key(self, dataset_path):
         with open(dataset_path / "meta" / "modality.json") as f:
             data = json.load(f)
-        if "video" not in data:
-            pytest.skip("No video section in modality.json")
+        assert "video" in data, (
+            f"{dataset_path}: modality.json must define a 'video' section per data_preparation.md"
+        )
         for key, spec in data["video"].items():
             assert "original_key" in spec, f"video.{key} missing 'original_key'"
 
