@@ -31,6 +31,20 @@
 
 > We just released GR00T N1.7 Early Access, the latest version of GR00T N1 with a new VLM backbone (Cosmos-Reason2-2B / Qwen3-VL) and improved performance.
 
+> **This is an Early Access (EA) release.** You are welcome to download the model, explore the codebase, and begin building on the stack, with the understanding that support and stability guarantees are limited until the GA release.
+>
+> **What's available:**
+> - Pre-trained GR00T N1.7 model weights and reference code
+> - Fine-tuning and inference with custom robot data or demonstrations
+> - Experimentation, prototyping, and research use cases
+>
+> **Available at GA:**
+> - Production deployment with commercial support
+> - Complete benchmarks and a fully validated, stable feature set
+> - Pull request contributions
+>
+> We welcome feedback - please feel free to raise issues in this repository.
+
 > To use older versions: [N1.6](https://github.com/NVIDIA/Isaac-GR00T/) | [N1.5](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release)
 
 NVIDIA Isaac GR00T N1.7 is an open vision-language-action (VLA) model for generalized humanoid robot skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
