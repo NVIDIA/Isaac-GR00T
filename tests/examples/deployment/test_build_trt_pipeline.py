@@ -21,9 +21,9 @@ and asserts that the printed cosine similarity is >= COSINE_THRESHOLD.
 
 Environment variables (all optional):
   TRT_TEST_MODEL_PATH   – path to a finetuned checkpoint
-                          (default: checkpoints/GR00T-N1.7-LIBERO/libero_10)
+                          (default: shared cache + HF download of libero_10)
   TRT_TEST_DATASET_PATH – path to a LeRobot dataset
-                          (default: demo_data/libero_demo)
+                          (default: :func:`resolve_libero_demo_dataset_path`)
   TRT_TEST_EMBODIMENT   – embodiment tag
                           (default: LIBERO_PANDA)
 """
@@ -32,28 +32,24 @@ from __future__ import annotations
 
 import logging
 import os
-import pathlib
 import re
 import shutil
 import sys
 import tempfile
 
 import pytest
-from test_support.runtime import build_uv_runtime_env, run_subprocess_step
+from test_support.runtime import (
+    build_uv_runtime_env,
+    get_root,
+    resolve_libero_demo_dataset_path,
+    resolve_libero_n17_libero10_checkpoint_path,
+    run_subprocess_step,
+)
 
 
 logger = logging.getLogger(__name__)
 
-ROOT = pathlib.Path(__file__).resolve().parents[3]
-
-DEFAULT_MODEL_PATH = os.getenv(
-    "TRT_TEST_MODEL_PATH",
-    str(ROOT / "checkpoints/GR00T-N1.7-LIBERO/libero_10"),
-)
-DEFAULT_DATASET_PATH = os.getenv(
-    "TRT_TEST_DATASET_PATH",
-    str(ROOT / "demo_data/libero_demo"),
-)
+ROOT = get_root()
 DEFAULT_EMBODIMENT = os.getenv("TRT_TEST_EMBODIMENT", "LIBERO_PANDA")
 
 COSINE_THRESHOLD = 0.99
@@ -77,13 +73,12 @@ def _parse_cosine(output: str) -> float:
 def test_build_trt_pipeline() -> None:
     """Run build_trt_pipeline.py (export, build, verify) and check cosine >= threshold."""
 
-    model_path = DEFAULT_MODEL_PATH
-    dataset_path = DEFAULT_DATASET_PATH
-
-    if not pathlib.Path(model_path).exists():
-        pytest.skip(f"Model checkpoint not found at {model_path}")
-    if not pathlib.Path(dataset_path).exists():
-        pytest.skip(f"Dataset not found at {dataset_path}")
+    model_path = str(
+        resolve_libero_n17_libero10_checkpoint_path(ROOT, path_override_env="TRT_TEST_MODEL_PATH")
+    )
+    dataset_path = str(
+        resolve_libero_demo_dataset_path(ROOT, path_override_env="TRT_TEST_DATASET_PATH")
+    )
 
     env = build_uv_runtime_env()
     tmpdir = tempfile.mkdtemp(prefix="trt_pipeline_test_")
