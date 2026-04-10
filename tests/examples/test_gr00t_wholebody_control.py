@@ -6,6 +6,7 @@ import subprocess
 import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
+    DEFAULT_SERVER_STARTUP_SECONDS,
     assert_port_available,
     build_shared_runtime_env,
     find_nvidia_egl_vendor_file,
@@ -18,8 +19,6 @@ from test_support.runtime import (
 REPO_ROOT = get_root()
 
 README = REPO_ROOT / "examples/GR00T-WholeBodyControl/README.md"
-
-DEFAULT_SERVER_STARTUP_SECONDS = 180.0
 
 
 @pytest.mark.gpu

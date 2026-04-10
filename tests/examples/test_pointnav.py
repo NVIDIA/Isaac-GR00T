@@ -17,6 +17,7 @@ from test_support.compass import (
 )
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
+    DEFAULT_SERVER_STARTUP_SECONDS,
     SHARED_DRIVE_ROOT,
     assert_port_available,
     build_shared_runtime_env,
@@ -34,8 +35,6 @@ TRAINING_STEPS = 2
 README = REPO_ROOT / "examples/PointNav/README.md"
 
 MODEL_CHECKPOINT = pathlib.Path(f"/tmp/pointnav_finetune/checkpoint-{TRAINING_STEPS}")
-DEFAULT_SERVER_STARTUP_SECONDS = 180.0
-
 # HuggingFace source: nvidia/COMPASS model repo, file gr00t_post_training_g1.zip
 _HF_REPO_ID = "nvidia/COMPASS"
 _HF_FILENAME = "gr00t_post_training_g1.zip"

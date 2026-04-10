@@ -8,6 +8,7 @@ import subprocess
 import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
+    DEFAULT_SERVER_STARTUP_SECONDS,
     SHARED_DRIVE_ROOT,
     assert_port_available,
     build_shared_runtime_env,
@@ -33,8 +34,6 @@ MODEL_CHECKPOINT = pathlib.Path(f"/tmp/libero_spatial/checkpoint-{TRAINING_STEPS
 
 LIBERO_REPO_PATH = REPO_ROOT / "external_dependencies/LIBERO"
 SHARED_LIBERO_REPO = SHARED_DRIVE_ROOT / "repos/LIBERO"
-
-DEFAULT_SERVER_STARTUP_SECONDS = 180.0
 
 
 def _libero_submodule_initialized() -> bool:

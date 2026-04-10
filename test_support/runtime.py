@@ -10,6 +10,9 @@ import subprocess
 import time
 
 
+DEFAULT_SERVER_STARTUP_SECONDS = 600.0
+
+
 def _default_shared_drive_root() -> pathlib.Path:
     """Return the shared drive root, falling back to a local cache dir.
 

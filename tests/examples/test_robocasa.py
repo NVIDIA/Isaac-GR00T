@@ -9,6 +9,7 @@ import subprocess
 import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
+    DEFAULT_SERVER_STARTUP_SECONDS,
     SHARED_DRIVE_ROOT,
     assert_port_available,
     build_shared_runtime_env,
@@ -31,8 +32,6 @@ ROBOCASA_ASSETS_REPO_DIR = REPO_ROOT / "external_dependencies/robocasa/robocasa/
 ROBOCASA_ASSETS_SHARED_DIR = SHARED_DRIVE_ROOT / "robocasa-assets"
 # Version file written alongside cached assets to detect robocasa submodule updates.
 _ASSETS_VERSION_FILE = ROBOCASA_ASSETS_SHARED_DIR / ".robocasa_commit"
-
-DEFAULT_SERVER_STARTUP_SECONDS = 180.0
 
 
 def _robocasa_submodule_commit() -> str:

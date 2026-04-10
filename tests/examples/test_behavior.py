@@ -7,6 +7,7 @@ import subprocess
 import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
+    DEFAULT_SERVER_STARTUP_SECONDS,
     assert_port_available,
     build_shared_runtime_env,
     get_root,
@@ -25,8 +26,6 @@ pytestmark = pytest.mark.skipif(
     platform.machine() != "x86_64",
     reason="BEHAVIOR depends on omnigibson/Isaac Sim which have no aarch64 wheels",
 )
-
-DEFAULT_SERVER_STARTUP_SECONDS = 180.0
 
 
 @pytest.mark.gpu
