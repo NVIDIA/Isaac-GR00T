@@ -113,7 +113,7 @@ MODALITY_CONFIGS = {
             modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
         ),
         "action": ModalityConfig(
-            delta_indices=list(range(40)),
+            delta_indices=list(range(16)),
             modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
         ),
         "language": ModalityConfig(

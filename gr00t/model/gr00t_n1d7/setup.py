@@ -87,12 +87,36 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 tune_vlln=self.config.model.tune_vlln,
                 state_dropout_prob=self.config.model.state_dropout_prob,
                 backbone_trainable_params_fp32=self.config.model.backbone_trainable_params_fp32,
+                load_bf16=self.config.model.load_bf16,
                 transformers_loading_kwargs=self.transformers_loading_kwargs,
                 output_loading_info=True,
                 **self.transformers_loading_kwargs,
             )
 
-            # missing_keys = loading_info.get("missing_keys", [])
+            missing_keys = loading_info.get("missing_keys", [])
+            mask_token_missing = any("mask_token" in key for key in missing_keys)
+            if mask_token_missing and model.action_head.mask_token is not None:
+                with torch.no_grad():
+                    model.action_head.mask_token.data.copy_(
+                        0.02 * torch.randn_like(model.action_head.mask_token)
+                    )
+                logging.info("mask_token not in checkpoint - initialized")
+
+            unexpected_keys = loading_info.get("unexpected_keys", [])
+            mismatched_keys = loading_info.get("mismatched_keys", [])
+            other_missing = [k for k in missing_keys if "mask_token" not in k]
+            errors = []
+            if other_missing:
+                errors.append(f"Missing keys ({len(other_missing)}): {other_missing}")
+            if unexpected_keys:
+                errors.append(f"Unexpected keys ({len(unexpected_keys)}): {unexpected_keys}")
+            if mismatched_keys:
+                errors.append(f"Mismatched keys ({len(mismatched_keys)}): {mismatched_keys}")
+            if errors:
+                raise RuntimeError(
+                    "Checkpoint weight mismatch for "
+                    f"{self.config.training.start_from_checkpoint}:\n" + "\n".join(errors)
+                )
 
         else:
             model = self.model_class(

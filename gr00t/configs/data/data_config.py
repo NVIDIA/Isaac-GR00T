@@ -73,7 +73,7 @@ class DataConfig:
     num_shards_per_epoch: int = int(1e5)
 
     # Override statistics from the pretrained checkpoint
-    override_pretraining_statistics: bool = False
+    override_pretraining_statistics: bool = True
 
     # General task / mode config (shared across datasets)
     mode: str = "single_turn"

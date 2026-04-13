@@ -57,7 +57,7 @@ class FinetuneConfig:
     tune_diffusion_model: bool = True
     """If True, fine-tune the diffusion-based action decoder (if present in the model)."""
 
-    state_dropout_prob: float = 0.0
+    state_dropout_prob: float = 0.2
     """
     Dropout probability applied to state inputs for regularization during training.
     """
@@ -153,3 +153,6 @@ class FinetuneConfig:
 
     num_shards_per_epoch: int = int(1e5)
     """Number of shards to use for the dataset. reduce this number if vram is limited."""
+
+    save_only_model: bool = False
+    """If True, save only model weights (skip optimizer/scheduler/RNG states). Cannot resume training from these checkpoints."""

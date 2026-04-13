@@ -59,6 +59,7 @@ class TrainingConfig:
 
     # Model saving
     save_vl_model: bool = False  # Control whether to save VL model and processor in callbacks
+    save_only_model: bool = False  # Skip optimizer/scheduler/RNG states — cannot resume training
 
     # Checkpoint uploading
     upload_checkpoints: bool = False

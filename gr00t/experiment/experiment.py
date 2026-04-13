@@ -220,6 +220,7 @@ def run(config: Config):
         logging_steps=config.training.logging_steps,
         save_steps=config.training.save_steps,
         save_total_limit=config.training.save_total_limit,
+        save_only_model=config.training.save_only_model,
         fp16=config.training.fp16,
         bf16=config.training.bf16,
         tf32=config.training.tf32,

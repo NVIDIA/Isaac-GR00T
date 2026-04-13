@@ -32,6 +32,7 @@ Usage: bash examples/finetune.sh \
   --output-dir <path> \
   [--modality-config-path <path>] \
   [--state-dropout-prob <value>] \
+  [--save-only-model] \
   [-- <extra launch_finetune.py args>...]
 EOF
 }
@@ -69,6 +70,10 @@ while [ "$#" -gt 0 ]; do
         --state-dropout-prob)
             STATE_DROPOUT_PROB="$2"
             shift 2
+            ;;
+        --save-only-model)
+            SAVE_ONLY_MODEL=1
+            shift
             ;;
         --help|-h)
             usage
@@ -134,6 +139,9 @@ fi
 
 if [ -n "$STATE_DROPOUT_PROB" ]; then
     LAUNCH_CMD+=(--state_dropout_prob "$STATE_DROPOUT_PROB")
+fi
+if [ -n "${SAVE_ONLY_MODEL:-}" ]; then
+    LAUNCH_CMD+=(--save_only_model)
 fi
 
 if [ "${#EXTRA_ARGS[@]}" -gt 0 ]; then
