@@ -107,7 +107,15 @@ def main(config: ServerConfig):
         if config.modality_config_path is None or config.modality_config_path.endswith(".py"):
             from gr00t.configs.data.embodiment_configs import MODALITY_CONFIGS
 
-            modality_configs = MODALITY_CONFIGS[config.embodiment_tag.value]
+            modality_configs = MODALITY_CONFIGS.get(config.embodiment_tag.value)
+            if modality_configs is None:
+                raise ValueError(
+                    f"No built-in modality config for embodiment tag "
+                    f"'{config.embodiment_tag.name}' (value='{config.embodiment_tag.value}'). "
+                    f"Available tags: {sorted(MODALITY_CONFIGS.keys())}. "
+                    f"Please provide --modality-config-path (JSON or .py) "
+                    f"when using this tag with ReplayPolicy."
+                )
         policy = ReplayPolicy(
             dataset_path=config.dataset_path,
             modality_configs=modality_configs,
