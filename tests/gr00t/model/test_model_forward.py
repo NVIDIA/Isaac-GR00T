@@ -198,8 +198,8 @@ class TestGr00tN1d7Config:
     def test_default_config(self):
         config = Gr00tN1d7Config()
         assert config.model_type == "Gr00tN1d7"
-        assert config.max_state_dim == 29
-        assert config.action_horizon == 16
+        assert config.max_state_dim == 132
+        assert config.action_horizon == 40
 
     def test_custom_config(self):
         config = Gr00tN1d7Config(max_state_dim=10, action_horizon=8)

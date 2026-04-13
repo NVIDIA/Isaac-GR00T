@@ -40,22 +40,22 @@ class Gr00tN1d7Config(PretrainedConfig):
     model_name: str = "nvidia/Cosmos-Reason2-2B"
     backbone_model_type: str = "qwen"
     model_revision: str | None = None
-    tune_top_llm_layers: int = 4  # Number of top LLM layers to tune
-    backbone_embedding_dim: int = 2048  # project_to_dim
+    tune_top_llm_layers: int = 0  # Number of top LLM layers to tune
+    backbone_embedding_dim: int = 1536  # project_to_dim
     tune_llm: bool = False
     tune_visual: bool = False
-    select_layer: int = 16
+    select_layer: int = 12
     reproject_vision: bool = False
     use_flash_attention: bool = True
-    load_bf16: bool = True  # Enable BF16 loading
+    load_bf16: bool = False  # Enable BF16 loading
     backbone_trainable_params_fp32: bool = True
 
     ### Processing parameters
-    image_crop_size: tuple[int, int] | None = None
-    image_target_size: tuple[int, int] | None = None
+    image_crop_size: tuple[int, int] | None = (230, 230)
+    image_target_size: tuple[int, int] | None = (256, 256)
 
-    shortest_image_edge: int | None = 256
-    crop_fraction: float | None = 0.95
+    shortest_image_edge: int | None = None
+    crop_fraction: float | None = None
 
     random_rotation_angle: int | None = None
     color_jitter_params: dict[str, float] | None = None
@@ -66,13 +66,13 @@ class Gr00tN1d7Config(PretrainedConfig):
     apply_sincos_state_encoding: bool = (
         False  # Global flag to enable per-embodiment sin/cos encoding
     )
-    use_percentiles: bool = False
+    use_percentiles: bool = True
     use_relative_action: bool = False
 
     # Action head configuration parameters
-    max_state_dim: int = 29  # Default from state_shape
-    max_action_dim: int = 29  # Default from action_shape
-    action_horizon: int = 16
+    max_state_dim: int = 132  # Default from state_shape
+    max_action_dim: int = 132  # Default from action_shape
+    action_horizon: int = 40
     hidden_size: int = 1024
     input_embedding_dim: int = 1536
 
@@ -90,7 +90,7 @@ class Gr00tN1d7Config(PretrainedConfig):
     diffusion_model_cfg: dict = field(
         default_factory=lambda: {
             "positional_embeddings": None,
-            "num_layers": 32,  # 32 layers instead of 16
+            "num_layers": 16,
             "num_attention_heads": 32,
             "attention_head_dim": 48,
             "norm_type": "ada_norm",

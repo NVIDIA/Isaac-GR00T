@@ -37,7 +37,7 @@ NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash exa
     --dataset-path examples/LIBERO/libero_10_no_noops_1.0.0_lerobot/ \
     --embodiment-tag LIBERO_PANDA \
     --output-dir /tmp/libero_10 \
-    --state-dropout-prob 0.8
+    --state-dropout-prob 0.2
 ```
 
 # Fine-tune LIBERO goal
