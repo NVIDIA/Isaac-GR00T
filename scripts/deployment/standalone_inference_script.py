@@ -581,6 +581,9 @@ def evaluate_predictions(
 class ArgsConfig:
     """Configuration for evaluating a policy."""
 
+    model_path: str
+    """Path to the model checkpoint (required)."""
+
     host: str = "127.0.0.1"
     """Host to connect to."""
 
@@ -604,9 +607,6 @@ class ArgsConfig:
 
     embodiment_tag: EmbodimentTag = EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT
     """Embodiment tag to use."""
-
-    model_path: str
-    """Path to the model checkpoint (required)."""
 
     inference_mode: Literal["pytorch", "tensorrt", "trt_full_pipeline"] = "pytorch"
     """Inference mode: 'pytorch' (default), 'tensorrt' (DiT-only TRT), or 'trt_full_pipeline' (all engines)."""
