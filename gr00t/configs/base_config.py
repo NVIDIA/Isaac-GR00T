@@ -112,7 +112,15 @@ class Config:
 
         stripped_modality_configs = {}
         for embodiment_tag in embodiment_tags:
-            stripped_modality_configs[embodiment_tag] = self.data.modality_configs[embodiment_tag]
+            modality_cfg = self.data.modality_configs.get(embodiment_tag)
+            if modality_cfg is None:
+                raise ValueError(
+                    f"No modality config registered for embodiment tag '{embodiment_tag}'. "
+                    f"Available tags: {sorted(self.data.modality_configs.keys())}. "
+                    f"Provide --modality-config-path to register a custom modality config, "
+                    f"or use one of the pre-registered tags."
+                )
+            stripped_modality_configs[embodiment_tag] = modality_cfg
         self.data.modality_configs = stripped_modality_configs
 
         # ensure mix ratios are valid
