@@ -79,7 +79,21 @@ uv run python gr00t/eval/run_gr00t_server.py \
     --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT
 ```
 
-## 3. Robot Control Script
+## 3. Fine-tuning
+
+Fine-tune the base model on DROID data using the shared launcher:
+
+```bash
+NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash examples/finetune.sh \
+    --base-model-path nvidia/GR00T-N1.7-3B \
+    --dataset-path demo_data/droid_sample \
+    --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
+    --output-dir /tmp/droid_finetune
+```
+
+> **Note:** The above uses the small `demo_data/droid_sample` (3 episodes) for quick validation. For production training, replace `--dataset-path` with the full DROID dataset.
+
+## 4. Robot Control Script
 
 1. Install the DROID package on the robot control laptop/workstation — [instructions](https://droid-dataset.github.io/droid/software-setup/host-installation.html#configuring-the-laptopworkstation)
 

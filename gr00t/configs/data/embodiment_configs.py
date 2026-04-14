@@ -24,6 +24,45 @@ from gr00t.data.types import (
 
 
 MODALITY_CONFIGS = {
+    ##### Pre-registered pretrain configurations #####
+    "oxe_droid_relative_eef_relative_joint": {
+        "video": ModalityConfig(
+            delta_indices=[-15, 0],
+            modality_keys=["exterior_image_1_left", "wrist_image_left"],
+        ),
+        "state": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["eef_9d", "gripper_position", "joint_position"],
+        ),
+        "action": ModalityConfig(
+            delta_indices=list(range(40)),
+            modality_keys=["eef_9d", "gripper_position", "joint_position"],
+            action_configs=[
+                ActionConfig(
+                    rep=ActionRepresentation.RELATIVE,
+                    type=ActionType.EEF,
+                    format=ActionFormat.XYZ_ROT6D,
+                    state_key="eef_9d",
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.ABSOLUTE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                    state_key="gripper_position",
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.RELATIVE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                    state_key="joint_position",
+                ),
+            ],
+        ),
+        "language": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["annotation.language.language_instruction"],
+        ),
+    },
     ##### Pre-registered posttrain configurations #####
     "unitree_g1_full_body_with_waist_height_nav_cmd": {
         "video": ModalityConfig(

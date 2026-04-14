@@ -331,6 +331,118 @@ def resolve_libero_demo_dataset_path(
     )
 
 
+_DROID_N17_REPO = "nvidia/GR00T-N1.7-DROID"
+
+
+def resolve_droid_n17_checkpoint_path(
+    repo_root: pathlib.Path | None = None,
+    *,
+    path_override_env: str,
+) -> pathlib.Path:
+    """Resolve the DROID-finetuned GR00T-N1.7 checkpoint.
+
+    Resolution order:
+
+    1. Environment variable named by *path_override_env* (must be a complete checkpoint).
+    2. ``<repo_root>/checkpoints/GR00T-N1.7-DROID``.
+    3. Git worktree toplevel + same relative ``checkpoints/...`` path.
+    4. ``SHARED_DRIVE_ROOT/models/GR00T-N1.7-DROID``, downloading
+       from Hugging Face when missing (requires ``HF_TOKEN``).
+
+    Raises:
+        AssertionError: if overrides are incomplete or download leaves a broken tree.
+    """
+    root = repo_root if repo_root is not None else get_root()
+
+    override = os.environ.get(path_override_env, "").strip()
+    if override:
+        p = pathlib.Path(override).expanduser().resolve()
+        assert libero_checkpoint_tree_ready(p), (
+            f"{path_override_env} does not point to a complete checkpoint directory: {p}"
+        )
+        return p
+
+    local = root / "checkpoints/GR00T-N1.7-DROID"
+    if libero_checkpoint_tree_ready(local):
+        return local
+
+    try:
+        toplevel = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(root),
+            text=True,
+            timeout=30,
+        ).strip()
+        git_cp = pathlib.Path(toplevel) / "checkpoints/GR00T-N1.7-DROID"
+        if libero_checkpoint_tree_ready(git_cp):
+            return git_cp
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    target = resolve_shared_model_path(_DROID_N17_REPO)
+    assert libero_checkpoint_tree_ready(target), (
+        f"Checkpoint at {target} is incomplete after resolve/download "
+        "(check HF_TOKEN, network, and Hugging Face repo layout)."
+    )
+    return target
+
+
+def resolve_droid_demo_dataset_path(
+    repo_root: pathlib.Path | None = None,
+    *,
+    path_override_env: str | None = None,
+) -> pathlib.Path:
+    """Return the path to the DROID ``droid_sample`` dataset (small LeRobot bundle).
+
+    This is the 3-episode DROID demo described in the README under
+    ``demo_data/droid_sample`` (Git LFS in the Isaac-GR00T repo).
+
+    Resolution order (first match wins):
+
+    0. If *path_override_env* is set and that variable is non-empty in the
+       environment, its path is used (must satisfy :func:`libero_demo_tree_ready`).
+    1. ``DROID_DEMO_DATASET_PATH`` — explicit directory (CI or local override).
+    2. ``<repo_root>/demo_data/droid_sample`` — normal clone with Git LFS.
+    3. ``SHARED_DRIVE_ROOT/datasets/droid_sample`` — shared PVC / local cache.
+
+    Raises:
+        AssertionError: if no usable tree is found.
+    """
+    root = repo_root if repo_root is not None else get_root()
+
+    if path_override_env:
+        alt = os.environ.get(path_override_env, "").strip()
+        if alt:
+            resolved = pathlib.Path(alt).expanduser().resolve()
+            assert libero_demo_tree_ready(resolved), (
+                f"{path_override_env} does not point to a complete droid_sample-style dataset: "
+                f"{resolved}"
+            )
+            return resolved
+
+    env_path = os.environ.get("DROID_DEMO_DATASET_PATH", "").strip()
+    if env_path:
+        resolved = pathlib.Path(env_path).expanduser().resolve()
+        assert libero_demo_tree_ready(resolved), (
+            f"DROID_DEMO_DATASET_PATH does not point to a complete droid_sample tree: {resolved}"
+        )
+        return resolved
+
+    in_repo = root / "demo_data" / "droid_sample"
+    if libero_demo_tree_ready(in_repo):
+        return in_repo
+
+    shared = SHARED_DRIVE_ROOT / "datasets" / "droid_sample"
+    if libero_demo_tree_ready(shared):
+        return shared
+
+    raise AssertionError(
+        "droid_sample dataset not found. It ships in-repo under demo_data/droid_sample "
+        "(requires Git LFS). Alternatives: set DROID_DEMO_DATASET_PATH to an existing checkout; "
+        f"populate {shared} on the shared drive (CI_SHARED_DRIVE_PATH / ~/.cache/g00t)."
+    )
+
+
 EGL_VENDOR_DIRS = [
     pathlib.Path("/usr/share/glvnd/egl_vendor.d"),
     pathlib.Path("/etc/glvnd/egl_vendor.d"),
