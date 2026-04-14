@@ -37,7 +37,12 @@ README = REPO_ROOT / "examples/DROID/README.md"
 
 @pytest.mark.gpu
 @pytest.mark.timeout(1800)
-def test_droid_readme_server_starts() -> None:
+@pytest.mark.parametrize(
+    "occurrence",
+    [1, 2],
+    ids=["base", "finetuned"],
+)
+def test_droid_readme_server_starts(occurrence: int) -> None:
     """Verify the DROID inference server starts and accepts connections."""
 
     env = build_shared_runtime_env("droid")
@@ -46,9 +51,8 @@ def test_droid_readme_server_starts() -> None:
     model_server_host = "127.0.0.1"
     model_server_port = 5557
 
-    # Build server command — README uses --use_sim_policy_wrapper (underscore)
     server_code = replace_once(
-        find_block(blocks, "run_gr00t_server.py", language="bash").code,
+        find_block(blocks, "run_gr00t_server.py", language="bash", occurrence=occurrence).code,
         "uv run python gr00t/eval/run_gr00t_server.py",
         "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
     )
