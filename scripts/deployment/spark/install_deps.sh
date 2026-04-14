@@ -181,7 +181,7 @@ else
     $SUDO apt-get install -y --no-install-recommends \
         libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev \
         libavutil-dev libswresample-dev libswscale-dev \
-        pkg-config pybind11-dev
+        pkg-config pybind11-dev python3-dev
     uv pip install --python "$VENV_PYTHON" setuptools
     rm -rf /tmp/torchcodec
     git clone --depth 1 --branch v0.10.0 https://github.com/pytorch/torchcodec.git /tmp/torchcodec

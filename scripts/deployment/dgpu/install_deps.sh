@@ -81,7 +81,7 @@ if [ "$ARCH" = "aarch64" ]; then
     $SUDO apt-get install -y --no-install-recommends \
         libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev \
         libavutil-dev libswresample-dev libswscale-dev \
-        pkg-config cmake build-essential pybind11-dev
+        pkg-config cmake build-essential pybind11-dev python3-dev
     TORCHCODEC_GIT_URL="https://github.com/meta-pytorch/torchcodec.git"
     TORCHCODEC_GIT_REF="release/0.4"
     rm -rf /tmp/torchcodec
