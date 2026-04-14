@@ -88,7 +88,7 @@ def resolve_shared_model_path(
     return target
 
 
-def libero_checkpoint_tree_ready(path: pathlib.Path) -> bool:
+def checkpoint_tree_ready(path: pathlib.Path) -> bool:
     """Return True if *path* looks like a HuggingFace ``transformers`` checkpoint dir."""
     if not (path / "config.json").is_file():
         return False
@@ -98,6 +98,197 @@ def libero_checkpoint_tree_ready(path: pathlib.Path) -> bool:
     shards = set(json.loads(index_file.read_text()).get("weight_map", {}).values())
     return all((path / shard).is_file() for shard in shards)
 
+
+# Backward-compatible alias used by other test files.
+libero_checkpoint_tree_ready = checkpoint_tree_ready
+
+
+def demo_dataset_tree_ready(path: pathlib.Path) -> bool:
+    """Return True if *path* looks like a bundled LeRobot demo dataset.
+
+    Checks for ``meta/modality.json``, at least one ``.parquet`` under ``data/``,
+    and at least one ``.mp4`` under ``videos/``.
+    """
+    if not (path / "meta" / "modality.json").is_file():
+        return False
+    data_dir = path / "data"
+    if not data_dir.is_dir() or not any(data_dir.rglob("*.parquet")):
+        return False
+    videos_dir = path / "videos"
+    if not videos_dir.is_dir() or not any(videos_dir.rglob("*.mp4")):
+        return False
+    return True
+
+
+# Backward-compatible alias used by other test files.
+libero_demo_tree_ready = demo_dataset_tree_ready
+
+
+# ---------------------------------------------------------------------------
+# Generic model checkpoint resolver
+# ---------------------------------------------------------------------------
+
+
+def resolve_model_checkpoint_path(
+    *,
+    hf_repo_id: str,
+    hf_subdir: str | None = None,
+    path_override_env: str | None = None,
+    repo_root: pathlib.Path | None = None,
+) -> pathlib.Path:
+    """Resolve a GR00T model checkpoint, downloading from HuggingFace if needed.
+
+    Resolution order:
+
+    1. Environment variable *path_override_env* (must be a complete checkpoint).
+    2. ``<repo_root>/checkpoints/<model_name>/<subdir>``.
+    3. Git worktree toplevel + same relative ``checkpoints/...`` path.
+    4. ``SHARED_DRIVE_ROOT/models/<model_name>/<subdir>``, downloading from
+       HuggingFace when missing (requires ``HF_TOKEN``).
+
+    Args:
+        hf_repo_id: HuggingFace repo id, e.g. ``"nvidia/GR00T-N1.7-LIBERO"``.
+        hf_subdir: Optional subdirectory within the repo (e.g. ``"libero_10"``).
+        path_override_env: Name of an env var that, when set, overrides all other
+            resolution.
+        repo_root: Repository root (auto-detected if ``None``).
+    """
+    root = repo_root if repo_root is not None else get_root()
+    model_name = hf_repo_id.split("/")[-1]
+    rel_path = f"checkpoints/{model_name}/{hf_subdir}" if hf_subdir else f"checkpoints/{model_name}"
+
+    if path_override_env:
+        override = os.environ.get(path_override_env, "").strip()
+        if override:
+            p = pathlib.Path(override).expanduser().resolve()
+            assert checkpoint_tree_ready(p), (
+                f"{path_override_env} does not point to a complete checkpoint directory: {p}"
+            )
+            return p
+
+    local = root / rel_path
+    if checkpoint_tree_ready(local):
+        return local
+
+    try:
+        toplevel = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(root),
+            text=True,
+            timeout=30,
+        ).strip()
+        git_cp = pathlib.Path(toplevel) / rel_path
+        if checkpoint_tree_ready(git_cp):
+            return git_cp
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    allow = [f"{hf_subdir}/*"] if hf_subdir else None
+    target = resolve_shared_model_path(hf_repo_id, subdir=hf_subdir, allow_patterns=allow)
+    assert checkpoint_tree_ready(target), (
+        f"Checkpoint at {target} is incomplete after resolve/download "
+        "(check HF_TOKEN, network, and Hugging Face repo layout)."
+    )
+    return target
+
+
+# ---------------------------------------------------------------------------
+# Generic demo dataset resolver
+# ---------------------------------------------------------------------------
+
+
+def resolve_demo_dataset(
+    *,
+    dataset_name: str,
+    path_override_env: str | None = None,
+    global_env_var: str | None = None,
+    hf_download_env_var: str | None = None,
+    repo_root: pathlib.Path | None = None,
+) -> pathlib.Path:
+    """Resolve a bundled LeRobot demo dataset by *dataset_name*.
+
+    Resolution order (first match wins):
+
+    1. *path_override_env* environment variable (per-test override).
+    2. *global_env_var* environment variable (CI / local override).
+    3. ``<repo_root>/demo_data/<dataset_name>`` — normal clone with Git LFS.
+    4. ``SHARED_DRIVE_ROOT/datasets/<dataset_name>`` — shared PVC / local cache.
+    5. If *hf_download_env_var* is set in the environment, download from HuggingFace
+       into the shared path (requires ``HF_TOKEN``).
+
+    Args:
+        dataset_name: Directory name under ``demo_data/`` (e.g. ``"libero_demo"``
+            or ``"droid_sample"``).
+        path_override_env: Name of an env var for per-test path override.
+        global_env_var: Name of an env var for a global path override
+            (e.g. ``"LIBERO_DEMO_DATASET_PATH"``).
+        hf_download_env_var: Name of an env var whose value is a HuggingFace
+            *dataset* repo id; when set, the dataset is downloaded into shared
+            storage.
+        repo_root: Repository root (auto-detected if ``None``).
+    """
+    root = repo_root if repo_root is not None else get_root()
+
+    if path_override_env:
+        alt = os.environ.get(path_override_env, "").strip()
+        if alt:
+            resolved = pathlib.Path(alt).expanduser().resolve()
+            assert demo_dataset_tree_ready(resolved), (
+                f"{path_override_env} does not point to a complete demo dataset: {resolved}"
+            )
+            return resolved
+
+    if global_env_var:
+        env_path = os.environ.get(global_env_var, "").strip()
+        if env_path:
+            resolved = pathlib.Path(env_path).expanduser().resolve()
+            assert demo_dataset_tree_ready(resolved), (
+                f"{global_env_var} does not point to a complete demo dataset tree: {resolved}"
+            )
+            return resolved
+
+    in_repo = root / "demo_data" / dataset_name
+    if demo_dataset_tree_ready(in_repo):
+        return in_repo
+
+    shared = SHARED_DRIVE_ROOT / "datasets" / dataset_name
+    if demo_dataset_tree_ready(shared):
+        return shared
+
+    if hf_download_env_var:
+        hf_dataset = os.environ.get(hf_download_env_var, "").strip()
+        if hf_dataset:
+            token = os.environ.get("HF_TOKEN", "")
+            assert token, (
+                f"HF_TOKEN is required to download {hf_download_env_var} into shared storage"
+            )
+            shared.parent.mkdir(parents=True, exist_ok=True)
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(
+                repo_id=hf_dataset,
+                repo_type="dataset",
+                local_dir=str(shared),
+                token=token,
+            )
+            assert demo_dataset_tree_ready(shared), (
+                f"Downloaded HuggingFace dataset into {shared} but it does not match "
+                "expected LeRobot demo dataset layout"
+            )
+            return shared
+
+    raise AssertionError(
+        f"{dataset_name} dataset not found. "
+        f"It ships in-repo under demo_data/{dataset_name} (requires Git LFS). "
+        f"Alternatives: set {global_env_var or path_override_env or 'a path env var'} "
+        f"to an existing checkout; populate {shared} on the shared drive "
+        "(CI_SHARED_DRIVE_PATH / ~/.cache/g00t)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# LIBERO-specific convenience wrappers (backward compatibility)
+# ---------------------------------------------------------------------------
 
 _LIBERO_N17_LIBERO_REPO = "nvidia/GR00T-N1.7-LIBERO"
 _LIBERO_N17_LIBERO_SUBDIR = "libero_10"
@@ -110,67 +301,15 @@ def resolve_libero_n17_libero10_checkpoint_path(
 ) -> pathlib.Path:
     """Resolve the LIBERO-finetuned GR00T-N1.7 checkpoint (``libero_10`` subfolder).
 
-    Resolution order:
-
-    1. Environment variable named by *path_override_env* (must be a complete checkpoint).
-    2. ``<repo_root>/checkpoints/GR00T-N1.7-LIBERO/libero_10``.
-    3. Git worktree toplevel + same relative ``checkpoints/...`` path.
-    4. ``SHARED_DRIVE_ROOT/models/GR00T-N1.7-LIBERO/libero_10``, downloading
-       only ``libero_10/*`` from Hugging Face when missing (requires ``HF_TOKEN``).
-
-    Raises:
-        AssertionError: if overrides are incomplete or download leaves a broken tree.
+    Thin wrapper around :func:`resolve_model_checkpoint_path` kept for backward
+    compatibility with existing callers.
     """
-    root = repo_root if repo_root is not None else get_root()
-
-    override = os.environ.get(path_override_env, "").strip()
-    if override:
-        p = pathlib.Path(override).expanduser().resolve()
-        assert libero_checkpoint_tree_ready(p), (
-            f"{path_override_env} does not point to a complete checkpoint directory: {p}"
-        )
-        return p
-
-    local = root / "checkpoints/GR00T-N1.7-LIBERO/libero_10"
-    if libero_checkpoint_tree_ready(local):
-        return local
-
-    try:
-        toplevel = subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=str(root),
-            text=True,
-            timeout=30,
-        ).strip()
-        git_cp = pathlib.Path(toplevel) / "checkpoints/GR00T-N1.7-LIBERO/libero_10"
-        if libero_checkpoint_tree_ready(git_cp):
-            return git_cp
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-    target = resolve_shared_model_path(
-        _LIBERO_N17_LIBERO_REPO,
-        subdir=_LIBERO_N17_LIBERO_SUBDIR,
-        allow_patterns=[f"{_LIBERO_N17_LIBERO_SUBDIR}/*"],
+    return resolve_model_checkpoint_path(
+        hf_repo_id=_LIBERO_N17_LIBERO_REPO,
+        hf_subdir=_LIBERO_N17_LIBERO_SUBDIR,
+        path_override_env=path_override_env,
+        repo_root=repo_root,
     )
-    assert libero_checkpoint_tree_ready(target), (
-        f"Checkpoint at {target} is incomplete after resolve/download "
-        "(check HF_TOKEN, network, and Hugging Face repo layout)."
-    )
-    return target
-
-
-def libero_demo_tree_ready(path: pathlib.Path) -> bool:
-    """Return True if *path* looks like the bundled ``libero_demo`` LeRobot dataset."""
-    if not (path / "meta" / "modality.json").is_file():
-        return False
-    data_dir = path / "data"
-    if not data_dir.is_dir() or not any(data_dir.rglob("*.parquet")):
-        return False
-    videos_dir = path / "videos"
-    if not videos_dir.is_dir() or not any(videos_dir.rglob("*.mp4")):
-        return False
-    return True
 
 
 def resolve_libero_demo_dataset_path(
@@ -178,80 +317,17 @@ def resolve_libero_demo_dataset_path(
     *,
     path_override_env: str | None = None,
 ) -> pathlib.Path:
-    """Return the path to the LIBERO ``libero_demo`` dataset (small LeRobot bundle).
+    """Return the path to the LIBERO ``libero_demo`` dataset.
 
-    This is the same 5-episode LIBERO Panda demo described in the README under
-    ``demo_data/libero_demo`` (Git LFS in the Isaac-GR00T repo). It is **not**
-    always present in a bare clone without LFS pull.
-
-    Resolution order (first match wins):
-
-    0. If *path_override_env* is set and that variable is non-empty in the
-       environment, its path is used (must satisfy :func:`libero_demo_tree_ready`).
-       Used by example tests (``INFERENCE_TEST_DATASET_PATH`` / ``TRT_TEST_DATASET_PATH``).
-    1. ``LIBERO_DEMO_DATASET_PATH`` — explicit directory (CI or local override).
-    2. ``<repo_root>/demo_data/libero_demo`` — normal clone with Git LFS.
-    3. ``SHARED_DRIVE_ROOT/datasets/libero_demo`` — shared PVC / local cache
-       (same root as :func:`resolve_shared_model_path`, e.g. ``/shared`` in CI).
-    4. If ``GR00T_LIBERO_DEMO_HF_DATASET`` is set to a HuggingFace *dataset* repo
-       id, download it into the shared path with ``snapshot_download`` (requires
-       ``HF_TOKEN`` when the dataset is gated).
-
-    Raises:
-        AssertionError: if no usable tree is found and no download is configured.
+    Thin wrapper around :func:`resolve_demo_dataset` kept for backward
+    compatibility with existing callers.
     """
-    root = repo_root if repo_root is not None else get_root()
-
-    if path_override_env:
-        alt = os.environ.get(path_override_env, "").strip()
-        if alt:
-            resolved = pathlib.Path(alt).expanduser().resolve()
-            assert libero_demo_tree_ready(resolved), (
-                f"{path_override_env} does not point to a complete libero_demo-style dataset: {resolved}"
-            )
-            return resolved
-
-    env_path = os.environ.get("LIBERO_DEMO_DATASET_PATH", "").strip()
-    if env_path:
-        resolved = pathlib.Path(env_path).expanduser().resolve()
-        assert libero_demo_tree_ready(resolved), (
-            f"LIBERO_DEMO_DATASET_PATH does not point to a complete libero_demo tree: {resolved}"
-        )
-        return resolved
-
-    in_repo = root / "demo_data" / "libero_demo"
-    if libero_demo_tree_ready(in_repo):
-        return in_repo
-
-    shared = SHARED_DRIVE_ROOT / "datasets" / "libero_demo"
-    if libero_demo_tree_ready(shared):
-        return shared
-
-    hf_dataset = os.environ.get("GR00T_LIBERO_DEMO_HF_DATASET", "").strip()
-    if hf_dataset:
-        token = os.environ.get("HF_TOKEN", "")
-        assert token, (
-            "HF_TOKEN is required to download GR00T_LIBERO_DEMO_HF_DATASET into shared storage"
-        )
-        shared.parent.mkdir(parents=True, exist_ok=True)
-        from huggingface_hub import snapshot_download
-
-        snapshot_download(
-            repo_id=hf_dataset,
-            repo_type="dataset",
-            local_dir=str(shared),
-            token=token,
-        )
-        assert libero_demo_tree_ready(shared), (
-            f"Downloaded HuggingFace dataset into {shared} but it does not match expected libero_demo layout"
-        )
-        return shared
-
-    raise AssertionError(
-        "libero_demo dataset not found. It ships in-repo under demo_data/libero_demo (requires Git LFS). "
-        "Alternatives: set LIBERO_DEMO_DATASET_PATH to an existing checkout; "
-        f"populate {shared} on the shared drive (CI_SHARED_DRIVE_PATH / ~/.cache/g00t); "
-        "or set GR00T_LIBERO_DEMO_HF_DATASET to a HuggingFace dataset id plus HF_TOKEN to download once."
+    return resolve_demo_dataset(
+        dataset_name="libero_demo",
+        path_override_env=path_override_env,
+        global_env_var="LIBERO_DEMO_DATASET_PATH",
+        hf_download_env_var="GR00T_LIBERO_DEMO_HF_DATASET",
+        repo_root=repo_root,
     )
 
 
