@@ -88,7 +88,7 @@ else
     $SUDO apt-get install -y --no-install-recommends \
         libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev \
         libavutil-dev libswresample-dev libswscale-dev \
-        pkg-config pybind11-dev
+        pkg-config pybind11-dev python3-dev
     uv pip install --python "$VENV_PYTHON" setuptools
     NVIDIA_LIB_DIRS="$(find "${SITE_PKGS}/nvidia" -name "lib" -type d 2>/dev/null | tr '\n' ':')"
     export LD_LIBRARY_PATH="/usr/local/cuda-12.6/lib64:${SITE_PKGS}/torch/lib:${NVIDIA_LIB_DIRS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
