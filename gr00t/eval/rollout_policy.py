@@ -402,13 +402,34 @@ def create_gr00t_sim_policy(
     embodiment_tag: EmbodimentTag,
     policy_client_host: str = "",
     policy_client_port: int | None = None,
+    steered: bool = False,
+    weight_sub_host: str = "",
+    weight_sub_port: int = 5557,
+    latent_dim: int = 64,
+    action_horizon: int = 16,
+    action_dim: int = 32,
+    obs_keys: list[str] | None = None,
 ) -> BasePolicy:
     from gr00t.policy.gr00t_policy import Gr00tPolicy, Gr00tSimPolicyWrapper
 
     if policy_client_host and policy_client_port:
-        from gr00t.policy.server_client import PolicyClient
+        if steered:
+            from gr00t.eval.steered_policy_client import SteeredPolicyClient
 
-        policy = PolicyClient(host=policy_client_host, port=policy_client_port)
+            policy = SteeredPolicyClient(
+                host=policy_client_host,
+                port=policy_client_port,
+                weight_sub_host=weight_sub_host,
+                weight_sub_port=weight_sub_port,
+                latent_dim=latent_dim,
+                action_horizon=action_horizon,
+                action_dim=action_dim,
+                obs_keys=obs_keys,
+            )
+        else:
+            from gr00t.policy.server_client import PolicyClient
+
+            policy = PolicyClient(host=policy_client_host, port=policy_client_port)
     else:
         policy = Gr00tSimPolicyWrapper(
             Gr00tPolicy(
@@ -431,6 +452,13 @@ def run_gr00t_sim_policy(
     n_action_steps: int = 8,
     transition_host: str = "",
     transition_port: int | None = None,
+    steered: bool = False,
+    weight_sub_host: str = "",
+    weight_sub_port: int = 5557,
+    latent_dim: int = 64,
+    action_horizon: int = 16,
+    action_dim: int = 32,
+    obs_keys: list[str] | None = None,
 ):
     embodiment_tag = get_embodiment_tag_from_env_name(env_name)
 
@@ -453,7 +481,17 @@ def run_gr00t_sim_policy(
     )
 
     policy = create_gr00t_sim_policy(
-        model_path, embodiment_tag, policy_client_host, policy_client_port
+        model_path,
+        embodiment_tag,
+        policy_client_host,
+        policy_client_port,
+        steered=steered,
+        weight_sub_host=weight_sub_host,
+        weight_sub_port=weight_sub_port,
+        latent_dim=latent_dim,
+        action_horizon=action_horizon,
+        action_dim=action_dim,
+        obs_keys=obs_keys,
     )
 
     sender = None
@@ -497,6 +535,26 @@ if __name__ == "__main__":
     parser.add_argument("--n_action_steps", type=int, default=8)
     parser.add_argument("--transition_host", type=str, default="")
     parser.add_argument("--transition_port", type=int, default=None)
+    parser.add_argument(
+        "--steered", action="store_true", help="Use SteeredPolicyClient for DSRL online RL."
+    )
+    parser.add_argument(
+        "--weight_sub_host",
+        type=str,
+        default="",
+        help="Host running rl.py weight publisher (Window 1).",
+    )
+    parser.add_argument("--weight_sub_port", type=int, default=5557)
+    parser.add_argument("--latent_dim", type=int, default=64)
+    parser.add_argument("--action_horizon", type=int, default=16)
+    parser.add_argument("--action_dim", type=int, default=32)
+    parser.add_argument(
+        "--obs_keys",
+        type=str,
+        nargs="+",
+        default=None,
+        help="Proprioceptive obs keys for the StateEncoder.",
+    )
 
     args = parser.parse_args()
 
@@ -521,6 +579,13 @@ if __name__ == "__main__":
         n_action_steps=args.n_action_steps,
         transition_host=args.transition_host,
         transition_port=args.transition_port,
+        steered=args.steered,
+        weight_sub_host=args.weight_sub_host,
+        weight_sub_port=args.weight_sub_port,
+        latent_dim=args.latent_dim,
+        action_horizon=args.action_horizon,
+        action_dim=args.action_dim,
+        obs_keys=args.obs_keys,
     )
     print("results: ", results)
     print("success rate: ", np.mean(results[1]))
