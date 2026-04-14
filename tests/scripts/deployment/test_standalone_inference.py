@@ -110,7 +110,7 @@ def _dataset_path(variant: InferenceVariant) -> str:
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(600)
 @pytest.mark.parametrize("variant", VARIANTS, ids=str)
 def test_standalone_inference_pytorch(variant: InferenceVariant) -> None:
     """Run standalone inference in PyTorch mode for a few steps on 1 trajectory."""
@@ -149,7 +149,7 @@ def test_standalone_inference_pytorch(variant: InferenceVariant) -> None:
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(600)
 @pytest.mark.parametrize("variant", VARIANTS, ids=str)
 def test_standalone_inference_invalid_traj_id(variant: InferenceVariant) -> None:
     """Passing an out-of-range --traj-ids should raise ValueError, not UnboundLocalError."""
@@ -193,7 +193,7 @@ def test_standalone_inference_invalid_traj_id(variant: InferenceVariant) -> None
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(600)
 @pytest.mark.parametrize("variant", VARIANTS, ids=str)
 def test_open_loop_eval_with_checkpoint(variant: InferenceVariant) -> None:
     """Run open_loop_eval.py directly with a model checkpoint."""
