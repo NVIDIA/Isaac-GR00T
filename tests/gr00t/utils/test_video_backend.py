@@ -79,37 +79,35 @@ class TestTorchcodecNotImportedAtModuleLevel:
 
 
 class TestTorchcodecUnavailable:
-    """When torchcodec is not installed, resolve_backend should fall back to another backend."""
+    """When torchcodec is not installed, resolve_backend should raise ImportError (no fallback)."""
 
-    def test_falls_back_when_unavailable(self):
+    def test_raises_when_unavailable(self):
         from gr00t.utils.video_utils import resolve_backend
 
         with patch(
             "gr00t.utils.video_utils._lazy_import_torchcodec",
             side_effect=ImportError("torchcodec is not available."),
         ):
-            backend = resolve_backend("dummy.mp4", "torchcodec")
-            assert backend != "torchcodec"
-            assert backend in ("decord", "pyav", "ffmpeg")
+            with pytest.raises(ImportError, match="torchcodec"):
+                resolve_backend("dummy.mp4", "torchcodec")
 
 
 class TestDecordUnavailable:
-    """When decord is not installed, resolve_backend should fall back to another backend."""
+    """When decord is not installed, resolve_backend should raise ImportError (no fallback)."""
 
-    def test_falls_back_when_unavailable(self):
+    def test_raises_when_unavailable(self):
         from gr00t.utils.video_utils import resolve_backend
 
         with patch(
             "gr00t.utils.video_utils._lazy_import_decord",
             side_effect=ImportError("decord is not available."),
         ):
-            backend = resolve_backend("dummy.mp4", "decord")
-            assert backend != "decord"
-            assert backend in ("torchcodec", "pyav", "ffmpeg")
+            with pytest.raises(ImportError, match="not available"):
+                resolve_backend("dummy.mp4", "decord")
 
 
 class TestAllBackendsUnavailable:
-    """When all fallback backends are unavailable, should raise ImportError."""
+    """When a backend is unavailable, should raise ImportError."""
 
     def test_raises_import_error(self):
         from gr00t.utils.video_utils import resolve_backend
@@ -118,7 +116,7 @@ class TestAllBackendsUnavailable:
             "gr00t.utils.video_utils._is_backend_available",
             return_value=False,
         ):
-            with pytest.raises(ImportError, match="no fallback"):
+            with pytest.raises(ImportError, match="not available"):
                 resolve_backend("dummy.mp4", "nonexistent")
 
 

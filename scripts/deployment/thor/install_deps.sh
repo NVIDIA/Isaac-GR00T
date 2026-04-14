@@ -86,33 +86,42 @@ echo "Installing package in editable mode..."
 uv pip install --python "$VENV_PYTHON" -e .
 
 # ──────────────────────────────────────────────────────────────────────────────
-# torchcodec — build from source against system FFmpeg
+# torchcodec — prebuilt wheel (shared with Spark, both FFmpeg 6) or source build
+# Thor and Spark share the same cp312 aarch64 wheel since both run Ubuntu 24.04
+# with FFmpeg 6. The wheel lives under spark/wheels/.
 # ──────────────────────────────────────────────────────────────────────────────
-echo "Installing FFmpeg runtime and dev libs for torchcodec build..."
+echo "Installing FFmpeg runtime..."
 $SUDO apt-get update -qq
-$SUDO apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev \
-    libavutil-dev libswresample-dev libswscale-dev \
-    pkg-config pybind11-dev
+$SUDO apt-get install -y --no-install-recommends ffmpeg
 
-echo "Ensuring setuptools is available for torchcodec build..."
-uv pip install --python "$VENV_PYTHON" setuptools
-
-echo "Building torchcodec from source (v0.10.0 against system FFmpeg)..."
-# torchcodec needs PyTorch and NVIDIA runtime libs on LD_LIBRARY_PATH during build.
-NVIDIA_LIB_DIRS="$(find "${SITE_PKGS}/nvidia" -name "lib" -type d 2>/dev/null | tr '\n' ':')"
-export LD_LIBRARY_PATH="${SITE_PKGS}/torch/lib:${NVIDIA_LIB_DIRS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export CUDA_HOME=/usr/local/cuda-13.0
-export CUDA_PATH=/usr/local/cuda-13.0
-export CPATH="${CUDA_HOME}/include:${CPATH:-}"
-export C_INCLUDE_PATH="${CUDA_HOME}/include:${C_INCLUDE_PATH:-}"
-export CPLUS_INCLUDE_PATH="${CUDA_HOME}/include:${CPLUS_INCLUDE_PATH:-}"
-rm -rf /tmp/torchcodec
-git clone --depth 1 --branch v0.10.0 https://github.com/pytorch/torchcodec.git /tmp/torchcodec
-cd /tmp/torchcodec
-I_CONFIRM_THIS_IS_NOT_A_LICENSE_VIOLATION=1 uv pip install --python "$VENV_PYTHON" . --no-build-isolation
-cd - && rm -rf /tmp/torchcodec
+SPARK_DIR="$SCRIPT_DIR/../spark"
+if [ ! -d "$SPARK_DIR/wheels" ]; then
+    echo "Warning: Spark wheels directory not found at $SPARK_DIR/wheels — will attempt source build"
+fi
+TORCHCODEC_WHL=$(find "$SPARK_DIR/wheels" -name 'torchcodec-*.whl' -print -quit 2>/dev/null || true)
+if [ -n "$TORCHCODEC_WHL" ]; then
+    echo "Installing torchcodec from prebuilt wheel: $TORCHCODEC_WHL"
+    uv pip install --python "$VENV_PYTHON" --force-reinstall --no-deps "$TORCHCODEC_WHL"
+else
+    echo "No prebuilt torchcodec wheel found — building from source..."
+    $SUDO apt-get install -y --no-install-recommends \
+        libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev \
+        libavutil-dev libswresample-dev libswscale-dev \
+        pkg-config pybind11-dev
+    uv pip install --python "$VENV_PYTHON" setuptools
+    NVIDIA_LIB_DIRS="$(find "${SITE_PKGS}/nvidia" -name "lib" -type d 2>/dev/null | tr '\n' ':')"
+    export LD_LIBRARY_PATH="${SITE_PKGS}/torch/lib:${NVIDIA_LIB_DIRS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export CUDA_HOME=/usr/local/cuda-13.0
+    export CUDA_PATH=/usr/local/cuda-13.0
+    export CPATH="${CUDA_HOME}/include:${CPATH:-}"
+    export C_INCLUDE_PATH="${CUDA_HOME}/include:${C_INCLUDE_PATH:-}"
+    export CPLUS_INCLUDE_PATH="${CUDA_HOME}/include:${CPLUS_INCLUDE_PATH:-}"
+    rm -rf /tmp/torchcodec
+    git clone --depth 1 --branch v0.10.0 https://github.com/pytorch/torchcodec.git /tmp/torchcodec
+    cd /tmp/torchcodec
+    I_CONFIRM_THIS_IS_NOT_A_LICENSE_VIOLATION=1 uv pip install --python "$VENV_PYTHON" . --no-build-isolation
+    cd - && rm -rf /tmp/torchcodec
+fi
 
 echo ""
 echo "Install complete! In each new shell, activate with:"

@@ -166,25 +166,29 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
-# torchcodec — build from source against system FFmpeg
+# torchcodec — prebuilt wheel (built against Spark's FFmpeg 6) or source build
 # ──────────────────────────────────────────────────────────────────────────────
-echo "Installing FFmpeg runtime and dev libs for torchcodec build..."
+echo "Installing FFmpeg runtime..."
 $SUDO apt-get update -qq
-$SUDO apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev \
-    libavutil-dev libswresample-dev libswscale-dev \
-    pkg-config pybind11-dev
+$SUDO apt-get install -y --no-install-recommends ffmpeg
 
-echo "Ensuring setuptools is available for torchcodec build..."
-uv pip install --python "$VENV_PYTHON" setuptools
-
-echo "Building torchcodec from source (v0.10.0 against system FFmpeg)..."
-rm -rf /tmp/torchcodec
-git clone --depth 1 --branch v0.10.0 https://github.com/pytorch/torchcodec.git /tmp/torchcodec
-cd /tmp/torchcodec
-I_CONFIRM_THIS_IS_NOT_A_LICENSE_VIOLATION=1 uv pip install --python "$VENV_PYTHON" . --no-build-isolation
-cd - && rm -rf /tmp/torchcodec
+TORCHCODEC_WHL=$(find "$SCRIPT_DIR/wheels" -name 'torchcodec-*.whl' -print -quit 2>/dev/null || true)
+if [ -n "$TORCHCODEC_WHL" ]; then
+    echo "Installing torchcodec from prebuilt wheel: $TORCHCODEC_WHL"
+    uv pip install --python "$VENV_PYTHON" --force-reinstall --no-deps "$TORCHCODEC_WHL"
+else
+    echo "No prebuilt torchcodec wheel found — building from source..."
+    $SUDO apt-get install -y --no-install-recommends \
+        libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev \
+        libavutil-dev libswresample-dev libswscale-dev \
+        pkg-config pybind11-dev
+    uv pip install --python "$VENV_PYTHON" setuptools
+    rm -rf /tmp/torchcodec
+    git clone --depth 1 --branch v0.10.0 https://github.com/pytorch/torchcodec.git /tmp/torchcodec
+    cd /tmp/torchcodec
+    I_CONFIRM_THIS_IS_NOT_A_LICENSE_VIOLATION=1 uv pip install --python "$VENV_PYTHON" . --no-build-isolation
+    cd - && rm -rf /tmp/torchcodec
+fi
 
 echo ""
 echo "Install complete! In each new shell, activate with:"

@@ -45,7 +45,7 @@ TEST_CACHE_PATH = _default_cache_path()
 
 def get_root() -> pathlib.Path:
     """Return the root directory of the repository."""
-    return pathlib.Path(__file__).resolve().parents[1]
+    return pathlib.Path(__file__).resolve().parents[2]
 
 
 def resolve_shared_model_path(
