@@ -39,6 +39,7 @@ from gr00t.data.stats import (
     generate_stats,
 )
 import numpy as np
+import pyarrow.parquet as pq
 import pytest
 from test_support.runtime import get_root, resolve_libero_demo_dataset_path
 
@@ -47,9 +48,37 @@ ROOT = get_root()
 EMBODIMENT = EmbodimentTag("libero_sim")
 
 
+def _parquet_readable(path: Path) -> bool:
+    """Return True if *path* is a real parquet file (not a Git LFS pointer stub)."""
+    try:
+        pq.read_schema(path)
+        return True
+    except Exception:
+        return False
+
+
 @functools.lru_cache(maxsize=1)
 def _libero_demo_dataset() -> Path:
     return resolve_libero_demo_dataset_path(ROOT)
+
+
+def _dataset_usable() -> bool:
+    """Check that the demo dataset exists and its parquet files are readable."""
+    try:
+        ds = _libero_demo_dataset()
+    except (AssertionError, FileNotFoundError):
+        return False
+    parquets = sorted(ds.glob("data/*/*.parquet"))
+    return len(parquets) > 0 and _parquet_readable(parquets[0])
+
+
+# Skip when the libero_demo dataset is not available (e.g. shallow clone without
+# Git LFS, or CI runner without the shared drive mount).  The tests run in full
+# CI (where LFS data is present) and on any dev machine after `git lfs pull`.
+requires_libero_demo = pytest.mark.skipif(
+    not _dataset_usable(),
+    reason="libero_demo dataset not available or parquet files are Git LFS stubs",
+)
 
 
 @pytest.fixture
@@ -70,6 +99,7 @@ def demo_parquet_paths():
     return paths
 
 
+@requires_libero_demo
 class TestCalculateDatasetStatistics:
     """Test the low-level statistics computation on parquet data."""
 
@@ -123,21 +153,25 @@ class TestCalculateDatasetStatistics:
 class TestCheckStatsValidity:
     """Test the stats file validity checker."""
 
+    @requires_libero_demo
     def test_valid_existing_stats(self):
         assert check_stats_validity(_libero_demo_dataset(), ["observation.state", "action"])
 
+    @requires_libero_demo
     def test_missing_feature_returns_false(self):
         assert not check_stats_validity(_libero_demo_dataset(), ["nonexistent_feature_xyz"])
 
     def test_missing_file_returns_false(self, tmp_path):
         assert not check_stats_validity(tmp_path, ["anything"])
 
+    @requires_libero_demo
     def test_partial_features_returns_false(self):
         assert not check_stats_validity(
             _libero_demo_dataset(), ["observation.state", "no_such_key"]
         )
 
 
+@requires_libero_demo
 class TestGenerateStats:
     """Test end-to-end stats generation from demo dataset."""
 
@@ -192,6 +226,7 @@ class TestGenerateStats:
         assert mtime_before == mtime_after, "stats.json should not be rewritten"
 
 
+@requires_libero_demo
 class TestGenerateRelStats:
     """Test relative stats generation.
 

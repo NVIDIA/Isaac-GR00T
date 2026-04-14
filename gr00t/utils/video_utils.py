@@ -62,9 +62,6 @@ _INCOMPATIBLE_BACKEND_CODECS: dict[str, set[str]] = {
     "torchvision_av": {"hevc", "h265"},
 }
 
-# Preferred fallback order when the requested backend is unavailable or incompatible.
-_BACKEND_FALLBACK_ORDER = ["torchcodec", "decord", "pyav", "ffmpeg"]
-
 
 def _is_backend_available(backend: str) -> bool:
     """Check if a video backend is available without importing at module level."""
@@ -86,31 +83,23 @@ def _is_backend_available(backend: str) -> bool:
 
 
 def resolve_backend(video_path: str, requested_backend: str) -> str:
-    """Resolve the video backend, auto-falling back if incompatible or unavailable.
+    """Resolve the video backend.
 
-    Checks codec compatibility and backend availability. If the requested backend
-    is incompatible with the video codec or unavailable, falls back to the next
-    available backend and logs a warning (see issue #342).
+    torchcodec is the only officially supported backend. Other backends
+    (decord, ffmpeg, opencv, pyav, torchvision_av) are still accepted if
+    explicitly requested, but torchcodec must be installed for the default
+    path. No automatic fallback is performed.
 
     Returns the backend name to actually use.
     """
-    # Check availability first
     if not _is_backend_available(requested_backend):
-        for fallback in _BACKEND_FALLBACK_ORDER:
-            if fallback != requested_backend and _is_backend_available(fallback):
-                logger.warning(
-                    "Video backend '%s' is not available, falling back to '%s'. "
-                    "Install the missing package or set video_backend explicitly.",
-                    requested_backend,
-                    fallback,
-                )
-                requested_backend = fallback
-                break
-        else:
-            raise ImportError(
-                f"Video backend '{requested_backend}' is not available and no fallback "
-                f"backend could be found. Install torchcodec or decord."
-            )
+        raise ImportError(
+            f"Video backend '{requested_backend}' is not available. "
+            f"torchcodec is the only supported backend — install it via the "
+            f"platform-specific pyproject.toml (see scripts/deployment/). "
+            f"If the default wheel does not work on your system, build "
+            f"torchcodec from source against your system FFmpeg version."
+        )
 
     # Check codec compatibility for known-bad combinations
     bad_codecs = _INCOMPATIBLE_BACKEND_CODECS.get(requested_backend)
@@ -120,26 +109,10 @@ def resolve_backend(video_path: str, requested_backend: str) -> str:
         except ValueError:
             codec = None
         if codec and codec in bad_codecs:
-            for fallback in _BACKEND_FALLBACK_ORDER:
-                if fallback != requested_backend and _is_backend_available(fallback):
-                    fallback_bad = _INCOMPATIBLE_BACKEND_CODECS.get(fallback, set())
-                    if codec not in fallback_bad:
-                        logger.warning(
-                            "Video backend '%s' is incompatible with codec '%s' "
-                            "(may silently read only the first frame). "
-                            "Auto-switching to '%s'. Set video_backend='%s' explicitly "
-                            "to suppress this warning.",
-                            requested_backend,
-                            codec,
-                            fallback,
-                            fallback,
-                        )
-                        return fallback
-            # No compatible fallback found — warn but proceed (user's choice)
             logger.warning(
-                "Video backend '%s' is known to be incompatible with codec '%s', "
-                "but no compatible fallback backend is available. "
-                "Video loading may silently fail (only first frame read).",
+                "Video backend '%s' is known to be incompatible with codec '%s'. "
+                "Video loading may silently fail (only first frame read). "
+                "Switch to torchcodec to avoid this issue.",
                 requested_backend,
                 codec,
             )

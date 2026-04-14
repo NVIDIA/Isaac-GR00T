@@ -25,7 +25,7 @@ from types import ModuleType
 
 def load_sync_module(module_name: str):
     """Import a sync module with lightweight `git` stubs for unit tests."""
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
