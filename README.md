@@ -45,7 +45,7 @@
 >
 > We welcome feedback - please feel free to raise issues in this repository.
 
-> To use older versions: [N1.6](https://github.com/NVIDIA/Isaac-GR00T/) | [N1.5](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release)
+> To use older versions: [N1.6](https://github.com/NVIDIA/Isaac-GR00T/releases/tag/n1.6-release) | [N1.5](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release)
 
 NVIDIA Isaac GR00T N1.7 is an open vision-language-action (VLA) model for generalized humanoid robot skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
 
