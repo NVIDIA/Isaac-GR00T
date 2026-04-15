@@ -56,7 +56,7 @@ def resolve_shared_model_path(
 ) -> pathlib.Path:
     """Return a shared model path, downloading once if not present.
 
-    Models are stored at ``SHARED_DRIVE_ROOT/models/<repo_name>/`` so all tests
+    Models are stored at ``TEST_CACHE_PATH/models/<repo_name>/`` so all tests
     share a single copy.  If *subdir* is given the returned path points to that
     subdirectory (useful for HF repos with nested checkpoint folders).
 
@@ -67,7 +67,7 @@ def resolve_shared_model_path(
             ``snapshot_download``).  If ``None`` the entire repo is fetched.
     """
     model_name = repo_id.split("/")[-1]
-    model_root = SHARED_DRIVE_ROOT / "models" / model_name
+    model_root = TEST_CACHE_PATH / "models" / model_name
     target = model_root / subdir if subdir else model_root
 
     # Quick check: already downloaded?
@@ -143,7 +143,7 @@ def resolve_model_checkpoint_path(
     1. Environment variable *path_override_env* (must be a complete checkpoint).
     2. ``<repo_root>/checkpoints/<model_name>/<subdir>``.
     3. Git worktree toplevel + same relative ``checkpoints/...`` path.
-    4. ``SHARED_DRIVE_ROOT/models/<model_name>/<subdir>``, downloading from
+    4. ``TEST_CACHE_PATH/models/<model_name>/<subdir>``, downloading from
        HuggingFace when missing (requires ``HF_TOKEN``).
 
     Args:
@@ -212,7 +212,7 @@ def resolve_demo_dataset(
     1. *path_override_env* environment variable (per-test override).
     2. *global_env_var* environment variable (CI / local override).
     3. ``<repo_root>/demo_data/<dataset_name>`` — normal clone with Git LFS.
-    4. ``SHARED_DRIVE_ROOT/datasets/<dataset_name>`` — shared PVC / local cache.
+    4. ``TEST_CACHE_PATH/datasets/<dataset_name>`` — shared PVC / local cache.
     5. If *hf_download_env_var* is set in the environment, download from HuggingFace
        into the shared path (requires ``HF_TOKEN``).
 
@@ -251,7 +251,7 @@ def resolve_demo_dataset(
     if demo_dataset_tree_ready(in_repo):
         return in_repo
 
-    shared = SHARED_DRIVE_ROOT / "datasets" / dataset_name
+    shared = TEST_CACHE_PATH / "datasets" / dataset_name
     if demo_dataset_tree_ready(shared):
         return shared
 
@@ -346,7 +346,7 @@ def resolve_droid_n17_checkpoint_path(
     1. Environment variable named by *path_override_env* (must be a complete checkpoint).
     2. ``<repo_root>/checkpoints/GR00T-N1.7-DROID``.
     3. Git worktree toplevel + same relative ``checkpoints/...`` path.
-    4. ``SHARED_DRIVE_ROOT/models/GR00T-N1.7-DROID``, downloading
+    4. ``TEST_CACHE_PATH/models/GR00T-N1.7-DROID``, downloading
        from Hugging Face when missing (requires ``HF_TOKEN``).
 
     Raises:
@@ -403,7 +403,7 @@ def resolve_droid_demo_dataset_path(
        environment, its path is used (must satisfy :func:`libero_demo_tree_ready`).
     1. ``DROID_DEMO_DATASET_PATH`` — explicit directory (CI or local override).
     2. ``<repo_root>/demo_data/droid_sample`` — normal clone with Git LFS.
-    3. ``SHARED_DRIVE_ROOT/datasets/droid_sample`` — shared PVC / local cache.
+    3. ``TEST_CACHE_PATH/datasets/droid_sample`` — shared PVC / local cache.
 
     Raises:
         AssertionError: if no usable tree is found.
@@ -432,7 +432,7 @@ def resolve_droid_demo_dataset_path(
     if libero_demo_tree_ready(in_repo):
         return in_repo
 
-    shared = SHARED_DRIVE_ROOT / "datasets" / "droid_sample"
+    shared = TEST_CACHE_PATH / "datasets" / "droid_sample"
     if libero_demo_tree_ready(shared):
         return shared
 

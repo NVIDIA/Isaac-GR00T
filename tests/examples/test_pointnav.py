@@ -61,7 +61,7 @@ SHARED_POINTNAV_DATASET = SHARED_POINTNAV_DIR / _DATASET_NAME
 
 # GR00T base model — downloaded once to shared storage and reused by the finetune step.
 _GROOT_MODEL_REPO_ID = "nvidia/GR00T-N1.7-3B"
-SHARED_GROOT_MODEL = SHARED_DRIVE_ROOT / "models/GR00T-N1.7-3B"
+SHARED_GROOT_MODEL = TEST_CACHE_PATH / "models/GR00T-N1.7-3B"
 
 
 def _dataset_ready(path: pathlib.Path) -> bool:

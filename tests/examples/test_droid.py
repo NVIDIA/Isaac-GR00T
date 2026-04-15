@@ -39,6 +39,7 @@ README = REPO_ROOT / "examples/DROID/README.md"
 
 MODEL_CHECKPOINT = pathlib.Path(f"/tmp/droid_finetune/checkpoint-{TRAINING_STEPS}")
 
+
 @pytest.mark.gpu
 @pytest.mark.timeout(1800)
 @pytest.mark.parametrize(
