@@ -40,12 +40,34 @@ from PIL import Image
 from droid.robot_env import RobotEnv
 from server_client import PolicyClient
 from utils import resize_with_pad
+from scipy.spatial.transform import Rotation
 
 faulthandler.enable()
 
 # DROID data collection frequency -- we slow down execution to match this frequency
 DROID_CONTROL_FREQUENCY = 15
 RESOLUTION = (180, 320)  # resize images to this resolution before sending to the policy server
+
+# Matches OXE DROID dataset conversion: R_euler is post-multiplied by this matrix
+DROID_EEF_ROTATION_CORRECT = np.array(
+    [[0, 0, -1], [-1, 0, 0], [0, 1, 0]],
+    dtype=np.float64,
+)
+
+
+def compute_eef_9d(cartesian_position: np.ndarray) -> np.ndarray:
+    """Convert cartesian_position (XYZ + euler 3D) to eef_9d (XYZ + rot6d).
+
+    Uses extrinsic xyz Euler convention and applies the egocentric rotation correction
+    to match the OXE DROID training data convention.
+    """
+    c = np.asarray(cartesian_position, dtype=np.float64).reshape(6)
+    xyz = c[:3]
+    euler = c[3:6]
+    rot_robot = Rotation.from_euler("xyz", euler).as_matrix()
+    rot_mat = rot_robot @ DROID_EEF_ROTATION_CORRECT
+    rot6d = rot_mat[:2, :].reshape(6)
+    return np.concatenate([xyz, rot6d]).astype(np.float32)
 
 
 @dataclasses.dataclass
@@ -67,7 +89,7 @@ class Args:
     max_timesteps: int = 600  # how many steps to run each rollout
 
     # How many actions to execute from a predicted action chunk before querying policy server again
-    open_loop_horizon: int = 8
+    open_loop_horizon: int = 15
     external_camera: str = (
         "left"  # which exterior camera to use for the policy server, choose from ["left", "right"]
     )
@@ -218,17 +240,22 @@ def main(args: Args):
                         model_exterior_image_1_left_writer.append_data(ext_image)
 
                     request_data = {
-                        "video.exterior_image_1_left": ext_image[
-                            None, None, ...
-                        ],  # [B, T, H, W, C]
-                        "video.wrist_image_left": wrist_image[None, None, ...],
-                        "state.joint_position": curr_obs["joint_position"][None, None, ...].astype(
-                            np.float32
-                        ),
-                        "state.gripper_position": curr_obs["gripper_position"][
-                            None, None, ...
-                        ].astype(np.float32),
-                        "annotation.language.language_instruction": [instruction],
+                        "video": {
+                            "exterior_image_1_left": ext_image[None, None, ...],  # (B, T, H, W, C)
+                            "wrist_image_left": wrist_image[None, None, ...],
+                        },
+                        "state": {
+                            "eef_9d": curr_obs["eef_9d"][None, None, ...].astype(np.float32),
+                            "joint_position": curr_obs["joint_position"][None, None, ...].astype(
+                                np.float32
+                            ),
+                            "gripper_position": curr_obs["gripper_position"][
+                                None, None, ...
+                            ].astype(np.float32),
+                        },
+                        "language": {
+                            "annotation.language.language_instruction": [[instruction]],
+                        },
                     }
 
                     if args.vis_cameras:
@@ -250,10 +277,11 @@ def main(args: Args):
                         response = policy_client.get_action(request_data)
                     server_time = time.time() - server_start_time
                     server_times.append(server_time)
+
                     pred_action_chunk = np.concatenate(
                         (
-                            response[0][f"action.joint_position"][0],
-                            response[0]["action.gripper_position"][0],
+                            response[0]["joint_position"][0],
+                            response[0]["gripper_position"][0],
                         ),
                         axis=1,
                     )
@@ -351,16 +379,27 @@ def main(args: Args):
 
 def _extract_observation(args: Args, obs_dict, *, stereo_camera="left", save_to_disk=False):
     image_observations = obs_dict["image"]
-    left_image, right_image, wrist_image = None, None, None
-    for key in image_observations:
-        # Note the "left" below refers to the left camera in the stereo pair.
-        # The model is only trained on left stereo cams, so we only feed those.
-        if args.left_camera_id in key and stereo_camera in key:
-            left_image = image_observations[key]
-        elif args.right_camera_id in key and stereo_camera in key:
-            right_image = image_observations[key]
-        elif args.wrist_camera_id in key and stereo_camera in key:
-            wrist_image = image_observations[key]
+    key_left = f"{args.left_camera_id}_{stereo_camera}"
+    key_right = f"{args.right_camera_id}_{stereo_camera}"
+    key_wrist = f"{args.wrist_camera_id}_{stereo_camera}"
+
+    left_image = image_observations.get(key_left)
+    right_image = image_observations.get(key_right)
+    wrist_image = image_observations.get(key_wrist)
+
+    available = list(image_observations.keys())
+    assert left_image is not None, (
+        f"Left camera not found for key {key_left!r}. Available keys: {available}. "
+        "Set --left-camera-id to the ZED serial used in observation keys."
+    )
+    assert right_image is not None, (
+        f"Right camera not found for key {key_right!r}. Available keys: {available}. "
+        "Set --right-camera-id to the ZED serial used in observation keys."
+    )
+    assert wrist_image is not None, (
+        f"Wrist camera not found for key {key_wrist!r}. Available keys: {available}. "
+        "Set --wrist-camera-id to the ZED serial used in observation keys."
+    )
 
     # Drop the alpha dimension
     left_image = left_image[..., :3]
@@ -377,6 +416,7 @@ def _extract_observation(args: Args, obs_dict, *, stereo_camera="left", save_to_
     cartesian_position = np.array(robot_state["cartesian_position"])
     joint_position = np.array(robot_state["joint_positions"])
     gripper_position = np.array([robot_state["gripper_position"]])
+    eef_9d = compute_eef_9d(cartesian_position)
 
     # Save the images to disk so that they can be viewed live while the robot is running
     # Create one combined image to make live viewing easy
@@ -390,6 +430,7 @@ def _extract_observation(args: Args, obs_dict, *, stereo_camera="left", save_to_
         "right_image": right_image,
         "wrist_image": wrist_image,
         "cartesian_position": cartesian_position,
+        "eef_9d": eef_9d,
         "joint_position": joint_position,
         "gripper_position": gripper_position,
     }
