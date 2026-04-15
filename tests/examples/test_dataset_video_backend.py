@@ -20,7 +20,7 @@ import cv2
 from gr00t.utils import video_utils
 import huggingface_hub
 import pytest
-from test_support.runtime import SHARED_DRIVE_ROOT, get_root
+from test_support.runtime import TEST_CACHE_PATH, get_root
 
 
 REPO_ROOT = get_root()
@@ -99,7 +99,7 @@ class DatasetCatalogEntry:
         )
 
 
-SHARED_DATASETS_ROOT = SHARED_DRIVE_ROOT / "datasets"
+SHARED_DATASETS_ROOT = TEST_CACHE_PATH / "datasets"
 
 
 DATASET_CATALOG: tuple[DatasetCatalogEntry, ...] = (

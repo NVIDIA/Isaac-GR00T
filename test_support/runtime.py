@@ -13,28 +13,17 @@ import time
 DEFAULT_SERVER_STARTUP_SECONDS = 600.0
 
 
-def _default_shared_drive_root() -> pathlib.Path:
-    """Return the shared drive root, falling back to a local cache dir.
-
-    In CI, CI_SHARED_DRIVE_PATH points to a shared PVC mounted across all
-    runners, so assets/models/submodules downloaded on one run are reused on
-    the next without re-downloading.
-
-    On dev machines (CI_SHARED_DRIVE_PATH unset), the fallback is
-    ~/.cache/g00t — a local directory that plays the same caching role so
-    tests work identically without any extra setup.
-    """
-    if "CI_SHARED_DRIVE_PATH" in os.environ:
-        return pathlib.Path(os.environ["CI_SHARED_DRIVE_PATH"])
+def _default_cache_path() -> pathlib.Path:
+    """Return the cache root directory."""
+    if "TEST_CACHE_PATH" in os.environ:
+        return pathlib.Path(os.environ["TEST_CACHE_PATH"])
 
     local_fallback = pathlib.Path.home() / ".cache" / "g00t"
     local_fallback.mkdir(parents=True, exist_ok=True)
     return local_fallback
 
 
-# In CI: shared PVC path from CI_SHARED_DRIVE_PATH.
-# On dev machines: ~/.cache/g00t (created automatically).
-SHARED_DRIVE_ROOT = _default_shared_drive_root()
+TEST_CACHE_PATH = _default_cache_path()
 
 
 def get_root() -> pathlib.Path:
@@ -120,29 +109,29 @@ def find_nvidia_egl_vendor_file() -> pathlib.Path:
 
 
 def resolve_shared_uv_cache_dir() -> pathlib.Path | None:
-    """Return a writable shared uv cache path common to all tests, or None.
+    """Return a writable uv cache path, or None.
 
-    Only redirects the uv cache when CI_SHARED_DRIVE_PATH is set — on dev
+    Only redirects the uv cache when TEST_CACHE_PATH is set — on dev
     machines uv's default cache (~/.cache/uv) is already local and fast, so
     there is no benefit to overriding it.
     """
-    if "CI_SHARED_DRIVE_PATH" not in os.environ:
+    if "TEST_CACHE_PATH" not in os.environ:
         return None
-    cache_dir = SHARED_DRIVE_ROOT / "uv-cache"
+    cache_dir = TEST_CACHE_PATH / "uv-cache"
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir
     except OSError:
         print(
-            f"[cache] warning: shared uv cache unavailable at {cache_dir}; "
+            f"[cache] warning: uv cache unavailable at {cache_dir}; "
             "falling back to uv default cache dir"
         )
         return None
 
 
 def build_shared_hf_cache_env(cache_key: str) -> dict[str, str]:
-    """Build HF cache environment variables under shared storage for a cache key."""
-    hf_cache_dir = SHARED_DRIVE_ROOT / f"hf-cache/{cache_key}"
+    """Build HF cache environment variables for a cache key."""
+    hf_cache_dir = TEST_CACHE_PATH / f"hf-cache/{cache_key}"
     try:
         hub_cache_dir = hf_cache_dir / "hub"
         transformers_cache_dir = hf_cache_dir / "transformers"
@@ -152,7 +141,7 @@ def build_shared_hf_cache_env(cache_key: str) -> dict[str, str]:
         datasets_cache_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
         print(
-            f"[cache] warning: shared Hugging Face cache unavailable at {hf_cache_dir}; "
+            f"[cache] warning: Hugging Face cache unavailable at {hf_cache_dir}; "
             "falling back to defaults"
         )
         return {}
@@ -171,7 +160,7 @@ def build_uv_runtime_env(
     uv_cache_dir: pathlib.Path | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Build a runtime env with shared uv cache and venv selection.
+    """Build a runtime env with uv cache and venv selection.
 
     UV_PROJECT_ENVIRONMENT tells uv which venv to use when running subprocesses
     (e.g. ``uv run python ...``). We forward the currently active venv so that
@@ -197,16 +186,14 @@ def build_shared_runtime_env(
     *,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Build runtime env with shared uv cache and per-test HF cache."""
+    """Build runtime env with uv cache and per-test HF cache."""
     uv_cache_dir = resolve_shared_uv_cache_dir()
     merged_extra_env = {**build_shared_hf_cache_env(cache_key)}
     if extra_env:
         merged_extra_env.update(extra_env)
     env = build_uv_runtime_env(uv_cache_dir=uv_cache_dir, extra_env=merged_extra_env)
 
-    shared_drive_source = (
-        "CI_SHARED_DRIVE_PATH" if "CI_SHARED_DRIVE_PATH" in os.environ else "local fallback"
-    )
+    cache_source = "TEST_CACHE_PATH" if "TEST_CACHE_PATH" in os.environ else "local fallback"
     uv_cache_str = str(uv_cache_dir) if uv_cache_dir is not None else "uv default"
     uv_venv = env.get("UV_PROJECT_ENVIRONMENT", "uv default")
     uv_venv_source = (
@@ -218,7 +205,7 @@ def build_shared_runtime_env(
     )
     hf_home = env.get("HF_HOME", "hf default")
     print(
-        f"[cache] shared_drive_root={SHARED_DRIVE_ROOT} ({shared_drive_source})"
+        f"[cache] cache_path={TEST_CACHE_PATH} ({cache_source})"
         f" uv_cache={uv_cache_str}"
         f" uv_venv={uv_venv} ({uv_venv_source})"
         f" hf_home={hf_home} (key={cache_key})",

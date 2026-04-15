@@ -10,7 +10,7 @@ import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
     DEFAULT_SERVER_STARTUP_SECONDS,
-    SHARED_DRIVE_ROOT,
+    TEST_CACHE_PATH,
     assert_port_available,
     build_shared_runtime_env,
     get_root,
@@ -26,10 +26,10 @@ LOGGER = logging.getLogger(__name__)
 README = REPO_ROOT / "examples/robocasa/README.md"
 
 ROBOCASA_SUBMODULE_PATH = REPO_ROOT / "external_dependencies/robocasa"
-SHARED_ROBOCASA_REPO = SHARED_DRIVE_ROOT / "repos/robocasa"
+SHARED_ROBOCASA_REPO = TEST_CACHE_PATH / "repos/robocasa"
 
 ROBOCASA_ASSETS_REPO_DIR = REPO_ROOT / "external_dependencies/robocasa/robocasa/models/assets"
-ROBOCASA_ASSETS_SHARED_DIR = SHARED_DRIVE_ROOT / "robocasa-assets"
+ROBOCASA_ASSETS_SHARED_DIR = TEST_CACHE_PATH / "robocasa-assets"
 # Version file written alongside cached assets to detect robocasa submodule updates.
 _ASSETS_VERSION_FILE = ROBOCASA_ASSETS_SHARED_DIR / ".robocasa_commit"
 
@@ -183,7 +183,7 @@ def _prepare_robocasa_repo(env: dict[str, str]) -> None:
         env=env,
         log_prefix="robocasa",
     )
-    if SHARED_DRIVE_ROOT.exists():
+    if TEST_CACHE_PATH.exists():
         modules_path = _git_modules_path(ROBOCASA_SUBMODULE_PATH)
         print(f"[robocasa] caching submodule to {wt_cache}", flush=True)
         wt_cache.mkdir(parents=True, exist_ok=True)

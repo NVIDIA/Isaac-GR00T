@@ -5,25 +5,20 @@ from __future__ import annotations
 import os
 import pathlib
 
-from test_support.runtime import (
-    SHARED_DRIVE_ROOT,
-    get_root,
-    hf_hub_download_cmd,
-    run_subprocess_step,
-)
+from test_support.runtime import TEST_CACHE_PATH, get_root, hf_hub_download_cmd, run_subprocess_step
 
 
 _REPO_ROOT = get_root()
 
 # COMPASS repo — cloned directly into shared storage (not a git submodule).
 _COMPASS_GIT_URL = "https://github.com/NVlabs/COMPASS.git"
-SHARED_COMPASS_REPO = SHARED_DRIVE_ROOT / "repos/COMPASS"
+SHARED_COMPASS_REPO = TEST_CACHE_PATH / "repos/COMPASS"
 
 # IsaacLab repo + installation — cloned and installed into shared storage.
 _ISAACLAB_GIT_URL = "https://github.com/isaac-sim/IsaacLab.git"
 _ISAACLAB_PIP_INDEX = "https://pypi.nvidia.com"
 _ISAACLAB_TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
-SHARED_ISAACLAB_REPO = SHARED_DRIVE_ROOT / "repos/IsaacLab"
+SHARED_ISAACLAB_REPO = TEST_CACHE_PATH / "repos/IsaacLab"
 
 # Dedicated venv for the IsaacLab/Isaac Sim Python environment.
 # Must live on local disk (/tmp) rather than the shared NFS drive because the
@@ -35,7 +30,7 @@ ISAACLAB_VENV = pathlib.Path("/tmp/isaaclab_venv")
 _X_MOBILITY_WHL = "x_mobility/x_mobility-0.1.0-py3-none-any.whl"
 _X_MOBILITY_HF_REPO = "nvidia/X-Mobility"
 _X_MOBILITY_HF_FILE = "x_mobility-nav2-semantic_action_path.ckpt"
-SHARED_X_MOBILITY_CKPT = SHARED_DRIVE_ROOT / f"models/x_mobility/{_X_MOBILITY_HF_FILE}"
+SHARED_X_MOBILITY_CKPT = TEST_CACHE_PATH / f"models/x_mobility/{_X_MOBILITY_HF_FILE}"
 
 
 def isaaclab_env(env: dict[str, str], extra: dict[str, str] | None = None) -> dict[str, str]:

@@ -8,7 +8,7 @@ import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
     DEFAULT_SERVER_STARTUP_SECONDS,
-    SHARED_DRIVE_ROOT,
+    TEST_CACHE_PATH,
     assert_port_available,
     build_shared_runtime_env,
     get_root,
@@ -28,7 +28,7 @@ ROBOCASA_ASSETS_REPO_DIR = (
     REPO_ROOT / "external_dependencies/robocasa-gr1-tabletop-tasks/robocasa/models/assets"
 )
 
-ROBOCASA_ASSETS_SHARED_DIR = SHARED_DRIVE_ROOT / "robocasa-gr1-tabletop-tasks/assets"
+ROBOCASA_ASSETS_SHARED_DIR = TEST_CACHE_PATH / "robocasa-gr1-tabletop-tasks/assets"
 
 REQUIRED_ASSET_DIRS = (
     "textures",

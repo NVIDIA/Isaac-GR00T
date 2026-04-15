@@ -9,7 +9,7 @@ import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
     DEFAULT_SERVER_STARTUP_SECONDS,
-    SHARED_DRIVE_ROOT,
+    TEST_CACHE_PATH,
     assert_port_available,
     build_shared_runtime_env,
     find_nvidia_egl_vendor_file,
@@ -27,13 +27,13 @@ README = REPO_ROOT / "examples/LIBERO/README.md"
 
 DATASET_REL_PATH = pathlib.Path("examples/LIBERO/libero_spatial_no_noops_1.0.0_lerobot")
 DATASET_ROOT = REPO_ROOT / DATASET_REL_PATH
-SHARED_DATASETS_ROOT = SHARED_DRIVE_ROOT / "datasets"
+SHARED_DATASETS_ROOT = TEST_CACHE_PATH / "datasets"
 
 SHARED_DATASET_ROOT = SHARED_DATASETS_ROOT / DATASET_REL_PATH
 MODEL_CHECKPOINT = pathlib.Path(f"/tmp/libero_spatial/checkpoint-{TRAINING_STEPS}")
 
 LIBERO_REPO_PATH = REPO_ROOT / "external_dependencies/LIBERO"
-SHARED_LIBERO_REPO = SHARED_DRIVE_ROOT / "repos/LIBERO"
+SHARED_LIBERO_REPO = TEST_CACHE_PATH / "repos/LIBERO"
 
 
 def _libero_submodule_initialized() -> bool:
@@ -84,7 +84,7 @@ def _prepare_libero_repo(env: dict[str, str]) -> None:
         env=env,
         log_prefix="libero",
     )
-    if SHARED_DRIVE_ROOT.exists():
+    if TEST_CACHE_PATH.exists():
         modules_path = _git_modules_path(LIBERO_REPO_PATH)
         print(f"[libero] caching submodule to {wt_cache}", flush=True)
         wt_cache.mkdir(parents=True, exist_ok=True)
@@ -129,7 +129,7 @@ def _prepare_libero_dataset(blocks: list, env: dict[str, str]) -> None:
     download_code = find_block(
         blocks, "libero_spatial_no_noops_1.0.0_lerobot", language="bash"
     ).code
-    if SHARED_DRIVE_ROOT.exists():
+    if TEST_CACHE_PATH.exists():
         download_code = download_code.replace(
             "examples/LIBERO/libero_spatial_no_noops_1.0.0_lerobot/",
             f"{SHARED_DATASET_ROOT}/",

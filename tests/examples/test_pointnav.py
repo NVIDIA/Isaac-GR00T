@@ -18,7 +18,7 @@ from test_support.compass import (
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
     DEFAULT_SERVER_STARTUP_SECONDS,
-    SHARED_DRIVE_ROOT,
+    TEST_CACHE_PATH,
     assert_port_available,
     build_shared_runtime_env,
     get_root,
@@ -40,12 +40,12 @@ _HF_REPO_ID = "nvidia/COMPASS"
 _HF_FILENAME = "gr00t_post_training_g1.zip"
 _DATASET_NAME = "lerobot_heading"
 
-SHARED_POINTNAV_DIR = SHARED_DRIVE_ROOT / "datasets/pointnav"
+SHARED_POINTNAV_DIR = TEST_CACHE_PATH / "datasets/pointnav"
 SHARED_POINTNAV_DATASET = SHARED_POINTNAV_DIR / _DATASET_NAME
 
 # GR00T base model — downloaded once to shared storage and reused by the finetune step.
 _GROOT_MODEL_REPO_ID = "nvidia/GR00T-N1.6-3B"
-SHARED_GROOT_MODEL = SHARED_DRIVE_ROOT / "models/GR00T-N1.6-3B"
+SHARED_GROOT_MODEL = TEST_CACHE_PATH / "models/GR00T-N1.6-3B"
 
 
 def _dataset_ready(path: pathlib.Path) -> bool:
