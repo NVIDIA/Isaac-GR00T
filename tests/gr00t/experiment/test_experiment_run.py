@@ -37,7 +37,7 @@ if absent, ``resolve_shared_model_path`` downloads using ``HF_TOKEN``.
 
 Training data is the LIBERO ``libero_demo`` bundle: see ``resolve_libero_demo_dataset_path``
 (``LIBERO_DEMO_DATASET_PATH``, in-repo ``demo_data/libero_demo`` with Git LFS, or
-``SHARED_DRIVE_ROOT/datasets/libero_demo``).
+``TEST_CACHE_PATH/datasets/libero_demo``).
 """
 
 import json
