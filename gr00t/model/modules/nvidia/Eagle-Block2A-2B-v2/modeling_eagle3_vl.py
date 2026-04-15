@@ -349,6 +349,7 @@ class Eagle3_VLForConditionalGeneration(Eagle3_VLPreTrainedModel, GenerationMixi
         return valid_tokens
 
     def extract_feature(self, pixel_values, image_flags=None):
+        spatial_shapes = None
 
         if self.select_layer == -1:
             vision_model_output = self.vision_model(
@@ -359,9 +360,12 @@ class Eagle3_VLForConditionalGeneration(Eagle3_VLPreTrainedModel, GenerationMixi
             if hasattr(vision_model_output, "spatial_shapes"):
                 spatial_shapes = vision_model_output.spatial_shapes
         else:
-            vit_embeds = self.vision_model(
+            vision_model_output = self.vision_model(
                 pixel_values=pixel_values, output_hidden_states=True, return_dict=True
-            ).hidden_states[self.select_layer]
+            )
+            vit_embeds = vision_model_output.hidden_states[self.select_layer]
+            if hasattr(vision_model_output, "spatial_shapes"):
+                spatial_shapes = vision_model_output.spatial_shapes
 
         vit_embeds, spatial_shapes = self.pixel_shuffle_back(vit_embeds, spatial_shapes)
 
