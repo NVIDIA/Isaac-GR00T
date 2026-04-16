@@ -19,13 +19,17 @@ Standalone inference smoke tests.
 Loads Gr00tPolicy and LeRobotEpisodeLoader once per embodiment variant (module-scoped
 fixture), then calls the internal Python functions directly — no subprocess overhead.
 
-Variants exercised: LIBERO, DROID.
+Variants exercised: LIBERO, DROID, SimplerEnv-Fractal, SimplerEnv-Bridge.
 
 Environment variables (optional, per-embodiment):
-  INFERENCE_TEST_LIBERO_MODEL_PATH   – LIBERO checkpoint path override
-  INFERENCE_TEST_LIBERO_DATASET_PATH – LIBERO dataset path override
-  INFERENCE_TEST_DROID_MODEL_PATH    – DROID checkpoint path override
-  INFERENCE_TEST_DROID_DATASET_PATH  – DROID dataset path override
+  INFERENCE_TEST_LIBERO_MODEL_PATH            – LIBERO checkpoint path override
+  INFERENCE_TEST_LIBERO_DATASET_PATH          – LIBERO dataset path override
+  INFERENCE_TEST_DROID_MODEL_PATH             – DROID checkpoint path override
+  INFERENCE_TEST_DROID_DATASET_PATH           – DROID dataset path override
+  INFERENCE_TEST_SIMPLERENV_FRACTAL_MODEL_PATH   – SimplerEnv-Fractal model override
+  INFERENCE_TEST_SIMPLERENV_FRACTAL_DATASET_PATH – SimplerEnv-Fractal dataset override
+  INFERENCE_TEST_SIMPLERENV_BRIDGE_MODEL_PATH    – SimplerEnv-Bridge model override
+  INFERENCE_TEST_SIMPLERENV_BRIDGE_DATASET_PATH  – SimplerEnv-Bridge dataset override
 """
 
 from __future__ import annotations
@@ -89,7 +93,27 @@ DROID = InferenceVariant(
     dataset_env_var="INFERENCE_TEST_DROID_DATASET_PATH",
 )
 
-VARIANTS = [LIBERO, DROID]
+SIMPLERENV_FRACTAL = InferenceVariant(
+    id="simplerenv_fractal",
+    embodiment_tag="SIMPLER_ENV_GOOGLE",
+    hf_repo_id="nvidia/GR00T-N1.7-SimplerEnv-Fractal",
+    hf_subdir=None,
+    dataset_name="simplerenv_fractal_sample",
+    model_env_var="INFERENCE_TEST_SIMPLERENV_FRACTAL_MODEL_PATH",
+    dataset_env_var="INFERENCE_TEST_SIMPLERENV_FRACTAL_DATASET_PATH",
+)
+
+SIMPLERENV_BRIDGE = InferenceVariant(
+    id="simplerenv_bridge",
+    embodiment_tag="SIMPLER_ENV_WIDOWX",
+    hf_repo_id="nvidia/GR00T-N1.7-SimplerEnv-Bridge",
+    hf_subdir=None,
+    dataset_name="simplerenv_bridge_sample",
+    model_env_var="INFERENCE_TEST_SIMPLERENV_BRIDGE_MODEL_PATH",
+    dataset_env_var="INFERENCE_TEST_SIMPLERENV_BRIDGE_DATASET_PATH",
+)
+
+VARIANTS = [LIBERO, DROID, SIMPLERENV_FRACTAL, SIMPLERENV_BRIDGE]
 
 
 def _model_path(variant: InferenceVariant) -> str:
