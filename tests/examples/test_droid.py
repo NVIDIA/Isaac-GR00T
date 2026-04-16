@@ -23,7 +23,6 @@ import subprocess
 import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
-    DEFAULT_SERVER_STARTUP_SECONDS,
     assert_port_available,
     get_root,
     start_server_process,
@@ -42,6 +41,8 @@ TRAINING_STEPS = 2
 README = REPO_ROOT / "examples/DROID/README.md"
 
 MODEL_CHECKPOINT = pathlib.Path(f"/tmp/droid_finetune/checkpoint-{TRAINING_STEPS}")
+
+DEFAULT_SERVER_STARTUP_SECONDS = 900.0
 
 
 @pytest.mark.gpu
