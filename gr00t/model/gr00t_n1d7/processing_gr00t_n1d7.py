@@ -736,6 +736,13 @@ class Gr00tN1d7Processor(BaseProcessor):
         processor_kwargs["statistics"] = statistics
         processor_kwargs["embodiment_id_mapping"] = embodiment_id_mapping
 
+        # Backfill fields that older checkpoints may not have serialized.
+        # Without these, __init__ defaults silently apply — correct today but
+        # fragile if defaults ever change.
+        processor_kwargs.setdefault("model_name", "nvidia/Cosmos-Reason2-2B")
+        processor_kwargs.setdefault("model_type", "qwen")
+        processor_kwargs.setdefault("clip_outliers", True)
+
         # Directly override other processor kwargs
         if kwargs:
             # Override modality configs while keeping pretrained embodiment configs

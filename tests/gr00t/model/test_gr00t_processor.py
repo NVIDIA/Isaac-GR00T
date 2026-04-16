@@ -22,6 +22,7 @@ processor (no model download needed).
 
 import json
 from pathlib import Path
+import tempfile
 from unittest.mock import MagicMock, patch
 
 from gr00t.data.embodiment_tags import EmbodimentTag
@@ -187,3 +188,38 @@ class TestProcessorStatistics:
         processor.eval()
         assert processor.training is False
         assert processor.state_action_processor.training is False
+
+
+class TestFixtureCompleteness:
+    """Guard against fixture drift: the fixture must contain every field that save_pretrained writes."""
+
+    def test_fixture_keys_match_save_pretrained_roundtrip(self, processor):
+        """Load the fixture, save to a temp dir, and verify the keys are identical.
+
+        If this test fails, a field was added to save_pretrained() (or __init__)
+        without updating the test fixture JSON.  Fix by running save_pretrained()
+        on a default-constructed processor and copying the output back into
+        tests/fixtures/processor_config/processor_config.json.
+        """
+        with open(FIXTURE_DIR / "processor_config.json") as f:
+            fixture_kwargs = json.load(f)["processor_kwargs"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            processor.save_pretrained(tmp)
+            with open(Path(tmp) / "processor_config.json") as f:
+                saved_kwargs = json.load(f)["processor_kwargs"]
+
+        fixture_keys = set(fixture_kwargs.keys())
+        saved_keys = set(saved_kwargs.keys())
+
+        missing = saved_keys - fixture_keys
+        extra = fixture_keys - saved_keys
+
+        assert not missing, (
+            f"Fixture is missing fields that save_pretrained() writes: {missing}. "
+            f"Update tests/fixtures/processor_config/processor_config.json."
+        )
+        assert not extra, (
+            f"Fixture has fields that save_pretrained() no longer writes: {extra}. "
+            f"Remove them from tests/fixtures/processor_config/processor_config.json."
+        )
