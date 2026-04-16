@@ -101,49 +101,6 @@ class WrapperConfigs:
     multistep: MultiStepConfig = field(default_factory=MultiStepConfig)
 
 
-def get_robocasa_env_fn(
-    env_name: str,
-):
-    def env_fn():
-        import os
-
-        import robocasa  # noqa: F401
-        from robocasa.utils.gym_utils import GrootRoboCasaEnv  # noqa: F401
-        import robosuite  # noqa: F401
-
-        os.environ["MUJOCO_GL"] = "egl"
-        return gym.make(env_name, enable_render=True)
-
-    return env_fn
-
-
-def get_groot_locomanip_env_fn(
-    env_name: str,
-):
-    def env_fn():
-        from gr00t_wbc.control.envs.robocasa.sync_env import SyncEnv  # noqa: F401
-        from gr00t_wbc.control.main.teleop.configs.configs import BaseConfig
-        from gr00t_wbc.control.utils.n1_utils import WholeBodyControlWrapper
-        import robocasa  # noqa: F401
-
-        gym_env = gym.make(
-            env_name,
-            onscreen=False,
-            offscreen=True,
-            enable_waist=True,
-            randomize_cameras=False,
-            camera_names=[
-                "robot0_oak_egoview",
-                "robot0_rs_tppview",
-            ],
-        )
-        wbc_config = BaseConfig(wbc_version="gear_wbc", enable_waist=True).to_dict()
-        gym_env = WholeBodyControlWrapper(gym_env, wbc_config)
-        return gym_env
-
-    return env_fn
-
-
 def get_simpler_env_fn(
     env_name: str,
 ):
@@ -173,10 +130,7 @@ def get_gym_env(env_name: str, env_idx: int, total_n_envs: int):
 
     env_embodiment = get_embodiment_tag_from_env_name(env_name)
 
-    if env_embodiment in (EmbodimentTag.UNITREE_G1,):
-        env_fn = get_groot_locomanip_env_fn(env_name)
-
-    elif env_embodiment in (EmbodimentTag.SIMPLER_ENV_GOOGLE, EmbodimentTag.SIMPLER_ENV_WIDOWX):
+    if env_embodiment in (EmbodimentTag.SIMPLER_ENV_GOOGLE, EmbodimentTag.SIMPLER_ENV_WIDOWX):
         env_fn = get_simpler_env_fn(env_name)
 
     elif env_embodiment in (EmbodimentTag.LIBERO_PANDA,):
