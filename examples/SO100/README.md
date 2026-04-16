@@ -83,5 +83,5 @@ uv run python gr00t/eval/real_robot/SO100/eval_so100.py \
   --robot.type=so101_follower --robot.port=/dev/ttyACM2 \
   --robot.id=orange_follower \
   --robot.cameras="{ wrist: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: 6, width: 640, height: 480, fps: 30}}" \
-  --policy-host=localhost --policy-port=5555 --lang-instruction="cube into green bowl"
+  --policy-host=localhost --policy-port=5555 --lang-instruction="finish the ham cheese olives sandwich"
 ```
