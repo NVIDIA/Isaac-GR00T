@@ -132,6 +132,7 @@
     },
     "shortest_image_edge": 256,
     "crop_fraction": 0.95,
+    "letter_box_transform": false,
     "model_name": "nvidia/Cosmos-Reason2-2B",
     "model_type": "qwen",
     "formalize_language": true,
@@ -139,8 +140,11 @@
     "max_action_dim": 128,
     "max_action_horizon": 50,
     "use_percentiles": false,
+    "use_mean_std": false,
     "clip_outliers": true,
     "apply_sincos_state_encoding": true,
-    "use_relative_action": true
+    "use_relative_action": true,
+    "exclude_state": false,
+    "state_dropout_prob": 0.0
   }
 }
