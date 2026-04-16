@@ -144,6 +144,18 @@ def main(args: Args):
         host=args.policy_host, port=args.policy_port, api_token=args.policy_api_token
     )
 
+    modality_config = policy_client.get_modality_config()
+    video_delta = modality_config["video"].delta_indices
+    video_T = len(video_delta)
+    video_history_len = max(-min(video_delta), 0) + 1 if video_delta else 1
+    video_keys = modality_config["video"].modality_keys
+    state_keys = modality_config["state"].modality_keys
+    state_T = len(modality_config["state"].delta_indices)
+    print(
+        f"Model config — video T={video_T} (delta={video_delta}), "
+        f"state T={state_T}, keys: video={video_keys}, state={state_keys}"
+    )
+
     df = pd.DataFrame(columns=["success", "duration", "video_filename"])
 
     if args.debug:
@@ -193,6 +205,7 @@ def main(args: Args):
         obs_times = deque(maxlen=50)  # Track observation collection times
         server_times = deque(maxlen=50)  # Track server response times
         action_count = 0
+        frame_buffer = deque(maxlen=video_history_len)
 
         for t_step in bar:
             step_start_time = time.time()
@@ -210,6 +223,18 @@ def main(args: Args):
 
                 video.append(curr_obs[f"{args.render_camera}_image"])
 
+                # Resize every step so the rolling frame buffer stays current.
+                left_image = resize_with_pad(curr_obs["left_image"], RESOLUTION[0], RESOLUTION[1])
+                right_image = resize_with_pad(curr_obs["right_image"], RESOLUTION[0], RESOLUTION[1])
+                wrist_image = resize_with_pad(curr_obs["wrist_image"], RESOLUTION[0], RESOLUTION[1])
+
+                if args.external_camera == "left":
+                    ext_image = left_image
+                elif args.external_camera == "right":
+                    ext_image = right_image
+
+                frame_buffer.append({"ext": ext_image, "wrist": wrist_image})
+
                 # Send websocket request to policy server if it's time to predict a new chunk
                 if (
                     actions_from_chunk_completed == 0
@@ -217,45 +242,46 @@ def main(args: Args):
                 ):
                     actions_from_chunk_completed = 0
 
-                    # We resize images on the robot laptop to minimize the amount of data sent to the policy server
-                    # and improve latency.
-
-                    left_image = resize_with_pad(
-                        curr_obs["left_image"], RESOLUTION[0], RESOLUTION[1]
-                    )
-                    right_image = resize_with_pad(
-                        curr_obs["right_image"], RESOLUTION[0], RESOLUTION[1]
-                    )
-                    wrist_image = resize_with_pad(
-                        curr_obs["wrist_image"], RESOLUTION[0], RESOLUTION[1]
-                    )
-
-                    if args.external_camera == "left":
-                        ext_image = left_image
-                    elif args.external_camera == "right":
-                        ext_image = right_image
-
                     if args.debug:
                         model_wrist_image_writer.append_data(wrist_image)
                         model_exterior_image_1_left_writer.append_data(ext_image)
 
-                    request_data = {
-                        "video": {
-                            "exterior_image_1_left": ext_image[None, None, ...],  # (B, T, H, W, C)
+                    # Build video tensor with T frames derived from the model's
+                    # delta_indices (e.g. [-15, 0] -> T=2, [0] -> T=1).
+                    if video_T == 1:
+                        video_dict = {
+                            "exterior_image_1_left": ext_image[None, None, ...],
                             "wrist_image_left": wrist_image[None, None, ...],
-                        },
-                        "state": {
-                            "eef_9d": curr_obs["eef_9d"][None, None, ...].astype(np.float32),
-                            "joint_position": curr_obs["joint_position"][None, None, ...].astype(
-                                np.float32
-                            ),
-                            "gripper_position": curr_obs["gripper_position"][
-                                None, None, ...
-                            ].astype(np.float32),
-                        },
-                        "language": {
-                            "annotation.language.language_instruction": [[instruction]],
-                        },
+                        }  # (B=1, T=1, H, W, C)
+                    else:
+                        hist_frame = frame_buffer[0]
+                        cur_frame = frame_buffer[-1]
+                        video_dict = {
+                            "exterior_image_1_left": np.stack(
+                                [hist_frame["ext"], cur_frame["ext"]]
+                            )[None, ...],
+                            "wrist_image_left": np.stack([hist_frame["wrist"], cur_frame["wrist"]])[
+                                None, ...
+                            ],
+                        }  # (B=1, T=video_T, H, W, C)
+
+                    # Build state dict from the model's reported state keys.
+                    state_dict = {}
+                    state_source = {
+                        "eef_9d": curr_obs["eef_9d"],
+                        "gripper_position": curr_obs["gripper_position"],
+                        "joint_position": curr_obs["joint_position"],
+                    }
+                    for key in state_keys:
+                        state_dict[key] = state_source[key][None, None, ...].astype(
+                            np.float32
+                        )  # (B=1, T=1, D)
+
+                    lang_key = modality_config["language"].modality_keys[0]
+                    request_data = {
+                        "video": video_dict,
+                        "state": state_dict,
+                        "language": {lang_key: [[instruction]]},
                     }
 
                     if args.vis_cameras:
