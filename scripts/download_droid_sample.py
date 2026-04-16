@@ -57,14 +57,23 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
+# Egocentric frame correction applied after euler-to-matrix conversion.
+# Matches the OXE DROID training pipeline (TFG convention).
+DROID_EEF_ROTATION_CORRECT = np.array(
+    [[0, 0, -1], [-1, 0, 0], [0, 1, 0]],
+    dtype=np.float64,
+)
+
+
 def euler_to_rot6d(euler_angles: np.ndarray) -> np.ndarray:
     """Convert euler angles (3D) to rotation 6D representation.
 
-    The 6D rotation representation uses the first two rows of the rotation
-    matrix flattened, matching the convention in gr00t/data/state_action/pose.py.
+    Uses extrinsic XYZ Euler convention (scipy ``"XYZ"``, equivalent to
+    ``tfg.rotation_matrix_3d.from_euler``) and post-multiplies by
+    ``DROID_EEF_ROTATION_CORRECT`` to match the pretrained model.
 
     Args:
-        euler_angles: (..., 3) array of euler angles (XYZ convention)
+        euler_angles: (..., 3) array of euler angles
 
     Returns:
         (..., 6) array of rot6d representation
@@ -72,7 +81,7 @@ def euler_to_rot6d(euler_angles: np.ndarray) -> np.ndarray:
     shape = euler_angles.shape[:-1]
     flat = euler_angles.reshape(-1, 3)
     rot_matrices = Rotation.from_euler("XYZ", flat).as_matrix()  # (N, 3, 3)
-    # Take first two rows of rotation matrix and flatten (matching codebase convention)
+    rot_matrices = rot_matrices @ DROID_EEF_ROTATION_CORRECT
     rot6d = rot_matrices[:, :2, :].reshape(-1, 6)  # (N, 6)
     return rot6d.reshape(*shape, 6)
 
