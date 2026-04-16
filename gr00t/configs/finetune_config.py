@@ -156,3 +156,8 @@ class FinetuneConfig:
 
     save_only_model: bool = False
     """If True, save only model weights (skip optimizer/scheduler/RNG states). Cannot resume training from these checkpoints."""
+
+    skip_weight_loading: bool = False
+    """If True, skip loading model weights from base_model_path (architecture only).
+    The processor (tokenizer/config) is still loaded from base_model_path.
+    Useful for CI/testing to skip the slow checkpoint shard loading."""

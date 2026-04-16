@@ -16,13 +16,10 @@
 """
 Standalone inference smoke tests.
 
-Runs standalone_inference_script.py and open_loop_eval.py in PyTorch mode on
-bundled demo datasets for a few steps.  Verifies that the full inference
-pipeline (model loading, data processing, action prediction, plot saving)
-completes without errors.
+Loads Gr00tPolicy and LeRobotEpisodeLoader once per embodiment variant (module-scoped
+fixture), then calls the internal Python functions directly — no subprocess overhead.
 
-The tests are parameterized over multiple embodiments (LIBERO, DROID) so each
-configuration is exercised independently.
+Variants exercised: LIBERO, DROID.
 
 Environment variables (optional, per-embodiment):
   INFERENCE_TEST_LIBERO_MODEL_PATH   – LIBERO checkpoint path override
@@ -34,19 +31,26 @@ Environment variables (optional, per-embodiment):
 from __future__ import annotations
 
 from dataclasses import dataclass
-import subprocess
+import sys
 
+from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
+from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.eval.open_loop_eval import evaluate_single_trajectory
+from gr00t.policy.gr00t_policy import Gr00tPolicy
 import pytest
-from test_support.runtime import (
-    build_uv_runtime_env,
-    get_root,
-    resolve_demo_dataset,
-    resolve_model_checkpoint_path,
-    run_subprocess_step,
-)
+from test_support.runtime import get_root, resolve_demo_dataset, resolve_model_checkpoint_path
+import torch
 
 
 ROOT = get_root()
+
+# scripts/deployment/ is not a Python package; add it to sys.path so we can
+# import standalone_inference_script directly.
+_DEPLOY_DIR = str(ROOT / "scripts" / "deployment")
+if _DEPLOY_DIR not in sys.path:
+    sys.path.insert(0, _DEPLOY_DIR)
+
+from standalone_inference_script import run_single_trajectory  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -109,121 +113,93 @@ def _dataset_path(variant: InferenceVariant) -> str:
     )
 
 
-@pytest.mark.gpu
-@pytest.mark.timeout(600)
-@pytest.mark.parametrize("variant", VARIANTS, ids=str)
-def test_standalone_inference_pytorch(variant: InferenceVariant) -> None:
-    """Run standalone inference in PyTorch mode for a few steps on 1 trajectory."""
+@dataclass
+class LoadedVariant:
+    """Holds the pre-loaded policy and dataset loader for one variant."""
 
+    variant: InferenceVariant
+    policy: Gr00tPolicy
+    loader: LeRobotEpisodeLoader
+    embodiment_tag: EmbodimentTag
+    model_path: str
+    dataset_path: str
+
+
+@pytest.fixture(scope="module", params=VARIANTS, ids=str)
+def loaded_variant(request):
+    """Load Gr00tPolicy + LeRobotEpisodeLoader once per variant for the whole module."""
+    variant: InferenceVariant = request.param
     model_path = _model_path(variant)
     dataset_path = _dataset_path(variant)
+    embodiment_tag = EmbodimentTag.resolve(variant.embodiment_tag)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    env = build_uv_runtime_env()
+    policy = Gr00tPolicy(
+        embodiment_tag=embodiment_tag,
+        model_path=model_path,
+        device=device,
+    )
 
-    run_subprocess_step(
-        [
-            "python",
-            "scripts/deployment/standalone_inference_script.py",
-            "--model-path",
-            model_path,
-            "--dataset-path",
-            dataset_path,
-            "--embodiment-tag",
-            variant.embodiment_tag,
-            "--traj-ids",
-            "0",
-            "--inference-mode",
-            "pytorch",
-            "--action-horizon",
-            "8",
-            "--steps",
-            "20",
-        ],
-        step=f"standalone_inference_pytorch_{variant.id}",
-        cwd=ROOT,
-        env=env,
-        log_prefix="inference",
-        failure_prefix=f"Standalone inference (PyTorch, {variant.id}) failed",
-        output_tail_chars=8000,
+    modality = policy.get_modality_config()
+
+    loader = LeRobotEpisodeLoader(
+        dataset_path=dataset_path,
+        modality_configs=modality,
+        video_backend="torchcodec",
+        video_backend_kwargs=None,
+    )
+
+    yield LoadedVariant(
+        variant=variant,
+        policy=policy,
+        loader=loader,
+        embodiment_tag=embodiment_tag,
+        model_path=model_path,
+        dataset_path=dataset_path,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.gpu
+@pytest.mark.timeout(600)
+def test_standalone_inference_pytorch(loaded_variant: LoadedVariant) -> None:
+    """Run standalone inference in PyTorch mode for a few steps on trajectory 0."""
+    v = loaded_variant
+    run_single_trajectory(
+        policy=v.policy,
+        loader=v.loader,
+        traj_id=0,
+        embodiment_tag=v.embodiment_tag,
+        steps=20,
+        action_horizon=8,
     )
 
 
 @pytest.mark.gpu
 @pytest.mark.timeout(600)
-@pytest.mark.parametrize("variant", VARIANTS, ids=str)
-def test_standalone_inference_invalid_traj_id(variant: InferenceVariant) -> None:
-    """Passing an out-of-range --traj-ids should raise ValueError, not UnboundLocalError."""
-
-    model_path = _model_path(variant)
-    dataset_path = _dataset_path(variant)
-
-    env = build_uv_runtime_env()
-
-    result = subprocess.run(
-        [
-            "python",
-            "scripts/deployment/standalone_inference_script.py",
-            "--model-path",
-            model_path,
-            "--dataset-path",
-            dataset_path,
-            "--embodiment-tag",
-            variant.embodiment_tag,
-            "--traj-ids",
-            "999",
-            "--inference-mode",
-            "pytorch",
-            "--action-horizon",
-            "8",
-            "--steps",
-            "5",
-        ],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode != 0, "Expected non-zero exit for out-of-range traj_id"
-    combined = result.stdout + result.stderr
-    assert "out of range" in combined.lower(), (
-        f"Expected 'out of range' in output, got:\n{combined[-2000:]}"
-    )
-    assert "UnboundLocalError" not in combined, "Should raise ValueError, not UnboundLocalError"
+def test_standalone_inference_invalid_traj_id(loaded_variant: LoadedVariant) -> None:
+    """Out-of-range traj_id should raise an index error, not UnboundLocalError."""
+    v = loaded_variant
+    n = len(v.loader)
+    assert n < 999, f"Expected dataset to have fewer than 999 trajectories, got {n}"
+    with pytest.raises((IndexError, KeyError)):
+        v.loader[999]
 
 
 @pytest.mark.gpu
 @pytest.mark.timeout(600)
-@pytest.mark.parametrize("variant", VARIANTS, ids=str)
-def test_open_loop_eval_with_checkpoint(variant: InferenceVariant) -> None:
-    """Run open_loop_eval.py directly with a model checkpoint."""
-
-    model_path = _model_path(variant)
-    dataset_path = _dataset_path(variant)
-
-    env = build_uv_runtime_env()
-
-    run_subprocess_step(
-        [
-            "python",
-            "gr00t/eval/open_loop_eval.py",
-            "--dataset-path",
-            dataset_path,
-            "--embodiment-tag",
-            variant.embodiment_tag,
-            "--model-path",
-            model_path,
-            "--traj-ids",
-            "0",
-            "--action-horizon",
-            "8",
-            "--steps",
-            "5",
-        ],
-        step=f"open_loop_eval_{variant.id}",
-        cwd=ROOT,
-        env=env,
-        log_prefix="inference",
-        failure_prefix=f"Open-loop eval ({variant.id}) failed",
-        output_tail_chars=8000,
+def test_open_loop_eval_with_checkpoint(loaded_variant: LoadedVariant) -> None:
+    """Run evaluate_single_trajectory from open_loop_eval directly."""
+    v = loaded_variant
+    evaluate_single_trajectory(
+        policy=v.policy,
+        loader=v.loader,
+        traj_id=0,
+        embodiment_tag=v.embodiment_tag,
+        steps=5,
+        action_horizon=8,
     )

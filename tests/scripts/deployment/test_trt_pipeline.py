@@ -16,8 +16,12 @@
 """
 End-to-end test for the unified TRT deployment pipeline (build_trt_pipeline.py).
 
-Runs the full export → build → verify flow and asserts that the final cosine
-similarity between PyTorch and TRT outputs is >= COSINE_THRESHOLD (0.99).
+Runs the full export → build → verify flow in-process and asserts that the final
+cosine similarity between PyTorch and TRT outputs is >= COSINE_THRESHOLD (0.99).
+
+To keep CI fast the test loads the real checkpoint but immediately truncates the DiT
+action head to _TRUNCATED_DIT_BLOCKS transformer blocks. Export, TRT build, and
+verify all see the same truncated model, so the cosine comparison remains meaningful.
 
 Environment variables (all optional):
   TRT_TEST_MODEL_PATH   – path to a finetuned checkpoint
@@ -30,19 +34,35 @@ Environment variables (all optional):
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
-import re
-import shutil
-import tempfile
+import subprocess
+import sys
+from unittest.mock import patch
 
-import pytest
-from test_support.runtime import (
-    build_uv_runtime_env,
+
+# scripts/deployment/ is not a package; add it to sys.path so its modules are importable.
+# build_trt_pipeline.py does the same for its own sibling imports when it runs.
+_DEPLOY_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../../../scripts/deployment")
+)
+if _DEPLOY_DIR not in sys.path:
+    sys.path.insert(0, _DEPLOY_DIR)
+
+from build_trt_pipeline import (  # noqa: E402
+    PipelineConfig,
+    _resolve_embodiment,
+    _run_build,
+    _run_export,
+    _run_verify,
+)
+import pytest  # noqa: E402
+import tensorrt as trt  # noqa: E402
+from test_support.runtime import (  # noqa: E402
     get_root,
     resolve_libero_demo_dataset_path,
     resolve_libero_n17_libero10_checkpoint_path,
-    run_subprocess_step,
 )
 
 
@@ -54,26 +74,33 @@ DEFAULT_EMBODIMENT = os.getenv("TRT_TEST_EMBODIMENT", "LIBERO_PANDA")
 
 COSINE_THRESHOLD = 0.99
 
-# Regex to capture cosine similarity from build_trt_pipeline.py output.
-# It prints lines like:  "[Step 3/3] Verify complete -- cosine=0.999123 PASS (1m 23s)"
-_COSINE_RE = re.compile(r"cosine[=:]\s*([\d.]+)")
+# Keep only this many DiT transformer blocks so that ONNX export and TRT build
+# finish quickly. Both PyTorch and TRT see the identical truncated graph, so the
+# cosine comparison remains a valid accuracy check.
+_TRUNCATED_DIT_BLOCKS = 2
 
 
-def _parse_final_cosine(output: str) -> float:
-    """Extract the last cosine similarity value from pipeline output."""
-    matches = _COSINE_RE.findall(output)
-    if not matches:
-        raise ValueError(
-            "Could not find cosine similarity value in pipeline output.\n"
-            f"Output tail:\n{output[-2000:]}"
-        )
-    return float(matches[-1])
+@contextlib.contextmanager
+def _truncated_policy():
+    """Patch Gr00tPolicy to drop DiT blocks down to _TRUNCATED_DIT_BLOCKS after init."""
+    from gr00t.policy.gr00t_policy import Gr00tPolicy
+
+    _real_init = Gr00tPolicy.__init__
+
+    def _fast_init(self, *args, **kwargs):
+        _real_init(self, *args, **kwargs)
+        blocks = self.model.action_head.model.transformer_blocks
+        if len(blocks) > _TRUNCATED_DIT_BLOCKS:
+            self.model.action_head.model.transformer_blocks = blocks[:_TRUNCATED_DIT_BLOCKS]
+
+    with patch.object(Gr00tPolicy, "__init__", _fast_init):
+        yield
 
 
 @pytest.mark.gpu
-@pytest.mark.timeout(1200)
+@pytest.mark.timeout(600)
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_trt_full_pipeline(batch_size: int) -> None:
+def test_trt_full_pipeline(batch_size: int, tmp_path) -> None:
     """Export ONNX, build TRT engines, and verify cosine similarity >= threshold."""
 
     model_path = str(
@@ -83,47 +110,68 @@ def test_trt_full_pipeline(batch_size: int) -> None:
         resolve_libero_demo_dataset_path(ROOT, path_override_env="TRT_TEST_DATASET_PATH")
     )
 
-    env = build_uv_runtime_env()
-    tmpdir = tempfile.mkdtemp(prefix=f"trt_test_bs{batch_size}_")
+    cfg = PipelineConfig(
+        model_path=model_path,
+        dataset_path=dataset_path,
+        embodiment_tag=DEFAULT_EMBODIMENT,
+        output_dir=str(tmp_path),
+        export_mode="full_pipeline",
+        batch_size=batch_size,
+        steps="export,build,verify",
+    )
 
-    try:
-        result, _ = run_subprocess_step(
-            [
-                "python",
-                "scripts/deployment/build_trt_pipeline.py",
-                "--model-path",
-                model_path,
-                "--dataset-path",
-                dataset_path,
-                "--embodiment-tag",
-                DEFAULT_EMBODIMENT,
-                "--output-dir",
-                tmpdir,
-                "--export-mode",
-                "full_pipeline",
-                "--batch-size",
-                str(batch_size),
-                "--steps",
-                "export,build,verify",
-            ],
-            step=f"trt_pipeline_bs{batch_size}",
-            cwd=ROOT,
-            env=env,
-            log_prefix=f"trt_pipeline_bs{batch_size}",
-            failure_prefix=f"TRT pipeline (bs={batch_size}) failed",
-            output_tail_chars=8000,
-        )
+    onnx_dir = str(tmp_path / "onnx")
+    engine_dir = str(tmp_path / "engines")
+    embodiment_tag = _resolve_embodiment(cfg.model_path, cfg.embodiment_tag)
 
-        combined_output = (result.stdout or "") + (result.stderr or "")
-        cosine = _parse_final_cosine(combined_output)
-        logger.info("final cosine similarity (bs=%d): %.6f", batch_size, cosine)
+    with open(tmp_path / "pipeline.log", "w") as log_fp, _truncated_policy():
+        _run_export(cfg, onnx_dir, embodiment_tag, log_fp)
+        _run_build(cfg, onnx_dir, engine_dir, log_fp, trt_severity=trt.Logger.WARNING)
+        cosine = _run_verify(cfg, engine_dir, embodiment_tag, log_fp)
 
-        assert cosine >= COSINE_THRESHOLD, (
-            f"TRT vs PyTorch cosine similarity {cosine:.6f} (batch_size={batch_size}) "
-            f"is below threshold {COSINE_THRESHOLD}. "
-            f"This indicates a significant accuracy regression in the "
-            f"ONNX export or TRT engine build."
-        )
+    logger.info("final cosine similarity (bs=%d): %.6f", batch_size, cosine)
+    assert cosine >= COSINE_THRESHOLD, (
+        f"TRT vs PyTorch cosine similarity {cosine:.6f} (batch_size={batch_size}) "
+        f"is below threshold {COSINE_THRESHOLD}. "
+        "This indicates a significant accuracy regression in the ONNX export or TRT engine build."
+    )
 
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+
+# ---------------------------------------------------------------------------
+# __main__ entrypoint tests
+#
+# These tests exercise the script's CLI surface (tyro argument registration,
+# argument parsing, and error handling) by invoking it via subprocess — the
+# same way a user or deployment script would call it.  They are CPU-only and
+# complete in under a second.
+# ---------------------------------------------------------------------------
+
+_PIPELINE_SCRIPT = os.path.join(_DEPLOY_DIR, "build_trt_pipeline.py")
+
+
+def test_build_trt_pipeline_help() -> None:
+    """--help exits 0 and surfaces the expected CLI options."""
+    result = subprocess.run(
+        [sys.executable, _PIPELINE_SCRIPT, "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"--help exited {result.returncode}:\n{result.stderr}"
+    for flag in ["--model-path", "--dataset-path", "--steps", "--export-mode", "--batch-size"]:
+        assert flag in result.stdout, f"Expected '{flag}' in --help output:\n{result.stdout}"
+
+
+def test_build_trt_pipeline_missing_model_path() -> None:
+    """Invoking the script without --model-path exits non-zero with a clear error."""
+    result = subprocess.run(
+        [sys.executable, _PIPELINE_SCRIPT],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0, "Expected non-zero exit when --model-path is omitted"
+    combined = result.stdout + result.stderr
+    # main() raises ValueError("Please provide --model-path") when model_path is empty;
+    # the traceback appears on stderr.
+    assert "Please provide --model-path" in combined, (
+        f"Expected error 'Please provide --model-path' in output:\n{combined}"
+    )

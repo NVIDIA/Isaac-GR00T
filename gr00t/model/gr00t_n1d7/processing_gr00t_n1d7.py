@@ -15,7 +15,6 @@
 
 from copy import deepcopy
 import json
-import logging
 import os
 from pathlib import Path
 import random
@@ -73,107 +72,13 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
 }
 
 
-logger = logging.getLogger(__name__)
-
-
-def _resolve_hf_cached_snapshot(
-    model_name: str,
-    transformers_loading_kwargs: dict,
-) -> str | None:
-    """Resolve a HuggingFace repo id to a cached local snapshot directory.
-
-    When ``from_pretrained`` receives a **local directory** path (instead of a
-    HF repo id), ``transformers``' internal ``_patch_mistral_regex`` sees
-    ``os.path.isdir(path) → True`` and short-circuits the ``is_base_mistral()``
-    call entirely — avoiding the unguarded ``model_info()`` HTTP request that
-    crashes on 429 rate-limits or offline environments.
-
-    This helper checks the HuggingFace cache **without making any network
-    calls** and returns the snapshot directory if available, or ``None``.
-    """
-    if os.path.isdir(model_name):
-        return None
-    try:
-        from huggingface_hub import try_to_load_from_cache
-
-        # ``transformers.from_pretrained`` caches files under TRANSFORMERS_CACHE
-        # (or its own default), which may differ from the default directory that
-        # ``huggingface_hub`` uses (HF_HUB_CACHE / HF_HOME/hub).  We must look
-        # in the same directory that ``from_pretrained`` writes to.
-        cache_dir = transformers_loading_kwargs.get("cache_dir")
-        if cache_dir is None:
-            cache_dir = os.environ.get("TRANSFORMERS_CACHE") or os.environ.get("HF_HUB_CACHE")
-
-        revision = transformers_loading_kwargs.get("revision")
-
-        cached = try_to_load_from_cache(
-            model_name,
-            "tokenizer_config.json",
-            cache_dir=cache_dir,
-            revision=revision,
-        )
-        if isinstance(cached, str):
-            snapshot_dir = str(Path(cached).parent)
-            if os.path.isdir(snapshot_dir):
-                logger.debug("Resolved '%s' to cached snapshot: %s", model_name, snapshot_dir)
-                return snapshot_dir
-    except Exception:
-        pass
-    return None
-
-
 def build_processor(model_name: str, transformers_loading_kwargs: dict) -> Qwen3VLProcessor:
     if Qwen3VLProcessor is None:
         raise ImportError(
             "Qwen3VLProcessor is not available. "
             "Please upgrade transformers: pip install transformers>=4.52.0"
         )
-
-    # --- Strategy ---
-    # transformers' _patch_mistral_regex makes an unguarded model_info() HTTP
-    # call inside is_base_mistral() that crashes on 429 rate-limits.  When
-    # from_pretrained receives a *local directory* path, os.path.isdir()
-    # returns True and the call is short-circuited.  So we always prefer
-    # loading from a resolved local snapshot path when one is available.
-    #
-    # Flow:
-    #   1. If files are already cached → load from local snapshot path (safe).
-    #   2. Otherwise → try from_pretrained with the HF repo id (needs network).
-    #   3. If step 2 fails with a network error, the download may have
-    #      partially succeeded and the files may now be in cache.  Re-check
-    #      the cache and retry with the local path if available.
-    #   4. If there is still no cache → re-raise the original error.
-
-    cached_path = _resolve_hf_cached_snapshot(model_name, transformers_loading_kwargs)
-    if cached_path is not None:
-        try:
-            return Qwen3VLProcessor.from_pretrained(cached_path, **transformers_loading_kwargs)
-        except Exception:
-            logger.debug(
-                "Loading from cached path '%s' failed; falling back to '%s'",
-                cached_path,
-                model_name,
-            )
-
-    try:
-        return Qwen3VLProcessor.from_pretrained(model_name, **transformers_loading_kwargs)
-    except (OSError, ConnectionError, TimeoutError) as net_err:
-        # from_pretrained may have downloaded files before crashing at the
-        # is_base_mistral() → model_info() stage.  Re-check the cache.
-        cached_path = _resolve_hf_cached_snapshot(model_name, transformers_loading_kwargs)
-        if cached_path is not None:
-            logger.warning(
-                "Processor loading from '%s' failed (%s: %s); retrying from cached snapshot '%s'.",
-                model_name,
-                type(net_err).__name__,
-                net_err,
-                cached_path,
-            )
-            try:
-                return Qwen3VLProcessor.from_pretrained(cached_path, **transformers_loading_kwargs)
-            except Exception:
-                pass
-        raise
+    return Qwen3VLProcessor.from_pretrained(model_name, **transformers_loading_kwargs)
 
 
 class Gr00tN1d7DataCollator:

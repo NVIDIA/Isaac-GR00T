@@ -77,7 +77,8 @@ class Gr00tN1d7Pipeline(ModelPipeline):
 
     def _create_model(self):
         """Setup model with proper vocabulary expansion."""
-        if self.config.training.start_from_checkpoint is not None:
+        skip_weight_loading = getattr(self.config.training, "skip_weight_loading", False)
+        if self.config.training.start_from_checkpoint is not None and not skip_weight_loading:
             model, loading_info = AutoModel.from_pretrained(
                 self.config.training.start_from_checkpoint,
                 tune_llm=self.config.model.tune_llm,

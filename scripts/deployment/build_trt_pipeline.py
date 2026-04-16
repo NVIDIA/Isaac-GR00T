@@ -278,7 +278,9 @@ def _run_export(cfg: PipelineConfig, onnx_dir: str, embodiment_tag, log_fp) -> N
         export_main(export_cfg)
 
 
-def _run_build(cfg: PipelineConfig, onnx_dir: str, engine_dir: str, log_fp) -> None:
+def _run_build(
+    cfg: PipelineConfig, onnx_dir: str, engine_dir: str, log_fp, trt_severity=None
+) -> None:
     from build_tensorrt_engine import BuildConfig, main as build_main
 
     build_mode, _, _ = _MODE_MAP[cfg.export_mode]
@@ -301,7 +303,7 @@ def _run_build(cfg: PipelineConfig, onnx_dir: str, engine_dir: str, log_fp) -> N
             workspace=cfg.workspace,
         )
     with _redirect_to_log(log_fp):
-        build_main(build_cfg)
+        build_main(build_cfg, trt_severity=trt_severity)
 
 
 def _run_verify(cfg: PipelineConfig, engine_dir: str, embodiment_tag, log_fp) -> float:

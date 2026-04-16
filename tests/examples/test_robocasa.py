@@ -27,10 +27,10 @@ from test_support.runtime import (
     DEFAULT_SERVER_STARTUP_SECONDS,
     TEST_CACHE_PATH,
     assert_port_available,
-    build_shared_runtime_env,
     get_root,
     run_subprocess_step,
     start_server_process,
+    timed,
     wait_for_server_ready,
 )
 
@@ -38,6 +38,7 @@ from test_support.runtime import (
 REPO_ROOT = get_root()
 
 LOGGER = logging.getLogger(__name__)
+
 
 README = REPO_ROOT / "examples/robocasa/README.md"
 
@@ -211,13 +212,7 @@ def _prepare_robocasa_repo(env: dict[str, str]) -> None:
 
 def _build_runtime_env(skip_download_assets: str) -> dict[str, str]:
     """Build the runtime environment used by setup, model server, and rollout."""
-    return build_shared_runtime_env(
-        "robocasa",
-        extra_env={
-            "SKIP_DOWNLOAD_ASSETS": skip_download_assets,
-            "INSTALL_FLASH_ATTN": "0",
-        },
-    )
+    return {**os.environ, "SKIP_DOWNLOAD_ASSETS": skip_download_assets, "INSTALL_FLASH_ATTN": "0"}
 
 
 @pytest.mark.gpu
@@ -241,18 +236,19 @@ def test_robocasa_readme_eval_flow() -> None:
     env = _build_runtime_env(skip_download_assets=skip_download_assets)
 
     # Ensure submodule is git-initialized from cache before setup script runs.
-    _prepare_robocasa_repo(env)
+    with timed("step 1: robocasa repo prep"):
+        _prepare_robocasa_repo(env)
 
     blocks = extract_code_blocks(README)
 
-    # Step 1: Setup sim
-    LOGGER.info("Running setup script")
-    run_bash_blocks(
-        [find_block(blocks, "setup_RoboCasa.sh", language="bash")],
-        cwd=REPO_ROOT,
-        env=env,
-        force_yes=True,
-    )
+    # Step 2: Setup sim
+    with timed("step 2: sim venv setup (setup_RoboCasa.sh)"):
+        run_bash_blocks(
+            [find_block(blocks, "setup_RoboCasa.sh", language="bash")],
+            cwd=REPO_ROOT,
+            env=env,
+            force_yes=True,
+        )
 
     # When setup performs a fresh download, move those assets into shared PVC
     # so subsequent runs can skip download and reuse the cached shared copy.
@@ -268,11 +264,7 @@ def test_robocasa_readme_eval_flow() -> None:
     # Step 2: Server — replace placeholder checkpoint path with the base model
     # (no finetuned robocasa checkpoint exists yet; base model is enough to test the pipeline).
     server_code = replace_once(
-        replace_once(
-            find_block(blocks, "ROBOCASA_PANDA_OMRON", language="bash").code,
-            "uv run python gr00t/eval/run_gr00t_server.py",
-            "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
-        ),
+        find_block(blocks, "ROBOCASA_PANDA_OMRON", language="bash").code,
         "<path-to-finetuned-robocasa-checkpoint>",
         "nvidia/GR00T-N1.7-3B",
     )
@@ -297,32 +289,30 @@ def test_robocasa_readme_eval_flow() -> None:
         "--n-envs 1",
     )
 
-    LOGGER.info(
-        "Starting model server process (UV_PROJECT_ENVIRONMENT=%s)",
-        env.get("UV_PROJECT_ENVIRONMENT", "<unset>"),
-    )
     assert_port_available(model_server_host, model_server_port)
     model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
-    wait_for_server_ready(
-        proc=model_server_proc,
-        host=model_server_host,
-        port=model_server_port,
-        timeout_s=float(
-            os.getenv("ROBOCASA_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
-        ),
-        server_log=server_log,
-    )
+    with timed("step 3: server startup"):
+        wait_for_server_ready(
+            proc=model_server_proc,
+            host=model_server_host,
+            port=model_server_port,
+            timeout_s=float(
+                os.getenv("ROBOCASA_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
+            ),
+            server_log=server_log,
+        )
 
     try:
-        simulation_result, _ = run_subprocess_step(
-            ["bash", "-c", rollout_code],
-            step="robocasa_rollout",
-            cwd=REPO_ROOT,
-            env=env,
-            log_prefix="robocasa",
-            failure_prefix="RoboCasa rollout failed",
-            output_tail_chars=4000,
-        )
+        with timed("step 4: rollout"):
+            simulation_result, _ = run_subprocess_step(
+                ["bash", "-c", rollout_code],
+                step="robocasa_rollout",
+                cwd=REPO_ROOT,
+                env=env,
+                log_prefix="robocasa",
+                failure_prefix="RoboCasa rollout failed",
+                output_tail_chars=4000,
+            )
         simulation_output = (simulation_result.stdout or "") + (simulation_result.stderr or "")
         assert "results:" in simulation_output, (
             "Simulation output did not include expected 'results:' marker.\n"

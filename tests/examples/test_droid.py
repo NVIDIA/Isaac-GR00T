@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import pathlib
 import subprocess
@@ -24,11 +25,14 @@ from test_support.readme import extract_code_blocks, find_block, replace_once, r
 from test_support.runtime import (
     DEFAULT_SERVER_STARTUP_SECONDS,
     assert_port_available,
-    build_shared_runtime_env,
     get_root,
     start_server_process,
+    timed,
     wait_for_server_ready,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 REPO_ROOT = get_root()
@@ -50,17 +54,15 @@ MODEL_CHECKPOINT = pathlib.Path(f"/tmp/droid_finetune/checkpoint-{TRAINING_STEPS
 def test_droid_readme_server_starts(occurrence: int) -> None:
     """Verify the DROID inference server starts and accepts connections."""
 
-    env = build_shared_runtime_env("droid")
+    env = {**os.environ}
     blocks = extract_code_blocks(README)
 
     model_server_host = "127.0.0.1"
     model_server_port = 5557
 
-    server_code = replace_once(
-        find_block(blocks, "run_gr00t_server.py", language="bash", occurrence=occurrence).code,
-        "uv run python gr00t/eval/run_gr00t_server.py",
-        "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
-    )
+    server_code = find_block(
+        blocks, "run_gr00t_server.py", language="bash", occurrence=occurrence
+    ).code
     server_code += f" --device cuda:0 --host {model_server_host} --port {model_server_port}"
 
     assert_port_available(model_server_host, model_server_port)
@@ -90,7 +92,7 @@ def test_droid_readme_server_starts(occurrence: int) -> None:
 def test_droid_finetune_and_finetuned_server() -> None:
     """Run a short DROID finetune, then verify server starts with the finetuned checkpoint."""
 
-    env = build_shared_runtime_env("droid")
+    env = {**os.environ}
     blocks = extract_code_blocks(README)
 
     finetune_code = replace_once(
@@ -110,6 +112,7 @@ def test_droid_finetune_and_finetuned_server() -> None:
         "GLOBAL_BATCH_SIZE=640",
         "GLOBAL_BATCH_SIZE=2",
     )
+    finetune_code = finetune_code.rstrip() + " -- --skip_weight_loading"
     run_bash_blocks(
         [finetune_code],
         cwd=REPO_ROOT,
@@ -119,7 +122,6 @@ def test_droid_finetune_and_finetuned_server() -> None:
             "DATALOADER_NUM_WORKERS": "0",
             "SHARD_SIZE": "64",
             "NUM_SHARDS_PER_EPOCH": "1",
-            "CUDA_VISIBLE_DEVICES": "0",
         },
     )
     assert MODEL_CHECKPOINT.exists(), (
@@ -130,11 +132,7 @@ def test_droid_finetune_and_finetuned_server() -> None:
     model_server_port = 5558
 
     server_code = replace_once(
-        replace_once(
-            find_block(blocks, "nvidia/GR00T-N1.7-DROID", language="bash").code,
-            "uv run python gr00t/eval/run_gr00t_server.py",
-            "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
-        ),
+        find_block(blocks, "nvidia/GR00T-N1.7-DROID", language="bash").code,
         "nvidia/GR00T-N1.7-DROID",
         str(MODEL_CHECKPOINT),
     )
@@ -143,15 +141,16 @@ def test_droid_finetune_and_finetuned_server() -> None:
     assert_port_available(model_server_host, model_server_port)
     model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
     try:
-        wait_for_server_ready(
-            proc=model_server_proc,
-            host=model_server_host,
-            port=model_server_port,
-            timeout_s=float(
-                os.getenv("DROID_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
-            ),
-            server_log=server_log,
-        )
+        with timed("finetuned server startup"):
+            wait_for_server_ready(
+                proc=model_server_proc,
+                host=model_server_host,
+                port=model_server_port,
+                timeout_s=float(
+                    os.getenv("DROID_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
+                ),
+                server_log=server_log,
+            )
     finally:
         if model_server_proc.poll() is None:
             model_server_proc.terminate()

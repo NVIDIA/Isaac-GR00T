@@ -15,8 +15,10 @@
 
 from __future__ import annotations
 
+import os
+
 from test_support.readme import extract_code_blocks, find_block
-from test_support.runtime import build_shared_runtime_env, get_root, run_subprocess_step
+from test_support.runtime import get_root, run_subprocess_step
 
 
 REPO_ROOT = get_root()
@@ -36,7 +38,7 @@ def test_complete_so100_config() -> None:
     blocks = extract_code_blocks(DATA_CONFIG_README)
     so100 = find_block(blocks, "so100_config = {", language="python", occurrence=2)
     code = _IMPORTS + "\n" + so100.code + "\n" + _REGISTER
-    env = build_shared_runtime_env("data_config")
+    env = {**os.environ}
     run_subprocess_step(
         ["uv", "run", "python", "-c", code],
         step="so100_config",

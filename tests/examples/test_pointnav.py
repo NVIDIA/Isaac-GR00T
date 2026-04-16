@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pathlib
 import shutil
@@ -35,14 +36,17 @@ from test_support.runtime import (
     DEFAULT_SERVER_STARTUP_SECONDS,
     TEST_CACHE_PATH,
     assert_port_available,
-    build_shared_runtime_env,
     get_root,
     has_rt_core_gpu,
     hf_hub_download_cmd,
     run_subprocess_step,
     start_server_process,
+    timed,
     wait_for_server_ready,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 REPO_ROOT = get_root()
@@ -196,21 +200,18 @@ def _prepare_pointnav_dataset(env: dict[str, str]) -> pathlib.Path:
 def test_pointnav_readme_finetune_executes_via_subprocess() -> None:
     """Run the PointNav README finetune script with a minimal step count."""
 
-    env = build_shared_runtime_env(
-        "pointnav",
-        extra_env={
-            "SAVE_STEPS": str(TRAINING_STEPS),
-            "MAX_STEPS": str(TRAINING_STEPS),
-            "USE_WANDB": "0",
-            "DATALOADER_NUM_WORKERS": "0",
-            # Limit to one GPU so HuggingFace Trainer uses plain single-device
-            # mode instead of DataParallel, which breaks the model's device property.
-            "CUDA_VISIBLE_DEVICES": "0",
-        },
-    )
+    env = {
+        **os.environ,
+        "SAVE_STEPS": str(TRAINING_STEPS),
+        "MAX_STEPS": str(TRAINING_STEPS),
+        "USE_WANDB": "0",
+        "DATALOADER_NUM_WORKERS": "0",
+    }
 
-    dataset_path = _prepare_pointnav_dataset(env)
-    groot_model_path = _prepare_groot_model(env)
+    with timed("step 1: dataset prep"):
+        dataset_path = _prepare_pointnav_dataset(env)
+    with timed("step 2: model prep"):
+        groot_model_path = _prepare_groot_model(env)
     blocks = extract_code_blocks(README)
 
     # Wipe any leftover output dir so the trainer starts fresh rather than
@@ -248,7 +249,9 @@ def test_pointnav_readme_finetune_executes_via_subprocess() -> None:
         "GLOBAL_BATCH_SIZE=32",
         "GLOBAL_BATCH_SIZE=2",
     )
-    run_bash_blocks([finetune_code], cwd=REPO_ROOT, env=env)
+    finetune_code = finetune_code.rstrip() + " -- --skip_weight_loading"
+    with timed("step 3: finetune"):
+        run_bash_blocks([finetune_code], cwd=REPO_ROOT, env=env)
 
     assert MODEL_CHECKPOINT.exists(), (
         f"Expected model checkpoint after finetune: {MODEL_CHECKPOINT}"
@@ -268,51 +271,56 @@ def test_pointnav_readme_finetune_executes_via_subprocess() -> None:
     assert_port_available(model_server_host, model_server_port)
     model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
     try:
-        wait_for_server_ready(
-            proc=model_server_proc,
-            host=model_server_host,
-            port=model_server_port,
-            timeout_s=float(
-                os.getenv("POINTNAV_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
-            ),
-            server_log=server_log,
-        )
+        with timed("step 4: server startup"):
+            wait_for_server_ready(
+                proc=model_server_proc,
+                host=model_server_host,
+                port=model_server_port,
+                timeout_s=float(
+                    os.getenv(
+                        "POINTNAV_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS)
+                    )
+                ),
+                server_log=server_log,
+            )
 
-        # Step 4: COMPASS evaluation — runs against the live GR00T server.
+        # Step 5: COMPASS evaluation — runs against the live GR00T server.
         # Requires RT cores for Vulkan ray tracing; skipped on compute-only GPUs (e.g. B200).
         if has_rt_core_gpu():
-            compass_repo = prepare_compass_repo(env)
-            isaaclab_path = prepare_isaaclab(env)
-            x_mobility_ckpt = prepare_x_mobility(compass_repo, env)
+            with timed("step 5a: compass repo + isaaclab prep"):
+                compass_repo = prepare_compass_repo(env)
+                isaaclab_path = prepare_isaaclab(env)
+                x_mobility_ckpt = prepare_x_mobility(compass_repo, env)
 
-            run_subprocess_step(
-                [
-                    str(isaaclab_path / "isaaclab.sh"),
-                    "-p",
-                    "run.py",
-                    "-c",
-                    "configs/eval_config.gin",
-                    "-o",
-                    "/tmp/pointnav_compass_eval",
-                    "-b",
-                    str(x_mobility_ckpt),
-                    "--enable_camera",
-                    "--gr00t-policy",
-                ],
-                step="compass_eval",
-                cwd=compass_repo,
-                env=isaaclab_env(
-                    env,
-                    {
-                        "ISAACLAB_PATH": str(isaaclab_path),
-                        "VIRTUAL_ENV": str(ISAACLAB_VENV),
-                        "PATH": f"{ISAACLAB_VENV / 'bin'}:{env.get('PATH', os.environ.get('PATH', ''))}",
-                    },
-                ),
-                log_prefix="pointnav",
-                failure_prefix="COMPASS evaluation failed",
-                stream_output=True,
-            )
+            with timed("step 5b: compass eval"):
+                run_subprocess_step(
+                    [
+                        str(isaaclab_path / "isaaclab.sh"),
+                        "-p",
+                        "run.py",
+                        "-c",
+                        "configs/eval_config.gin",
+                        "-o",
+                        "/tmp/pointnav_compass_eval",
+                        "-b",
+                        str(x_mobility_ckpt),
+                        "--enable_camera",
+                        "--gr00t-policy",
+                    ],
+                    step="compass_eval",
+                    cwd=compass_repo,
+                    env=isaaclab_env(
+                        env,
+                        {
+                            "ISAACLAB_PATH": str(isaaclab_path),
+                            "VIRTUAL_ENV": str(ISAACLAB_VENV),
+                            "PATH": f"{ISAACLAB_VENV / 'bin'}:{env.get('PATH', os.environ.get('PATH', ''))}",
+                        },
+                    ),
+                    log_prefix="pointnav",
+                    failure_prefix="COMPASS evaluation failed",
+                    stream_output=True,
+                )
     finally:
         if model_server_proc.poll() is None:
             model_server_proc.terminate()

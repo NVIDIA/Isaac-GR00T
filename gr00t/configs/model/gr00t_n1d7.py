@@ -41,7 +41,7 @@ class Gr00tN1d7Config(PretrainedConfig):
     backbone_model_type: str = "qwen"
     model_revision: str | None = None
     tune_top_llm_layers: int = 0  # Number of top LLM layers to tune
-    backbone_embedding_dim: int = 1536  # project_to_dim
+    backbone_embedding_dim: int = 2048  # project_to_dim; must match Cosmos-Reason2-2B hidden size
     tune_llm: bool = False
     tune_visual: bool = False
     select_layer: int = 12
