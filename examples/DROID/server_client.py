@@ -155,7 +155,7 @@ class MsgSerializer:
         if not isinstance(obj, dict):
             return obj
         if "__ModalityConfig_class__" in obj:
-            return ModalityConfig(**obj["as_dict"])
+            return ModalityConfig(**obj["as_json"])
         if "__ndarray_class__" in obj:
             return np.load(io.BytesIO(obj["as_npy"]), allow_pickle=False)
         return obj
@@ -164,7 +164,7 @@ class MsgSerializer:
     def encode_custom_classes(obj):
         if isinstance(obj, ModalityConfig):
             # Convert to dict and let msgpack recursively handle nested objects
-            return {"__ModalityConfig_class__": True, "as_dict": to_json_serializable(obj)}
+            return {"__ModalityConfig_class__": True, "as_json": to_json_serializable(obj)}
         if isinstance(obj, np.ndarray):
             output = io.BytesIO()
             np.save(output, obj, allow_pickle=False)
