@@ -160,14 +160,6 @@ DATASET_CATALOG: tuple[DatasetCatalogEntry, ...] = (
         hf_repo_id="IPEC-COMMUNITY/fractal20220817_data_lerobot",
         hf_files=("videos/chunk-000/observation.images.image/episode_000000.mp4",),
     ),
-    DatasetCatalogEntry(
-        "g1_locomanip_embodiment_sim",
-        "examples/GR00T-WholeBodyControl/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim",
-        hf_repo_id="nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim",
-        hf_files=(
-            "unitree_g1.LMPnPAppleToPlateDC/videos/chunk-000/observation.images.ego_view/episode_000000.mp4",
-        ),
-    ),
 )
 
 
