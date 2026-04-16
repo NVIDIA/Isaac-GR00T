@@ -48,7 +48,8 @@ faulthandler.enable()
 DROID_CONTROL_FREQUENCY = 15
 RESOLUTION = (180, 320)  # resize images to this resolution before sending to the policy server
 
-# Matches OXE DROID dataset conversion: R_euler is post-multiplied by this matrix
+# Egocentric frame correction: R_euler is post-multiplied by this matrix
+# to match the OXE DROID training pipeline (TFG convention).
 DROID_EEF_ROTATION_CORRECT = np.array(
     [[0, 0, -1], [-1, 0, 0], [0, 1, 0]],
     dtype=np.float64,
@@ -58,13 +59,14 @@ DROID_EEF_ROTATION_CORRECT = np.array(
 def compute_eef_9d(cartesian_position: np.ndarray) -> np.ndarray:
     """Convert cartesian_position (XYZ + euler 3D) to eef_9d (XYZ + rot6d).
 
-    Uses extrinsic xyz Euler convention and applies the egocentric rotation correction
-    to match the OXE DROID training data convention.
+    Uses extrinsic XYZ Euler convention (scipy ``"XYZ"``, equivalent to
+    ``tfg.rotation_matrix_3d.from_euler``) and post-multiplies by
+    ``DROID_EEF_ROTATION_CORRECT`` to match the pretrained model.
     """
     c = np.asarray(cartesian_position, dtype=np.float64).reshape(6)
     xyz = c[:3]
     euler = c[3:6]
-    rot_robot = Rotation.from_euler("xyz", euler).as_matrix()
+    rot_robot = Rotation.from_euler("XYZ", euler).as_matrix()
     rot_mat = rot_robot @ DROID_EEF_ROTATION_CORRECT
     rot6d = rot_mat[:2, :].reshape(6)
     return np.concatenate([xyz, rot6d]).astype(np.float32)
