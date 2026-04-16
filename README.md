@@ -8,7 +8,7 @@
     <a href="https://developer.nvidia.com/isaac/gr00t"><strong>Website</strong></a> |
     <a href="https://huggingface.co/collections/nvidia/gr00t-n17"><strong>Model</strong></a> |
     <a href="https://huggingface.co/collections/nvidia/physical-ai"><strong>Dataset</strong></a> |
-    <a href=""><strong>Paper</strong></a> |
+    <a href="https://arxiv.org/abs/2503.14734"><strong>Paper</strong></a> |
     <a href="https://developer.nvidia.com/isaac"><strong>NVIDIA Isaac</strong></a>
   </p>
 </div>
@@ -348,8 +348,6 @@ Each benchmark has a self-contained README with dataset download, finetune, and 
 | SimplerEnv (Fractal) | `SIMPLER_ENV_GOOGLE` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
 | SimplerEnv (Bridge) | `SIMPLER_ENV_WIDOWX` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
 | SO100 | `NEW_EMBODIMENT` | [examples/SO100/README.md](examples/SO100/README.md) |
-| GR00T-WholeBodyControl | `UNITREE_G1` | [examples/GR00T-WholeBodyControl/README.md](examples/GR00T-WholeBodyControl/README.md) |
-| PointNav | — | [examples/PointNav/README.md](examples/PointNav/README.md) |
 
 ### Fine-tune on Your Own Robot ("NEW_EMBODIMENT")
 
@@ -456,8 +454,6 @@ You can use [the verification script](scripts/eval/check_sim_eval_ready.py) to v
 - [LIBERO](examples/LIBERO/README.md) — LIBERO benchmark (Franka Panda)
 - [SimplerEnv](examples/SimplerEnv/README.md) — Google Robot (Fractal) and WidowX (Bridge)
 - [SO100](examples/SO100/README.md) — SO100 custom embodiment workflow
-- [GR00T-WholeBodyControl](examples/GR00T-WholeBodyControl/README.md) — Unitree G1 whole-body
-- [PointNav](examples/PointNav/README.md) — Point navigation
 
 <details>
 <summary><strong>Adding a New Sim Benchmark</strong></summary>
@@ -496,7 +492,7 @@ Support during Early Access is best-effort. We will continue iterating toward a 
 - **Model weights:** [NVIDIA Open Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/)
 
 ```
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
