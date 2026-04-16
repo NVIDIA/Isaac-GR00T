@@ -6,9 +6,9 @@
 
   <p style="font-size: 1.2em;">
     <a href="https://developer.nvidia.com/isaac/gr00t"><strong>Website</strong></a> |
-    <a href="https://huggingface.co/nvidia/GR00T-N1.7-3B"><strong>Model</strong></a> |
-    <a href="https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim"><strong>Dataset</strong></a> |
-    <a href="https://arxiv.org/abs/2503.14734"><strong>Paper</strong></a> |
+    <a href="https://huggingface.co/collections/nvidia/gr00t-n17"><strong>Model</strong></a> |
+    <a href="https://huggingface.co/collections/nvidia/physical-ai"><strong>Dataset</strong></a> |
+    <a href=""><strong>Paper</strong></a> |
     <a href="https://developer.nvidia.com/isaac"><strong>NVIDIA Isaac</strong></a>
   </p>
 </div>
@@ -212,7 +212,7 @@ For a containerized setup that avoids system-level dependency conflicts, see our
 | [`nvidia/GR00T-N1.7-SimplerEnv-Bridge`](https://huggingface.co/nvidia/GR00T-N1.7-SimplerEnv-Bridge) | Finetuned | `SIMPLER_ENV_WIDOWX` | Finetuned on SimplerEnv Bridge (WidowX) |
 | [`nvidia/GR00T-N1.7-SimplerEnv-Fractal`](https://huggingface.co/nvidia/GR00T-N1.7-SimplerEnv-Fractal) | Finetuned | `SIMPLER_ENV_GOOGLE` | Finetuned on SimplerEnv Fractal (Google Robot) |
 
-> Older versions: [N1.6 checkpoints](https://github.com/NVIDIA/Isaac-GR00T) (n1.6-release branch) | [N1.5 checkpoints](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release)
+> Older versions: [N1.6 checkpoints](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) | [N1.5 checkpoints](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release)
 
 ### Embodiment Tags
 
