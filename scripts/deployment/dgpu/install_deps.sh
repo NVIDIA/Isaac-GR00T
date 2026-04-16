@@ -73,26 +73,6 @@ uv sync
 echo "Installing package in editable mode..."
 uv pip install -e .
 
-# ──────────────────────────────────────────────────────────────────────────────
-# torchcodec — build from source on aarch64 (no Linux aarch64 wheel on PyPI)
-# ──────────────────────────────────────────────────────────────────────────────
-if [ "$ARCH" = "aarch64" ]; then
-    echo "Building torchcodec from source (aarch64)..."
-    $SUDO apt-get install -y --no-install-recommends \
-        libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev \
-        libavutil-dev libswresample-dev libswscale-dev \
-        pkg-config cmake build-essential pybind11-dev python3-dev
-    TORCHCODEC_GIT_URL="https://github.com/meta-pytorch/torchcodec.git"
-    TORCHCODEC_GIT_REF="release/0.4"
-    rm -rf /tmp/torchcodec
-    git clone --depth 1 --branch "${TORCHCODEC_GIT_REF}" "${TORCHCODEC_GIT_URL}" /tmp/torchcodec
-    cd /tmp/torchcodec
-    VENV_DIR="${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}"
-    ENABLE_CUDA=1 uv pip install --python "$VENV_DIR/bin/python" . --no-build-isolation
-    cd "$REPO_ROOT" && rm -rf /tmp/torchcodec
-    echo "torchcodec built and installed."
-fi
-
 echo ""
 echo "Install complete! Activate with:"
 echo "  source .venv/bin/activate"
