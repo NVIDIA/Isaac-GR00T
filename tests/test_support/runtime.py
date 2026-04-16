@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import pathlib
@@ -567,65 +568,6 @@ def build_shared_hf_cache_env(cache_key: str) -> dict[str, str]:
     }
 
 
-def build_uv_runtime_env(
-    *,
-    uv_cache_dir: pathlib.Path | None = None,
-    extra_env: dict[str, str] | None = None,
-) -> dict[str, str]:
-    """Build a runtime env with uv cache and venv selection.
-
-    UV_PROJECT_ENVIRONMENT tells uv which venv to use when running subprocesses
-    (e.g. ``uv run python ...``). We forward the currently active venv so that
-    subprocesses use the same installed packages as the test runner — both in CI
-    and on dev machines where the developer runs inside a local venv.
-    """
-    env = {**os.environ}
-    if extra_env:
-        env.update(extra_env)
-    if uv_cache_dir is not None:
-        env["UV_CACHE_DIR"] = str(uv_cache_dir)
-
-    if os.environ.get("UV_PROJECT_ENVIRONMENT"):
-        env["UV_PROJECT_ENVIRONMENT"] = os.environ["UV_PROJECT_ENVIRONMENT"]
-    elif os.environ.get("VIRTUAL_ENV"):
-        env["UV_PROJECT_ENVIRONMENT"] = os.environ["VIRTUAL_ENV"]
-
-    return env
-
-
-def build_shared_runtime_env(
-    cache_key: str,
-    *,
-    extra_env: dict[str, str] | None = None,
-) -> dict[str, str]:
-    """Build runtime env with uv cache and per-test HF cache."""
-    uv_cache_dir = resolve_shared_uv_cache_dir()
-    merged_extra_env = {**build_shared_hf_cache_env(cache_key)}
-    if extra_env:
-        merged_extra_env.update(extra_env)
-    env = build_uv_runtime_env(uv_cache_dir=uv_cache_dir, extra_env=merged_extra_env)
-
-    cache_source = "TEST_CACHE_PATH" if "TEST_CACHE_PATH" in os.environ else "local fallback"
-    uv_cache_str = str(uv_cache_dir) if uv_cache_dir is not None else "uv default"
-    uv_venv = env.get("UV_PROJECT_ENVIRONMENT", "uv default")
-    uv_venv_source = (
-        "UV_PROJECT_ENVIRONMENT"
-        if os.environ.get("UV_PROJECT_ENVIRONMENT")
-        else "VIRTUAL_ENV"
-        if os.environ.get("VIRTUAL_ENV")
-        else "unset"
-    )
-    hf_home = env.get("HF_HOME", "hf default")
-    print(
-        f"[cache] cache_path={TEST_CACHE_PATH} ({cache_source})"
-        f" uv_cache={uv_cache_str}"
-        f" uv_venv={uv_venv} ({uv_venv_source})"
-        f" hf_home={hf_home} (key={cache_key})",
-        flush=True,
-    )
-    return env
-
-
 def assert_port_available(host: str, port: int) -> None:
     """Raise AssertionError if the port is already bound.
 
@@ -762,3 +704,21 @@ def run_subprocess_step(
             f"{output_info}"
         )
     return result, elapsed_s
+
+
+@contextlib.contextmanager
+def timed(label: str):
+    """Context manager that prints the wall-clock duration of a labelled phase.
+
+    Usage::
+
+        with timed("model load"):
+            model = load_model(...)
+    """
+    print(f"[timing] {label} — starting", flush=True)
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = time.perf_counter() - t0
+        print(f"[timing] {label} — done in {elapsed:.1f}s", flush=True)

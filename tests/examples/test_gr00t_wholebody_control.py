@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 
@@ -23,13 +24,16 @@ from test_support.readme import extract_code_blocks, find_block, replace_once, r
 from test_support.runtime import (
     DEFAULT_SERVER_STARTUP_SECONDS,
     assert_port_available,
-    build_shared_runtime_env,
     find_nvidia_egl_vendor_file,
     get_root,
     run_subprocess_step,
     start_server_process,
+    timed,
     wait_for_server_ready,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 REPO_ROOT = get_root()
@@ -49,18 +53,17 @@ def test_gr00t_wholebody_control_readme_eval_flow() -> None:
 
     print(f"[egl] NVIDIA EGL vendor file: {find_nvidia_egl_vendor_file()}", flush=True)
 
-    env = build_shared_runtime_env(
-        "gr00t-wholebody-control", extra_env={"MUJOCO_GL": "egl", "PYOPENGL_PLATFORM": "egl"}
-    )
+    env = {**os.environ, "MUJOCO_GL": "egl", "PYOPENGL_PLATFORM": "egl"}
     blocks = extract_code_blocks(README)
 
     # Step 1: Setup sim
-    run_bash_blocks(
-        [find_block(blocks, "setup_GR00T_WholeBodyControl.sh", language="bash")],
-        cwd=REPO_ROOT,
-        env=env,
-        force_yes=True,
-    )
+    with timed("step 1: sim venv setup (setup_GR00T_WholeBodyControl.sh)"):
+        run_bash_blocks(
+            [find_block(blocks, "setup_GR00T_WholeBodyControl.sh", language="bash")],
+            cwd=REPO_ROOT,
+            env=env,
+            force_yes=True,
+        )
 
     model_server_host = "127.0.0.1"
     model_server_port = 5554
@@ -69,11 +72,7 @@ def test_gr00t_wholebody_control_readme_eval_flow() -> None:
     # G1 checkpoint for N1.7 yet; UNITREE_G1 is a posttrain tag that requires one).
     server_code = replace_once(
         replace_once(
-            replace_once(
-                find_block(blocks, "nvidia/GR00T-N1.6-G1-PnPAppleToPlate", language="bash").code,
-                "uv run python gr00t/eval/run_gr00t_server.py",
-                "uv run --extra=dev python gr00t/eval/run_gr00t_server.py",
-            ),
+            find_block(blocks, "nvidia/GR00T-N1.6-G1-PnPAppleToPlate", language="bash").code,
             "nvidia/GR00T-N1.6-G1-PnPAppleToPlate",
             "nvidia/GR00T-N1.7-3B",
         ),
@@ -97,26 +96,28 @@ def test_gr00t_wholebody_control_readme_eval_flow() -> None:
 
     assert_port_available(model_server_host, model_server_port)
     model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
-    wait_for_server_ready(
-        proc=model_server_proc,
-        host=model_server_host,
-        port=model_server_port,
-        timeout_s=float(
-            os.getenv("G1_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
-        ),
-        server_log=server_log,
-    )
+    with timed("step 2: server startup"):
+        wait_for_server_ready(
+            proc=model_server_proc,
+            host=model_server_host,
+            port=model_server_port,
+            timeout_s=float(
+                os.getenv("G1_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
+            ),
+            server_log=server_log,
+        )
 
     try:
-        simulation_result, _ = run_subprocess_step(
-            ["bash", "-c", rollout_code],
-            step="g1_rollout",
-            cwd=REPO_ROOT,
-            env=env,
-            log_prefix="gr00t-wholebody-control",
-            failure_prefix="G1 LocoManipulation rollout failed",
-            output_tail_chars=4000,
-        )
+        with timed("step 3: rollout"):
+            simulation_result, _ = run_subprocess_step(
+                ["bash", "-c", rollout_code],
+                step="g1_rollout",
+                cwd=REPO_ROOT,
+                env=env,
+                log_prefix="gr00t-wholebody-control",
+                failure_prefix="G1 LocoManipulation rollout failed",
+                output_tail_chars=4000,
+            )
         simulation_output = (simulation_result.stdout or "") + (simulation_result.stderr or "")
         assert "results:" in simulation_output, (
             "Simulation output did not include expected 'results:' marker.\n"

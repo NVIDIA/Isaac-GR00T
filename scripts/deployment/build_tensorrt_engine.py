@@ -168,6 +168,7 @@ def build_engine(
     min_shapes: dict = None,
     opt_shapes: dict = None,
     max_shapes: dict = None,
+    trt_severity=None,
 ):
     """Build TensorRT engine from ONNX model.
 
@@ -189,7 +190,7 @@ def build_engine(
     logger.info(f"Workspace: {workspace_mb} MB")
     logger.info("=" * 80)
 
-    TRT_LOGGER = trt.Logger(trt.Logger.VERBOSE)
+    TRT_LOGGER = trt.Logger(trt.Logger.VERBOSE if trt_severity is None else trt_severity)
 
     # Create builder and network
     logger.info("\n[Step 1/5] Creating TensorRT builder...")
@@ -321,7 +322,9 @@ def build_engine(
 # ============================================================
 
 
-def build_full_pipeline(onnx_dir, engine_dir, precision="bf16", workspace_mb=8192):
+def build_full_pipeline(
+    onnx_dir, engine_dir, precision="bf16", workspace_mb=8192, trt_severity=None
+):
     """Build all TRT engines for the full pipeline.
 
     Shape profiles are automatically derived from the ONNX models.
@@ -415,6 +418,7 @@ def build_full_pipeline(onnx_dir, engine_dir, precision="bf16", workspace_mb=819
                 min_shapes=min_shapes,
                 opt_shapes=opt_shapes,
                 max_shapes=max_shapes,
+                trt_severity=trt_severity,
             )
             results.append((name, engine_path, "SUCCESS"))
         except Exception as e:
@@ -461,7 +465,7 @@ class BuildConfig:
     """Workspace size in MB (default: 8192)."""
 
 
-def main(args: BuildConfig | None = None):
+def main(args: BuildConfig | None = None, trt_severity=None):
     if args is None:
         args = tyro.cli(BuildConfig)
 
@@ -471,6 +475,7 @@ def main(args: BuildConfig | None = None):
             engine_dir=args.engine_dir,
             precision=args.precision,
             workspace_mb=args.workspace,
+            trt_severity=trt_severity,
         )
     else:
         if not args.onnx or not args.engine:
@@ -486,6 +491,7 @@ def main(args: BuildConfig | None = None):
             min_shapes=min_shapes,
             opt_shapes=opt_shapes,
             max_shapes=max_shapes,
+            trt_severity=trt_severity,
         )
 
 

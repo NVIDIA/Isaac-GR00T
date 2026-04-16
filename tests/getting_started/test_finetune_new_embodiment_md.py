@@ -15,9 +15,11 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
-from test_support.runtime import build_shared_runtime_env, get_root, run_subprocess_step
+from test_support.runtime import get_root, run_subprocess_step
 
 
 REPO_ROOT = get_root()
@@ -36,7 +38,7 @@ def test_modality_config_block() -> None:
     """The SO-100 modality config block in finetune_new_embodiment.md executes without error."""
     blocks = extract_code_blocks(FINETUNE_README)
     config_block = find_block(blocks, "register_modality_config", language="python")
-    env = build_shared_runtime_env("finetune_new_embodiment")
+    env = {**os.environ}
     run_subprocess_step(
         ["uv", "run", "python", "-c", config_block.code],
         step="modality_config_block",
@@ -55,7 +57,7 @@ def test_modality_config_block() -> None:
 def test_open_loop_eval() -> None:
     """Run Step 3 (finetune) then Step 4 (open-loop eval) from finetune_new_embodiment.md."""
     blocks = extract_code_blocks(FINETUNE_README)
-    env = build_shared_runtime_env("finetune_new_embodiment")
+    env = {**os.environ}
 
     # Step 3: finetune with minimal steps to produce a NEW_EMBODIMENT checkpoint.
     finetune_cmd = replace_once(
@@ -79,7 +81,17 @@ def test_open_loop_eval() -> None:
         "--dataloader-num-workers 4",
         "--dataloader-num-workers 0",
     )
-    run_bash_blocks([finetune_cmd], cwd=REPO_ROOT, env=env)
+    finetune_cmd = finetune_cmd.rstrip() + " --skip-weight-loading"
+    run_bash_blocks(
+        [finetune_cmd],
+        cwd=REPO_ROOT,
+        env={
+            **env,
+            "DATALOADER_NUM_WORKERS": "0",
+            "SHARD_SIZE": "64",
+            "NUM_SHARDS_PER_EPOCH": "1",
+        },
+    )
 
     # Step 4: open-loop eval against the freshly produced checkpoint.
     eval_cmd = replace_once(

@@ -45,6 +45,7 @@ class TrainingConfig:
     optim: str = "adamw_torch_fused"
 
     start_from_checkpoint: Optional[str] = None
+    skip_weight_loading: bool = False  # skip loading checkpoint weights (architecture only)
 
     # Mixed precision
     tf32: bool = True
