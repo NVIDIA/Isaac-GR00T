@@ -38,7 +38,7 @@ dependencies = [
     "wandb==0.23.0",
     "pyzmq==27.0.1",
     "torchcodec==0.10.0",
-    "onnx>=1.20.0",
+    "onnx>=1.21.0",
     "onnxscript",
     "tensorrt>=10.14.1.48.post1",
     # Keep these as direct pins: the Spark torch wheel does not bundle these runtime libs,
