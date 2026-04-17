@@ -21,6 +21,7 @@ from pathlib import Path
 import sys
 
 from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.types import ModalityConfig
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 from gr00t.policy.replay_policy import ReplayPolicy
 from gr00t.policy.server_client import PolicyServer
@@ -52,7 +53,7 @@ class ServerConfig:
     """Path to the modality configuration file"""
 
     execution_horizon: int | None = None
-    """Policy execution horizon during inference."""
+    """Policy execution horizon during inference. Required when --dataset-path is set (ReplayPolicy)."""
 
     # Server configs
     host: str = "0.0.0.0"
@@ -89,22 +90,38 @@ def main(config: ServerConfig):
             strict=config.strict,
         )
     elif config.dataset_path is not None:
+        if config.execution_horizon is None:
+            raise ValueError(
+                "--execution-horizon is required when --dataset-path is set "
+                "(ReplayPolicy needs a positive integer to advance episodes)."
+            )
+        if config.execution_horizon <= 0:
+            raise ValueError(
+                f"--execution-horizon must be positive; got {config.execution_horizon}."
+            )
+
+        modality_configs: dict[str, ModalityConfig] | None = None
         if config.modality_config_path is not None:
             config_path = Path(config.modality_config_path)
             if config_path.suffix == ".py":
+                # The .py file is expected to call register_modality_config()
+                # as an import side-effect; resolution falls through to
+                # MODALITY_CONFIGS below.
                 sys.path.append(str(config_path.parent))
                 importlib.import_module(config_path.stem)
                 print(f"Loaded modality config: {config_path}")
             elif config_path.suffix == ".json":
                 with open(config.modality_config_path, "r") as f:
-                    modality_configs = json.load(f)
+                    raw = json.load(f)
+                # ReplayPolicy expects ModalityConfig instances, not raw dicts.
+                modality_configs = {k: ModalityConfig(**v) for k, v in raw.items()}
             else:
                 raise ValueError(
                     f"Unsupported modality config format: {config_path.suffix}. Use .py or .json"
                 )
 
         # For .py configs (or no config path), look up from the registry
-        if config.modality_config_path is None or config.modality_config_path.endswith(".py"):
+        if modality_configs is None:
             from gr00t.configs.data.embodiment_configs import MODALITY_CONFIGS
 
             modality_configs = MODALITY_CONFIGS.get(config.embodiment_tag.value)

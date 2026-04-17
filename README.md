@@ -104,6 +104,8 @@ GR00T N1.7 builds on N1.6 with a new VLM backbone and code-level improvements.
 
 **Fine-tuning:** 1 or more GPUs with 40 GB+ VRAM recommended. We recommend H100 or L40 nodes for optimal performance. Other hardware (e.g., A6000) works but may require longer training time. See the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md) for detailed specs.
 
+**CUDA / Python per platform:** dGPU on CUDA 12.8 with Python 3.10; Jetson Orin on CUDA 12.6 with Python 3.10; Jetson Thor and DGX Spark on CUDA 13.0 with Python 3.12. The per-platform install scripts and Dockerfiles live under `scripts/deployment/`; see the [Deployment & Inference Guide](scripts/deployment/README.md) for the full matrix.
+
 ### Clone the Repository
 
 GR00T relies on submodules for certain dependencies. Include them when cloning:
@@ -169,7 +171,7 @@ Note: GPU dependencies (flash-attn, TensorRT) may require manual installation wi
 
 > **GB300 (sm_103) Users:** Triton 3.3.1 (pinned by PyTorch 2.7) does not support the GB300 GPU architecture (sm_103). `torch.compile` will fail on GB300. Use PyTorch eager mode or TensorRT inference instead. Triton 3.5.1+ adds sm_103 support but is not yet compatible with the pinned PyTorch version.
 
-> **aarch64 Video Backend:** On aarch64 platforms (Thor, Orin), `torchcodec` is the required video backend. Pre-built wheels are not available for aarch64, so it is built from source during `install_deps.sh`. If you encounter `NotImplementedError` from the video backend, ensure `torchcodec` was built successfully during setup. Other backends (decord, pyav) are not supported on aarch64.
+> **aarch64 Video Backend:** On aarch64 platforms (Thor, Orin, Spark), `torchcodec` is the required video backend. `install_deps.sh` prefers the prebuilt aarch64 wheel under `scripts/deployment/dgpu/wheels/` (shared by Thor/Spark against FFmpeg 6; Orin uses a matching build against FFmpeg 4) and falls back to a source build only if the wheel is missing. If you encounter `NotImplementedError` from the video backend, ensure `torchcodec` was installed successfully during setup. Other backends (decord, pyav) are not supported on aarch64.
 
 <details>
 <summary><strong>DGX Spark</strong> (tested with DGX Spark GB10)</summary>
@@ -260,9 +262,12 @@ The `modality.json` maps how the concatenated state/action arrays split into nam
 
 | Dataset | Robot | Embodiment Tag | Use Case |
 |---------|-------|---------------|----------|
-| `demo_data/droid_sample` | DROID (3 episodes) | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | Zero-shot inference with base model |
+| `demo_data/droid_sample` | DROID (3 episodes) | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | Zero-shot or finetuned inference (DROID) |
 | `demo_data/libero_demo` | LIBERO Panda (5 episodes) | `LIBERO_PANDA` | Inference with finetuned checkpoint |
+| `demo_data/simplerenv_bridge_sample` | WidowX (SimplerEnv Bridge) | `SIMPLER_ENV_WIDOWX` | Inference with finetuned SimplerEnv Bridge checkpoint |
+| `demo_data/simplerenv_fractal_sample` | Google Robot (SimplerEnv Fractal) | `SIMPLER_ENV_GOOGLE` | Inference with finetuned SimplerEnv Fractal checkpoint |
 | `demo_data/cube_to_bowl_5` | SO100 arm (5 episodes) | `NEW_EMBODIMENT` | Fine-tuning custom embodiment example |
+| `demo_data/cube_to_bowl_5_with_mask` | SO100 arm + per-frame masks | `NEW_EMBODIMENT` | [Mask-guided background suppression](examples/mask-guided-background-suppression/README.md) example |
 
 > To generate more DROID episodes: `python scripts/download_droid_sample.py --num-episodes 10`
 
@@ -410,7 +415,7 @@ Replace `demo_data/cube_to_bowl_5` and `examples/SO100/so100_config.py` with you
 
 - Maximize batch size for your hardware and train for a few thousand steps.
 - Users may observe 5-6% variance between runs due to non-deterministic image augmentations. Keep this in mind when comparing to reported benchmarks.
-- **`--state_dropout_prob`** (default: 0.8 in model config, 0.0 in finetune CLI): Randomly drops state inputs during training to improve generalization and reduce state-dependency. The LIBERO and SimplerEnv finetune scripts set this to 0.8. If your task relies heavily on proprioceptive state, consider lowering this value.
+- **`--state_dropout_prob`** (model config default: 0.8; finetune CLI default: 0.2; see `gr00t/configs/finetune_config.py`): Randomly drops state inputs during training to improve generalization and reduce state-dependency. The shipped benchmark scripts override the CLI default per suite: LIBERO 10-Long uses 0.2 (the CLI default), SimplerEnv Bridge uses 0.8, SimplerEnv Fractal uses 0.5. If your task relies heavily on proprioceptive state, lower this value.
 
 ---
 
@@ -465,9 +470,10 @@ We support evaluation on public benchmarks using a server-client architecture. T
 You can use [the verification script](scripts/eval/check_sim_eval_ready.py) to verify that all dependencies are properly configured.
 
 **Zero-shot** (evaluate with the base model, no finetuning):
-- [DROID](examples/DROID/README.md) — real-world DROID robot
+- [DROID](examples/DROID/README.md) — real-world DROID robot (also available as the finetuned `nvidia/GR00T-N1.7-DROID` checkpoint; `examples/DROID/README.md` covers both paths)
 
 **Finetuned** (evaluate with finetuned checkpoints):
+- [DROID](examples/DROID/README.md) — real-world DROID robot via `nvidia/GR00T-N1.7-DROID`
 - [LIBERO](examples/LIBERO/README.md) — LIBERO benchmark (Franka Panda)
 - [SimplerEnv](examples/SimplerEnv/README.md) — Google Robot (Fractal) and WidowX (Bridge)
 - [SO100](examples/SO100/README.md) — SO100 custom embodiment workflow

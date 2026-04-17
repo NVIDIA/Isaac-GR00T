@@ -26,13 +26,6 @@ if [ "$PYTHON_VERSION" != "3.10" ]; then
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Copy Orin-specific pyproject.toml to repo root
-# ──────────────────────────────────────────────────────────────────────────────
-echo "Copying Orin pyproject.toml and uv.lock to repo root..."
-cp "$SCRIPT_DIR/pyproject.toml" "$REPO_ROOT/pyproject.toml"
-cp "$SCRIPT_DIR/uv.lock" "$REPO_ROOT/uv.lock"
-
-# ──────────────────────────────────────────────────────────────────────────────
 # Python environment
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -43,17 +36,28 @@ if ! command -v uv &> /dev/null; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-echo "Running uv sync with Orin pyproject.toml..."
-cd "$REPO_ROOT"
-uv sync
+# Install platform-specific deps from the Orin pyproject without mutating
+# the repo-root pyproject.toml / uv.lock.
+#
+# UV_PROJECT_ENVIRONMENT pins the venv location. Respect a pre-set value
+# from the Docker build (scripts/deployment/orin/Dockerfile sets it to
+# /opt/gr00t-venv and adds /opt/gr00t-venv/bin to PATH); fall back to
+# $REPO_ROOT/.venv on bare metal so activate_orin.sh still finds the venv
+# where users expect.
+#
+# --no-install-project skips installing "gr00t" from the Orin pyproject
+# (its source layout points at the platform dir, which has no gr00t src);
+# the real editable install comes from $REPO_ROOT below.
+export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}"
+echo "Running uv sync with the Orin pyproject at $SCRIPT_DIR (venv: $UV_PROJECT_ENVIRONMENT)..."
+uv sync --project "$SCRIPT_DIR" --no-install-project
 
-VENV_DIR="${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}"
-VENV_PYTHON="${VENV_DIR}/bin/python"
+VENV_DIR="$UV_PROJECT_ENVIRONMENT"
+VENV_PYTHON="$VENV_DIR/bin/python"
+SITE_PKGS="$VENV_DIR/lib/python${PYTHON_VERSION}/site-packages"
 
-SITE_PKGS="${VENV_DIR}/lib/python${PYTHON_VERSION}/site-packages"
-
-echo "Installing package in editable mode..."
-uv pip install --python "$VENV_PYTHON" -e .
+echo "Installing gr00t in editable mode from the repo root (--no-deps)..."
+uv pip install --python "$VENV_PYTHON" --no-deps -e "$REPO_ROOT"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # nvidia-cudss-cu12 — needed by torch 2.10.0 at runtime (libcudss.so.0)

@@ -19,10 +19,15 @@
 Export GR00T N1.7 model components to ONNX for TensorRT optimization.
 
 Supports three export modes:
-  - dit_only:      Export only the DiT (backward compatible)
-  - action_head:   Export 4 action head components. Backbone stays in PyTorch.
-  - full_pipeline: Export ViT + 4 action head components. LLM stays in PyTorch
-                   (deepstack injection requires it).
+  - dit_only:      Export only the DiT (backward compatible with N1.6).
+  - action_head:   Export 4 action head components (ViT + LLM stay in PyTorch).
+  - full_pipeline: Export ViT + LLM + 4 action head components. Lightweight
+                   glue ops (embed_tokens, masked_scatter, get_rope_index,
+                   VLLN) remain in PyTorch. Referred to as 'n17_full_pipeline'
+                   by the engine-loading code (trt_model_forward.py,
+                   build_trt_pipeline.py) and as 'trt_full_pipeline' by the
+                   standalone_inference_script.py --inference-mode flag;
+                   both names describe the same engine set.
 
 Usage:
     # Download finetuned model first (HF doesn't support nested repo paths)

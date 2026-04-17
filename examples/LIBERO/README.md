@@ -10,6 +10,10 @@ For more information, see the [official website](https://libero-project.github.i
 
 > **Note:** The full task list is attached at the end of this document.
 
+All four suites were finetuned with the same hyper-parameters, including
+`--state-dropout-prob 0.2` (the finetune CLI default from
+`gr00t/configs/finetune_config.py`).
+
 | Task      | Success rate       | max_steps | grad_accum_steps | batch_size |
 |-----------|--------------------|-----------|------------------|------------|
 | Spatial   | 195/200 (97.65%)        | 20K       | 1                | 640        |

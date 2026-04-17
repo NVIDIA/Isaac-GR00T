@@ -167,16 +167,16 @@ class ReplayPolicy(BasePolicy):
 
         # ===== VIDEO VALIDATION =====
         for video_key in self.modality_configs["video"].modality_keys:
+            assert video_key in observation["video"], (
+                f"Video key '{video_key}' must be in observation"
+            )
+
             if bs == -1:
                 bs = len(observation["video"][video_key])
             else:
                 assert len(observation["video"][video_key]) == bs, (
                     f"Video key '{video_key}' must have batch size {bs}. Got {len(observation['video'][video_key])}"
                 )
-
-            assert video_key in observation["video"], (
-                f"Video key '{video_key}' must be in observation"
-            )
 
             batched_video = observation["video"][video_key]
 
@@ -202,16 +202,17 @@ class ReplayPolicy(BasePolicy):
 
         # ===== STATE VALIDATION =====
         for state_key in self.modality_configs["state"].modality_keys:
+            # Existence check must precede indexing — see video validation above.
+            assert state_key in observation["state"], (
+                f"State key '{state_key}' must be in observation"
+            )
+
             if bs == -1:
                 bs = len(observation["state"][state_key])
             else:
                 assert len(observation["state"][state_key]) == bs, (
                     f"State key '{state_key}' must have batch size {bs}. Got {len(observation['state'][state_key])}"
                 )
-
-            assert state_key in observation["state"], (
-                f"State key '{state_key}' must be in observation"
-            )
 
             batched_state = observation["state"][state_key]
 
@@ -233,16 +234,17 @@ class ReplayPolicy(BasePolicy):
 
         # ===== LANGUAGE VALIDATION =====
         for language_key in self.modality_configs["language"].modality_keys:
+            # Existence check must precede indexing — see video validation above.
+            assert language_key in observation["language"], (
+                f"Language key '{language_key}' must be in observation"
+            )
+
             if bs == -1:
                 bs = len(observation["language"][language_key])
             else:
                 assert len(observation["language"][language_key]) == bs, (
                     f"Language key '{language_key}' must have batch size {bs}. Got {len(observation['language'][language_key])}"
                 )
-
-            assert language_key in observation["language"], (
-                f"Language key '{language_key}' must be in observation"
-            )
 
             batched_language: list[list[str]] = observation["language"][language_key]
 

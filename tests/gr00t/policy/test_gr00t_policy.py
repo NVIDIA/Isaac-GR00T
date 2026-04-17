@@ -146,7 +146,7 @@ class TestGr00tPolicyCheckObservation:
     def test_missing_video_key_raises(self, policy):
         obs = _make_observation()
         del obs["video"][VIDEO_KEYS[0]]
-        with pytest.raises((AssertionError, KeyError)):
+        with pytest.raises(AssertionError):
             policy.check_observation(obs)
 
     def test_wrong_video_dtype_raises(self, policy):

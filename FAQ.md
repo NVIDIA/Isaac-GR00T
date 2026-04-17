@@ -16,17 +16,6 @@ The Policy Remote Server decouples inference from the physical robot. This allow
 
 ## Workflow & Architecture
 
-### How is the Whole-Body Control (WBC) stack used with GR00T N models?
-
-The WBC and the GR00T VLA policy are trained independently and coupled at deployment. The typical workflow for integrating them involves four key steps:
-
-1. **Train WBC**: Train a low-level controller for the specific robot hardware.
-2. **Collect Data**: Use the trained WBC to collect "loco-manipulation" data.
-3. **Fine-tune**: Train the GR00T model on this data.
-4. **Deploy**: Run the fine-tuned GR00T policy, which outputs commands to the WBC via an adapter interface.
-
-See the [Loco-Manipulation workflow example](https://github.com/NVlabs/GR00T-WholeBodyControl) for details.
-
 ### Why retain only specific LLM layers (e.g., 16 layers) during fine-tuning?
 
 This configuration was empirically tuned for the backbone (e.g., Eagle/Cosmos-Reason). Research suggests early layers capture grammatical structure, while middle-to-late layers are highly expressive. However, the very last layers are often over-optimized for next-token prediction; pruning or freezing them can sometimes yield better representations for vision-language-action alignment.
@@ -43,7 +32,7 @@ Data requirements depend heavily on task complexity and scene variation. Typical
 
 - **Simple, fixed-location tasks (Pick & Place):** ~100 trajectories.
 - **Complex scenes or multi-step tasks:** ~500+ trajectories.
-- **Whole-Body Control (High DoF):** ~2,000+ trajectories (e.g., shelf-picking with G1).
+- **High-DoF humanoid tasks:** ~2,000+ trajectories (e.g., shelf-picking with G1).
 - **Fine manipulation:** ~100–500 episodes, ideally with human motion pre-training.
 
 ### What is the recommended strategy for improving success rates on hard tasks?

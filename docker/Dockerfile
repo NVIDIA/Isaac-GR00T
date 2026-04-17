@@ -51,18 +51,16 @@ WORKDIR /workspace
 # The wheels/ dir must be present before `uv sync` because pyproject.toml
 # references them as path sources for aarch64 flash-attn and torchcodec.
 COPY pyproject.toml uv.lock ./
-COPY groot_infra/pyproject.toml groot_infra/pyproject.toml
 COPY scripts/deployment/dgpu/wheels/ ./scripts/deployment/dgpu/wheels/
 
 RUN <<EOF
 set -e
-UV_PREVIEW=1 UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv sync --frozen --no-install-workspace --all-packages --extra dev --no-cache
+UV_PREVIEW=1 UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv sync --frozen --no-install-project --extra dev --no-cache
 EOF
 
-# Install workspace packages
+# Install the gr00t project itself
 COPY . .
-RUN uv pip install --python /workspace/.venv/bin/python -e . --no-deps && \
-    uv pip install --python /workspace/.venv/bin/python -e groot_infra --no-deps
+RUN uv pip install --python /workspace/.venv/bin/python -e . --no-deps
 
 ENV PATH="/workspace/.venv/bin:${PATH}" \
     VIRTUAL_ENV="/workspace/.venv"
