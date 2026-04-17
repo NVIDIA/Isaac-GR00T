@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -85,7 +100,15 @@ class ModalityConfig:
     action_configs: list[ActionConfig] | None = None
 
     def __post_init__(self):
-        """Set default values for action-related fields if not specified."""
+        """Validate fields and set default values."""
+        if self.delta_indices is None or not isinstance(self.delta_indices, list):
+            raise ValueError(f"delta_indices must be a non-None list, got {self.delta_indices!r}")
+        if (
+            self.modality_keys is None
+            or not isinstance(self.modality_keys, list)
+            or len(self.modality_keys) == 0
+        ):
+            raise ValueError(f"modality_keys must be a non-empty list, got {self.modality_keys!r}")
         if self.action_configs is not None:
             assert len(self.action_configs) == len(self.modality_keys), (
                 f"Number of action configs ({len(self.action_configs)}) must match number of modality keys ({len(self.modality_keys)})"

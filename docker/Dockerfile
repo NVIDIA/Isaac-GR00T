@@ -2,7 +2,8 @@
 # GR00T Docker image (x86_64 + aarch64)
 #
 # Single Dockerfile for both architectures. On aarch64 (GB200, Grace Hopper)
-# torchcodec is built from source since no prebuilt wheel is available.
+# flash-attn and torchcodec are installed from prebuilt wheels under
+# scripts/deployment/dgpu/wheels/ via pyproject.toml path sources.
 #
 # Build:
 #   docker build -f docker/Dockerfile -t gr00t .
@@ -47,18 +48,19 @@ EOF
 WORKDIR /workspace
 
 # Install Python dependencies from lockfile
+# The wheels/ dir must be present before `uv sync` because pyproject.toml
+# references them as path sources for aarch64 flash-attn and torchcodec.
 COPY pyproject.toml uv.lock ./
-COPY groot_infra/pyproject.toml groot_infra/pyproject.toml
+COPY scripts/deployment/dgpu/wheels/ ./scripts/deployment/dgpu/wheels/
 
 RUN <<EOF
 set -e
-UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv sync --frozen --no-install-workspace --all-packages --extra dev --no-cache
+UV_PREVIEW=1 UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv sync --frozen --no-install-project --extra dev --no-cache
 EOF
 
-# Install workspace packages
+# Install the gr00t project itself
 COPY . .
-RUN uv pip install --python /workspace/.venv/bin/python -e . --no-deps && \
-    uv pip install --python /workspace/.venv/bin/python -e groot_infra --no-deps
+RUN uv pip install --python /workspace/.venv/bin/python -e . --no-deps
 
 ENV PATH="/workspace/.venv/bin:${PATH}" \
     VIRTUAL_ENV="/workspace/.venv"
@@ -90,23 +92,7 @@ ENV MUJOCO_GL="egl" \
     PYOPENGL_PLATFORM="egl" \
     __EGL_VENDOR_LIBRARY_FILENAMES="/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
 
-# torchcodec: no aarch64 wheel, build from source
-ARG TORCHCODEC_GIT_URL=https://github.com/pytorch/torchcodec.git
-ARG TORCHCODEC_GIT_REF=v0.10.0
-RUN ARCH="$(uname -m)" && \
-    if [ "${ARCH}" = "aarch64" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends \
-            libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev \
-            libavutil-dev libswresample-dev libswscale-dev \
-            pkg-config cmake build-essential pybind11-dev \
-        && rm -rf /var/lib/apt/lists/* \
-        && uv pip install --python /workspace/.venv/bin/python setuptools \
-        && git clone --depth 1 --branch "${TORCHCODEC_GIT_REF}" "${TORCHCODEC_GIT_URL}" /tmp/torchcodec \
-        && cd /tmp/torchcodec \
-        && I_CONFIRM_THIS_IS_NOT_A_LICENSE_VIOLATION=1 uv pip install --python /workspace/.venv/bin/python . --no-build-isolation \
-        && rm -rf /tmp/torchcodec; \
-    else \
-        echo "Skipping torchcodec source build (ARCH='${ARCH}', wheel available via uv sync)."; \
-    fi
+# torchcodec and flash-attn for aarch64 are installed from prebuilt wheels
+# by `uv sync` above via pyproject.toml path sources — no source build needed.
 
 CMD ["/bin/bash"]

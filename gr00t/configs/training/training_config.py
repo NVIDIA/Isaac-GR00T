@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -30,6 +45,7 @@ class TrainingConfig:
     optim: str = "adamw_torch_fused"
 
     start_from_checkpoint: Optional[str] = None
+    skip_weight_loading: bool = False  # skip loading checkpoint weights (architecture only)
 
     # Mixed precision
     tf32: bool = True
@@ -44,6 +60,7 @@ class TrainingConfig:
 
     # Model saving
     save_vl_model: bool = False  # Control whether to save VL model and processor in callbacks
+    save_only_model: bool = False  # Skip optimizer/scheduler/RNG states — cannot resume training
 
     # Checkpoint uploading
     upload_checkpoints: bool = False
@@ -82,7 +99,7 @@ class TrainingConfig:
 
     # Experiment tracking
     use_wandb: bool = False
-    wandb_project: str = "finetune-gr00t-n1d6"
+    wandb_project: str = "finetune-gr00t-n1d7"
 
     # Profiling
     enable_profiling: bool = False

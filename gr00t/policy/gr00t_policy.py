@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Gr00t Policy implementation for inference.
 
 This module provides the core policy classes for running Gr00t models:
@@ -12,7 +27,7 @@ import numpy as np
 import torch
 from transformers import AutoModel, AutoProcessor
 
-from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.embodiment_tags import FINETUNE_ONLY_TAGS, POSTTRAIN_TAGS, EmbodimentTag
 from gr00t.data.interfaces import BaseProcessor
 from gr00t.data.types import MessageType, ModalityConfig, VLAStepData
 
@@ -58,7 +73,7 @@ class Gr00tPolicy(BasePolicy):
 
     def __init__(
         self,
-        embodiment_tag: EmbodimentTag,
+        embodiment_tag: EmbodimentTag | str,
         model_path: str,
         *,
         device: int | str,
@@ -67,7 +82,8 @@ class Gr00tPolicy(BasePolicy):
         """Initialize the Gr00t Policy.
 
         Args:
-            embodiment_tag: The embodiment tag defining the robot/environment type
+            embodiment_tag: The embodiment tag defining the robot/environment type.
+                Accepts an EmbodimentTag enum or a string (resolved case-insensitively).
             model_path: Path to the pretrained model checkpoint directory
             device: Device to run the model on (e.g., 'cuda:0', 0, 'cpu')
             strict: Whether to enforce strict input validation (default: True)
@@ -76,6 +92,8 @@ class Gr00tPolicy(BasePolicy):
         import gr00t.model  # noqa: F401
 
         super().__init__(strict=strict)
+        if isinstance(embodiment_tag, str):
+            embodiment_tag = EmbodimentTag.resolve(embodiment_tag)
         model_dir = Path(model_path)
 
         # Load the pretrained model and move to target device with bfloat16 precision
@@ -84,20 +102,66 @@ class Gr00tPolicy(BasePolicy):
         model.to(device=device, dtype=torch.bfloat16)
         self.model = model
 
-        # Load the processor for input/output transformation
-        self.processor: BaseProcessor = AutoProcessor.from_pretrained(model_dir)
+        # Load the processor for input/output transformation.
+        # Training saves processor files under a "processor/" subdirectory, but
+        # AutoProcessor expects them at the model root.  Fall back to the
+        # subdirectory when the root lacks a processor_config.json.
+        processor_dir = (
+            model_dir / "processor"
+            if (model_dir / "processor").is_dir()
+            and not (model_dir / "processor_config.json").exists()
+            else model_dir
+        )
+        self.processor: BaseProcessor = AutoProcessor.from_pretrained(processor_dir)
         self.processor.eval()
 
         # Store embodiment-specific configurations
         self.embodiment_tag = embodiment_tag
-        self.modality_configs = self.processor.get_modality_configs()[self.embodiment_tag.value]
+        all_modality_configs = self.processor.get_modality_configs()
+        if self.embodiment_tag.value not in all_modality_configs:
+            # Map raw checkpoint tag values to user-friendly enum names where possible.
+            supported_lines = []
+            for tag_value in sorted(all_modality_configs.keys()):
+                enum_name = EmbodimentTag.reverse_lookup(tag_value)
+                if enum_name != tag_value:
+                    supported_lines.append(f"  {enum_name:30s} (--embodiment-tag {enum_name})")
+                else:
+                    supported_lines.append(f"  {tag_value:30s} (internal, no public enum)")
+            supported_str = "\n".join(supported_lines)
+
+            hint = ""
+            if self.embodiment_tag in POSTTRAIN_TAGS:
+                hint = (
+                    f"\n\nHint: '{self.embodiment_tag.name}' is a posttrain tag that requires "
+                    f"a finetuned checkpoint, not the base model. "
+                    f"See the example READMEs for how to finetune and download checkpoints."
+                )
+            elif self.embodiment_tag in FINETUNE_ONLY_TAGS:
+                hint = (
+                    f"\n\nHint: '{self.embodiment_tag.name}' is for finetuning custom robots. "
+                    f"Use it with launch_finetune.py, not with the base model directly."
+                )
+
+            raise ValueError(
+                f"Embodiment tag '{self.embodiment_tag.name}' "
+                f"(value='{self.embodiment_tag.value}') is not supported "
+                f"by this checkpoint.\n\n"
+                f"Supported tags in this checkpoint:\n{supported_str}"
+                f"{hint}"
+            )
+        self.modality_configs = {
+            k: v
+            for k, v in all_modality_configs[self.embodiment_tag.value].items()
+            if k != "rl_info"
+        }
         self.collate_fn = self.processor.collator
 
         # Extract and validate language configuration
-        # Currently only supports single language input per timestep
+        # Some embodiments (e.g. OXE_DROID) define multiple language keys for
+        # training-time augmentation (paraphrases). At inference we only use the first key.
         language_keys = self.modality_configs["language"].modality_keys
         language_delta_indices = self.modality_configs["language"].delta_indices
-        assert len(language_keys) == 1, "Only one language key is supported"
+        assert len(language_keys) >= 1, "At least one language key is required"
         assert len(language_delta_indices) == 1, "Only one language delta index is supported"
         self.language_key = language_keys[0]
 
@@ -180,6 +244,10 @@ class Gr00tPolicy(BasePolicy):
         # ===== VIDEO VALIDATION =====
         # Validate each video stream defined in the modality config
         for video_key in self.modality_configs["video"].modality_keys:
+            assert video_key in observation["video"], (
+                f"Video key '{video_key}' must be in observation"
+            )
+
             # Set or verify batch size consistency across all video keys
             if bs == -1:
                 bs = len(observation["video"][video_key])
@@ -187,11 +255,6 @@ class Gr00tPolicy(BasePolicy):
                 assert len(observation["video"][video_key]) == bs, (
                     f"Video key '{video_key}' must have batch size {bs}. Got {len(observation['video'][video_key])}"
                 )
-
-            # Check that the expected video key exists in the observation
-            assert video_key in observation["video"], (
-                f"Video key '{video_key}' must be in observation"
-            )
 
             batched_video = observation["video"][video_key]
 
@@ -223,6 +286,12 @@ class Gr00tPolicy(BasePolicy):
         # ===== STATE VALIDATION =====
         # Validate each state stream defined in the modality config
         for state_key in self.modality_configs["state"].modality_keys:
+            # Check that the expected state key exists in the observation
+            # (must happen before indexing — see video validation above)
+            assert state_key in observation["state"], (
+                f"State key '{state_key}' must be in observation"
+            )
+
             # Set or verify batch size consistency across all state keys
             if bs == -1:
                 bs = len(observation["state"][state_key])
@@ -230,11 +299,6 @@ class Gr00tPolicy(BasePolicy):
                 assert len(observation["state"][state_key]) == bs, (
                     f"State key '{state_key}' must have batch size {bs}. Got {len(observation['state'][state_key])}"
                 )
-
-            # Check that the expected state key exists in the observation
-            assert state_key in observation["state"], (
-                f"State key '{state_key}' must be in observation"
-            )
 
             batched_state = observation["state"][state_key]
 
@@ -261,6 +325,12 @@ class Gr00tPolicy(BasePolicy):
         # ===== LANGUAGE VALIDATION =====
         # Validate each language stream defined in the modality config
         for language_key in self.modality_configs["language"].modality_keys:
+            # Check that the expected language key exists in the observation
+            # (must happen before indexing — see video validation above)
+            assert language_key in observation["language"], (
+                f"Language key '{language_key}' must be in observation"
+            )
+
             # Set or verify batch size consistency (language uses len instead of .shape)
             if bs == -1:
                 bs = len(observation["language"][language_key])
@@ -268,11 +338,6 @@ class Gr00tPolicy(BasePolicy):
                 assert len(observation["language"][language_key]) == bs, (
                     f"Language key '{language_key}' must have batch size {bs}. Got {len(observation['language'][language_key])}"
                 )
-
-            # Check that the expected language key exists in the observation
-            assert language_key in observation["language"], (
-                f"Language key '{language_key}' must be in observation"
-            )
 
             batched_language: list[list[str]] = observation["language"][language_key]
 

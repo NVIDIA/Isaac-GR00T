@@ -104,7 +104,6 @@ __pypackages__/
 .cursor/
 .cursor*
 .claude/
-CLAUDE.md
 
 # Sphinx docs
 docs/_build/

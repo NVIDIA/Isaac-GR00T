@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import ctypes
 import os
 from pathlib import Path
@@ -150,65 +165,6 @@ def check_egl_installation():
     assert _test_egl(), "EGL test failed"
 
 
-def check_robocasa_environments():
-    groot_path = os.path.join(os.path.dirname(__file__), "../..")
-    python_exec = os.path.join(
-        os.path.dirname(__file__), "../../gr00t/eval/sim/robocasa/robocasa_uv/.venv/bin/python3"
-    )
-    python_script = (
-        "import gymnasium as gym\n"
-        "import robocasa.utils.gym_utils.gymnasium_groot\n"
-        "env = gym.make('robocasa_panda_omron/CoffeeSetupMug_PandaOmron_Env', enable_render=True)\n"
-        "env.reset()\n"
-        "env.step(env.action_space.sample())\n"
-        "print('Env OK:', type(env))"
-    )
-    cmd = f'PYTHONPATH={groot_path} {python_exec} -c "{python_script}"'
-    output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL)
-    assert "Env OK:" in output, f"Failed to check robocasa environment:\n{cmd}\n{output}"
-    print("✓ RoboCasa environment is installed")
-
-
-def check_robocasa_gr1_tabletop_tasks_environments():
-    groot_path = os.path.join(os.path.dirname(__file__), "../..")
-    python_exec = os.path.join(
-        os.path.dirname(__file__),
-        "../../gr00t/eval/sim/robocasa-gr1-tabletop-tasks/robocasa_uv/.venv/bin/python3",
-    )
-    python_script = (
-        "import gymnasium as gym\n"
-        "import robocasa.utils.gym_utils.gymnasium_groot\n"
-        "env = gym.make('gr1_unified/PnPCanToDrawerClose_GR1ArmsAndWaistFourierHands_Env', enable_render=True)\n"
-        "env.reset()\n"
-        "env.step(env.action_space.sample())\n"
-        "print('Env OK:', type(env))"
-    )
-    cmd = f'PYTHONPATH={groot_path} {python_exec} -c "{python_script}"'
-    output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL)
-    assert "Env OK:" in output, f"Failed to check robocasa environment:\n{cmd}\n{output}"
-    print("✓ RoboCasa GR1 Tabletop Tasks environment is installed")
-
-
-def check_g1_locomanipulation_environment():
-    groot_path = os.path.join(os.path.dirname(__file__), "../..")
-    python_exec = os.path.join(
-        os.path.dirname(__file__),
-        "../../gr00t/eval/sim/GR00T-WholeBodyControl/GR00T-WholeBodyControl_uv/.venv/bin/python3",
-    )
-    python_script = (
-        "import gymnasium as gym\n"
-        "from gr00t_wbc.control.envs.robocasa.sync_env import SyncEnv\n"
-        "env = gym.make('gr00tlocomanip_g1_sim/LMPnPAppleToPlateDC_G1_gear_wbc', onscreen=False, offscreen=True)\n"
-        "env.reset()\n"
-        "env.step(env.action_space.sample())\n"
-        "print('Env OK:', type(env))"
-    )
-    cmd = f'PYTHONPATH={groot_path} {python_exec} -c "{python_script}"'
-    output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL)
-    assert "Env OK:" in output, f"Failed to check G1 LocoManipulation environment:\n{cmd}\n{output}"
-    print("✓ G1 LocoManipulation environment is installed")
-
-
 def check_simpler_env_environments():
     groot_path = os.path.join(os.path.dirname(__file__), "../..")
     python_exec = os.path.join(
@@ -258,8 +214,5 @@ if __name__ == "__main__":
     check_uv_installation()
     check_vulkan_installation()
     check_egl_installation()
-    check_robocasa_environments()
-    check_robocasa_gr1_tabletop_tasks_environments()
-    check_g1_locomanipulation_environment()
     check_simpler_env_environments()
     check_libero_environments()
