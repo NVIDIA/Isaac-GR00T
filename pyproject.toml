@@ -1,8 +1,5 @@
 # Default platform pyproject.toml (x86, GB200, and any non-Jetson GPU)
 
-[tool.uv.workspace]
-members = ["groot_infra"]
-
 [build-system]
 requires = ["setuptools>=67", "wheel", "pip"]
 build-backend = "setuptools.build_meta"
@@ -10,13 +7,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gr00t"
 version = "0.1.0"
-requires-python = ">=3.10,<3.13"
+requires-python = "==3.10.*"
 dependencies = [
     "albumentations==1.4.18",
+    "huggingface-hub[cli]",
     "opencv-python-headless>=4.5,<4.13",
     "av==16.1.0",
     "diffusers==0.35.1",
-    "dm-tree==0.1.8",
+    "dm-tree",
     "lmdb==1.7.5",
     "msgpack==1.1.0",
     "msgpack-numpy==0.4.8",
@@ -25,20 +23,22 @@ dependencies = [
     "termcolor==3.2.0",
     "torch==2.7.1",
     "torchvision==0.22.1",
-    "transformers==4.51.3",
+    "transformers==4.57.3",
     "tyro==0.9.17",
     "click==8.1.8",
     "datasets==3.6.0",
     "cryptography==42.0.8",
     "einops==0.8.1",
     "gitpython==3.1.46",
+    "jsonlines==4.0.0",
     "gymnasium==1.2.2",
     "matplotlib==3.10.1",
     "numpy==1.26.4",
     "omegaconf==2.3.0",
     "scipy==1.15.3",
-    # torchcodec has no aarch64 Linux wheel — built from source on aarch64 by install_deps.sh
-    "torchcodec==0.4.0; platform_machine != 'aarch64' or sys_platform != 'linux'",
+    # x86_64: PyPI wheel; aarch64 Linux: prebuilt wheel in scripts/deployment/dgpu/wheels/
+    "torchcodec==0.4.0; platform_machine == 'x86_64'",
+    "torchcodec==0.10.0a0; platform_machine == 'aarch64' and sys_platform == 'linux'",
     "wandb==0.23.0",
     "pyzmq==27.0.1",
     # deepspeed has no aarch64 Linux wheel
@@ -47,7 +47,9 @@ dependencies = [
     "triton==3.3.1; sys_platform == 'linux' and platform_machine == 'aarch64'",
     "flash-attn==2.7.4.post1",
     "onnx>=1.20.0",
-    "tensorrt>=10.14.1.48.post1",
+    # cu12 wheels only exist for x86_64; Blackwell / aarch64 requires cu13.
+    "tensorrt-cu12>=10.15.1.29; platform_machine == 'x86_64'",
+    "tensorrt-cu13>=10.15.1.29; platform_machine == 'aarch64'",
 ]
 
 [project.optional-dependencies]
@@ -66,23 +68,36 @@ where = ["."]
 include = ["gr00t*"]
 
 [tool.uv]
+required-environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu128" }]
-torchvision = [{ index = "pytorch-cu128" }]
+torch = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
 triton = [
-    { index = "pytorch-cu128", marker = "sys_platform == 'linux' and (platform_machine == 'aarch64')" },
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
 ]
 flash-attn = [
     { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.10'" },
     { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiFALSE-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.12'" },
+    { path = "scripts/deployment/dgpu/wheels/flash_attn-2.7.4.post1-cp310-cp310-linux_aarch64.whl", marker = "sys_platform == 'linux' and platform_machine == 'aarch64' and python_version == '3.10'" },
+]
+torchcodec = [
+    { path = "scripts/deployment/dgpu/wheels/torchcodec-0.10.0a0-cp310-cp310-linux_aarch64.whl", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
 ]
 
 [tool.uv.extra-build-dependencies]
 flash-attn = ["torch==2.7.1", "numpy==1.26.4", "triton==3.3.1"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "tests"]
+addopts = "--import-mode=importlib"
 markers = [
     "gpu: tests that require a GPU",
 ]
@@ -101,7 +116,6 @@ exclude = [
     "dist",
     "logs",
     "*.ipynb",
-    "gr00t/model/modules/nvidia/Eagle-Block2A-2B-v2",
     "external_dependencies",
 ]
 

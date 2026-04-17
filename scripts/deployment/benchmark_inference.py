@@ -1,29 +1,59 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Benchmark script for GR00T inference timing.
 
 Measures component-wise timing for:
 - Data Processing: VLAStepData preparation and collation
-- Backbone (VLM): Eagle VLM forward pass
+- Backbone (VLM): Qwen3-VL forward pass
 - Action Head (DiT): Flow-matching diffusion model
 - E2E: Full end-to-end inference
 
-Supports three inference modes:
+Supports five inference modes:
 1. PyTorch Eager: Standard PyTorch execution
 2. torch.compile: PyTorch 2.0+ JIT compilation with max-autotune
-3. TensorRT: Optimized DiT action head using TensorRT engine
+3. TensorRT (DiT-only): Optimized DiT action head using TensorRT engine
+4. TensorRT (Full Pipeline): All 6 components in TRT (ViT + LLM + Action Head)
+5. TensorRT (vit_llm_only): ViT + LLM in TRT, action head in PyTorch (use on Spark/sm121)
 
 Usage:
+    # Basic benchmark (Eager + torch.compile)
     python scripts/deployment/benchmark_inference.py \
-        --model_path nvidia/GR00T-N1.6-3B \
-        --dataset_path /path/to/dataset \
-        --trt_engine_path ./groot_n1d6_onnx/dit_model_bf16.trt
+        --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10
+
+    # With DiT-only TRT
+    python scripts/deployment/benchmark_inference.py \
+        --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+        --trt-engine-path ./gr00t_n1d7_onnx/dit_model_bf16.trt
+
+    # With full-pipeline TRT (6 engines)
+    python scripts/deployment/benchmark_inference.py \
+        --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+        --trt-engine-path ./gr00t_n1d7_engines \
+        --trt-mode n17_full_pipeline
 """
 
-import argparse
+from dataclasses import dataclass
+import gc
 import os
 import sys
 import time
+from typing import Literal
 
 import gr00t
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
@@ -33,6 +63,13 @@ from gr00t.data.types import MessageType, VLAStepData
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 import numpy as np
 import torch
+import tyro
+
+
+# Ensure scripts/deployment/ is on sys.path for sibling module imports
+_DEPLOY_DIR = os.path.dirname(os.path.abspath(__file__))
+if _DEPLOY_DIR not in sys.path:
+    sys.path.insert(0, _DEPLOY_DIR)
 
 
 def set_seed(seed: int = 42):
@@ -262,7 +299,7 @@ def print_markdown_table(results, device_name, denoising_steps):
     print("\n" + "=" * 100)
     print("MARKDOWN TABLE (copy/paste into README)")
     print("=" * 100)
-    print(f"\nGR00T-N1.6-3B Inference Timing ({denoising_steps} denoising steps):\n")
+    print(f"\nGR00T N1.7 Inference Timing ({denoising_steps} denoising steps):\n")
 
     # Component breakdown table (using median for robustness against outliers)
     print("### Component-wise Breakdown\n")
@@ -298,37 +335,47 @@ def print_markdown_table(results, device_name, denoising_steps):
     print("\n" + "=" * 100)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Benchmark GR00T inference timing")
-    parser.add_argument("--model_path", type=str, default="nvidia/GR00T-N1.6-3B")
-    parser.add_argument(
-        "--dataset_path",
-        type=str,
-        default=None,
-        help="Path to dataset. Defaults to demo_data/gr1.PickNPlace",
-    )
-    parser.add_argument("--embodiment_tag", type=str, default="gr1")
-    parser.add_argument(
-        "--trt_engine_path",
-        type=str,
-        default=None,
-        help="Path to TensorRT engine. If not provided, TensorRT benchmark is skipped.",
-    )
-    parser.add_argument("--num_iterations", type=int, default=20)
-    parser.add_argument("--warmup", type=int, default=5)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument(
-        "--skip_compile",
-        action="store_true",
-        help="Skip torch.compile benchmark (can take a while due to JIT compilation)",
-    )
-    parser.add_argument(
-        "--use_trajectory",
-        action="store_true",
-        help="Benchmark on full trajectory instead of single data point. "
-        "This cycles through all steps in an episode for more realistic benchmarking.",
-    )
-    args = parser.parse_args()
+@dataclass
+class BenchmarkConfig:
+    """Configuration for GR00T inference benchmarking."""
+
+    model_path: str = "checkpoints/GR00T-N1.7-LIBERO/libero_10"
+    """Path to model checkpoint (local path, e.g. checkpoints/GR00T-N1.7-LIBERO/libero_10)."""
+
+    dataset_path: str | None = None
+    """Path to dataset. Defaults to demo_data/libero_demo."""
+
+    embodiment_tag: str = "libero_sim"
+    """Embodiment tag to use."""
+
+    trt_engine_path: str | None = None
+    """Path to TensorRT engine. If not provided, TensorRT benchmark is skipped."""
+
+    num_iterations: int = 20
+    """Number of benchmark iterations."""
+
+    warmup: int = 5
+    """Number of warmup iterations."""
+
+    seed: int = 42
+    """Random seed for reproducibility."""
+
+    trt_mode: Literal["dit_only", "n17_full_pipeline", "vit_llm_only"] = "dit_only"
+    """TRT mode: 'dit_only' (DiT engine only), 'n17_full_pipeline' (all 6 engines), or 'vit_llm_only' (ViT+LLM TRT, action head in PyTorch — use on Spark/sm121)."""
+
+    skip_compile: bool = False
+    """Skip torch.compile benchmark (can take a while due to JIT compilation)."""
+
+    batch_size: int = 1
+    """Batch size for TRT inference. Must match the batch size used during ONNX export."""
+
+    use_trajectory: bool = False
+    """Benchmark on full trajectory instead of single data point. This cycles through all steps in an episode for more realistic benchmarking."""
+
+
+def main(args: BenchmarkConfig | None = None):
+    if args is None:
+        args = tyro.cli(BenchmarkConfig)
 
     set_seed(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -340,7 +387,7 @@ def main():
     # Default dataset path
     if args.dataset_path is None:
         repo_path = os.path.dirname(os.path.dirname(gr00t.__file__))
-        args.dataset_path = os.path.join(repo_path, "demo_data/gr1.PickNPlace")
+        args.dataset_path = os.path.join(repo_path, "demo_data/libero_demo")
 
     print("=" * 100)
     print("GR00T INFERENCE BENCHMARK")
@@ -359,7 +406,7 @@ def main():
     print("Loading policy...")
     policy = Gr00tPolicy(
         model_path=args.model_path,
-        embodiment_tag=EmbodimentTag(args.embodiment_tag),
+        embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
         device=device,
         strict=True,
     )
@@ -390,7 +437,7 @@ def main():
                     episode_data,
                     step_index=step_idx,
                     modality_configs=modality_config,
-                    embodiment_tag=EmbodimentTag(args.embodiment_tag),
+                    embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
                     allow_padding=False,
                 )
                 obs = {
@@ -410,7 +457,7 @@ def main():
             episode_data,
             step_index=0,
             modality_configs=modality_config,
-            embodiment_tag=EmbodimentTag(args.embodiment_tag),
+            embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
             allow_padding=False,
         )
 
@@ -419,6 +466,16 @@ def main():
             "state": {k: step_data.states[k][None] for k in step_data.states},
             "language": {modality_config["language"].modality_keys[0]: [[step_data.text]]},
         }
+
+    # Tile observations to match the batch size baked into TRT engines
+    if args.batch_size > 1:
+        from verify_n1d7_trt import _tile_observation
+
+        print(f"Tiling observations to batch_size={args.batch_size}")
+        if isinstance(observation, list):
+            observation = [_tile_observation(obs, args.batch_size) for obs in observation]
+        else:
+            observation = _tile_observation(observation, args.batch_size)
 
     results = {}
 
@@ -470,9 +527,15 @@ def main():
         print("(This may take a while due to JIT compilation on first run)")
         print("-" * 50)
 
+        # Free the eager policy before loading the compiled instance to avoid
+        # holding two full model copies in GPU memory simultaneously (OOM on Orin).
+        del policy
+        torch.cuda.empty_cache()
+        gc.collect()
+
         policy_compiled = Gr00tPolicy(
             model_path=args.model_path,
-            embodiment_tag=EmbodimentTag(args.embodiment_tag),
+            embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
             device=device,
             strict=True,
         )
@@ -507,20 +570,46 @@ def main():
     # 3. TensorRT (if available)
     # ========================================
     if args.trt_engine_path and os.path.exists(args.trt_engine_path):
+        trt_label = f"TensorRT ({args.trt_mode})"
         print("\n" + "-" * 50)
-        print("Benchmarking TensorRT...")
+        print(f"Benchmarking {trt_label}...")
         print("-" * 50)
+
+        # Free whichever policy is still in memory before loading TRT, to avoid
+        # holding two full model copies in GPU memory simultaneously (OOM on Orin).
+        try:
+            del policy_compiled
+        except NameError:
+            pass
+        try:
+            del policy
+        except NameError:
+            pass
+        torch.cuda.empty_cache()
+        gc.collect()
 
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from standalone_inference_script import replace_dit_with_tensorrt
 
         policy_trt = Gr00tPolicy(
             model_path=args.model_path,
-            embodiment_tag=EmbodimentTag(args.embodiment_tag),
+            embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
             device=device,
             strict=True,
         )
-        replace_dit_with_tensorrt(policy_trt, args.trt_engine_path)
+
+        if args.trt_mode in ("n17_full_pipeline", "vit_llm_only"):
+            from trt_model_forward import setup_tensorrt_engines
+
+            setup_tensorrt_engines(policy_trt, args.trt_engine_path, mode=args.trt_mode)
+        else:
+            from standalone_inference_script import replace_dit_with_tensorrt
+
+            # dit_only mode: trt_engine_path may be a directory; resolve the engine file
+            dit_engine_path = args.trt_engine_path
+            if os.path.isdir(dit_engine_path):
+                dit_engine_path = os.path.join(dit_engine_path, "dit_bf16.engine")
+            replace_dit_with_tensorrt(policy_trt, dit_engine_path)
 
         # TensorRT needs extra warmup for engine initialization and CUDA context setup
         trt_warmup = max(args.warmup + 5, 10)
@@ -534,7 +623,7 @@ def main():
             "action_head": times_components["action_head"],
         }
         components["e2e"] = compute_e2e_from_components(components)
-        results["TensorRT"] = components
+        results[trt_label] = components
 
         e2e_median = np.median(components["e2e"])
         print(f"  E2E:             {e2e_median:.0f} ms ({1000 / e2e_median:.1f} Hz)")
@@ -543,12 +632,14 @@ def main():
         print(f"  Action Head:     {np.median(components['action_head']):.0f} ms")
     elif args.trt_engine_path:
         print(f"\nTensorRT engine not found: {args.trt_engine_path}")
-        print("To build the engine, run:")
+        print("To build engines for full pipeline, run:")
         print(
-            "  python scripts/deployment/export_onnx_n1d6.py --model_path nvidia/GR00T-N1.6-3B --output_dir ./groot_n1d6_onnx"
+            "  python scripts/deployment/export_onnx_n1d7.py --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10"
+            " --dataset-path demo_data/libero_demo --output-dir ./gr00t_n1d7_onnx --export-mode full_pipeline"
         )
         print(
-            "  python scripts/deployment/build_tensorrt_engine.py --onnx ./groot_n1d6_onnx/dit_model.onnx --engine <path>.trt --precision bf16"
+            "  python scripts/deployment/build_tensorrt_engine.py --mode full_pipeline"
+            " --onnx-dir ./gr00t_n1d7_onnx --engine-dir ./gr00t_n1d7_engines --precision bf16"
         )
 
     # ========================================
@@ -580,4 +671,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    config = tyro.cli(BenchmarkConfig)
+    main(config)

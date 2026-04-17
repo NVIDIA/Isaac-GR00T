@@ -30,7 +30,7 @@ cp examples/SO100/modality.json examples/SO100/finish_sandwich_lerobot/izuluaga/
 Run the shared finetune launcher directly, using absolute joint positions (feel free to experiment with relative positions):
 ```bash
 CUDA_VISIBLE_DEVICES=0 NUM_GPUS=1 uv run bash examples/finetune.sh \
-  --base-model-path nvidia/GR00T-N1.6-3B \
+  --base-model-path nvidia/GR00T-N1.7-3B \
   --dataset-path examples/SO100/finish_sandwich_lerobot/izuluaga/finish_sandwich \
   --modality-config-path examples/SO100/so100_config.py \
   --embodiment-tag NEW_EMBODIMENT \
@@ -54,7 +54,7 @@ uv run python gr00t/eval/open_loop_eval.py \
 
 The evaluation produces visualizations comparing predicted actions against ground truth trajectories:
 
-<img src="../../media/open_loop_eval_so100.png" width="800" alt="Open-loop evaluation results showing predicted vs ground truth trajectories" />
+<img src="../../media/open_loop_eval_so100.jpg" width="800" alt="Open-loop evaluation results showing predicted vs ground truth trajectories" />
 
 ## Closed-Loop Evaluation
 
@@ -79,8 +79,9 @@ uv run python gr00t/eval/run_gr00t_server.py \
 
 3. Run the eval script, as client.
 ```bash
-uv run python gr00t/eval/real_robot/SO100/eval_so100.py 
+uv run python gr00t/eval/real_robot/SO100/eval_so100.py \
   --robot.type=so101_follower --robot.port=/dev/ttyACM2 \
   --robot.id=orange_follower \
-  --robot.cameras="{ wrist: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: 6, width: 640, height: 480, fps: 30}}" --policy_host=localhost --policy_port=5555 --lang_instruction="cube into green bowl"
+  --robot.cameras="{ wrist: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: 6, width: 640, height: 480, fps: 30}}" \
+  --policy-host=localhost --policy-port=5555 --lang-instruction="finish the ham cheese olives sandwich"
 ```

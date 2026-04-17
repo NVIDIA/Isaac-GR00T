@@ -1,5 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for video backend lazy-loading behavior (GitHub issue #423).
 
@@ -67,37 +79,35 @@ class TestTorchcodecNotImportedAtModuleLevel:
 
 
 class TestTorchcodecUnavailable:
-    """When torchcodec is not installed, resolve_backend should fall back to another backend."""
+    """When torchcodec is not installed, resolve_backend should raise ImportError (no fallback)."""
 
-    def test_falls_back_when_unavailable(self):
+    def test_raises_when_unavailable(self):
         from gr00t.utils.video_utils import resolve_backend
 
         with patch(
             "gr00t.utils.video_utils._lazy_import_torchcodec",
             side_effect=ImportError("torchcodec is not available."),
         ):
-            backend = resolve_backend("dummy.mp4", "torchcodec")
-            assert backend != "torchcodec"
-            assert backend in ("decord", "pyav", "ffmpeg")
+            with pytest.raises(ImportError, match="torchcodec"):
+                resolve_backend("dummy.mp4", "torchcodec")
 
 
 class TestDecordUnavailable:
-    """When decord is not installed, resolve_backend should fall back to another backend."""
+    """When decord is not installed, resolve_backend should raise ImportError (no fallback)."""
 
-    def test_falls_back_when_unavailable(self):
+    def test_raises_when_unavailable(self):
         from gr00t.utils.video_utils import resolve_backend
 
         with patch(
             "gr00t.utils.video_utils._lazy_import_decord",
             side_effect=ImportError("decord is not available."),
         ):
-            backend = resolve_backend("dummy.mp4", "decord")
-            assert backend != "decord"
-            assert backend in ("torchcodec", "pyav", "ffmpeg")
+            with pytest.raises(ImportError, match="not available"):
+                resolve_backend("dummy.mp4", "decord")
 
 
 class TestAllBackendsUnavailable:
-    """When all fallback backends are unavailable, should raise ImportError."""
+    """When a backend is unavailable, should raise ImportError."""
 
     def test_raises_import_error(self):
         from gr00t.utils.video_utils import resolve_backend
@@ -106,7 +116,7 @@ class TestAllBackendsUnavailable:
             "gr00t.utils.video_utils._is_backend_available",
             return_value=False,
         ):
-            with pytest.raises(ImportError, match="no fallback"):
+            with pytest.raises(ImportError, match="not available"):
                 resolve_backend("dummy.mp4", "nonexistent")
 
 

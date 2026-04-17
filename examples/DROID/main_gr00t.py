@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # ruff: noqa
 # NOTE: this requires installation of the droid repo.
 # Adapted from https://github.com/Physical-Intelligence/openpi/blob/main/examples/droid/main.py
@@ -25,12 +40,36 @@ from PIL import Image
 from droid.robot_env import RobotEnv
 from server_client import PolicyClient
 from utils import resize_with_pad
+from scipy.spatial.transform import Rotation
 
 faulthandler.enable()
 
 # DROID data collection frequency -- we slow down execution to match this frequency
 DROID_CONTROL_FREQUENCY = 15
 RESOLUTION = (180, 320)  # resize images to this resolution before sending to the policy server
+
+# Egocentric frame correction: R_euler is post-multiplied by this matrix
+# to match the OXE DROID training pipeline (TFG convention).
+DROID_EEF_ROTATION_CORRECT = np.array(
+    [[0, 0, -1], [-1, 0, 0], [0, 1, 0]],
+    dtype=np.float64,
+)
+
+
+def compute_eef_9d(cartesian_position: np.ndarray) -> np.ndarray:
+    """Convert cartesian_position (XYZ + euler 3D) to eef_9d (XYZ + rot6d).
+
+    Uses extrinsic XYZ Euler convention (scipy ``"XYZ"``, equivalent to
+    ``tfg.rotation_matrix_3d.from_euler``) and post-multiplies by
+    ``DROID_EEF_ROTATION_CORRECT`` to match the pretrained model.
+    """
+    c = np.asarray(cartesian_position, dtype=np.float64).reshape(6)
+    xyz = c[:3]
+    euler = c[3:6]
+    rot_robot = Rotation.from_euler("XYZ", euler).as_matrix()
+    rot_mat = rot_robot @ DROID_EEF_ROTATION_CORRECT
+    rot6d = rot_mat[:2, :].reshape(6)
+    return np.concatenate([xyz, rot6d]).astype(np.float32)
 
 
 @dataclasses.dataclass
@@ -52,7 +91,7 @@ class Args:
     max_timesteps: int = 600  # how many steps to run each rollout
 
     # How many actions to execute from a predicted action chunk before querying policy server again
-    open_loop_horizon: int = 8
+    open_loop_horizon: int = 15
     external_camera: str = (
         "left"  # which exterior camera to use for the policy server, choose from ["left", "right"]
     )
@@ -97,7 +136,7 @@ def main(args: Args):
     else:
         results_dir = args.results_dir
 
-    # Initialize the Panda environment. N1.6-DROID uses absolute joint position actions.
+    # Initialize the Panda environment.
     env = RobotEnv(action_space="joint_position", gripper_action_space="position")
     print("Created the droid env!")
 
@@ -105,6 +144,18 @@ def main(args: Args):
 
     policy_client = PolicyClient(
         host=args.policy_host, port=args.policy_port, api_token=args.policy_api_token
+    )
+
+    modality_config = policy_client.get_modality_config()
+    video_delta = modality_config["video"].delta_indices
+    video_T = len(video_delta)
+    video_history_len = max(-min(video_delta), 0) + 1 if video_delta else 1
+    video_keys = modality_config["video"].modality_keys
+    state_keys = modality_config["state"].modality_keys
+    state_T = len(modality_config["state"].delta_indices)
+    print(
+        f"Model config — video T={video_T} (delta={video_delta}), "
+        f"state T={state_T}, keys: video={video_keys}, state={state_keys}"
     )
 
     df = pd.DataFrame(columns=["success", "duration", "video_filename"])
@@ -156,6 +207,7 @@ def main(args: Args):
         obs_times = deque(maxlen=50)  # Track observation collection times
         server_times = deque(maxlen=50)  # Track server response times
         action_count = 0
+        frame_buffer = deque(maxlen=video_history_len)
 
         for t_step in bar:
             step_start_time = time.time()
@@ -173,6 +225,18 @@ def main(args: Args):
 
                 video.append(curr_obs[f"{args.render_camera}_image"])
 
+                # Resize every step so the rolling frame buffer stays current.
+                left_image = resize_with_pad(curr_obs["left_image"], RESOLUTION[0], RESOLUTION[1])
+                right_image = resize_with_pad(curr_obs["right_image"], RESOLUTION[0], RESOLUTION[1])
+                wrist_image = resize_with_pad(curr_obs["wrist_image"], RESOLUTION[0], RESOLUTION[1])
+
+                if args.external_camera == "left":
+                    ext_image = left_image
+                elif args.external_camera == "right":
+                    ext_image = right_image
+
+                frame_buffer.append({"ext": ext_image, "wrist": wrist_image})
+
                 # Send websocket request to policy server if it's time to predict a new chunk
                 if (
                     actions_from_chunk_completed == 0
@@ -180,40 +244,46 @@ def main(args: Args):
                 ):
                     actions_from_chunk_completed = 0
 
-                    # We resize images on the robot laptop to minimize the amount of data sent to the policy server
-                    # and improve latency.
-
-                    left_image = resize_with_pad(
-                        curr_obs["left_image"], RESOLUTION[0], RESOLUTION[1]
-                    )
-                    right_image = resize_with_pad(
-                        curr_obs["right_image"], RESOLUTION[0], RESOLUTION[1]
-                    )
-                    wrist_image = resize_with_pad(
-                        curr_obs["wrist_image"], RESOLUTION[0], RESOLUTION[1]
-                    )
-
-                    if args.external_camera == "left":
-                        ext_image = left_image
-                    elif args.external_camera == "right":
-                        ext_image = right_image
-
                     if args.debug:
                         model_wrist_image_writer.append_data(wrist_image)
                         model_exterior_image_1_left_writer.append_data(ext_image)
 
-                    request_data = {
-                        "video.exterior_image_1_left": ext_image[
-                            None, None, ...
-                        ],  # [B, T, H, W, C]
-                        "video.wrist_image_left": wrist_image[None, None, ...],
-                        "state.joint_position": curr_obs["joint_position"][None, None, ...].astype(
+                    # Build video tensor with T frames derived from the model's
+                    # delta_indices (e.g. [-15, 0] -> T=2, [0] -> T=1).
+                    if video_T == 1:
+                        video_dict = {
+                            "exterior_image_1_left": ext_image[None, None, ...],
+                            "wrist_image_left": wrist_image[None, None, ...],
+                        }  # (B=1, T=1, H, W, C)
+                    else:
+                        hist_frame = frame_buffer[0]
+                        cur_frame = frame_buffer[-1]
+                        video_dict = {
+                            "exterior_image_1_left": np.stack(
+                                [hist_frame["ext"], cur_frame["ext"]]
+                            )[None, ...],
+                            "wrist_image_left": np.stack([hist_frame["wrist"], cur_frame["wrist"]])[
+                                None, ...
+                            ],
+                        }  # (B=1, T=video_T, H, W, C)
+
+                    # Build state dict from the model's reported state keys.
+                    state_dict = {}
+                    state_source = {
+                        "eef_9d": curr_obs["eef_9d"],
+                        "gripper_position": curr_obs["gripper_position"],
+                        "joint_position": curr_obs["joint_position"],
+                    }
+                    for key in state_keys:
+                        state_dict[key] = state_source[key][None, None, ...].astype(
                             np.float32
-                        ),
-                        "state.gripper_position": curr_obs["gripper_position"][
-                            None, None, ...
-                        ].astype(np.float32),
-                        "annotation.language.language_instruction": [instruction],
+                        )  # (B=1, T=1, D)
+
+                    lang_key = modality_config["language"].modality_keys[0]
+                    request_data = {
+                        "video": video_dict,
+                        "state": state_dict,
+                        "language": {lang_key: [[instruction]]},
                     }
 
                     if args.vis_cameras:
@@ -235,10 +305,11 @@ def main(args: Args):
                         response = policy_client.get_action(request_data)
                     server_time = time.time() - server_start_time
                     server_times.append(server_time)
+
                     pred_action_chunk = np.concatenate(
                         (
-                            response[0][f"action.joint_position"][0],
-                            response[0]["action.gripper_position"][0],
+                            response[0]["joint_position"][0],
+                            response[0]["gripper_position"][0],
                         ),
                         axis=1,
                     )
@@ -336,16 +407,27 @@ def main(args: Args):
 
 def _extract_observation(args: Args, obs_dict, *, stereo_camera="left", save_to_disk=False):
     image_observations = obs_dict["image"]
-    left_image, right_image, wrist_image = None, None, None
-    for key in image_observations:
-        # Note the "left" below refers to the left camera in the stereo pair.
-        # The model is only trained on left stereo cams, so we only feed those.
-        if args.left_camera_id in key and stereo_camera in key:
-            left_image = image_observations[key]
-        elif args.right_camera_id in key and stereo_camera in key:
-            right_image = image_observations[key]
-        elif args.wrist_camera_id in key and stereo_camera in key:
-            wrist_image = image_observations[key]
+    key_left = f"{args.left_camera_id}_{stereo_camera}"
+    key_right = f"{args.right_camera_id}_{stereo_camera}"
+    key_wrist = f"{args.wrist_camera_id}_{stereo_camera}"
+
+    left_image = image_observations.get(key_left)
+    right_image = image_observations.get(key_right)
+    wrist_image = image_observations.get(key_wrist)
+
+    available = list(image_observations.keys())
+    assert left_image is not None, (
+        f"Left camera not found for key {key_left!r}. Available keys: {available}. "
+        "Set --left-camera-id to the ZED serial used in observation keys."
+    )
+    assert right_image is not None, (
+        f"Right camera not found for key {key_right!r}. Available keys: {available}. "
+        "Set --right-camera-id to the ZED serial used in observation keys."
+    )
+    assert wrist_image is not None, (
+        f"Wrist camera not found for key {key_wrist!r}. Available keys: {available}. "
+        "Set --wrist-camera-id to the ZED serial used in observation keys."
+    )
 
     # Drop the alpha dimension
     left_image = left_image[..., :3]
@@ -362,6 +444,7 @@ def _extract_observation(args: Args, obs_dict, *, stereo_camera="left", save_to_
     cartesian_position = np.array(robot_state["cartesian_position"])
     joint_position = np.array(robot_state["joint_positions"])
     gripper_position = np.array([robot_state["gripper_position"]])
+    eef_9d = compute_eef_9d(cartesian_position)
 
     # Save the images to disk so that they can be viewed live while the robot is running
     # Create one combined image to make live viewing easy
@@ -375,6 +458,7 @@ def _extract_observation(args: Args, obs_dict, *, stereo_camera="left", save_to_
         "right_image": right_image,
         "wrist_image": wrist_image,
         "cartesian_position": cartesian_position,
+        "eef_9d": eef_9d,
         "joint_position": joint_position,
         "gripper_position": gripper_position,
     }
