@@ -47,7 +47,7 @@ dependencies = [
     "nvidia-cudnn-cu13",
     "nvidia-cudss-cu13",
     "flash-attn==2.8.4",
-    "onnx>=1.20.0",
+    "onnx>=1.21.0",
     "onnxscript",
     "tensorrt>=10.14.1.48.post1",
 ]
