@@ -1,6 +1,6 @@
 # Docker Setup for NVIDIA Isaac GR00T
 
-Docker configuration for building and running a containerized GR00T environment with all dependencies pre-installed. A single `Dockerfile` supports both x86_64 and aarch64 (GB200, Grace Hopper) architectures. On aarch64, torchcodec is built from source since no prebuilt wheel is available.
+Docker configuration for building and running a containerized GR00T environment with all dependencies pre-installed. A single `Dockerfile` supports both x86_64 and aarch64 (GB200, Grace Hopper) architectures. On aarch64, `torchcodec` is installed from the prebuilt wheel shipped under `scripts/deployment/dgpu/wheels/`; the build falls back to a source compile only if the wheel is missing.
 
 ## Prerequisites
 

@@ -2,9 +2,6 @@
 # Uses jetson-jp6-cu126 index for torch/torchvision/triton/flash-attn/diffusers
 # (generic pytorch-cu128 wheels don't support Orin's sm_87 GPU).
 
-[tool.uv.workspace]
-members = ["groot_infra"]
-
 [build-system]
 requires = ["setuptools>=67", "wheel", "pip"]
 build-backend = "setuptools.build_meta"
@@ -89,7 +86,6 @@ exclude = [
     "dist",
     "logs",
     "*.ipynb",
-    "gr00t/model/modules/nvidia/Eagle-Block2A-2B-v2",
     "external_dependencies",
 ]
 

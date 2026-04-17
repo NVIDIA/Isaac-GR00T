@@ -43,7 +43,7 @@ uv run hf download nvidia/GR00T-N1.7-LIBERO \
   --local-dir checkpoints/GR00T-N1.7-LIBERO
 ```
 
-For demo dataset setup, see the [Getting Started section in the main README](../../README.md#getting-started).
+For demo dataset setup, see the [Data Format section in the main README](../../README.md#data-format).
 
 ---
 
@@ -65,8 +65,13 @@ uv run python scripts/deployment/standalone_inference_script.py \
 
 ## TensorRT Acceleration
 
-The `n17_full_pipeline` mode accelerates all model components with TRT engines.
-Speedup varies by platform — see benchmark tables below for measured results on each device.
+The `trt_full_pipeline` mode (passed via `--inference-mode trt_full_pipeline`
+in `standalone_inference_script.py`) accelerates all model components with
+TRT engines. Speedup varies by platform — see benchmark tables below for
+measured results on each device. The same pipeline is referred to as
+`n17_full_pipeline` inside the engine-loading and build scripts
+(`trt_model_forward.py`, `build_trt_pipeline.py`); the two names describe
+the same set of engines.
 
 | Component | Engine | Notes |
 |-----------|--------|-------|
