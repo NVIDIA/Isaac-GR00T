@@ -1,8 +1,24 @@
-import argparse
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from collections import defaultdict
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import partial
 from pathlib import Path
+import sys
 import time
 from typing import Any
 import uuid
@@ -14,6 +30,15 @@ from gr00t.policy import BasePolicy
 import gymnasium as gym
 import numpy as np
 from tqdm import tqdm
+import tyro
+
+
+class TrtMode(str, Enum):
+    """TensorRT inference modes."""
+
+    N17_FULL_PIPELINE = "n17_full_pipeline"
+    VIT_LLM_ONLY = "vit_llm_only"
+    ACTION_HEAD = "action_head"
 
 
 @dataclass
@@ -76,49 +101,6 @@ class WrapperConfigs:
     multistep: MultiStepConfig = field(default_factory=MultiStepConfig)
 
 
-def get_robocasa_env_fn(
-    env_name: str,
-):
-    def env_fn():
-        import os
-
-        import robocasa  # noqa: F401
-        from robocasa.utils.gym_utils import GrootRoboCasaEnv  # noqa: F401
-        import robosuite  # noqa: F401
-
-        os.environ["MUJOCO_GL"] = "egl"
-        return gym.make(env_name, enable_render=True)
-
-    return env_fn
-
-
-def get_groot_locomanip_env_fn(
-    env_name: str,
-):
-    def env_fn():
-        from gr00t_wbc.control.envs.robocasa.sync_env import SyncEnv  # noqa: F401
-        from gr00t_wbc.control.main.teleop.configs.configs import BaseConfig
-        from gr00t_wbc.control.utils.n1_utils import WholeBodyControlWrapper
-        import robocasa  # noqa: F401
-
-        gym_env = gym.make(
-            env_name,
-            onscreen=False,
-            offscreen=True,
-            enable_waist=True,
-            randomize_cameras=False,
-            camera_names=[
-                "robot0_oak_egoview",
-                "robot0_rs_tppview",
-            ],
-        )
-        wbc_config = BaseConfig(wbc_version="gear_wbc", enable_waist=True).to_dict()
-        gym_env = WholeBodyControlWrapper(gym_env, wbc_config)
-        return gym_env
-
-    return env_fn
-
-
 def get_simpler_env_fn(
     env_name: str,
 ):
@@ -143,42 +125,17 @@ def get_libero_env_fn(
     return env_fn
 
 
-def get_behavior_env_fn(
-    env_name: str,
-    env_idx: int,
-    total_n_envs: int,
-):
-    def env_fn():
-        from gr00t.eval.sim.BEHAVIOR.behavior_env import register_behavior_envs
-
-        register_behavior_envs()
-        return gym.make(env_name, env_idx=env_idx, total_n_envs=total_n_envs)
-
-    return env_fn
-
-
 def get_gym_env(env_name: str, env_idx: int, total_n_envs: int):
     """Create Ray environment factory function without wrappers."""
 
     env_embodiment = get_embodiment_tag_from_env_name(env_name)
 
-    if env_embodiment in (
-        EmbodimentTag.GR1,
-        EmbodimentTag.ROBOCASA_PANDA_OMRON,
-    ):
-        env_fn = get_robocasa_env_fn(env_name)
-
-    elif env_embodiment in (EmbodimentTag.UNITREE_G1,):
-        env_fn = get_groot_locomanip_env_fn(env_name)
-
-    elif env_embodiment in (EmbodimentTag.OXE_GOOGLE, EmbodimentTag.OXE_WIDOWX):
+    if env_embodiment in (EmbodimentTag.SIMPLER_ENV_GOOGLE, EmbodimentTag.SIMPLER_ENV_WIDOWX):
         env_fn = get_simpler_env_fn(env_name)
 
     elif env_embodiment in (EmbodimentTag.LIBERO_PANDA,):
         env_fn = get_libero_env_fn(env_name)
 
-    elif env_embodiment in (EmbodimentTag.BEHAVIOR_R1_PRO,):
-        env_fn = get_behavior_env_fn(env_name, env_idx, total_n_envs)
     else:
         raise ValueError(f"Invalid environment name: {env_name}")
 
@@ -417,6 +374,8 @@ def create_gr00t_sim_policy(
     embodiment_tag: EmbodimentTag,
     policy_client_host: str = "",
     policy_client_port: int | None = None,
+    trt_engine_path: str = "",
+    trt_mode: TrtMode = TrtMode.N17_FULL_PIPELINE,
 ) -> BasePolicy:
     from gr00t.policy.gr00t_policy import Gr00tPolicy, Gr00tSimPolicyWrapper
 
@@ -425,13 +384,19 @@ def create_gr00t_sim_policy(
 
         policy = PolicyClient(host=policy_client_host, port=policy_client_port)
     else:
-        policy = Gr00tSimPolicyWrapper(
-            Gr00tPolicy(
-                embodiment_tag=embodiment_tag,
-                model_path=model_path,
-                device=0,
-            )
+        gr00t_policy = Gr00tPolicy(
+            embodiment_tag=embodiment_tag,
+            model_path=model_path,
+            device=0,
         )
+        if trt_engine_path:
+            deploy_dir = str(Path(__file__).resolve().parents[2] / "scripts" / "deployment")
+            if deploy_dir not in sys.path:
+                sys.path.insert(0, deploy_dir)
+            from trt_model_forward import setup_tensorrt_engines
+
+            setup_tensorrt_engines(gr00t_policy, trt_engine_path, mode=trt_mode)
+        policy = Gr00tSimPolicyWrapper(gr00t_policy)
     return policy
 
 
@@ -444,17 +409,19 @@ def run_gr00t_sim_policy(
     policy_client_port: int | None = None,
     n_envs: int = 8,
     n_action_steps: int = 8,
+    video_dir: str | None = None,
+    trt_engine_path: str = "",
+    trt_mode: TrtMode = TrtMode.N17_FULL_PIPELINE,
 ):
     embodiment_tag = get_embodiment_tag_from_env_name(env_name)
 
-    if model_path:
-        video_dir = (
-            f"/tmp/sim_eval_videos_{model_path.replace('/', '_')}_ac{n_action_steps}_{uuid.uuid4()}"
-        )
-    else:
-        video_dir = (
-            f"/tmp/sim_eval_videos_{env_name.replace('/', '_')}_ac{n_action_steps}_{uuid.uuid4()}"
-        )
+    if video_dir is None:
+        if model_path:
+            parts = model_path.split("/")
+            model_slug = parts[-3] if len(parts) >= 3 else parts[-1]
+            video_dir = f"/tmp/sim_eval_videos_{model_slug}_ac{n_action_steps}_{uuid.uuid4()}"
+        else:
+            video_dir = f"/tmp/sim_eval_videos_{env_name}_ac{n_action_steps}_{uuid.uuid4()}"
     wrapper_configs = WrapperConfigs(
         video=VideoConfig(
             video_dir=video_dir,
@@ -468,7 +435,12 @@ def run_gr00t_sim_policy(
     )
 
     policy = create_gr00t_sim_policy(
-        model_path, embodiment_tag, policy_client_host, policy_client_port
+        model_path,
+        embodiment_tag,
+        policy_client_host,
+        policy_client_port,
+        trt_engine_path=trt_engine_path,
+        trt_mode=trt_mode,
     )
 
     results = run_rollout_gymnasium_policy(
@@ -482,26 +454,46 @@ def run_gr00t_sim_policy(
     return results
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--max_episode_steps", type=int, default=504)
-    parser.add_argument("--n_episodes", type=int, default=50)
-    parser.add_argument(
-        "--model_path",
-        type=str,
-        default="",
-    )
-    parser.add_argument("--policy_client_host", type=str, default="")
-    parser.add_argument("--policy_client_port", type=int, default=None)
-    parser.add_argument(
-        "--env_name",
-        type=str,
-        default="gr1_unified/PosttrainPnPNovelFromPlateToBowlSplitA_GR1ArmsAndWaistFourierHands_Env",
-    )
-    parser.add_argument("--n_envs", type=int, default=8)
-    parser.add_argument("--n_action_steps", type=int, default=8)
+@dataclass
+class RolloutConfig:
+    """Configuration for rollout policy evaluation."""
 
-    args = parser.parse_args()
+    max_episode_steps: int = 504
+    """Maximum number of steps per episode."""
+
+    n_episodes: int = 50
+    """Number of episodes to run."""
+
+    model_path: str = ""
+    """Path to model checkpoint."""
+
+    policy_client_host: str = ""
+    """Host for policy client."""
+
+    policy_client_port: int | None = None
+    """Port for policy client."""
+
+    env_name: str = "libero_sim/KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it"
+    """Environment name."""
+
+    n_envs: int = 8
+    """Number of parallel environments."""
+
+    n_action_steps: int = 8
+    """Number of action steps."""
+
+    video_dir: str | None = None
+    """Directory to save videos. If None, uses /tmp/sim_eval_videos_<env>_<uuid>."""
+
+    trt_engine_path: str = ""
+    """Path to TRT engine directory. If set, uses TRT inference instead of PyTorch."""
+
+    trt_mode: TrtMode = TrtMode.N17_FULL_PIPELINE
+    """TRT mode: 'n17_full_pipeline' (all engines), 'vit_llm_only', or 'action_head'."""
+
+
+if __name__ == "__main__":
+    args = tyro.cli(RolloutConfig)
 
     # validate policy configuration
     assert (args.model_path and not (args.policy_client_host or args.policy_client_port)) or (
@@ -509,8 +501,8 @@ if __name__ == "__main__":
     ), (
         "Invalid policy configuration: You must provide EITHER model_path OR (policy_client_host & policy_client_port), not both.\n"
         "If all 3 arguments are provided, explicitly choose one:\n"
-        '  - To use policy client: set --policy_client_host and --policy_client_port, and set --model_path ""\n'
-        '  - To use model path: set --model_path, and set --policy_client_host "" (and leave --policy_client_port unset)'
+        '  - To use policy client: set --policy-client-host and --policy-client-port, and set --model-path ""\n'
+        '  - To use model path: set --model-path, and set --policy-client-host "" (and leave --policy-client-port unset)'
     )
 
     results = run_gr00t_sim_policy(
@@ -522,6 +514,9 @@ if __name__ == "__main__":
         policy_client_port=args.policy_client_port,
         n_envs=args.n_envs,
         n_action_steps=args.n_action_steps,
+        video_dir=args.video_dir,
+        trt_engine_path=args.trt_engine_path,
+        trt_mode=args.trt_mode,
     )
     print("results: ", results)
     print("success rate: ", np.mean(results[1]))

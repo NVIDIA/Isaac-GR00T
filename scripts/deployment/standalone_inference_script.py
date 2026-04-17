@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -29,23 +44,33 @@ warnings.simplefilter("ignore", category=FutureWarning)
 Combined inference script supporting both PyTorch and TensorRT modes.
 
 Example commands:
- 
-# PyTorch mode (default):
-python groot/scripts/deployment/standalone_inference_script.py \
-  --model_path /path/to/checkpoint \
-  --dataset_path /path/to/dataset \
-  --embodiment_tag GR1 \
+
+# Zero-shot inference with base model on bundled DROID demo data:
+python scripts/deployment/standalone_inference_script.py \
+  --model-path nvidia/GR00T-N1.7-3B \
+  --dataset-path demo_data/droid_sample \
+  --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
+  --traj-ids 1 2 \
+  --inference-mode pytorch \
+  --action-horizon 8
+
+# Finetuned model (e.g. LIBERO):
+python scripts/deployment/standalone_inference_script.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 \
-  --inference-mode pytorch
+  --inference-mode pytorch \
+  --action-horizon 8
 
 # TensorRT mode:
-python groot/scripts/deployment/standalone_inference_script.py \
-  --model_path /path/to/checkpoint \
-  --dataset_path /path/to/dataset \
-  --embodiment_tag GR1 \
+python scripts/deployment/standalone_inference_script.py \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 \
-  --inference-mode tensorrt \
-  --trt_engine_path ./groot_n1d6_onnx/dit_model_bf16.trt
+  --inference-mode trt_full_pipeline \
+  --trt-engine-path ./gr00t_n1d7_engines
 """
 
 ###############################################################################
@@ -556,6 +581,9 @@ def evaluate_predictions(
 class ArgsConfig:
     """Configuration for evaluating a policy."""
 
+    model_path: str
+    """Path to the model checkpoint (required)."""
+
     host: str = "127.0.0.1"
     """Host to connect to."""
 
@@ -574,20 +602,17 @@ class ArgsConfig:
     video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "torchcodec"
     """Video backend to use for various codec options. h264: decord or av: torchvision_av"""
 
-    dataset_path: str = "demo_data/robot_sim.PickNPlace/"
+    dataset_path: str = "demo_data/droid_sample"
     """Path to the dataset."""
 
-    embodiment_tag: EmbodimentTag = EmbodimentTag.GR1
+    embodiment_tag: EmbodimentTag = EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT
     """Embodiment tag to use."""
 
-    model_path: str | None = None
-    """Path to the model checkpoint."""
+    inference_mode: Literal["pytorch", "tensorrt", "trt_full_pipeline"] = "pytorch"
+    """Inference mode: 'pytorch' (default), 'tensorrt' (DiT-only TRT), or 'trt_full_pipeline' (all engines)."""
 
-    inference_mode: Literal["pytorch", "tensorrt"] = "pytorch"
-    """Inference mode: 'pytorch' (default) or 'tensorrt'."""
-
-    trt_engine_path: str = "./groot_n1d6_onnx/dit_model_bf16.trt"
-    """Path to TensorRT engine file (.trt). Used only when inference_mode='tensorrt'."""
+    trt_engine_path: str = "./gr00t_n1d7_engines"
+    """Path to TensorRT engine file or directory. For 'tensorrt': single .trt file. For 'trt_full_pipeline': engine directory."""
 
     denoising_steps: int = 4
     """Number of denoising steps to use."""
@@ -633,7 +658,6 @@ def main(args: ArgsConfig):
 
     # Extract global_step and checkpoint directory name from checkpoint path
     global_step = None
-    assert local_model_path is not None, "Provide valid model_path for inference"
     if local_model_path:
         # Search for pattern "checkpoint-{number}" anywhere in the path
         match = re.search(r"checkpoint-(\d+)", local_model_path)
@@ -654,29 +678,31 @@ def main(args: ArgsConfig):
     logging.info("=" * 80)
     model_load_start = time.time()
 
-    if local_model_path is not None:
-        policy = Gr00tPolicy(
-            embodiment_tag=args.embodiment_tag,
-            model_path=local_model_path,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-        )
+    policy = Gr00tPolicy(
+        embodiment_tag=args.embodiment_tag,
+        model_path=local_model_path,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+    )
 
-        # Apply inference mode: TensorRT or PyTorch
-        if args.inference_mode == "tensorrt":
-            logging.info(f"Replacing DiT with TensorRT engine: {args.trt_engine_path}")
-            replace_dit_with_tensorrt(policy, args.trt_engine_path)
-            logging.info(" TensorRT mode enabled")
-        else:
-            # PyTorch mode with torch.compile
-            policy.model.action_head.model.forward = torch.compile(
-                policy.model.action_head.model.forward, mode="max-autotune"
-            )
-            logging.info(" PyTorch mode enabled with torch.compile")
+    # Apply inference mode
+    if args.inference_mode == "trt_full_pipeline":
+        logging.info(f"Loading full-pipeline TRT engines from: {args.trt_engine_path}")
+        from trt_model_forward import setup_tensorrt_engines
 
-        if torch.cuda.is_available():
-            torch.backends.cudnn.benchmark = True
+        setup_tensorrt_engines(policy, args.trt_engine_path, mode="n17_full_pipeline")
+        logging.info("  TRT full-pipeline mode enabled")
+    elif args.inference_mode == "tensorrt":
+        logging.info(f"Replacing DiT with TensorRT engine: {args.trt_engine_path}")
+        dit_engine_path = args.trt_engine_path
+        if os.path.isdir(dit_engine_path):
+            dit_engine_path = os.path.join(dit_engine_path, "dit_bf16.engine")
+        replace_dit_with_tensorrt(policy, dit_engine_path)
+        logging.info("  TensorRT DiT-only mode enabled")
     else:
-        assert 0, "Please provide valid model_path argument for inference"
+        logging.info("  PyTorch mode enabled")
+
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
     model_load_time = time.time() - model_load_start
     logging.info(f"Model loading time: {model_load_time:.4f} seconds")
 
@@ -712,10 +738,13 @@ def main(args: ArgsConfig):
     all_mae = []
     all_timings = []
     pred_actions = []
+    obs = None
 
     for traj_id in args.traj_ids:
-        if traj_id >= len(dataset):
-            logging.warning(f"Trajectory ID {traj_id} is out of range. Skipping.")
+        if traj_id < 0 or traj_id >= len(dataset):
+            logging.warning(
+                f"Trajectory ID {traj_id} is out of range. Dataset has {len(dataset)} trajectories (valid IDs: 0-{len(dataset) - 1}). Skipping."
+            )
             continue
 
         logging.info(f"Running trajectory: {traj_id}")
@@ -747,7 +776,7 @@ def main(args: ArgsConfig):
                 traj_id,
                 actual_steps,
                 args.action_horizon,
-                save_plot_path=None,
+                save_plot_path=args.save_plot_path,
             )
 
             logging.info(f"MSE for trajectory {traj_id}: {mse}, MAE: {mae}")
@@ -791,24 +820,38 @@ def main(args: ArgsConfig):
             logging.info(
                 f"  Total episode loading:       {total_episode_load:.4f}s  (avg: {total_episode_load / len(all_timings):.4f}s)"
             )
-            logging.info(
-                f"  Total data preparation:      {total_data_prep:.4f}s  (avg: {total_data_prep / total_inference_steps:.4f}s per step)"
-            )
-            logging.info(
-                f"  Total inference:             {total_inference:.4f}s  (avg: {total_inference / total_inference_steps:.4f}s per step)"
-            )
+            if total_inference_steps > 0:
+                logging.info(
+                    f"  Total data preparation:      {total_data_prep:.4f}s  (avg: {total_data_prep / total_inference_steps:.4f}s per step)"
+                )
+                logging.info(
+                    f"  Total inference:             {total_inference:.4f}s  (avg: {total_inference / total_inference_steps:.4f}s per step)"
+                )
+            else:
+                logging.info(
+                    f"  Total data preparation:      {total_data_prep:.4f}s  (no timed steps)"
+                )
+                logging.info(
+                    f"  Total inference:             {total_inference:.4f}s  (no timed steps)"
+                )
 
             logging.info("\nInference Statistics:")
             logging.info(f"  Total inference steps:       {total_inference_steps}")
-            logging.info(
-                f"  Avg inference time per step: {total_inference / total_inference_steps:.4f}s"
-            )
+            if total_inference_steps > 0:
+                logging.info(
+                    f"  Avg inference time per step: {total_inference / total_inference_steps:.4f}s"
+                )
+                all_inf_times = [t for timing in all_timings for t in timing["inference_times"]]
+                logging.info(f"  Min inference time:          {min(all_inf_times):.4f}s")
+                logging.info(f"  Max inference time:          {max(all_inf_times):.4f}s")
+                logging.info(
+                    f"  P90 inference time:          {np.percentile(all_inf_times, 90):.4f}s"
+                )
 
-            # Collect all inference times for min/max/p90
-            all_inf_times = [t for timing in all_timings for t in timing["inference_times"]]
-            logging.info(f"  Min inference time:          {min(all_inf_times):.4f}s")
-            logging.info(f"  Max inference time:          {max(all_inf_times):.4f}s")
-            logging.info(f"  P90 inference time:          {np.percentile(all_inf_times, 90):.4f}s")
+    if len(pred_actions) == 0:
+        raise ValueError(
+            f"No valid trajectories to process. Requested IDs {args.traj_ids} are all out of range (dataset has {len(dataset)} trajectories, valid IDs: 0-{len(dataset) - 1})."
+        )
 
     logging.info("=" * 80)
     logging.info("Done")
