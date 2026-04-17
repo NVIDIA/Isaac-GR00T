@@ -17,7 +17,7 @@ rm -rf "$UV_ENV"
 mkdir -p "$UV_ENV"
 uv venv "$UV_ENV/.venv" --python 3.10
 source "$UV_ENV/.venv/bin/activate"
-uv pip install setuptools>=80.9.0
+uv pip install "setuptools<71"
 
 # Core deps (match cluster’s pyproject pattern)
 uv pip install \
@@ -37,7 +37,7 @@ uv pip install -e "$SIMPLER_REPO"
 # Make your OSS project importable
 uv pip install --editable "$PROJECT_REPO" --no-deps
 
-uv pip install tianshou==0.5.1 pydantic av zmq torchvision==0.22.0 transformers==4.51.3
+uv pip install tianshou==0.5.1 pydantic av zmq torchvision==0.22.0 transformers==4.57.3 tyro setuptools==80.9.0
 
 # Sanity check
 python - <<'PY'
@@ -54,8 +54,3 @@ print("Env OK:", type(env))
 PY
 
 echo "SimplerEnv ready at: $UV_ENV/.venv/bin/python3"
-
-
-## STUFF I ADDED MANUALLY
-
-

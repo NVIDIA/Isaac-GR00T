@@ -20,10 +20,91 @@ policy = Gr00tPolicy(
 ```
 
 **Parameters:**
-- `model_path`: Path to your trained model checkpoint directory
-- `embodiment_tag`: The embodiment tag you used during training (e.g., `EmbodimentTag.NEW_EMBODIMENT`)
-- `device`: Device to run inference on (`"cuda:0"`, `"cpu"`, or integer device index)
-- `strict`: Whether to validate inputs/outputs (recommended during development, can disable in production)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `embodiment_tag` | `EmbodimentTag \| str` | *(required)* | Robot type; accepts enum or case-insensitive string (e.g., `"NEW_EMBODIMENT"`) |
+| `model_path` | `str` | *(required)* | Path to model checkpoint directory (local path or HuggingFace model ID) |
+| `device` | `str \| int` | *(required)* | Inference device: `"cuda:0"`, `0`, or `"cpu"` |
+| `strict` | `bool` | `True` | Validates observation shapes and dtypes at runtime. Recommended during development; disable in production for speed |
+
+## Inference Parameter Guide
+
+When running inference scripts (e.g., `standalone_inference_script.py`, `open_loop_eval.py`), the key parameters are:
+
+### `--embodiment-tag`
+
+Determines which modality config the model uses (state/action keys, normalization). **Must match the robot type of your dataset.**
+
+The tag is **case-insensitive** and accepts either the enum name or the string value.
+For example, `--embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` and `--embodiment-tag LIBERO_PANDA` all resolve correctly. An unknown tag will produce an error listing all known options.
+
+- **Pretrain tags** (e.g., `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT`, `XDOF`, `REAL_G1`) — use for zero-shot inference on datasets that match the pretrained embodiment. The modality config is loaded from the base model checkpoint.
+- **Posttrain tags** (`OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT`, `LIBERO_PANDA`, `SIMPLER_ENV_GOOGLE`, `SIMPLER_ENV_WIDOWX`) — require a finetuned checkpoint. Passing these to the base model will produce an error.
+- **`NEW_EMBODIMENT`** — use for custom robots. Requires a `--modality-config-path` during finetuning. After finetuning, the config is saved in the checkpoint and loaded automatically during inference.
+    - Only one `NEW_EMBODIMENT` modality config may be registered per Python process. Examples like [`examples/SO100/so100_config.py`](../examples/SO100/so100_config.py) and [`examples/mask-guided-background-suppression/so101_config.py`](../examples/mask-guided-background-suppression/so101_config.py) each register under this tag; importing both in the same process will fail. In normal CLI use the selected `--modality-config-path` is the only one imported, so this is not an issue — just don't wire both configs into the same script.
+
+#### Known Embodiment Tags
+
+**Pretrain tags** — baked into the base model (`nvidia/GR00T-N1.7-3B`), ready for zero-shot inference:
+
+| Tag | Robot / Data Source | Value |
+|-----|---------------------|-------|
+| `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | DROID (relative EEF + joint) | `oxe_droid_relative_eef_relative_joint` |
+| `XDOF` | Generic X-DOF (relative EEF + joint) | `xdof_relative_eef_relative_joint` |
+| `XDOF_SUBTASK` | Generic X-DOF (subtask variant) | `xdof_relative_eef_relative_joint_subtask` |
+| `REAL_G1` | Real-world Unitree G1 (relative EEF + joint) | `real_g1_relative_eef_relative_joints` |
+| `REAL_R1_PRO_SHARPA` | Real-world R1 Pro Sharpa (relative EEF) | `real_r1_pro_sharpa_relative_eef` |
+| `REAL_R1_PRO_SHARPA_HUMAN` | R1 Pro Sharpa — human teleop data | `real_r1_pro_sharpa_relative_eef_human` |
+| `REAL_R1_PRO_SHARPA_MAXINSIGHTS` | R1 Pro Sharpa — MaxInsights (single-cam) | `real_r1_pro_sharpa_relative_eef_maxinsights` |
+| `REAL_R1_PRO_SHARPA_MECKA` | R1 Pro Sharpa — Mecka (single-cam) | `real_r1_pro_sharpa_relative_eef_mecka` |
+
+**Posttrain tags** — require a finetuned checkpoint (not usable with the base model directly):
+
+| Tag | Robot | Value | Checkpoint |
+|-----|-------|-------|------------|
+| `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | DROID (relative EEF + joint) | `oxe_droid_relative_eef_relative_joint` | `nvidia/GR00T-N1.7-DROID` |
+| `LIBERO_PANDA` | LIBERO Panda | `libero_sim` | `nvidia/GR00T-N1.7-LIBERO` |
+| `SIMPLER_ENV_GOOGLE` | SimplerEnv Google Robot | `simpler_env_google` | `nvidia/GR00T-N1.7-SimplerEnv-Fractal` |
+| `SIMPLER_ENV_WIDOWX` | SimplerEnv WidowX | `simpler_env_widowx` | `nvidia/GR00T-N1.7-SimplerEnv-Bridge` |
+
+**Generic tag** for any new robot: `NEW_EMBODIMENT` (requires `--modality-config-path`)
+
+> **`OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` appears in both tables by design.** DROID is supported both zero-shot (via the base model) and via the finetuned `nvidia/GR00T-N1.7-DROID` checkpoint. Pass the tag with either `--model-path nvidia/GR00T-N1.7-3B` (zero-shot) or `--model-path nvidia/GR00T-N1.7-DROID` (finetuned); see `examples/DROID/README.md`.
+
+> **Important:** Pretrain tags work with the base model for zero-shot inference. Posttrain tags require a finetuned checkpoint — using them with the base model will fail with an error listing the supported tags. You also cannot mix embodiment tags and datasets (e.g., `--embodiment-tag LIBERO_PANDA` expects LIBERO state keys and will fail on an SO100 dataset).
+
+### `--traj-ids`
+
+Which episode indices to evaluate. Check your dataset's `meta/episodes.jsonl` to see available episodes. For example, `--traj-ids 0 1 2` runs on the first 3 episodes.
+
+### `--action-horizon`
+
+Number of future action steps predicted per inference call. The model's maximum is 16 (from model config). Common values:
+- `16` — full horizon, used for open-loop evaluation
+- `8` — shorter horizon, common for real-time deployment where actions are re-planned frequently
+
+This parameter is robot-agnostic — the same value works across different datasets and embodiments.
+
+### `--inference-mode`
+
+- `pytorch` — standard PyTorch inference (default, no setup required)
+- `tensorrt` — accelerated inference using TensorRT engine (requires ONNX export + engine build first, see [Deployment Guide](../scripts/deployment/README.md))
+
+### Expected Output (PyTorch mode)
+
+The inference scripts produce:
+- Per-trajectory **MSE** and **MAE** (unnormalized action prediction error vs ground truth)
+- **Timing stats**: model load time, avg/min/max/P90 inference time per step
+- **Summary**: average MSE/MAE across all trajectories
+
+### Example: Matching Parameters to Dataset
+
+| Dataset | Embodiment Tag | Notes |
+|---------|---------------|-------|
+| `demo_data/droid_sample` | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | DROID — works with base model (zero-shot) or finetuned `nvidia/GR00T-N1.7-DROID` |
+| `demo_data/libero_demo` | `LIBERO_PANDA` | LIBERO Panda — uses finetuned checkpoint from `nvidia/GR00T-N1.7-LIBERO` (must be downloaded locally first, see [README](../README.md)) |
+| `demo_data/cube_to_bowl_5` | `NEW_EMBODIMENT` | SO100 arm — only works with a finetuned checkpoint, not the base model |
 
 ## Understanding the Observation Format
 
@@ -187,18 +268,32 @@ For many use cases, especially when working with real robots or distributed syst
 - **Separate compute resources**: Run policy inference on a GPU server while controlling the robot from a different machine
 - **Dependency isolation**: Avoid dependency issues with the client policy
 
+```mermaid
+sequenceDiagram
+    participant Robot as Robot / Sim Client
+    participant Client as PolicyClient (ZMQ REQ)
+    participant Server as PolicyServer (ZMQ REP)
+    participant Policy as Gr00tPolicy (GPU)
+
+    Robot->>Client: observation dict
+    Client->>Server: msgpack(endpoint="get_action", data=obs)
+    Server->>Policy: policy.get_action(obs)
+    Policy-->>Server: (action_dict, info_dict)
+    Server-->>Client: msgpack(action, info)
+    Client-->>Robot: action dict
+```
+
 #### Starting the Policy Server
 
 Launch the server using the `run_gr00t_server.py` script:
 
 ```bash
-python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path /path/to/your/checkpoint \
     --device cuda:0 \
     --host 0.0.0.0 \
-    --port 5555 \
-    --strict True
+    --port 5555
 ```
 
 **Parameters:**
@@ -207,7 +302,7 @@ python gr00t/eval/run_gr00t_server.py \
 - `--device`: Device to run inference on (`cuda:0`, `cuda:1`, `cpu`, etc.)
 - `--host`: Host address (`127.0.0.1` for local only, `0.0.0.0` to accept external connections)
 - `--port`: Port number (default: 5555)
-- `--strict`: Enable input/output validation (default: True)
+- `--strict` / `--no-strict`: Enable or disable input/output validation (default: True)
 - `--use-sim-policy-wrapper`: Whether to use `Gr00tSimPolicyWrapper` for GR00T simulation environments (default: False)
 
 Once started, the server will display:
@@ -257,21 +352,40 @@ action, info = policy.get_action(observation)
 The `PolicyClient` implements the same `BasePolicy` interface, so it's a drop-in replacement:
 
 ```python
-# Get modality configuration
+# Get modality configuration from the server
 modality_configs = policy.get_modality_config()
 
-# Get action
+# Get action — returns (action_dict, info_dict)
 action, info = policy.get_action(observation, options=None)
 
-# Reset policy state
+# Reset policy state (e.g., switch episode in ReplayPolicy)
 info = policy.reset(options=None)
 
-# Check server health
+# Check server health — returns True if server responds
 is_alive = policy.ping()
 
-# Shutdown the server (optional)
+# Shutdown the server remotely (optional)
 policy.kill_server()
 ```
+
+#### Server API Reference
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `policy` | `BasePolicy` | *(required)* | The policy instance to serve (e.g., `Gr00tPolicy`, `ReplayPolicy`) |
+| `host` | `str` | `"*"` | Bind address. `"*"` accepts connections on all interfaces |
+| `port` | `int` | `5555` | TCP port for ZMQ REP socket |
+| `api_token` | `str` | `None` | If set, clients must include a matching token in every request |
+
+**Built-in endpoints:** `get_action`, `reset`, `get_modality_config`, `ping`, `kill`. Custom endpoints can be added via `server.register_endpoint(name, handler)`.
+
+#### Error Handling
+
+The server-client uses ZeroMQ REQ/REP sockets over TCP with msgpack serialization.
+
+- **Timeout:** If the server does not respond within `timeout_ms`, the ZMQ socket will raise `zmq.error.Again`. The default 15 s timeout accommodates cold-start model loading on the first call.
+- **Connection loss:** If `ping()` returns `False`, the client automatically recreates its ZMQ socket for the next attempt. Your control loop should retry or halt.
+- **Server-side errors:** Exceptions in the policy are caught, serialized as `{"error": "..."}`, and re-raised as `RuntimeError` on the client side.
 
 #### Debugging with ReplayPolicy
 
@@ -289,7 +403,7 @@ This eliminates the need for a trained model during the development phase.
 Instead of providing `--model-path`, use `--dataset-path` to start the server in replay mode:
 
 ```bash
-python gr00t/eval/run_gr00t_server.py \
+uv run python gr00t/eval/run_gr00t_server.py \
     --dataset-path /path/to/lerobot_dataset \
     --embodiment-tag NEW_EMBODIMENT \
     --host 0.0.0.0 \
@@ -337,25 +451,25 @@ The number of available episodes can be queried via the `info` dict returned fro
 
 ##### Example: Validating a LIBERO Environment
 
-Here's a complete example of using ReplayPolicy to validate a LIBERO simulation setup:
+Here's a complete example of using ReplayPolicy to validate a simulation setup:
 
 ```bash
 # Terminal 1: Start the replay server
-python gr00t/eval/run_gr00t_server.py \
-    --dataset-path examples/LIBERO/libero_10_no_noops_1.0.0_lerobot \
-    --embodiment-tag LIBERO_PANDA \
+uv run python gr00t/eval/run_gr00t_server.py \
+    --dataset-path <your_dataset_path> \
+    --embodiment-tag <YOUR_EMBODIMENT_TAG> \
     --action-horizon 8 \
     --use-sim-policy-wrapper
 
 # Terminal 2: Run evaluation with the replay policy
-python gr00t/eval/rollout_policy.py \
-    --n_episodes 1 \
-    --policy_client_host 127.0.0.1 \
-    --policy_client_port 5555 \
-    --max_episode_steps 720 \
-    --env_name libero_sim/KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it \
-    --n_action_steps 8 \
-    --n_envs 1
+uv run python gr00t/eval/rollout_policy.py \
+    --n-episodes 1 \
+    --policy-client-host 127.0.0.1 \
+    --policy-client-port 5555 \
+    --max-episode-steps 720 \
+    --env-name <env_prefix>/<task_name> \
+    --n-action-steps 8 \
+    --n-envs 1
 ```
 
 If your environment is set up correctly, replaying ground-truth actions should achieve high (often 100%) success rates. Low success rates indicate issues with:
@@ -365,7 +479,7 @@ If your environment is set up correctly, replaying ground-truth actions should a
 
 > **Tip:** ReplayPolicy is an excellent first step when integrating a new environment. Debug with replay first, then switch to model inference once the pipeline is validated.
 
-#### Integrating the GR00T 1.6 Client Into Your Deployment Pipeline
+#### Integrating the GR00T N1.7 Client Into Your Deployment Pipeline
 
 GR00T's server–client architecture allows you to keep the **client side extremely lightweight**, making it easy to embed into any custom deployment pipeline without pulling in the full dependency stack.
 
@@ -440,7 +554,7 @@ When training a model, you can optimize the dataloading speed vs memory usage vi
 
 examples:
 ```bash
-python gr00t/experiment/launch_finetune.py \
+uv run python gr00t/experiment/launch_finetune.py \
     .... \
     --num-shards-per-epoch 100 \
     --dataloader-num-workers 2

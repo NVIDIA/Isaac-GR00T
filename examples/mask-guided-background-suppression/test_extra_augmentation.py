@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Smoke test: apply extra_augmentation_config to raw frames and save comparison images."""
 
 from __future__ import annotations
@@ -13,7 +29,7 @@ import sys
 from gr00t.configs.data.embodiment_configs import MODALITY_CONFIGS
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.embodiment_tags import EmbodimentTag
-from gr00t.model.gr00t_n1d6.image_augmentations import (
+from gr00t.model.gr00t_n1d7.image_augmentations import (
     apply_with_replay,
     build_image_transformations_albumentations,
 )
@@ -123,7 +139,7 @@ def main():
 
     from gr00t.configs.base_config import get_default_config
     from gr00t.data.dataset.factory import DatasetFactory
-    from gr00t.model.gr00t_n1d6.processing_gr00t_n1d6 import Gr00tN1d6Processor
+    from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor
 
     config = get_default_config()
     config = config.load_dict(
@@ -144,7 +160,7 @@ def main():
     config.model.extra_augmentation_config = extra_aug_config
     config.model.use_albumentations_transforms = True
 
-    processor = Gr00tN1d6Processor(
+    processor = Gr00tN1d7Processor(
         modality_configs=config.data.modality_configs,
         statistics=None,
         image_crop_size=config.model.image_crop_size,

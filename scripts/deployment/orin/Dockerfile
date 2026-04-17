@@ -24,9 +24,9 @@ ENV PATH="$VIRTUAL_ENV/bin:/usr/local/cuda/bin:$PATH"
 ENV TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
 ENV CUDA_HOME=/usr/local/cuda-12.6
 ENV CUDA_PATH=/usr/local/cuda-12.6
-ENV CPATH="/usr/local/cuda-12.6/include:${CPATH}"
-ENV C_INCLUDE_PATH="/usr/local/cuda-12.6/include:${C_INCLUDE_PATH}"
-ENV CPLUS_INCLUDE_PATH="/usr/local/cuda-12.6/include:${CPLUS_INCLUDE_PATH}"
-ENV LD_LIBRARY_PATH="/usr/local/cuda-12.6/lib64:$VIRTUAL_ENV/lib/python3.10/site-packages/torch/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cu12/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cudss/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH:-}"
+ENV CPATH="/usr/local/cuda-12.6/include:${CPATH:-}"
+ENV C_INCLUDE_PATH="/usr/local/cuda-12.6/include:${C_INCLUDE_PATH:-}"
+ENV CPLUS_INCLUDE_PATH="/usr/local/cuda-12.6/include:${CPLUS_INCLUDE_PATH:-}"
+ENV LD_LIBRARY_PATH="/usr/local/cuda-12.6/lib64:$VIRTUAL_ENV/lib/python3.10/site-packages/torch/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cu12/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cudss/lib:${LD_LIBRARY_PATH:-}"
 
 WORKDIR /workspace/gr00t
