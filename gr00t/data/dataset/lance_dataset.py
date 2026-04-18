@@ -446,7 +446,6 @@ class ShardedLanceDataset(ShardedDataset):
             if concat_data.shape[-1] >= 29:
                 concat_data = concat_data[..., 15:]
             state_parts_all.append(concat_data)
-
         for hand in ["left_hand", "right_hand"]:
             if hand in all_state_data:
                 arr_list = all_state_data[hand]
@@ -515,7 +514,6 @@ class ShardedLanceDataset(ShardedDataset):
                         concat_data = concat_data - state_concat
 
             action_parts_all.append(concat_data)
-
         for hand in ["left_hand", "right_hand"]:
             if hand in all_action_data:
                 arr_list = all_action_data[hand]
