@@ -15,6 +15,7 @@
 
 import numpy as np
 import torch
+import collections.abc
 from tqdm import tqdm
 
 from gr00t.configs.base_config import Config
@@ -55,7 +56,7 @@ class DatasetFactory:
                 embodiment_tag = dataset_spec.embodiment_tag
                 assert embodiment_tag is not None, "Embodiment tag is required"
                 assert self.config.data.mode == "single_turn", "Only single turn mode is supported"
-                is_lance = isinstance(dataset_path, dict) and "MAIN_DATASET" in dataset_path
+                is_lance = isinstance(dataset_path, (dict, collections.abc.Mapping)) and "MAIN_DATASET" in dataset_path
                 if not is_lance:
                     if torch.distributed.is_initialized():
                         if torch.distributed.get_rank() == 0:
@@ -65,7 +66,7 @@ class DatasetFactory:
                         generate_stats(dataset_path)
                         generate_rel_stats(dataset_path, EmbodimentTag(embodiment_tag))
                 barrier()
-                if isinstance(dataset_path, dict) and "MAIN_DATASET" in dataset_path:
+                if isinstance(dataset_path, (dict, collections.abc.Mapping)) and "MAIN_DATASET" in dataset_path:
                     dataset = ShardedLanceDataset(
                         dataset_path=dataset_path,
                         embodiment_tag=EmbodimentTag(embodiment_tag),
