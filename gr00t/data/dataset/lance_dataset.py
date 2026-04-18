@@ -266,6 +266,20 @@ class ShardedLanceDataset(ShardedDataset):
                 left_arm_action = arms[..., :7]
                 right_arm_action = arms[..., 7:14]
                 arr = arms
+
+            # Compute Delta Actions for joints
+            if "obs/positions/core" in main_row:
+                state_arr = np.array(main_row["obs/positions/core"], dtype=np.float32)
+                if len(state_arr) % chunk_len == 0 and len(state_arr) > chunk_len:
+                    state_arr = state_arr.reshape(chunk_len, -1)
+                elif len(state_arr) % 50 == 0 and len(state_arr) > 50:
+                    state_arr = state_arr.reshape(50, -1)
+                if state_arr.shape[-1] >= 29:
+                    state_arms = state_arr[..., 15:]
+                    arr = arr - state_arms
+                else:
+                    arr = arr - state_arr
+
             action_parts.append(arr)
 
         if self.g1_fk is not None and left_arm_action is not None and right_arm_action is not None:
@@ -275,6 +289,10 @@ class ShardedLanceDataset(ShardedDataset):
                 left_eef_single, right_eef_single = self.g1_fk.compute_eef_9d(left_arm_action, right_arm_action)
                 left_eef = np.expand_dims(left_eef_single, 0)
                 right_eef = np.expand_dims(right_eef_single, 0)
+
+            # For EEF poses, we return the absolute EEF poses and let the Processor/Config handle delta transformation,
+            # OR compute delta EEF if required. Usually EEF deltas are handled by `RelativeActionLoader` or processor,
+            # but joints specifically need this per user instruction.
             actions["left_eef_9d"] = left_eef
             actions["right_eef_9d"] = right_eef
 
@@ -286,6 +304,17 @@ class ShardedLanceDataset(ShardedDataset):
                     arr = arr.reshape(chunk_len, -1)
                 elif len(arr) % 50 == 0 and len(arr) > 50:
                     arr = arr.reshape(50, -1)
+
+                # Compute Delta for hands
+                state_col = f"obs/positions/{hand}"
+                if state_col in main_row:
+                    state_arr = np.array(main_row[state_col], dtype=np.float32)
+                    if len(state_arr) % chunk_len == 0 and len(state_arr) > chunk_len:
+                        state_arr = state_arr.reshape(chunk_len, -1)
+                    elif len(state_arr) % 50 == 0 and len(state_arr) > 50:
+                        state_arr = state_arr.reshape(50, -1)
+                    arr = arr - state_arr
+
                 action_parts.append(arr)
 
         if len(action_parts) > 0:
@@ -445,10 +474,12 @@ class ShardedLanceDataset(ShardedDataset):
                 stats["state"][key]["q01"] = np.quantile(final_state, 0.01, axis=0).tolist()
                 stats["state"][key]["q99"] = np.quantile(final_state, 0.99, axis=0).tolist()
 
-        # Process actions
+        # Process actions (need to compute deltas by subtracting states)
         if "core" in all_action_data:
             arr_list = all_action_data["core"]
+            state_list = all_state_data.get("core", [])
             concat_data = np.concatenate(arr_list, axis=0)
+
             first_valid = next(arr for arr in arr_list if len(arr) > 0)
             chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
             if len(first_valid) % chunk_len == 0:
@@ -463,12 +494,34 @@ class ShardedLanceDataset(ShardedDataset):
 
             if concat_data.shape[-1] >= 29:
                 concat_data = concat_data[..., 15:]
+
+            # Delta Subtraction
+            if state_list:
+                state_concat = np.concatenate(state_list, axis=0)
+                if state_concat.size > 0:
+                    if len(state_list[0]) % chunk_len == 0:
+                        s_dim = len(state_list[0]) // chunk_len
+                        state_concat = state_concat.reshape(-1, s_dim)
+                    elif len(state_list[0]) % 50 == 0:
+                        s_dim = len(state_list[0]) // 50
+                        state_concat = state_concat.reshape(-1, s_dim)
+                    else:
+                        if state_concat.ndim == 1: state_concat = state_concat.reshape(-1, 1)
+
+                    if state_concat.shape[-1] >= 29:
+                        state_concat = state_concat[..., 15:]
+
+                    if state_concat.shape == concat_data.shape:
+                        concat_data = concat_data - state_concat
+
             action_parts_all.append(concat_data)
 
         for hand in ["left_hand", "right_hand"]:
             if hand in all_action_data:
                 arr_list = all_action_data[hand]
+                state_list = all_state_data.get(hand, [])
                 concat_data = np.concatenate(arr_list, axis=0)
+
                 first_valid = next(arr for arr in arr_list if len(arr) > 0)
                 chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
                 if len(first_valid) % chunk_len == 0:
@@ -480,6 +533,23 @@ class ShardedLanceDataset(ShardedDataset):
                 else:
                     if concat_data.ndim == 1:
                         concat_data = concat_data.reshape(-1, 1)
+
+                # Delta Subtraction
+                if state_list:
+                    state_concat = np.concatenate(state_list, axis=0)
+                    if state_concat.size > 0:
+                        if len(state_list[0]) % chunk_len == 0:
+                            s_dim = len(state_list[0]) // chunk_len
+                            state_concat = state_concat.reshape(-1, s_dim)
+                        elif len(state_list[0]) % 50 == 0:
+                            s_dim = len(state_list[0]) // 50
+                            state_concat = state_concat.reshape(-1, s_dim)
+                        else:
+                            if state_concat.ndim == 1: state_concat = state_concat.reshape(-1, 1)
+
+                        if state_concat.shape == concat_data.shape:
+                            concat_data = concat_data - state_concat
+
                 action_parts_all.append(concat_data)
 
         if action_parts_all:
