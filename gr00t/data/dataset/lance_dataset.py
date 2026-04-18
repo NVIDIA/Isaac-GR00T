@@ -143,35 +143,27 @@ class ShardedLanceDataset(ShardedDataset):
         # However, to be perfectly safe, since a shard might be 1000 items, we can just use Lance's `take` if we had row IDs.
         # Since we don't have row IDs of MAIN_DATASET here, we filter via episode_uuid.
 
-        import pyarrow as pa
-        uuid_arr = pa.array(ep_uuids, type=pa.binary(16))
-
-        scanner = self.main_ds.scanner(
-            columns=cols_to_load,
-            filter=pc.is_in(pc.field("episode_uuid"), value_set=uuid_arr)
-        )
-        table = scanner.to_table()
-        if table.num_rows == 0:
-            return []
-
-        main_df = table.to_pandas()
-
-        # Map them
         datapoints = []
         for i, row in enumerate(rows):
             ep_uuid = ep_uuids[i]
             chunk = chunks[i]
             instr = instructions[i]
 
-            # Find in main_df
-            match = main_df[(main_df["episode_uuid"] == ep_uuid) & (main_df["chunk_in_episode"] == chunk)]
-            if len(match) == 0:
-                continue
+            if isinstance(ep_uuid, bytes):
+                ep_uuid_val = ep_uuid
+            else:
+                ep_uuid_val = ep_uuid
 
-            main_row = match.iloc[0]
-            dp = self.get_datapoint(main_row, instr)
-            if dp is not None:
-                datapoints.append(dp)
+            scanner = self.main_ds.scanner(
+                columns=cols_to_load,
+                filter=(pc.field("episode_uuid") == ep_uuid_val) & (pc.field("chunk_in_episode") == chunk),
+            )
+            table = scanner.to_table()
+            if table.num_rows > 0:
+                main_row = table.to_pandas().iloc[0]
+                dp = self.get_datapoint(main_row, instr)
+                if dp is not None:
+                    datapoints.append(dp)
 
         return datapoints
 
@@ -198,26 +190,72 @@ class ShardedLanceDataset(ShardedDataset):
         chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
 
         states = {}
-        for key in self.modality_configs.get("state", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys:
-            col = f"obs/positions/{key}"
+        state_parts = []
+        if "obs/positions/core" in main_row:
+            arr = np.array(main_row["obs/positions/core"], dtype=np.float32)
+            if len(arr) % chunk_len == 0 and len(arr) > chunk_len:
+                arr = arr.reshape(chunk_len, -1)
+            elif len(arr) % 50 == 0 and len(arr) > 50:
+                arr = arr.reshape(50, -1)
+            # If it's a humanoid core (e.g. 29 motors), skip first 15 (legs/waist)
+            if arr.shape[-1] >= 29:
+                arr = arr[..., 15:]
+            state_parts.append(arr)
+
+        for hand in ["left_hand", "right_hand"]:
+            col = f"obs/positions/{hand}"
             if col in main_row:
                 arr = np.array(main_row[col], dtype=np.float32)
                 if len(arr) % chunk_len == 0 and len(arr) > chunk_len:
                     arr = arr.reshape(chunk_len, -1)
                 elif len(arr) % 50 == 0 and len(arr) > 50:
                     arr = arr.reshape(50, -1)
-                states[key] = arr
+                state_parts.append(arr)
+
+        if len(state_parts) > 0:
+            # We assume modality config expects a single combined state or specific keys
+            # Let's check what the modality config asked for
+            state_keys = self.modality_configs.get("state", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
+            if len(state_keys) == 1:
+                # Concatenate everything into the single state key
+                states[state_keys[0]] = np.concatenate(state_parts, axis=-1)
+            else:
+                # If they mapped them explicitly, we'll try to put it back.
+                # Usually for unified manipulation we just concat them.
+                for key in ["core", "left_hand", "right_hand"]:
+                    if key == "state" or key == "joint_positions":
+                        states[key] = np.concatenate(state_parts, axis=-1)
 
         actions = {}
-        for key in self.modality_configs.get("action", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys:
-            col = f"action/q_target/{key}"
+        action_parts = []
+        if "action/q_target/core" in main_row:
+            arr = np.array(main_row["action/q_target/core"], dtype=np.float32)
+            if len(arr) % chunk_len == 0 and len(arr) > chunk_len:
+                arr = arr.reshape(chunk_len, -1)
+            elif len(arr) % 50 == 0 and len(arr) > 50:
+                arr = arr.reshape(50, -1)
+            if arr.shape[-1] >= 29:
+                arr = arr[..., 15:]
+            action_parts.append(arr)
+
+        for hand in ["left_hand", "right_hand"]:
+            col = f"action/q_target/{hand}"
             if col in main_row:
                 arr = np.array(main_row[col], dtype=np.float32)
                 if len(arr) % chunk_len == 0 and len(arr) > chunk_len:
                     arr = arr.reshape(chunk_len, -1)
                 elif len(arr) % 50 == 0 and len(arr) > 50:
                     arr = arr.reshape(50, -1)
-                actions[key] = arr
+                action_parts.append(arr)
+
+        if len(action_parts) > 0:
+            action_keys = self.modality_configs.get("action", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
+            if len(action_keys) == 1:
+                actions[action_keys[0]] = np.concatenate(action_parts, axis=-1)
+            else:
+                for key in ["core", "left_hand", "right_hand"]:
+                    if key == "action" or key == "joint_velocities" or key == "joint_positions":
+                        actions[key] = np.concatenate(action_parts, axis=-1)
 
         # create step data
         vla_step_data = VLAStepData(
@@ -255,9 +293,8 @@ class ShardedLanceDataset(ShardedDataset):
             return self._cached_stats
 
         cols_to_load = []
-        for key in state_keys:
+        for key in ["core", "left_hand", "right_hand"]:
             cols_to_load.append(f"obs/positions/{key}")
-        for key in action_keys:
             cols_to_load.append(f"action/q_target/{key}")
 
         # Optional: Instead of scanning everything, we limit to the first N rows from curated
@@ -296,7 +333,7 @@ class ShardedLanceDataset(ShardedDataset):
 
         for batch in scanner.to_batches():
             df = batch.to_pandas()
-            for key in state_keys:
+            for key in ["core", "left_hand", "right_hand"]:
                 col = f"obs/positions/{key}"
                 if col in df.columns:
                     # Explode list columns into flat arrays
@@ -304,7 +341,7 @@ class ShardedLanceDataset(ShardedDataset):
                         if arr is not None:
                             all_state_data[key].append(np.array(arr, dtype=np.float32))
 
-            for key in action_keys:
+            for key in ["core", "left_hand", "right_hand"]:
                 col = f"action/q_target/{key}"
                 if col in df.columns:
                     for arr in df[col]:
@@ -314,51 +351,14 @@ class ShardedLanceDataset(ShardedDataset):
         # Calculate statistics
         stats = {"state": defaultdict(dict), "action": defaultdict(dict)}
 
-        for key, arr_list in all_state_data.items():
-            if not arr_list: continue
-            concat_data = np.concatenate(arr_list, axis=0) # (N*chunk_len, dim) or flat
-            if concat_data.ndim == 1:
-                # Based on previous logic, these flat arrays are (chunk_len * dim)
-                chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
-                if len(concat_data) % chunk_len == 0 and len(concat_data) > chunk_len:
-                    concat_data = concat_data.reshape(-1, concat_data.shape[0] // chunk_len) # Actually we want (-1, dim)
-                    # For stats, we just need the feature dim
-                    # The array is [t0_d0, t0_d1, t1_d0, t1_d1...]
-                    dim = len(concat_data) // chunk_len # This is an approximation if we concat multiple
-                else:
-                    # Let's just compute stats assuming it's flat N*dim or NxDim
-                    pass
+        # We need to apply the exact same slicing to the statistics
+        state_parts_all = []
+        action_parts_all = []
 
-            # Since the array from Lance is a list of lists e.g. [1.0, 2.0, ...] representing time x dim
-            # To compute proper stats, we can just reshape it to (-1, joint_dim).
-            # We don't strictly know joint_dim here unless we infer it.
-            # If the original array length for one chunk is chunk_len * joint_dim,
-            # then joint_dim = len(arr) // chunk_len
-
-            first_valid = next(arr for arr in arr_list if len(arr) > 0)
-            chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
-            if len(first_valid) % chunk_len == 0:
-                joint_dim = len(first_valid) // chunk_len
-                concat_data = concat_data.reshape(-1, joint_dim)
-            elif len(first_valid) % 50 == 0:
-                joint_dim = len(first_valid) // 50
-                concat_data = concat_data.reshape(-1, joint_dim)
-            else:
-                # Fallback, just treat as 1D or leave it as is if it's already 2D
-                if concat_data.ndim == 1:
-                    concat_data = concat_data.reshape(-1, 1)
-
-            stats["state"][key]["mean"] = np.mean(concat_data, axis=0).tolist()
-            stats["state"][key]["std"] = np.std(concat_data, axis=0).tolist()
-            stats["state"][key]["min"] = np.min(concat_data, axis=0).tolist()
-            stats["state"][key]["max"] = np.max(concat_data, axis=0).tolist()
-            stats["state"][key]["q01"] = np.quantile(concat_data, 0.01, axis=0).tolist()
-            stats["state"][key]["q99"] = np.quantile(concat_data, 0.99, axis=0).tolist()
-
-        for key, arr_list in all_action_data.items():
-            if not arr_list: continue
+        # Process states
+        if "core" in all_state_data:
+            arr_list = all_state_data["core"]
             concat_data = np.concatenate(arr_list, axis=0)
-
             first_valid = next(arr for arr in arr_list if len(arr) > 0)
             chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
             if len(first_valid) % chunk_len == 0:
@@ -371,12 +371,83 @@ class ShardedLanceDataset(ShardedDataset):
                 if concat_data.ndim == 1:
                     concat_data = concat_data.reshape(-1, 1)
 
-            stats["action"][key]["mean"] = np.mean(concat_data, axis=0).tolist()
-            stats["action"][key]["std"] = np.std(concat_data, axis=0).tolist()
-            stats["action"][key]["min"] = np.min(concat_data, axis=0).tolist()
-            stats["action"][key]["max"] = np.max(concat_data, axis=0).tolist()
-            stats["action"][key]["q01"] = np.quantile(concat_data, 0.01, axis=0).tolist()
-            stats["action"][key]["q99"] = np.quantile(concat_data, 0.99, axis=0).tolist()
+            if concat_data.shape[-1] >= 29:
+                concat_data = concat_data[..., 15:]
+            state_parts_all.append(concat_data)
+
+        for hand in ["left_hand", "right_hand"]:
+            if hand in all_state_data:
+                arr_list = all_state_data[hand]
+                concat_data = np.concatenate(arr_list, axis=0)
+                first_valid = next(arr for arr in arr_list if len(arr) > 0)
+                chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
+                if len(first_valid) % chunk_len == 0:
+                    joint_dim = len(first_valid) // chunk_len
+                    concat_data = concat_data.reshape(-1, joint_dim)
+                elif len(first_valid) % 50 == 0:
+                    joint_dim = len(first_valid) // 50
+                    concat_data = concat_data.reshape(-1, joint_dim)
+                else:
+                    if concat_data.ndim == 1:
+                        concat_data = concat_data.reshape(-1, 1)
+                state_parts_all.append(concat_data)
+
+        if state_parts_all:
+            final_state = np.concatenate(state_parts_all, axis=-1)
+            for key in ["core", "left_hand", "right_hand"]:
+                stats["state"][key]["mean"] = np.mean(final_state, axis=0).tolist()
+                stats["state"][key]["std"] = np.std(final_state, axis=0).tolist()
+                stats["state"][key]["min"] = np.min(final_state, axis=0).tolist()
+                stats["state"][key]["max"] = np.max(final_state, axis=0).tolist()
+                stats["state"][key]["q01"] = np.quantile(final_state, 0.01, axis=0).tolist()
+                stats["state"][key]["q99"] = np.quantile(final_state, 0.99, axis=0).tolist()
+
+        # Process actions
+        if "core" in all_action_data:
+            arr_list = all_action_data["core"]
+            concat_data = np.concatenate(arr_list, axis=0)
+            first_valid = next(arr for arr in arr_list if len(arr) > 0)
+            chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
+            if len(first_valid) % chunk_len == 0:
+                joint_dim = len(first_valid) // chunk_len
+                concat_data = concat_data.reshape(-1, joint_dim)
+            elif len(first_valid) % 50 == 0:
+                joint_dim = len(first_valid) // 50
+                concat_data = concat_data.reshape(-1, joint_dim)
+            else:
+                if concat_data.ndim == 1:
+                    concat_data = concat_data.reshape(-1, 1)
+
+            if concat_data.shape[-1] >= 29:
+                concat_data = concat_data[..., 15:]
+            action_parts_all.append(concat_data)
+
+        for hand in ["left_hand", "right_hand"]:
+            if hand in all_action_data:
+                arr_list = all_action_data[hand]
+                concat_data = np.concatenate(arr_list, axis=0)
+                first_valid = next(arr for arr in arr_list if len(arr) > 0)
+                chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
+                if len(first_valid) % chunk_len == 0:
+                    joint_dim = len(first_valid) // chunk_len
+                    concat_data = concat_data.reshape(-1, joint_dim)
+                elif len(first_valid) % 50 == 0:
+                    joint_dim = len(first_valid) // 50
+                    concat_data = concat_data.reshape(-1, joint_dim)
+                else:
+                    if concat_data.ndim == 1:
+                        concat_data = concat_data.reshape(-1, 1)
+                action_parts_all.append(concat_data)
+
+        if action_parts_all:
+            final_action = np.concatenate(action_parts_all, axis=-1)
+            for key in ["core", "left_hand", "right_hand"]:
+                stats["action"][key]["mean"] = np.mean(final_action, axis=0).tolist()
+                stats["action"][key]["std"] = np.std(final_action, axis=0).tolist()
+                stats["action"][key]["min"] = np.min(final_action, axis=0).tolist()
+                stats["action"][key]["max"] = np.max(final_action, axis=0).tolist()
+                stats["action"][key]["q01"] = np.quantile(final_action, 0.01, axis=0).tolist()
+                stats["action"][key]["q99"] = np.quantile(final_action, 0.99, axis=0).tolist()
 
         # Convert inner defaultdicts to regular dicts
         stats["state"] = dict(stats["state"])
