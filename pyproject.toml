@@ -34,6 +34,7 @@ dependencies = [
     "gymnasium==1.2.2",
     "matplotlib==3.10.1",
     "numpy==1.26.4",
+    "lance",
     "omegaconf==2.3.0",
     "scipy==1.15.3",
     # x86_64: PyPI wheel; aarch64 Linux: prebuilt wheel in scripts/deployment/dgpu/wheels/
@@ -93,7 +94,8 @@ torchcodec = [
 ]
 
 [tool.uv.extra-build-dependencies]
-flash-attn = ["torch==2.7.1", "numpy==1.26.4", "triton==3.3.1"]
+flash-attn = ["torch==2.7.1", "numpy==1.26.4",
+    "triton==3.3.1"]
 
 [tool.pytest.ini_options]
 pythonpath = [".", "tests"]

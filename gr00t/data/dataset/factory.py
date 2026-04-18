@@ -20,6 +20,7 @@ from tqdm import tqdm
 from gr00t.configs.base_config import Config
 from gr00t.data.dataset.sharded_mixture_dataset import ShardedMixtureDataset
 from gr00t.data.dataset.sharded_single_step_dataset import ShardedSingleStepDataset
+from gr00t.data.dataset.lance_dataset import ShardedLanceDataset
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.interfaces import BaseProcessor
 from gr00t.data.stats import generate_rel_stats, generate_stats
@@ -54,24 +55,37 @@ class DatasetFactory:
                 embodiment_tag = dataset_spec.embodiment_tag
                 assert embodiment_tag is not None, "Embodiment tag is required"
                 assert self.config.data.mode == "single_turn", "Only single turn mode is supported"
-                if torch.distributed.is_initialized():
-                    if torch.distributed.get_rank() == 0:
+                is_lance = isinstance(dataset_path, dict) and "MAIN_DATASET" in dataset_path
+                if not is_lance:
+                    if torch.distributed.is_initialized():
+                        if torch.distributed.get_rank() == 0:
+                            generate_stats(dataset_path)
+                            generate_rel_stats(dataset_path, EmbodimentTag(embodiment_tag))
+                    else:
                         generate_stats(dataset_path)
                         generate_rel_stats(dataset_path, EmbodimentTag(embodiment_tag))
-                else:
-                    generate_stats(dataset_path)
-                    generate_rel_stats(dataset_path, EmbodimentTag(embodiment_tag))
                 barrier()
-                dataset = ShardedSingleStepDataset(
-                    dataset_path=dataset_path,
-                    embodiment_tag=EmbodimentTag(embodiment_tag),
-                    modality_configs=self.config.data.modality_configs[embodiment_tag],
-                    video_backend=self.config.data.video_backend,
-                    shard_size=self.config.data.shard_size,
-                    episode_sampling_rate=self.config.data.episode_sampling_rate,
-                    seed=self.config.data.seed,
-                    allow_padding=self.config.data.allow_padding,
-                )
+                if isinstance(dataset_path, dict) and "MAIN_DATASET" in dataset_path:
+                    dataset = ShardedLanceDataset(
+                        dataset_path=dataset_path,
+                        embodiment_tag=EmbodimentTag(embodiment_tag),
+                        modality_configs=self.config.data.modality_configs[embodiment_tag],
+                        shard_size=self.config.data.shard_size,
+                        episode_sampling_rate=self.config.data.episode_sampling_rate,
+                        seed=self.config.data.seed,
+                        allow_padding=self.config.data.allow_padding,
+                    )
+                else:
+                    dataset = ShardedSingleStepDataset(
+                        dataset_path=dataset_path,
+                        embodiment_tag=EmbodimentTag(embodiment_tag),
+                        modality_configs=self.config.data.modality_configs[embodiment_tag],
+                        video_backend=self.config.data.video_backend,
+                        shard_size=self.config.data.shard_size,
+                        episode_sampling_rate=self.config.data.episode_sampling_rate,
+                        seed=self.config.data.seed,
+                        allow_padding=self.config.data.allow_padding,
+                    )
                 datasets.append(dataset)
             dataset_lengths = np.array([len(dataset) for dataset in datasets])
             dataset_relative_lengths = dataset_lengths / dataset_lengths.sum()
