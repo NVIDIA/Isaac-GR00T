@@ -37,6 +37,13 @@ class ShardedLanceDataset(ShardedDataset):
         self.rng = np.random.default_rng(seed)
         self.processor = None
 
+        from gr00t.data.dataset.g1_fk import G1ForwardKinematics
+        try:
+            self.g1_fk = G1ForwardKinematics()
+        except Exception as e:
+            print(f"Failed to initialize G1 FK (URDF missing?): {e}")
+            self.g1_fk = None
+
         main_path = dataset_path.get("MAIN_DATASET")
         curated_path = dataset_path.get("CURATED_DATASET")
         if not main_path or not curated_path:
@@ -191,6 +198,9 @@ class ShardedLanceDataset(ShardedDataset):
 
         states = {}
         state_parts = []
+        left_arm_state = None
+        right_arm_state = None
+
         if "obs/positions/core" in main_row:
             arr = np.array(main_row["obs/positions/core"], dtype=np.float32)
             if len(arr) % chunk_len == 0 and len(arr) > chunk_len:
@@ -199,8 +209,22 @@ class ShardedLanceDataset(ShardedDataset):
                 arr = arr.reshape(50, -1)
             # If it's a humanoid core (e.g. 29 motors), skip first 15 (legs/waist)
             if arr.shape[-1] >= 29:
-                arr = arr[..., 15:]
+                arms = arr[..., 15:]
+                # Arms are 14 joints (7 left, 7 right)
+                left_arm_state = arms[..., :7]
+                right_arm_state = arms[..., 7:14]
+                arr = arms
             state_parts.append(arr)
+
+        if self.g1_fk is not None and left_arm_state is not None and right_arm_state is not None:
+            if left_arm_state.ndim == 2:
+                left_eef, right_eef = self.g1_fk.compute_eef_9d_batch(left_arm_state, right_arm_state)
+            else:
+                left_eef_single, right_eef_single = self.g1_fk.compute_eef_9d(left_arm_state, right_arm_state)
+                left_eef = np.expand_dims(left_eef_single, 0)
+                right_eef = np.expand_dims(right_eef_single, 0)
+            states["left_eef_9d"] = left_eef
+            states["right_eef_9d"] = right_eef
 
         for hand in ["left_hand", "right_hand"]:
             col = f"obs/positions/{hand}"
@@ -228,6 +252,9 @@ class ShardedLanceDataset(ShardedDataset):
 
         actions = {}
         action_parts = []
+        left_arm_action = None
+        right_arm_action = None
+
         if "action/q_target/core" in main_row:
             arr = np.array(main_row["action/q_target/core"], dtype=np.float32)
             if len(arr) % chunk_len == 0 and len(arr) > chunk_len:
@@ -235,8 +262,21 @@ class ShardedLanceDataset(ShardedDataset):
             elif len(arr) % 50 == 0 and len(arr) > 50:
                 arr = arr.reshape(50, -1)
             if arr.shape[-1] >= 29:
-                arr = arr[..., 15:]
+                arms = arr[..., 15:]
+                left_arm_action = arms[..., :7]
+                right_arm_action = arms[..., 7:14]
+                arr = arms
             action_parts.append(arr)
+
+        if self.g1_fk is not None and left_arm_action is not None and right_arm_action is not None:
+            if left_arm_action.ndim == 2:
+                left_eef, right_eef = self.g1_fk.compute_eef_9d_batch(left_arm_action, right_arm_action)
+            else:
+                left_eef_single, right_eef_single = self.g1_fk.compute_eef_9d(left_arm_action, right_arm_action)
+                left_eef = np.expand_dims(left_eef_single, 0)
+                right_eef = np.expand_dims(right_eef_single, 0)
+            actions["left_eef_9d"] = left_eef
+            actions["right_eef_9d"] = right_eef
 
         for hand in ["left_hand", "right_hand"]:
             col = f"action/q_target/{hand}"
@@ -317,34 +357,37 @@ class ShardedLanceDataset(ShardedDataset):
         ep_uuids = [row["episode_uuid"] for row in sampled_for_stats]
         chunks = [row["chunk_in_episode"] for row in sampled_for_stats]
 
-        import pyarrow as pa
-        uuid_arr = pa.array(ep_uuids, type=pa.binary(16))
-
-        # Add episode_uuid and chunk_in_episode so we can filter locally if needed
-        scan_cols = cols_to_load + ["episode_uuid", "chunk_in_episode"]
-        scanner = self.main_ds.scanner(
-            columns=scan_cols,
-            filter=pc.is_in(pc.field("episode_uuid"), value_set=uuid_arr)
-        )
-
-        # Read in batches
         all_state_data = defaultdict(list)
         all_action_data = defaultdict(list)
 
-        for batch in scanner.to_batches():
-            df = batch.to_pandas()
-            for key in ["core", "left_hand", "right_hand"]:
-                col = f"obs/positions/{key}"
-                if col in df.columns:
-                    # Explode list columns into flat arrays
-                    for arr in df[col]:
+        # Read each sampled row iteratively to avoid loading entire episodes into memory (OOM)
+        for row in sampled_for_stats:
+            ep_uuid = row["episode_uuid"]
+            chunk = row["chunk_in_episode"]
+
+            if isinstance(ep_uuid, bytes):
+                ep_uuid_val = ep_uuid
+            else:
+                ep_uuid_val = ep_uuid
+
+            scanner = self.main_ds.scanner(
+                columns=cols_to_load,
+                filter=(pc.field("episode_uuid") == ep_uuid_val) & (pc.field("chunk_in_episode") == chunk)
+            )
+            table = scanner.to_table()
+            if table.num_rows > 0:
+                df = table.to_pandas()
+                for key in ["core", "left_hand", "right_hand"]:
+                    col = f"obs/positions/{key}"
+                    if col in df.columns:
+                        arr = df[col].iloc[0]
                         if arr is not None:
                             all_state_data[key].append(np.array(arr, dtype=np.float32))
 
-            for key in ["core", "left_hand", "right_hand"]:
-                col = f"action/q_target/{key}"
-                if col in df.columns:
-                    for arr in df[col]:
+                for key in ["core", "left_hand", "right_hand"]:
+                    col = f"action/q_target/{key}"
+                    if col in df.columns:
+                        arr = df[col].iloc[0]
                         if arr is not None:
                             all_action_data[key].append(np.array(arr, dtype=np.float32))
 
@@ -394,7 +437,7 @@ class ShardedLanceDataset(ShardedDataset):
 
         if state_parts_all:
             final_state = np.concatenate(state_parts_all, axis=-1)
-            for key in ["core", "left_hand", "right_hand"]:
+            for key in state_keys:
                 stats["state"][key]["mean"] = np.mean(final_state, axis=0).tolist()
                 stats["state"][key]["std"] = np.std(final_state, axis=0).tolist()
                 stats["state"][key]["min"] = np.min(final_state, axis=0).tolist()
@@ -441,7 +484,7 @@ class ShardedLanceDataset(ShardedDataset):
 
         if action_parts_all:
             final_action = np.concatenate(action_parts_all, axis=-1)
-            for key in ["core", "left_hand", "right_hand"]:
+            for key in action_keys:
                 stats["action"][key]["mean"] = np.mean(final_action, axis=0).tolist()
                 stats["action"][key]["std"] = np.std(final_action, axis=0).tolist()
                 stats["action"][key]["min"] = np.min(final_action, axis=0).tolist()

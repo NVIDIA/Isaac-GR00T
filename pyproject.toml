@@ -35,6 +35,7 @@ dependencies = [
     "matplotlib==3.10.1",
     "numpy==1.26.4",
     "lance",
+    "yourdfpy",
     "omegaconf==2.3.0",
     "scipy==1.15.3",
     # x86_64: PyPI wheel; aarch64 Linux: prebuilt wheel in scripts/deployment/dgpu/wheels/
