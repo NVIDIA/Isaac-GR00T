@@ -1,7 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Finetune config used for single node post-training.
 from dataclasses import dataclass
-
-from gr00t.data.embodiment_tags import EmbodimentTag
 
 
 @dataclass
@@ -22,8 +35,8 @@ class FinetuneConfig:
     dataset_path: str
     """Path to the dataset root directory containing trajectory data for fine-tuning."""
 
-    embodiment_tag: EmbodimentTag
-    """Identifier specifying which embodiment (robot configuration) this fine-tuning run targets."""
+    embodiment_tag: str
+    """Embodiment tag (name or value, case-insensitive). See EmbodimentTag for known tags."""
 
     modality_config_path: str | None = None
     """
@@ -44,7 +57,7 @@ class FinetuneConfig:
     tune_diffusion_model: bool = True
     """If True, fine-tune the diffusion-based action decoder (if present in the model)."""
 
-    state_dropout_prob: float = 0.0
+    state_dropout_prob: float = 0.2
     """
     Dropout probability applied to state inputs for regularization during training.
     """
@@ -104,7 +117,7 @@ class FinetuneConfig:
     experiment_name: str | None = None
     """Optional experiment name used as the W&B run name. Defaults to the output directory basename."""
 
-    wandb_project: str = "finetune-gr00t-n1d6"
+    wandb_project: str = "finetune-gr00t-n1d7"
     """W&B project name to log runs to."""
 
     save_steps: int = 1000
@@ -119,7 +132,7 @@ class FinetuneConfig:
     use_wandb: bool = False
     """
     If True, log metrics and artifacts to Weights & Biases (wandb).
-    The project is `finetune-gr00t-n1d6`.
+    The project is `finetune-gr00t-n1d7`.
     You need to login to wandb to view the logs.
     """
 
@@ -140,3 +153,11 @@ class FinetuneConfig:
 
     num_shards_per_epoch: int = int(1e5)
     """Number of shards to use for the dataset. reduce this number if vram is limited."""
+
+    save_only_model: bool = False
+    """If True, save only model weights (skip optimizer/scheduler/RNG states). Cannot resume training from these checkpoints."""
+
+    skip_weight_loading: bool = False
+    """If True, skip loading model weights from base_model_path (architecture only).
+    The processor (tokenizer/config) is still loaded from base_model_path.
+    Useful for CI/testing to skip the slow checkpoint shard loading."""

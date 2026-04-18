@@ -1,7 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
 
+import os
+
 from test_support.readme import extract_code_blocks, find_block
-from test_support.runtime import build_shared_runtime_env, get_root, run_subprocess_step
+from test_support.runtime import get_root, run_subprocess_step
 
 
 REPO_ROOT = get_root()
@@ -21,7 +38,7 @@ def test_complete_so100_config() -> None:
     blocks = extract_code_blocks(DATA_CONFIG_README)
     so100 = find_block(blocks, "so100_config = {", language="python", occurrence=2)
     code = _IMPORTS + "\n" + so100.code + "\n" + _REGISTER
-    env = build_shared_runtime_env("data_config")
+    env = {**os.environ}
     run_subprocess_step(
         ["uv", "run", "python", "-c", code],
         step="so100_config",

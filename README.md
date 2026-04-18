@@ -1,26 +1,37 @@
 <div align="center">
 
-  <img src="media/header_compress.png" width="800" alt="NVIDIA Isaac GR00T N1.6 Header">
+  <img src="media/header_compress.png" width="800" alt="NVIDIA Isaac GR00T N1.7 Header">
 
   <!-- --- -->
-  
+
   <p style="font-size: 1.2em;">
-    <a href="https://developer.nvidia.com/isaac/gr00t"><strong>Website</strong></a> | 
-    <a href="https://huggingface.co/nvidia/GR00T-N1.6-3B"><strong>Model</strong></a> |
-    <a href="https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim"><strong>Dataset</strong></a> |
+    <a href="https://developer.nvidia.com/isaac/gr00t"><strong>Website</strong></a> |
+    <a href="https://huggingface.co/collections/nvidia/gr00t-n17"><strong>Model</strong></a> |
+    <a href="https://huggingface.co/collections/nvidia/physical-ai"><strong>Dataset</strong></a> |
     <a href="https://arxiv.org/abs/2503.14734"><strong>Paper</strong></a> |
-    <a href="https://research.nvidia.com/labs/gear/gr00t-n1_6/"><strong>Research Blog</strong></a>
+    <a href="https://developer.nvidia.com/isaac"><strong>NVIDIA Isaac</strong></a> |
+    <a href="FAQ.md"><strong>FAQ</strong></a>
   </p>
 </div>
 
+## Table of Contents
+
+- [NVIDIA Isaac GR00T](#nvidia-isaac-gr00t)
+- [What's New in GR00T N1.7](#whats-new-in-gr00t-n17)
+- [Installation](#installation)
+- [Model Checkpoints & Embodiment Tags](#model-checkpoints--embodiment-tags)
+- [Data Format](#data-format)
+- [Inference](#inference)
+- [Fine-tuning](#fine-tuning)
+- [Evaluation](#evaluation)
+- [Contributions](#contributions)
+- [License](#license)
+- [Citation](#citation)
+
+---
+
 ## NVIDIA Isaac GR00T
 
-<!-- <div align="center">
-<img src="media/H1-MultiView.gif" height="240" alt="YAM arms">
-<img src="media/H3-head-2x.gif" height="240" alt="AgiBot Genie-1">
-<img src="media/W4.gif" height="240" alt="Unitree G1">
-</div> -->
-<!-- <img src="media/banner.gif" height="240" alt="Unitree G1"> -->
 <table style="width:100%; table-layout:fixed;">
   <tr>
     <td style="width:33.33%; text-align:center;">
@@ -35,71 +46,71 @@
   </tr>
 </table>
 
-> We just released GR00T N1.6, an updated version of GR00T N1 with improved performance and new features. Check out the [release blog post](https://research.nvidia.com/labs/gear/gr00t-n1_6/) for more details.
+> We just released GR00T N1.7 Early Access, the latest version of GR00T N1 with a new VLM backbone (Cosmos-Reason2-2B / Qwen3-VL) and improved performance.
 
-> To use the older version, N1.5, please checkout the [n1.5-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release) branch.
+> **This is an Early Access (EA) release.** You are welcome to download the model, explore the codebase, and begin building on the stack, with the understanding that support and stability guarantees are limited until the GA release.
+>
+> **What's available:**
+> - Pre-trained GR00T N1.7 model weights and reference code
+> - Fine-tuning and inference with custom robot data or demonstrations
+> - Experimentation, prototyping, and research use cases
+>
+> **Available at GA:**
+> - Production deployment with commercial support
+> - Complete benchmarks and a fully validated, stable feature set
+> - Pull request contributions
+>
+> We welcome feedback - please feel free to raise issues in this repository.
 
-NVIDIA Isaac GR00T N1.6 is an open vision-language-action (VLA) model for generalized humanoid robot skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
+> To use older versions: [N1.6](https://github.com/NVIDIA/Isaac-GR00T/releases/tag/n1.6-release) | [N1.5](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release)
 
-GR00T N1.6 is trained on a diverse mixture of robot data including bimanual, semi-humanoid and an expansive humanoid dataset. It is adaptable through post-training for specific embodiments, tasks and environments.
+NVIDIA Isaac GR00T N1.7 is an open vision-language-action (VLA) model for generalized humanoid robot skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
 
-The neural network architecture of GR00T N1.6 is a combination of vision-language foundation model and diffusion transformer head that denoises continuous actions. Here is a schematic diagram of the architecture:
+GR00T N1.7 is trained on a diverse mixture of robot data including bimanual, semi-humanoid and an expansive humanoid dataset. It is adaptable through post-training for specific embodiments, tasks and environments.
+
+GR00T N1.7 is fully commercially licensable under Apache 2.0. It delivers comparable performance to N1.6, with improved generalization and language-following capabilities driven by the inclusion of 20K hours of EgoScale human video data in pretraining.
+
+The neural network architecture of GR00T N1.7 is a combination of vision-language foundation model and diffusion transformer head that denoises continuous actions. Here is a schematic diagram of the architecture:
 
 <div align="center">
 <img src="media/model-architecture.png" width="800" alt="model-architecture">
 </div>
 
-Here is the general procedure to use GR00T N1.6:
+### Workflow Overview
 
-1. We assume the user has already collected a dataset of robot demonstrations in the form of (video, state, action) triplets for a specific task. 
-2. The user will first convert the demonstration data into the LeRobot compatible data schema (more info in [`getting_started/data_preparation.md`](getting_started/data_preparation.md)), which is compatible with the upstream [Huggingface LeRobot Dataset V2](https://github.com/huggingface/lerobot).
-3. Our repo provides convenient scripts to validate zero-shot performance of the pretrained model (see [Policy API Guide](getting_started/policy.md) and [RoboCasa Zero-Shot](examples/robocasa-gr1-tabletop-tasks/README.md)).
-4. Our repo provides examples of different configurations for training with different robot embodiments (see [`examples/`](examples/) and [Fine-tuning Guide](getting_started/finetune_new_embodiment.md)).
-5. Our repo provides convenient scripts for finetuning the pre-trained GR00T N1.6 model on user's data, and running inference, see [`examples`](examples).
-6. Our repo provides convenient scripts to run academic simulation benchmarks with finetuned checkpoints (see [LIBERO](examples/LIBERO/README.md), [SimplerEnv](examples/SimplerEnv/README.md), [RoboCasa](examples/robocasa/README.md)).
-7. The user will need to connect the `Gr00tPolicy` to the robot controller to execute actions on their target hardware.
+1. **Prepare data** — Collect robot demonstrations (video, state, action) and convert them to the [GR00T LeRobot format](#data-format). Demo datasets are included for quick testing.
+2. **Run inference** — Try zero-shot inference with the base model on [pretrain embodiments](#embodiment-tags), or use a [finetuned checkpoint](#checkpoints) for benchmark tasks.
+3. **Fine-tune** — Adapt the model to your robot using [`launch_finetune.py`](#fine-tuning) with your own data and modality config.
+4. **Evaluate** — Validate with [open-loop evaluation](#open-loop-evaluation), then test in [simulation benchmarks](#benchmark-examples) or on real hardware via the [Policy API](getting_started/policy.md).
+5. **Deploy** — Connect `Gr00tPolicy` to your robot controller, optionally accelerated with [TensorRT](scripts/deployment/README.md).
 
-## What's New in GR00T N1.6
+## What's New in GR00T N1.7
 
-GR00T N1.6 represents a significant upgrade over GR00T N1.5, with improvements in both model architecture and data leading to better performance in many aspects.
+GR00T N1.7 builds on N1.6 with a new VLM backbone and code-level improvements.
 
-### Model and Data Improvements
+### Key Changes from N1.6
 
-Architectural changes:
-- Base VLM: We use an internal NVIDIA Cosmos-Reason-2B VLM variant. The VLM supports flexible resolution and can encode images in their native aspect ratio without padding. The VLM is trained both general vision-language tasks and embodied reasoning tasks like next action prediction.
-- Uses 2x larger DiT (32 layers vs 16 layers in N1.5).
-- Removes N1.5's post-VLM 4-layer transformer adapter. Instead, unfreezes top 4 layers of the VLM during pretraining.
-- Predicts state-relative action chunks for most embodiments, rather than absolute joint angles or EEF positions.
+- **New VLM backbone:** Cosmos-Reason2-2B (Qwen3-VL architecture), replacing the Eagle backbone used in N1.6. Supports flexible resolution and encodes images in their native aspect ratio without padding.
+- Simplified data processing pipeline (`processing_gr00t_n1d7.py`).
+- Added full pipeline export to ONNX and TensorRT with improved frequency.
 
-Beyond the N1.5 data mixture, the N1.6 pretraining data additionally includes several thousand hours of teleoperated data from:
-- Bimanual YAM arms
-- AGIBot Genie1
-- Simulated Galaxea R1 Pro on the BEHAVIOR suite
-- Whole-Body Locomanipulation with Unitree G1
+---
 
-Other code-level improvements:
-- Faster dataloader with sharded dataloader support.
-- RTC and Async Policy Wrapper for inference (soon to release)
-- Simplified data processing pipeline with `processing_gr00t_n1d6.py`
-- Flexible Training configuration
+## Installation
 
-## Target Audience
+### Hardware Requirements
 
-GR00T N1.6 is intended for researchers and professionals in robotics. This repository provides tools to:
+**Inference:** 1 GPU with 16 GB+ VRAM (e.g., RTX 4090, L40, H100, Jetson AGX Thor/Orin, DGX Spark).
 
-- Leverage a pre-trained foundation model for robot control
-- Fine-tune on small, custom datasets
-- Adapt the model to specific robotics tasks with minimal data
-- Deploy the model for inference
+**Fine-tuning:** 1 or more GPUs with 40 GB+ VRAM recommended. We recommend H100 or L40 nodes for optimal performance. Other hardware (e.g., A6000) works but may require longer training time. See the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md) for detailed specs.
 
-The focus is on enabling customization of robot behaviors through finetuning.
-
-## Installation Guide
+**CUDA / Python per platform:** dGPU on CUDA 12.8 with Python 3.10; Jetson Orin on CUDA 12.6 with Python 3.10; Jetson Thor and DGX Spark on CUDA 13.0 with Python 3.12. The per-platform install scripts and Dockerfiles live under `scripts/deployment/`; see the [Deployment & Inference Guide](scripts/deployment/README.md) for the full matrix.
 
 ### Clone the Repository
 
 GR00T relies on submodules for certain dependencies. Include them when cloning:
 
+**Note:** `git-lfs` is **required** to download parquet data files in `/demo_data`. Install it before cloning: `sudo apt install git-lfs && git lfs install`.
 ```sh
 git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T
 cd Isaac-GR00T
@@ -113,24 +124,75 @@ git submodule update --init --recursive
 
 ### Set Up the Environment
 
-GR00T uses [uv](https://github.com/astral-sh/uv) for fast, reproducible dependency management. Each supported platform has its own dependency configuration under `scripts/deployment/`.
+GR00T uses [uv](https://github.com/astral-sh/uv) for fast, reproducible dependency management. Install uv first:
 
-#### dGPU (Non-Jetson) — Default
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+#### dGPU (x86_64) — Default
+
+Install FFmpeg (required by `torchcodec`, the default video backend):
+```sh
+sudo apt-get update && sudo apt-get install -y ffmpeg
+```
+
+Create the environment and install GR00T:
+```sh
+uv sync --python 3.10
+```
+GPU dependencies (flash-attn, TensorRT, etc.) are included in the default install.
+
+Verify the installation:
+```sh
+uv run python -c "import gr00t; print('GR00T installed successfully')"
+```
+
+> **`flash-attn` message on every `uv run`:** You may see `Installing flash-attn...` each time you run `uv run`. This is a known `uv` behavior with URL-pinned wheel sources — `uv` re-validates the cached wheel against the source URL on each invocation. It is **not** rebuilding from source; the wheel is already cached locally and the operation takes 2-3 seconds. This only affects x86_64 platforms. 
+> To suppress it, remove the `flash-attn` entries under `[tool.uv.sources]` in your local `pyproject.toml` after the initial install. But that will break `uv lock` and cause flash-attn to build from source on next lock regeneration.
+
+<details>
+<summary><strong>Alternative: pip install (without uv)</strong></summary>
+
+If you prefer pip/conda over uv, create a Python 3.10 virtualenv and install:
+```sh
+python3.10 -m venv .venv && source .venv/bin/activate
+pip install -e .
+```
+Note: GPU dependencies (flash-attn, TensorRT) may require manual installation with pip. The `uv` workflow handles these automatically.
+</details>
+
+> **If fine-tuning fails with `CUDA_HOME is unset`:** Run `bash scripts/deployment/dgpu/install_deps.sh` once to configure CUDA paths, or manually `export CUDA_HOME=/usr/local/cuda`.
+
+> **CUDA 13.x Users (Thor, Spark, and other CUDA 13+ platforms):** PyTorch 2.7 pins Triton to 3.3.1, which does not recognize CUDA major version 13+. This causes a `RuntimeError` in Triton's `ptx_get_version()`. Run the patch script to fix:
+> ```sh
+> uv run bash scripts/patch_triton_cuda13.sh
+> ```
+
+> **GB300 (sm_103) Users:** Triton 3.3.1 (pinned by PyTorch 2.7) does not support the GB300 GPU architecture (sm_103). `torch.compile` will fail on GB300. Use PyTorch eager mode or TensorRT inference instead. Triton 3.5.1+ adds sm_103 support but is not yet compatible with the pinned PyTorch version.
+
+> **aarch64 Video Backend:** On aarch64 platforms (Thor, Orin, Spark), `torchcodec` is the required video backend. `install_deps.sh` prefers the prebuilt aarch64 wheel under `scripts/deployment/dgpu/wheels/` (shared by Thor/Spark against FFmpeg 6; Orin uses a matching build against FFmpeg 4) and falls back to a source build only if the wheel is missing. If you encounter `NotImplementedError` from the video backend, ensure `torchcodec` was installed successfully during setup. Other backends (decord, pyav) are not supported on aarch64.
+
+<details>
+<summary><strong>DGX Spark</strong> (tested with DGX Spark GB10)</summary>
 
 ```bash
-bash scripts/deployment/dgpu/install_deps.sh
+bash scripts/deployment/spark/install_deps.sh
 source .venv/bin/activate
+source scripts/activate_spark.sh
 ```
 
-Or manually:
-```bash
-uv sync
-uv pip install -e .
-```
+See the [Spark setup guide](scripts/deployment/README.md#dgx-spark-setup) for Docker and bare metal details.
+</details>
 
-#### Jetson AGX Thor
+<details>
+<summary><strong>Jetson AGX Thor</strong> (tested with JetPack 7.1)</summary>
 
-Tested with JetPack 7.1.
+> **flash-attn on older systems (e.g., Ubuntu 20.04 with glibc < 2.35):** The pre-built `flash-attn` wheel may fail with `ImportError: glibc_compat.so: cannot open shared object file`. To fix this, build from source:
+> ```sh
+> uv pip install flash-attn==2.7.4.post1 --no-binary flash-attn --no-cache
+> ```
+> This compiles locally (~10-30 minutes) and avoids the glibc compatibility issue.
 
 ```bash
 bash scripts/deployment/thor/install_deps.sh
@@ -139,10 +201,10 @@ source scripts/activate_thor.sh
 ```
 
 See the [Thor setup guide](scripts/deployment/README.md#jetson-thor-setup) for Docker and bare metal details.
+</details>
 
-#### Jetson Orin
-
-Tested with JetPack 6.2.
+<details>
+<summary><strong>Jetson Orin</strong> (tested with JetPack 6.2)</summary>
 
 ```bash
 bash scripts/deployment/orin/install_deps.sh
@@ -151,238 +213,277 @@ source scripts/activate_orin.sh
 ```
 
 See the [Orin setup guide](scripts/deployment/README.md#jetson-orin-setup) for Docker and bare metal details.
+</details>
 
-For a containerized setup on any platform, see the [Docker Setup Guide](docker/README.md).
-Use the Docker guide to build the image and open a container, and the [Deployment & Inference Guide](scripts/deployment/README.md) for copy-paste inference and benchmark commands.
+For a containerized setup that avoids system-level dependency conflicts, see our [Docker Setup Guide](docker/README.md).
 
-For training and inference hardware recommendations, see the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md).
+---
 
-## Model Checkpoints
+## Model Checkpoints & Embodiment Tags
 
-### Base Models
-We provide pre-trained base VLA model checkpoints. These checkpoints have been pre-trained on 10k+ hours of robot data and can be used for finetuning on downstream tasks.
+### Checkpoints
 
-| Model | Use Case | Description | Checkpoint Path | Branch |
-| ----- | -------- | ----------- | --------------- | ------ |
-| GR00T N1.5 | Finetuning | Base [GR00T N1.5 model](https://research.nvidia.com/labs/gear/gr00t-n1_5/) (3B parameters) | [nvidia/GR00T-N1.5-3B](https://huggingface.co/nvidia/GR00T-N1.5-3B) | [n1.5-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release) |
-| GR00T N1.6 | Finetuning | Base [GR00T N1.6 model](https://research.nvidia.com/labs/gear/gr00t-n1_6/) (3B parameters) | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | [main](https://github.com/NVIDIA/Isaac-GR00T) |
+| Checkpoint | Type | Embodiment Tag | Description |
+|------------|------|---------------|-------------|
+| [`nvidia/GR00T-N1.7-3B`](https://huggingface.co/nvidia/GR00T-N1.7-3B) | Base | See [pretrain tags](getting_started/policy.md#--embodiment-tag) | Base model (3B params) — zero-shot inference on pretrain embodiments, or finetune for new tasks |
+| [`nvidia/GR00T-N1.7-LIBERO`](https://huggingface.co/nvidia/GR00T-N1.7-LIBERO) | Finetuned | `LIBERO_PANDA` | Finetuned on [LIBERO](https://libero-project.github.io/) benchmark (Franka Panda) |
+| [`nvidia/GR00T-N1.7-DROID`](https://huggingface.co/nvidia/GR00T-N1.7-DROID) | Finetuned | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | Finetuned on [DROID](https://droid-dataset.github.io/) dataset |
+| [`nvidia/GR00T-N1.7-SimplerEnv-Bridge`](https://huggingface.co/nvidia/GR00T-N1.7-SimplerEnv-Bridge) | Finetuned | `SIMPLER_ENV_WIDOWX` | Finetuned on SimplerEnv Bridge (WidowX) |
+| [`nvidia/GR00T-N1.7-SimplerEnv-Fractal`](https://huggingface.co/nvidia/GR00T-N1.7-SimplerEnv-Fractal) | Finetuned | `SIMPLER_ENV_GOOGLE` | Finetuned on SimplerEnv Fractal (Google Robot) |
 
-### Finetuned Models
-We also provide finetuned checkpoints for various robot platforms and benchmarks. These models are finetuned from the base models above and can be used directly for evaluation or as starting points for further finetuning.
+> Older versions: [N1.6 checkpoints](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) | [N1.5 checkpoints](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release)
 
-| Model | Base Model | Description | Checkpoint Path | Example |
-| ----- | ---------- | ----------- | --------------- | ------- |
-| GR00T-N1.6-bridge | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned on [Bridge dataset](https://rail-berkeley.github.io/bridgedata/) for WidowX robot on manipulation tasks | [nvidia/GR00T-N1.6-bridge](https://huggingface.co/nvidia/GR00T-N1.6-bridge) | [SimplerEnv](examples/SimplerEnv/README.md) |
-| GR00T-N1.6-fractal | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned on [Fractal dataset](https://www.tensorflow.org/datasets/catalog/fractal20220817_data) for Google robot on manipulation tasks | [nvidia/GR00T-N1.6-fractal](https://huggingface.co/nvidia/GR00T-N1.6-fractal) | [SimplerEnv](examples/SimplerEnv/README.md) |
-| GR00T-N1.6-BEHAVIOR1k | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned on [BEHAVIOR-1K](https://behavior.stanford.edu/) for Galaxea R1 Pro robot on loco-manipulation tasks | [nvidia/GR00T-N1.6-BEHAVIOR1k](https://huggingface.co/nvidia/GR00T-N1.6-BEHAVIOR1k) | [BEHAVIOR](examples/BEHAVIOR/README.md) |
-| GR00T-N1.6-G1-PnPAppleToPlate | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned for Unitree G1 loco-manipulation pick-and-place tasks | [nvidia/GR00T-N1.6-G1-PnPAppleToPlate](https://huggingface.co/nvidia/GR00T-N1.6-G1-PnPAppleToPlate) | [G1 LocoManipulation](examples/GR00T-WholeBodyControl/README.md) |
-| GR00T-N1.6-DROID | [nvidia/GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID) | Fine-tuned for DROID robot on manipulation tasks | [nvidia/GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID) | [DROID](examples/DROID/README.md) |
+### Embodiment Tags
 
+Every inference or finetuning command requires an `--embodiment-tag`. The tag determines which modality config (state/action keys, normalization) the model uses. Tags are **case-insensitive**.
 
+For the full list of pretrain and posttrain tags, see the [Policy API Guide — Embodiment Tags](getting_started/policy.md#--embodiment-tag).
 
-## Quick Start
+---
 
-We can quickly start by downloading a pre-trained checkpoint and starting the policy server for any pretrained embodiement, e.g. GR1 embodiment.
-```bash
-# On GPU server: Start the policy server
-uv run python gr00t/eval/run_gr00t_server.py --embodiment-tag GR1 --model-path nvidia/GR00T-N1.6-3B
+## Data Format
+
+GR00T uses a flavor of the [LeRobot v2 dataset format](https://github.com/huggingface/lerobot) with an additional `meta/modality.json` file that describes state/action/video structure. A dataset looks like:
+
+```
+my_dataset/
+  meta/
+    info.json            # dataset metadata
+    episodes.jsonl       # episode index and lengths
+    tasks.jsonl          # language task descriptions
+    modality.json        # state/action/video key mapping (GR00T-specific)
+  data/chunk-000/        # parquet files (state, action per timestep)
+  videos/chunk-000/      # mp4 video files per episode
 ```
 
-Then, refer to the [robocasa-gr1-tabletop-tasks](examples/robocasa-gr1-tabletop-tasks/README.md) for more details on how to rollout the policy with `GR1` embodiment.
+The `modality.json` maps how the concatenated state/action arrays split into named fields (e.g., `x`, `y`, `z`, `gripper`) and which video keys are available. This is what the embodiment tag uses to interpret the data.
 
-## Getting started with this repo
+**Included demo datasets** (ready to use, no download needed):
 
-We provide accessible Jupyter notebooks and detailed documentation in the [`./getting_started`](getting_started) folder.
+| Dataset | Robot | Embodiment Tag | Use Case |
+|---------|-------|---------------|----------|
+| `demo_data/droid_sample` | DROID (3 episodes) | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | Zero-shot or finetuned inference (DROID) |
+| `demo_data/libero_demo` | LIBERO Panda (5 episodes) | `LIBERO_PANDA` | Inference with finetuned checkpoint |
+| `demo_data/simplerenv_bridge_sample` | WidowX (SimplerEnv Bridge) | `SIMPLER_ENV_WIDOWX` | Inference with finetuned SimplerEnv Bridge checkpoint |
+| `demo_data/simplerenv_fractal_sample` | Google Robot (SimplerEnv Fractal) | `SIMPLER_ENV_GOOGLE` | Inference with finetuned SimplerEnv Fractal checkpoint |
+| `demo_data/cube_to_bowl_5` | SO100 arm (5 episodes) | `NEW_EMBODIMENT` | Fine-tuning custom embodiment example |
+| `demo_data/cube_to_bowl_5_with_mask` | SO100 arm + per-frame masks | `NEW_EMBODIMENT` | [Mask-guided background suppression](examples/mask-guided-background-suppression/README.md) example |
 
-## 1. Data Preparation
+> To generate more DROID episodes: `python scripts/download_droid_sample.py --num-episodes 10`
 
-Please refer to the [data preparation guide](getting_started/data_preparation.md) for more details.
+**Using your own data:** Convert your demonstrations to the format above. If coming from LeRobot v3, use the conversion script: `python scripts/lerobot_conversion/convert_v3_to_v2.py`. See the full [Data Preparation Guide](getting_started/data_preparation.md) for schema details and examples.
 
-## 2. Inference
+---
 
-After data is prepared, the GR00T model can be used to generate output actions with the below simple inference script:
+## Inference
+
+### Zero-Shot Inference (Base Model)
+
+The included `demo_data/droid_sample` dataset works with the base model out of the box — no finetuning or checkpoint download needed:
 
 ```bash
 uv run python scripts/deployment/standalone_inference_script.py \
-  --model-path nvidia/GR00T-N1.6-3B \
-  --dataset-path demo_data/gr1.PickNPlace \
-  --embodiment-tag GR1 \
-  --traj-ids 0 1 2 \
-  --inference-mode pytorch \
-  --action-horizon 8
+    --model-path nvidia/GR00T-N1.7-3B \
+    --dataset-path demo_data/droid_sample \
+    --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
+    --traj-ids 1 2 \
+    --inference-mode pytorch \
+    --action-horizon 8
 ```
 
-GR00T-N1.6-3B inference timing (4 denoising steps, single view):
+This runs open-loop inference on 2 DROID episodes, comparing predicted actions against ground truth. The base model downloads automatically from HuggingFace on first run (~6 GB).
 
-| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
-|--------|------|-----------------|----------|-------------|-----|-----------|
-| RTX 5090 | torch.compile | 2 ms | 18 ms | 16 ms | 37 ms | 27.3 Hz |
-| H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
-| RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
-| Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
+### Finetuned Inference
 
-For more details, please check our full [inference guide](scripts/deployment/README.md) for more details including faster inference with `TensorRT`
+For posttrain embodiments, use a finetuned checkpoint. Most finetuned checkpoints (e.g., DROID, SimplerEnv) have a flat file structure and can be passed directly as a HuggingFace model ID — no manual download needed:
 
-## 3. Finetuning
-
-### Fine-tune on Pre-registered Post-train Embodiment Tags
-
-GR00T provides several pre-registered embodiment tags with ready-to-use configurations:
-
-- `LIBERO_PANDA`
-- `OXE_GOOGLE`
-- `OXE_WIDOWX`
-- `UNITREE_G1`
-- `BEHAVIOR_R1_PRO`
-
-**Example:** To finetune Libero-Spatial on GR00T N1.6, follow the instructions in the [Libero finetuning guide](examples/LIBERO/README.md#finetune-libero-spatial-dataset). We also provide simulation environment setup for evaluation linked with post-train checkpoints and benchmark numbers.
-
-### Fine-tune on Custom Embodiments ("NEW_EMBODIMENT")
-
-To finetune GR00T on your own robot data and configuration, follow the detailed tutorial available at [`getting_started/finetune_new_embodiment.md`](getting_started/finetune_new_embodiment.md).
-
-#### Prerequisites
-
-Ensure your input data follows the **GR00T-flavored LeRobot v2 format**, and specify your modality configuration at `modality_config_path`.
-
-#### Run Fine-tuning Script
 ```bash
-# Set number of GPUs
-export NUM_GPUS=1
+uv run python scripts/deployment/standalone_inference_script.py \
+    --model-path nvidia/GR00T-N1.7-DROID \
+    --dataset-path demo_data/droid_sample \
+    --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
+    --traj-ids 1 2 \
+    --inference-mode pytorch \
+    --action-horizon 8
+```
 
+Some checkpoints (e.g., LIBERO) use a nested folder structure with model files under a subfolder. HuggingFace does not support nested repo paths in `--model-path`, so you must download first:
+
+```bash
+uv run hf download nvidia/GR00T-N1.7-LIBERO \
+    --include "libero_10/config.json" "libero_10/embodiment_id.json" \
+    "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" \
+    "libero_10/processor_config.json" "libero_10/statistics.json" \
+    --local-dir checkpoints/GR00T-N1.7-LIBERO
+```
+
+```bash
+uv run python scripts/deployment/standalone_inference_script.py \
+    --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+    --dataset-path demo_data/libero_demo \
+    --embodiment-tag LIBERO_PANDA \
+    --traj-ids 0 1 2 \
+    --inference-mode pytorch \
+    --action-horizon 8
+```
+
+### Server-Client Inference (for Deployment)
+
+For real-world deployment or simulation evaluation, use the server-client architecture. The policy runs on a GPU server; a lightweight client sends observations and receives actions over ZMQ.
+
+**Terminal 1 — Start the policy server:**
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --model-path nvidia/GR00T-N1.7-3B \
+    --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
+    --device cuda:0
+```
+
+**Terminal 2 — Run open-loop evaluation as a client:**
+```bash
+uv run python gr00t/eval/open_loop_eval.py \
+    --dataset-path demo_data/droid_sample \
+    --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
+    --host 127.0.0.1 \
+    --port 5555 \
+    --traj-ids 1 2 \
+    --action-horizon 8
+```
+
+> **Tip:** If you get `ZMQError: Address already in use`, the default port 5555 is occupied. Use `--port <other_port>`.
+
+For connecting to a real robot (e.g., DROID hardware), see [examples/DROID/README.md](examples/DROID/README.md). For faster inference with TensorRT, see the [Deployment & Inference Guide](scripts/deployment/README.md).
+
+See the complete [Policy API Guide](getting_started/policy.md) for documentation on observation/action formats, batched inference, and troubleshooting.
+
+---
+
+## Fine-tuning
+
+### Reproducing Benchmark Results
+
+Each benchmark has a self-contained README with dataset download, finetune, and evaluation commands:
+
+| Benchmark | Embodiment | Guide |
+|-----------|-----------|-------|
+| LIBERO | `LIBERO_PANDA` | [examples/LIBERO/README.md](examples/LIBERO/README.md) |
+| SimplerEnv (Fractal) | `SIMPLER_ENV_GOOGLE` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
+| SimplerEnv (Bridge) | `SIMPLER_ENV_WIDOWX` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
+| SO100 | `NEW_EMBODIMENT` | [examples/SO100/README.md](examples/SO100/README.md) |
+
+### Fine-tune on Your Own Robot ("NEW_EMBODIMENT")
+
+To finetune GR00T on your own robot data and configuration, follow the detailed tutorial at [`getting_started/finetune_new_embodiment.md`](getting_started/finetune_new_embodiment.md).
+
+Ensure your input data follows the [GR00T LeRobot format](#data-format), and specify your modality configuration via `--modality-config-path`.
+
+**Single GPU:**
+```bash
 CUDA_VISIBLE_DEVICES=0 uv run python \
     gr00t/experiment/launch_finetune.py \
-    --base-model-path nvidia/GR00T-N1.6-3B \
-    --dataset-path <DATASET_PATH> \
+    --base-model-path nvidia/GR00T-N1.7-3B \
+    --dataset-path demo_data/cube_to_bowl_5 \
     --embodiment-tag NEW_EMBODIMENT \
-    --modality-config-path <MODALITY_CONFIG_PATH> \
-    --num-gpus $NUM_GPUS \
-    --output-dir <OUTPUT_PATH> \
-    --save-total-limit 5 \
-    --save-steps 2000 \
+    --modality-config-path examples/SO100/so100_config.py \
+    --num-gpus 1 \
+    --output-dir /tmp/test_finetune \
     --max-steps 2000 \
-    --use-wandb \
     --global-batch-size 32 \
-    --color-jitter-params brightness 0.3 contrast 0.4 saturation 0.5 hue 0.08 \
     --dataloader-num-workers 4
 ```
 
-> For more extensive finetuning configuration, use `gr00t/experiment/launch_train.py` instead to launch the training process.
+**Multi-GPU (e.g., 8xH100):**
+```bash
+uv run torchrun --nproc_per_node=8 --master_port=29500 \
+    gr00t/experiment/launch_finetune.py \
+    --base-model-path nvidia/GR00T-N1.7-3B \
+    --dataset-path demo_data/cube_to_bowl_5 \
+    --embodiment-tag NEW_EMBODIMENT \
+    --modality-config-path examples/SO100/so100_config.py \
+    --num-gpus 8 \
+    --output-dir /tmp/test_finetune_8gpu \
+    --max-steps 2000 \
+    --global-batch-size 32 \
+    --dataloader-num-workers 4
+```
 
-### Recommended Fine-tuning Configuration
+Replace `demo_data/cube_to_bowl_5` and `examples/SO100/so100_config.py` with your own dataset and modality config. See [`examples/SO100`](examples/SO100/README.md) for a complete walkthrough.
 
-For optimal results, maximize your batch size based on available hardware and train for a few thousand steps.
+> **Note:** Use `uv run torchrun` (not bare `torchrun`) to ensure the correct virtual environment is used. Add `--use-wandb` to enable Weights & Biases logging. For more extensive configuration, use `gr00t/experiment/launch_train.py`.
 
-#### Hardware Performance Considerations
+### Training Tips
 
-**Fine-tuning Performance**
-- We recommend using 1 H100 node or L40 node for optimal finetuning performance
-- Other hardware configurations (e.g., A6000) will also work but may require longer training time
-- Optimal batch size depends on your hardware and which model components are being tuned
+- Maximize batch size for your hardware and train for a few thousand steps.
+- Users may observe 5-6% variance between runs due to non-deterministic image augmentations. Keep this in mind when comparing to reported benchmarks.
+- **`--state_dropout_prob`** (model config default: 0.8; finetune CLI default: 0.2; see `gr00t/configs/finetune_config.py`): Randomly drops state inputs during training to improve generalization and reduce state-dependency. The shipped benchmark scripts override the CLI default per suite: LIBERO 10-Long uses 0.2 (the CLI default), SimplerEnv Bridge uses 0.8, SimplerEnv Fractal uses 0.5. If your task relies heavily on proprioceptive state, lower this value.
 
-#### Training Variance
+---
 
-Users may observe some variance in post-training results across runs, even when using the same configuration, seed, and dropout settings. In our experiments, we have observed performance differences as large as 5-6% between runs. This variance may be attributed to non-deterministic operations in image augmentations or other stochastic components. When comparing results to reported benchmarks, please keep this inherent variance in mind.
+## Evaluation
 
-## 4. Evaluation
+### Open-Loop Evaluation
 
-We recommend a two-stage evaluation approach: open-loop evaluation followed by simulation evaluation to comprehensively assess model quality.
+Compare predicted actions against ground truth from your dataset:
 
-### 4.1 Open-Loop Evaluation
-
-Open-loop evaluation provides an offline assessment by comparing the model's predicted actions against ground truth data from your dataset.
-
-#### Running the Evaluation
-
-Execute the evaluation script with your newly trained model:
 ```bash
 uv run python gr00t/eval/open_loop_eval.py \
     --dataset-path <DATASET_PATH> \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path <CHECKPOINT_PATH> \
     --traj-ids 0 \
-    --action-horizon 16  # ensure this is within the delta_indices of action's modality config.
+    --action-horizon 16
 ```
 
-#### Interpreting Results
+This generates a visualization at `/tmp/open_loop_eval/traj_{traj_id}.jpeg` with ground truth vs. predicted actions and MSE metrics. Use `--save-plot-path <dir>` to save plots to a custom location.
 
-The evaluation generates a visualization saved at `/tmp/open_loop_eval/traj_{traj_id}.jpeg`, which includes:
-- Ground truth actions vs. predicted actions
-- Unnormalized mean squared error (MSE) metrics
+### Closed-Loop Evaluation
 
-These plots provide a quick indicator of the policy's accuracy on the training dataset distribution.
-
-### 4.2 Closed-Loop Evaluation
-
-After validating performance through open-loop evaluation, test your model in closed-loop environments.
-
-#### Understanding the Policy API
-
-After training your model, you'll use the `Gr00tPolicy` class to load and run inference. The policy expects observations in a specific format (nested dictionaries with video, state, and language modalities) and returns actions ready for execution.
-
-**Quick Start with Server-Client Architecture:**
+Test your model in simulation or on real hardware using the server-client architecture:
 
 ```bash
-# On GPU server: Start the policy server
+# Start the policy server
 uv run python gr00t/eval/run_gr00t_server.py \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path <CHECKPOINT_PATH> \
     --device cuda:0 \
-    --host 0.0.0.0 \
-    --port 5555
+    --host 0.0.0.0 --port 5555
 ```
 
 ```python
 from gr00t.policy.server_client import PolicyClient
 
-policy = PolicyClient(host="localhost", port=5555) # Connect to the policy server
-env = YourEnvironment() # Create an environment
-obs, info = env.reset() # Reset the environment
-if not policy.ping(): # Verify connection
-    raise RuntimeError("Cannot connect to policy server!")
-action, info = policy.get_action(obs) # Run inference
-obs, reward, done, truncated, info = env.step(action) # Execute the action
+policy = PolicyClient(host="localhost", port=5555)
+env = YourEnvironment()
+obs, info = env.reset()
+action, info = policy.get_action(obs)
+obs, reward, done, truncated, info = env.step(action)
 ```
 
-**Debugging with ReplayPolicy:**
+**Debugging with ReplayPolicy:** To verify your environment setup without a trained model, start the server with `--dataset-path <DATASET_PATH>` (omit `--model-path`) to replay recorded actions from the dataset.
 
-When developing a new environment integration or debugging your inference loop, you can use `ReplayPolicy` to replay recorded actions from an existing dataset. This helps verify that your environment setup, observation formatting, and action execution work correctly—without needing a trained model.
+See the complete [Policy API Guide](getting_started/policy.md) for observation/action formats, batched inference, and troubleshooting.
 
-```bash
-# Start server with ReplayPolicy (replays actions from dataset)
-uv run python gr00t/eval/run_gr00t_server.py \
-    --dataset-path <DATASET_PATH> \
-    --embodiment-tag NEW_EMBODIMENT \
-    --execution-horizon 8  # should match the executed action horizon in the environment
-```
+### Benchmark Examples
 
-The server will replay actions from the first episode of the dataset. Use `policy.reset(options={"episode_index": N})` on the client to switch to a different episode.
+We support evaluation on public benchmarks using a server-client architecture. The policy server reuses the project root's uv environment; simulation clients have individual setup scripts.
 
-**For detailed documentation on:**
-- How to adapt the policy to your own environment
-- Server-client architecture for remote inference
-- Observation and action formats
-- Querying modality configurations
-- Batched inference
-- Troubleshooting common errors
+You can use [the verification script](scripts/eval/check_sim_eval_ready.py) to verify that all dependencies are properly configured.
 
-See the complete [Policy API Guide](getting_started/policy.md).
+**Zero-shot** (evaluate with the base model, no finetuning):
+- [DROID](examples/DROID/README.md) — real-world DROID robot (also available as the finetuned `nvidia/GR00T-N1.7-DROID` checkpoint; `examples/DROID/README.md` covers both paths)
 
-#### Evaluation Examples
+**Finetuned** (evaluate with finetuned checkpoints):
+- [DROID](examples/DROID/README.md) — real-world DROID robot via `nvidia/GR00T-N1.7-DROID`
+- [LIBERO](examples/LIBERO/README.md) — LIBERO benchmark (Franka Panda)
+- [SimplerEnv](examples/SimplerEnv/README.md) — Google Robot (Fractal) and WidowX (Bridge)
+- [SO100](examples/SO100/README.md) — SO100 custom embodiment workflow
 
-We support evaluation on available public benchmarks and our internal benchmarks. Our evaluation framework uses a server-client architecture that communicates via RESTful API. Both the policy server and simulation environment client use the same IP (usually localhost) and port to run simulation evaluation.
-
-For the policy server, we reuse the project root's uv environment (same as finetuning) to run `run_gr00t_server`. For simulation environment clients, we provide individual setup scripts to configure uv environments, as they typically conflict with each other when using a single shared environment.
-
-You can use [the verification script](scripts/eval/check_sim_eval_ready.py) to verify that all dependencies and environments for simulation evaluation are properly configured.
-
-Please refer to each benchmark link below for more details.
-
-#### Adding a New Sim Benchmark
+<details>
+<summary><strong>Adding a New Sim Benchmark</strong></summary>
 
 Each sim benchmark registers its environments under a gym env_name with the format `{prefix}/{task_name}` (e.g., `libero_sim/LIVING_ROOM_SCENE2_put_soup_in_basket`). The evaluation framework uses the prefix to look up the corresponding `EmbodimentTag` via a mapping in [`gr00t/eval/sim/env_utils.py`](gr00t/eval/sim/env_utils.py).
 
-> **Important:** The env_name prefix and the `EmbodimentTag` value are often different. For example, `libero_sim` maps to `EmbodimentTag.LIBERO_PANDA` (`"libero_panda"`). Do not assume they match.
+> **Important:** The env_name prefix and the `EmbodimentTag` value are often different. For example, `libero_sim` maps to `EmbodimentTag.LIBERO_PANDA` (`"libero_sim"`). Do not assume they match.
 
 To add a new benchmark:
 
@@ -395,29 +496,28 @@ To add a new benchmark:
    ```
 2. If the benchmark has multiple env_name prefixes (e.g., `my_benchmark_v1`, `my_benchmark_v2`), all related prefixes **must** map to the same `EmbodimentTag`.
 3. Add corresponding test cases in `tests/gr00t/eval/sim/test_env_utils.py` and update the `test_all_known_prefixes_present` test.
-
-**Zero-shot Evaluation** (evaluate without finetuning):
-- **RoboCasa**: [Instructions](examples/robocasa/README.md)
-- **RoboCasa GR1 Tabletop Tasks**: [Instructions](examples/robocasa-gr1-tabletop-tasks/README.md)
-
-**Finetuned Evaluation** (test after task-specific finetuning):
-- **G1 LocoManipulation**: [Instructions](examples/GR00T-WholeBodyControl/README.md)
-- **LIBERO**: [Instructions](examples/LIBERO/README.md)
-- **SimplerEnv**: [Instructions](examples/SimplerEnv/README.md)
-- **BEHAVIOR**: [Instructions](examples/BEHAVIOR/README.md)
-- **PointNav**: [Instructions](examples/PointNav/README.md)
-- **SO-100**: [Instructions](examples/SO100/README.md)
+</details>
 
 
-# Contributing
 
-For more details, see [CONTRIBUTING.md](CONTRIBUTING.md)
+---
+
+# Contributions
+
+During Early Access we are not accepting pull requests while the codebase stabilizes. If you encounter issues or have suggestions, please open an [Issue](https://github.com/NVIDIA/Isaac-GR00T/issues) in this repository.
+
+# Support
+
+Support during Early Access is best-effort. We will continue iterating toward a more stable General Availability (GA) release.
 
 
-## License 
+## License
+
+- **Code:** Apache 2.0 — see [LICENSE](LICENSE)
+- **Model weights:** [NVIDIA Open Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/)
 
 ```
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -435,7 +535,7 @@ For more details, see [CONTRIBUTING.md](CONTRIBUTING.md)
 
 
 ## Citation
-<!-- TODO: Update -->
+
 [Paper Site](https://research.nvidia.com/labs/lpr/publication/gr00tn1_2025/)
 ```bibtex
 @inproceedings{gr00tn1_2025,
@@ -448,3 +548,4 @@ For more details, see [CONTRIBUTING.md](CONTRIBUTING.md)
   booktitle  = {ArXiv Preprint},
 }
 ```
+
