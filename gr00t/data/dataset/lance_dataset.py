@@ -110,7 +110,26 @@ class ShardedLanceDataset(ShardedDataset):
         print(f"Generated {num_shards} shards for Lance dataset")
         print(f"Total steps: {len(sampled_indices)}")
 
+
+    def _coerce_uuid_to_bytes(self, raw_uuid) -> bytes:
+        if isinstance(raw_uuid, bytes):
+            return raw_uuid
+        elif isinstance(raw_uuid, bytearray):
+            return bytes(raw_uuid)
+        elif isinstance(raw_uuid, dict) and 'bytes' in raw_uuid:
+            return bytes(raw_uuid['bytes'])
+        elif isinstance(raw_uuid, np.ndarray):
+            return raw_uuid.tobytes()
+        elif isinstance(raw_uuid, str):
+            import uuid
+            return uuid.UUID(raw_uuid).bytes
+        elif isinstance(raw_uuid, list):
+            return bytes(raw_uuid)
+        else:
+            raise TypeError(f"Cannot coerce UUID of type {type(raw_uuid)}: {raw_uuid}")
+
     def __len__(self) -> int:
+
         return len(self.shard_lengths)
 
     def get_shard_length(self, idx: int) -> int:
@@ -139,10 +158,9 @@ class ShardedLanceDataset(ShardedDataset):
             elif key == "wrist_image": cols_to_load.append("obs/camera/wrist_left_image_256")
             else: cols_to_load.append(f"obs/camera/{key}_image_256")
 
-        for key in self.modality_configs.get("state", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys:
+        # Core arm joints and hand joints must always be loaded to extract manipulation states/actions
+        for key in ["core", "left_hand", "right_hand"]:
             cols_to_load.append(f"obs/positions/{key}")
-
-        for key in self.modality_configs.get("action", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys:
             cols_to_load.append(f"action/q_target/{key}")
 
         # We can do an IN filter to scan once for the whole shard
@@ -156,177 +174,146 @@ class ShardedLanceDataset(ShardedDataset):
             chunk = chunks[i]
             instr = instructions[i]
 
-            if isinstance(ep_uuid, bytes):
-                ep_uuid_val = ep_uuid
-            else:
-                ep_uuid_val = ep_uuid
+            ep_uuid_val = self._coerce_uuid_to_bytes(ep_uuid)
+            dp = None
 
             scanner = self.main_ds.scanner(
                 columns=cols_to_load,
-                filter=(pc.field("episode_uuid") == ep_uuid_val) & (pc.field("chunk_in_episode") == chunk),
+                filter=f"chunk_in_episode = {chunk}"
             )
             table = scanner.to_table()
+
             if table.num_rows > 0:
-                main_row = table.to_pandas().iloc[0]
-                dp = self.get_datapoint(main_row, instr)
-                if dp is not None:
-                    datapoints.append(dp)
+                ep_uuids_col = table.column("episode_uuid").to_pylist()
+                matched_idx = -1
+                for idx_t, val in enumerate(ep_uuids_col):
+                    if self._coerce_uuid_to_bytes(val) == ep_uuid_val:
+                        matched_idx = idx_t
+                        break
+
+                if matched_idx >= 0:
+                    main_row = table.to_pandas().iloc[matched_idx]
+                    dp = self.get_datapoint(main_row, instr)
+
+            if dp is not None:
+                datapoints.append(dp)
 
         return datapoints
 
+
     def get_datapoint(self, main_row, instruction) -> dict | None:
+        if self.processor is None:
+            raise ValueError("Processor must be set before getting datapoints")
 
         video_data = {}
         for key in self.modality_configs.get("video", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys:
-            # e.g., image -> obs/camera/left_image_256
-            if key == "image" or key == "primary_image_key":
-                img_col = "obs/camera/left_image_256"
-            elif key == "wrist_image":
-                img_col = "obs/camera/wrist_left_image_256"
-            else:
-                img_col = f"obs/camera/{key}_image_256"
+            if key == "image" or key == "primary_image_key": img_col = "obs/camera/left_image_256"
+            elif key == "wrist_image": img_col = "obs/camera/wrist_left_image_256"
+            else: img_col = f"obs/camera/{key}_image_256"
 
             if img_col in main_row:
                 img_bytes = main_row[img_col]
                 if pd.notna(img_bytes) and img_bytes is not None:
-                    # decode image
                     img = Image.open(io.BytesIO(img_bytes))
                     video_data[key] = [np.array(img)]
 
-        # Usually chunk_len is inferred from action horizon or default chunk len like 50. Let's infer chunk len from delta indices if possible, or just deduce it from array size.
         chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
 
         states = {}
-        state_parts = []
-        left_arm_state = None
-        right_arm_state = None
+        actions = {}
 
-        if "obs/positions/core" in main_row:
-            arr = np.array(main_row["obs/positions/core"], dtype=np.float32)
-            if len(arr) % chunk_len == 0 and len(arr) > chunk_len:
-                arr = arr.reshape(chunk_len, -1)
-            elif len(arr) % 50 == 0 and len(arr) > 50:
-                arr = arr.reshape(50, -1)
-            # If it's a humanoid core (e.g. 29 motors), skip first 15 (legs/waist)
-            if arr.shape[-1] >= 29:
-                arms = arr[..., 15:]
-                # Arms are 14 joints (7 left, 7 right)
-                left_arm_state = arms[..., :7]
-                right_arm_state = arms[..., 7:14]
-                arr = arms
-            state_parts.append(arr)
+        # 1. Core Arms
+        s_core_col = "obs/positions/core"
+        a_core_col = "action/q_target/core"
+        left_arm_state, right_arm_state = None, None
+        left_arm_action, right_arm_action = None, None
 
+        if s_core_col in main_row:
+            arr = np.array(main_row[s_core_col], dtype=np.float32)
+            if len(arr) % chunk_len == 0 and len(arr) > chunk_len: arr = arr.reshape(chunk_len, -1)
+            elif len(arr) % 50 == 0 and len(arr) > 50: arr = arr.reshape(50, -1)
+
+            if len(arr.shape) >= 2 and arr.shape[-1] >= 29:
+                left_arm_state = arr[..., 15:22]
+                right_arm_state = arr[..., 22:29]
+                arr = arr[..., 15:29]
+            elif len(arr.shape) == 1 and arr.shape[0] >= 29:
+                left_arm_state = arr[..., 15:22]
+                right_arm_state = arr[..., 22:29]
+                arr = arr[..., 15:29]
+
+            state_keys = self.modality_configs.get("state", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
+            for key in state_keys:
+                if key not in ["left_gripper", "right_gripper", "left_eef_9d", "right_eef_9d"]:
+                    states[key] = arr
+
+        if a_core_col in main_row:
+            arr = np.array(main_row[a_core_col], dtype=np.float32)
+            if len(arr) % chunk_len == 0 and len(arr) > chunk_len: arr = arr.reshape(chunk_len, -1)
+            elif len(arr) % 50 == 0 and len(arr) > 50: arr = arr.reshape(50, -1)
+
+            if len(arr.shape) >= 2 and arr.shape[-1] >= 29:
+                left_arm_action = arr[..., 15:22]
+                right_arm_action = arr[..., 22:29]
+                arr = arr[..., 15:29]
+            elif len(arr.shape) == 1 and arr.shape[0] >= 29:
+                left_arm_action = arr[..., 15:22]
+                right_arm_action = arr[..., 22:29]
+                arr = arr[..., 15:29]
+
+            if s_core_col in main_row:
+                s_arr = np.array(main_row[s_core_col], dtype=np.float32)
+                if len(s_arr) % chunk_len == 0 and len(s_arr) > chunk_len: s_arr = s_arr.reshape(chunk_len, -1)
+                elif len(s_arr) % 50 == 0 and len(s_arr) > 50: s_arr = s_arr.reshape(50, -1)
+                if len(s_arr.shape) >= 2 and s_arr.shape[-1] >= 29: s_arr = s_arr[..., 15:29]
+                elif len(s_arr.shape) == 1 and s_arr.shape[0] >= 29: s_arr = s_arr[..., 15:29]
+                arr = arr - s_arr
+
+            action_keys = self.modality_configs.get("action", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
+            for key in action_keys:
+                if key not in ["left_gripper", "right_gripper", "left_eef_9d", "right_eef_9d"]:
+                    actions[key] = arr
+
+        # 2. EEF (from arms)
         if self.g1_fk is not None and left_arm_state is not None and right_arm_state is not None:
             if left_arm_state.ndim == 2:
-                left_eef, right_eef = self.g1_fk.compute_eef_9d_batch(left_arm_state, right_arm_state)
+                s_l_eef, s_r_eef = self.g1_fk.compute_eef_9d_batch(left_arm_state, right_arm_state)
             else:
-                left_eef_single, right_eef_single = self.g1_fk.compute_eef_9d(left_arm_state, right_arm_state)
-                left_eef = np.expand_dims(left_eef_single, 0)
-                right_eef = np.expand_dims(right_eef_single, 0)
-            states["left_eef_9d"] = left_eef
-            states["right_eef_9d"] = right_eef
-
-        for hand in ["left_hand", "right_hand"]:
-            col = f"obs/positions/{hand}"
-            if col in main_row:
-                arr = np.array(main_row[col], dtype=np.float32)
-                if len(arr) % chunk_len == 0 and len(arr) > chunk_len:
-                    arr = arr.reshape(chunk_len, -1)
-                elif len(arr) % 50 == 0 and len(arr) > 50:
-                    arr = arr.reshape(50, -1)
-                state_parts.append(arr)
-
-        if len(state_parts) > 0:
-            # We assume modality config expects a single combined state or specific keys
-            # Let's check what the modality config asked for
-            state_keys = self.modality_configs.get("state", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
-            if len(state_keys) == 1:
-                # Concatenate everything into the single state key
-                states[state_keys[0]] = np.concatenate(state_parts, axis=-1)
-            else:
-                # If they mapped them explicitly, we'll try to put it back.
-                # Usually for unified manipulation we just concat them.
-                for key in ["core", "left_hand", "right_hand"]:
-                    if key == "state" or key == "joint_positions":
-                        states[key] = np.concatenate(state_parts, axis=-1)
-
-        actions = {}
-        action_parts = []
-        left_arm_action = None
-        right_arm_action = None
-
-        if "action/q_target/core" in main_row:
-            arr = np.array(main_row["action/q_target/core"], dtype=np.float32)
-            if len(arr) % chunk_len == 0 and len(arr) > chunk_len:
-                arr = arr.reshape(chunk_len, -1)
-            elif len(arr) % 50 == 0 and len(arr) > 50:
-                arr = arr.reshape(50, -1)
-            if arr.shape[-1] >= 29:
-                arms = arr[..., 15:]
-                left_arm_action = arms[..., :7]
-                right_arm_action = arms[..., 7:14]
-                arr = arms
-
-            # Compute Delta Actions for joints
-            if "obs/positions/core" in main_row:
-                state_arr = np.array(main_row["obs/positions/core"], dtype=np.float32)
-                if len(state_arr) % chunk_len == 0 and len(state_arr) > chunk_len:
-                    state_arr = state_arr.reshape(chunk_len, -1)
-                elif len(state_arr) % 50 == 0 and len(state_arr) > 50:
-                    state_arr = state_arr.reshape(50, -1)
-                if state_arr.shape[-1] >= 29:
-                    state_arms = state_arr[..., 15:]
-                    arr = arr - state_arms
-                else:
-                    arr = arr - state_arr
-
-            action_parts.append(arr)
+                sl, sr = self.g1_fk.compute_eef_9d(left_arm_state, right_arm_state)
+                s_l_eef, s_r_eef = np.expand_dims(sl, 0), np.expand_dims(sr, 0)
+            states["left_eef_9d"] = s_l_eef
+            states["right_eef_9d"] = s_r_eef
 
         if self.g1_fk is not None and left_arm_action is not None and right_arm_action is not None:
             if left_arm_action.ndim == 2:
-                left_eef, right_eef = self.g1_fk.compute_eef_9d_batch(left_arm_action, right_arm_action)
+                a_l_eef, a_r_eef = self.g1_fk.compute_eef_9d_batch(left_arm_action, right_arm_action)
             else:
-                left_eef_single, right_eef_single = self.g1_fk.compute_eef_9d(left_arm_action, right_arm_action)
-                left_eef = np.expand_dims(left_eef_single, 0)
-                right_eef = np.expand_dims(right_eef_single, 0)
+                al, ar = self.g1_fk.compute_eef_9d(left_arm_action, right_arm_action)
+                a_l_eef, a_r_eef = np.expand_dims(al, 0), np.expand_dims(ar, 0)
+            actions["left_eef_9d"] = a_l_eef
+            actions["right_eef_9d"] = a_r_eef
 
-            # For EEF poses, we return the absolute EEF poses and let the Processor/Config handle delta transformation,
-            # OR compute delta EEF if required. Usually EEF deltas are handled by `RelativeActionLoader` or processor,
-            # but joints specifically need this per user instruction.
-            actions["left_eef_9d"] = left_eef
-            actions["right_eef_9d"] = right_eef
-
+        # 3. Grippers (independent)
         for hand in ["left_hand", "right_hand"]:
-            col = f"action/q_target/{hand}"
-            if col in main_row:
-                arr = np.array(main_row[col], dtype=np.float32)
-                if len(arr) % chunk_len == 0 and len(arr) > chunk_len:
-                    arr = arr.reshape(chunk_len, -1)
-                elif len(arr) % 50 == 0 and len(arr) > 50:
-                    arr = arr.reshape(50, -1)
+            s_col = f"obs/positions/{hand}"
+            a_col = f"action/q_target/{hand}"
+            g_key = "left_gripper" if hand == "left_hand" else "right_gripper"
 
-                # Compute Delta for hands
-                state_col = f"obs/positions/{hand}"
-                if state_col in main_row:
-                    state_arr = np.array(main_row[state_col], dtype=np.float32)
-                    if len(state_arr) % chunk_len == 0 and len(state_arr) > chunk_len:
-                        state_arr = state_arr.reshape(chunk_len, -1)
-                    elif len(state_arr) % 50 == 0 and len(state_arr) > 50:
-                        state_arr = state_arr.reshape(50, -1)
-                    arr = arr - state_arr
+            s_arr = None
+            if s_col in main_row:
+                s_arr = np.array(main_row[s_col], dtype=np.float32)
+                if len(s_arr) % chunk_len == 0 and len(s_arr) > chunk_len: s_arr = s_arr.reshape(chunk_len, -1)
+                elif len(s_arr) % 50 == 0 and len(s_arr) > 50: s_arr = s_arr.reshape(50, -1)
+                states[g_key] = s_arr
 
-                action_parts.append(arr)
+            if a_col in main_row:
+                a_arr = np.array(main_row[a_col], dtype=np.float32)
+                if len(a_arr) % chunk_len == 0 and len(a_arr) > chunk_len: a_arr = a_arr.reshape(chunk_len, -1)
+                elif len(a_arr) % 50 == 0 and len(a_arr) > 50: a_arr = a_arr.reshape(50, -1)
+                if s_arr is not None:
+                    a_arr = a_arr - s_arr
+                actions[g_key] = a_arr
 
-        if len(action_parts) > 0:
-            action_keys = self.modality_configs.get("action", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
-            if len(action_keys) == 1:
-                actions[action_keys[0]] = np.concatenate(action_parts, axis=-1)
-            else:
-                for key in ["core", "left_hand", "right_hand"]:
-                    if key == "action" or key == "joint_velocities" or key == "joint_positions":
-                        actions[key] = np.concatenate(action_parts, axis=-1)
-
-        # create step data
         vla_step_data = VLAStepData(
             images=video_data,
             states=states,
@@ -340,229 +327,150 @@ class ShardedLanceDataset(ShardedDataset):
         return self.processor(messages)
 
 
+
+
     def get_dataset_statistics(self) -> dict:
-        """
-        Compute normalization stats on a rolling basis by streaming chunks.
-        We sample a subset of rows to calculate statistics efficiently to avoid OOM.
-        """
-        if hasattr(self, "_cached_stats"):
-            return self._cached_stats
+        if hasattr(self, "_cached_stats"): return self._cached_stats
 
         import pyarrow.compute as pc
         from collections import defaultdict
+        import random
 
-        print("Computing statistics from Lance dataset chunks...")
-
-        # Determine columns to query for stats
         state_keys = self.modality_configs.get("state", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
         action_keys = self.modality_configs.get("action", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
-
-        if not state_keys and not action_keys:
-            self._cached_stats = {}
-            return self._cached_stats
 
         cols_to_load = []
         for key in ["core", "left_hand", "right_hand"]:
             cols_to_load.append(f"obs/positions/{key}")
             cols_to_load.append(f"action/q_target/{key}")
 
-        # Optional: Instead of scanning everything, we limit to the first N rows from curated
-        # We can just use the sampled shards we already have in self.sharded_rows
-        # Flatten all sampled rows
         all_sampled_rows = []
-        for rows in self.sharded_rows:
-            all_sampled_rows.extend(rows)
+        for rows in self.sharded_rows: all_sampled_rows.extend(rows)
 
-        # For stats, computing over say 5,000 to 10,000 chunks is usually enough
         max_stat_samples = 5000
-        if len(all_sampled_rows) > max_stat_samples:
-            sampled_for_stats = self.rng.choice(all_sampled_rows, max_stat_samples, replace=False)
-        else:
-            sampled_for_stats = all_sampled_rows
+        if len(all_sampled_rows) > max_stat_samples: sampled_for_stats = random.sample(all_sampled_rows, max_stat_samples)
+        else: sampled_for_stats = all_sampled_rows
 
-        if len(sampled_for_stats) == 0:
-            return {}
-
-        ep_uuids = [row["episode_uuid"] for row in sampled_for_stats]
-        chunks = [row["chunk_in_episode"] for row in sampled_for_stats]
+        if len(sampled_for_stats) == 0: return {}
 
         all_state_data = defaultdict(list)
         all_action_data = defaultdict(list)
 
-        # Read each sampled row iteratively to avoid loading entire episodes into memory (OOM)
         for row in sampled_for_stats:
             ep_uuid = row["episode_uuid"]
             chunk = row["chunk_in_episode"]
+            ep_uuid_val = self._coerce_uuid_to_bytes(ep_uuid)
 
-            if isinstance(ep_uuid, bytes):
-                ep_uuid_val = ep_uuid
-            else:
-                ep_uuid_val = ep_uuid
-
-            scanner = self.main_ds.scanner(
-                columns=cols_to_load,
-                filter=(pc.field("episode_uuid") == ep_uuid_val) & (pc.field("chunk_in_episode") == chunk)
-            )
+            scanner = self.main_ds.scanner(columns=cols_to_load, filter=f"chunk_in_episode = {chunk}")
             table = scanner.to_table()
+
             if table.num_rows > 0:
-                df = table.to_pandas()
-                for key in ["core", "left_hand", "right_hand"]:
-                    col = f"obs/positions/{key}"
-                    if col in df.columns:
-                        arr = df[col].iloc[0]
-                        if arr is not None:
-                            all_state_data[key].append(np.array(arr, dtype=np.float32))
+                ep_uuids_col = table.column("episode_uuid").to_pylist()
+                matched_idx = -1
+                for idx_t, val in enumerate(ep_uuids_col):
+                    if self._coerce_uuid_to_bytes(val) == ep_uuid_val:
+                        matched_idx = idx_t
+                        break
 
-                for key in ["core", "left_hand", "right_hand"]:
-                    col = f"action/q_target/{key}"
-                    if col in df.columns:
-                        arr = df[col].iloc[0]
-                        if arr is not None:
-                            all_action_data[key].append(np.array(arr, dtype=np.float32))
+                if matched_idx >= 0:
+                    df = table.to_pandas().iloc[matched_idx]
 
-        # Calculate statistics
+                    s_core_col, a_core_col = "obs/positions/core", "action/q_target/core"
+                    if s_core_col in df.index and a_core_col in df.index:
+                        s_core, a_core = df[s_core_col], df[a_core_col]
+                        if s_core is not None and a_core is not None and len(s_core) > 0 and len(a_core) > 0:
+                            s_arr = np.array(s_core, dtype=np.float32)
+                            a_arr = np.array(a_core, dtype=np.float32)
+
+                            chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
+                            if len(s_arr) % chunk_len == 0 and len(s_arr) > chunk_len: s_arr = s_arr.reshape(chunk_len, -1)
+                            elif len(s_arr) % 50 == 0 and len(s_arr) > 50: s_arr = s_arr.reshape(50, -1)
+                            if len(a_arr) % chunk_len == 0 and len(a_arr) > chunk_len: a_arr = a_arr.reshape(chunk_len, -1)
+                            elif len(a_arr) % 50 == 0 and len(a_arr) > 50: a_arr = a_arr.reshape(50, -1)
+
+                            s_la, s_ra, a_la, a_ra = None, None, None, None
+
+                            if len(s_arr.shape) >= 2 and s_arr.shape[-1] >= 29:
+                                s_la, s_ra = s_arr[..., 15:22], s_arr[..., 22:29]
+                                s_arr = s_arr[..., 15:29]
+                            elif len(s_arr.shape) == 1 and s_arr.shape[0] >= 29:
+                                s_la, s_ra = s_arr[..., 15:22], s_arr[..., 22:29]
+                                s_arr = s_arr[..., 15:29]
+
+                            if len(a_arr.shape) >= 2 and a_arr.shape[-1] >= 29:
+                                a_la, a_ra = a_arr[..., 15:22], a_arr[..., 22:29]
+                                a_arr = a_arr[..., 15:29]
+                            elif len(a_arr.shape) == 1 and a_arr.shape[0] >= 29:
+                                a_la, a_ra = a_arr[..., 15:22], a_arr[..., 22:29]
+                                a_arr = a_arr[..., 15:29]
+
+                            if self.g1_fk is not None and s_la is not None and s_ra is not None and a_la is not None and a_ra is not None:
+                                if s_la.ndim == 2:
+                                    s_le, s_re = self.g1_fk.compute_eef_9d_batch(s_la, s_ra)
+                                    a_le, a_re = self.g1_fk.compute_eef_9d_batch(a_la, a_ra)
+                                else:
+                                    s_le, s_re = self.g1_fk.compute_eef_9d(s_la, s_ra)
+                                    a_le, a_re = self.g1_fk.compute_eef_9d(a_la, a_ra)
+                                    s_le, s_re = np.expand_dims(s_le, 0), np.expand_dims(s_re, 0)
+                                    a_le, a_re = np.expand_dims(a_le, 0), np.expand_dims(a_re, 0)
+
+                                all_state_data["left_eef_9d"].append(s_le)
+                                all_state_data["right_eef_9d"].append(s_re)
+                                all_action_data["left_eef_9d"].append(a_le)
+                                all_action_data["right_eef_9d"].append(a_re)
+
+                            all_state_data["core"].append(s_arr)
+                            all_action_data["core"].append(a_arr - s_arr)
+
+                    for hand in ["left_hand", "right_hand"]:
+                        s_col, a_col = f"obs/positions/{hand}", f"action/q_target/{hand}"
+                        g_key = "left_gripper" if hand == "left_hand" else "right_gripper"
+
+                        if s_col in df.index and a_col in df.index:
+                            s_arr, a_arr = df[s_col], df[a_col]
+                            if s_arr is not None and a_arr is not None and len(s_arr) > 0 and len(a_arr) > 0:
+                                s_h = np.array(s_arr, dtype=np.float32)
+                                a_h = np.array(a_arr, dtype=np.float32)
+
+                                chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
+                                if len(s_h) % chunk_len == 0 and len(s_h) > chunk_len: s_h = s_h.reshape(chunk_len, -1)
+                                elif len(s_h) % 50 == 0 and len(s_h) > 50: s_h = s_h.reshape(50, -1)
+                                if len(a_h) % chunk_len == 0 and len(a_h) > chunk_len: a_h = a_h.reshape(chunk_len, -1)
+                                elif len(a_h) % 50 == 0 and len(a_h) > 50: a_h = a_h.reshape(50, -1)
+
+                                all_state_data[g_key].append(s_h)
+                                all_action_data[g_key].append(a_h - s_h)
+
         stats = {"state": defaultdict(dict), "action": defaultdict(dict)}
 
-        # We need to apply the exact same slicing to the statistics
-        state_parts_all = []
-        action_parts_all = []
+        for k in ["core", "left_gripper", "right_gripper", "left_eef_9d", "right_eef_9d"]:
+            if k in all_state_data and len(all_state_data[k]) > 0:
+                s_c = np.concatenate(all_state_data[k], axis=0)
+                a_c = np.concatenate(all_action_data[k], axis=0)
+                if s_c.ndim == 1:
+                    s_c = s_c.reshape(-1, s_c.shape[-1] if len(s_c.shape) > 1 else s_c.size)
+                    a_c = a_c.reshape(-1, a_c.shape[-1] if len(a_c.shape) > 1 else a_c.size)
 
-        # Process states
-        if "core" in all_state_data:
-            arr_list = all_state_data["core"]
-            concat_data = np.concatenate(arr_list, axis=0)
-            first_valid = next(arr for arr in arr_list if len(arr) > 0)
-            chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
-            if len(first_valid) % chunk_len == 0:
-                joint_dim = len(first_valid) // chunk_len
-                concat_data = concat_data.reshape(-1, joint_dim)
-            elif len(first_valid) % 50 == 0:
-                joint_dim = len(first_valid) // 50
-                concat_data = concat_data.reshape(-1, joint_dim)
-            else:
-                if concat_data.ndim == 1:
-                    concat_data = concat_data.reshape(-1, 1)
+                target_k_s = [sk for sk in state_keys if sk not in ["left_gripper", "right_gripper", "left_eef_9d", "right_eef_9d"]] if k == "core" else [k]
+                target_k_a = [ak for ak in action_keys if ak not in ["left_gripper", "right_gripper", "left_eef_9d", "right_eef_9d"]] if k == "core" else [k]
 
-            if concat_data.shape[-1] >= 29:
-                concat_data = concat_data[..., 15:]
-            state_parts_all.append(concat_data)
-        for hand in ["left_hand", "right_hand"]:
-            if hand in all_state_data:
-                arr_list = all_state_data[hand]
-                concat_data = np.concatenate(arr_list, axis=0)
-                first_valid = next(arr for arr in arr_list if len(arr) > 0)
-                chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
-                if len(first_valid) % chunk_len == 0:
-                    joint_dim = len(first_valid) // chunk_len
-                    concat_data = concat_data.reshape(-1, joint_dim)
-                elif len(first_valid) % 50 == 0:
-                    joint_dim = len(first_valid) // 50
-                    concat_data = concat_data.reshape(-1, joint_dim)
-                else:
-                    if concat_data.ndim == 1:
-                        concat_data = concat_data.reshape(-1, 1)
-                state_parts_all.append(concat_data)
+                for tk in target_k_s:
+                    stats["state"][tk]["mean"] = np.mean(s_c, axis=0).tolist()
+                    stats["state"][tk]["std"] = np.std(s_c, axis=0).tolist()
+                    stats["state"][tk]["min"] = np.min(s_c, axis=0).tolist()
+                    stats["state"][tk]["max"] = np.max(s_c, axis=0).tolist()
+                    stats["state"][tk]["q01"] = np.quantile(s_c, 0.01, axis=0).tolist()
+                    stats["state"][tk]["q99"] = np.quantile(s_c, 0.99, axis=0).tolist()
 
-        if state_parts_all:
-            final_state = np.concatenate(state_parts_all, axis=-1)
-            for key in state_keys:
-                stats["state"][key]["mean"] = np.mean(final_state, axis=0).tolist()
-                stats["state"][key]["std"] = np.std(final_state, axis=0).tolist()
-                stats["state"][key]["min"] = np.min(final_state, axis=0).tolist()
-                stats["state"][key]["max"] = np.max(final_state, axis=0).tolist()
-                stats["state"][key]["q01"] = np.quantile(final_state, 0.01, axis=0).tolist()
-                stats["state"][key]["q99"] = np.quantile(final_state, 0.99, axis=0).tolist()
+                for tk in target_k_a:
+                    stats["action"][tk]["mean"] = np.mean(a_c, axis=0).tolist()
+                    stats["action"][tk]["std"] = np.std(a_c, axis=0).tolist()
+                    stats["action"][tk]["min"] = np.min(a_c, axis=0).tolist()
+                    stats["action"][tk]["max"] = np.max(a_c, axis=0).tolist()
+                    stats["action"][tk]["q01"] = np.quantile(a_c, 0.01, axis=0).tolist()
+                    stats["action"][tk]["q99"] = np.quantile(a_c, 0.99, axis=0).tolist()
 
-        # Process actions (need to compute deltas by subtracting states)
-        if "core" in all_action_data:
-            arr_list = all_action_data["core"]
-            state_list = all_state_data.get("core", [])
-            concat_data = np.concatenate(arr_list, axis=0)
-
-            first_valid = next(arr for arr in arr_list if len(arr) > 0)
-            chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
-            if len(first_valid) % chunk_len == 0:
-                joint_dim = len(first_valid) // chunk_len
-                concat_data = concat_data.reshape(-1, joint_dim)
-            elif len(first_valid) % 50 == 0:
-                joint_dim = len(first_valid) // 50
-                concat_data = concat_data.reshape(-1, joint_dim)
-            else:
-                if concat_data.ndim == 1:
-                    concat_data = concat_data.reshape(-1, 1)
-
-            if concat_data.shape[-1] >= 29:
-                concat_data = concat_data[..., 15:]
-
-            # Delta Subtraction
-            if state_list:
-                state_concat = np.concatenate(state_list, axis=0)
-                if state_concat.size > 0:
-                    if len(state_list[0]) % chunk_len == 0:
-                        s_dim = len(state_list[0]) // chunk_len
-                        state_concat = state_concat.reshape(-1, s_dim)
-                    elif len(state_list[0]) % 50 == 0:
-                        s_dim = len(state_list[0]) // 50
-                        state_concat = state_concat.reshape(-1, s_dim)
-                    else:
-                        if state_concat.ndim == 1: state_concat = state_concat.reshape(-1, 1)
-
-                    if state_concat.shape[-1] >= 29:
-                        state_concat = state_concat[..., 15:]
-
-                    if state_concat.shape == concat_data.shape:
-                        concat_data = concat_data - state_concat
-
-            action_parts_all.append(concat_data)
-        for hand in ["left_hand", "right_hand"]:
-            if hand in all_action_data:
-                arr_list = all_action_data[hand]
-                state_list = all_state_data.get(hand, [])
-                concat_data = np.concatenate(arr_list, axis=0)
-
-                first_valid = next(arr for arr in arr_list if len(arr) > 0)
-                chunk_len = len(self.action_delta_indices) if len(self.action_delta_indices) > 0 else 50
-                if len(first_valid) % chunk_len == 0:
-                    joint_dim = len(first_valid) // chunk_len
-                    concat_data = concat_data.reshape(-1, joint_dim)
-                elif len(first_valid) % 50 == 0:
-                    joint_dim = len(first_valid) // 50
-                    concat_data = concat_data.reshape(-1, joint_dim)
-                else:
-                    if concat_data.ndim == 1:
-                        concat_data = concat_data.reshape(-1, 1)
-
-                # Delta Subtraction
-                if state_list:
-                    state_concat = np.concatenate(state_list, axis=0)
-                    if state_concat.size > 0:
-                        if len(state_list[0]) % chunk_len == 0:
-                            s_dim = len(state_list[0]) // chunk_len
-                            state_concat = state_concat.reshape(-1, s_dim)
-                        elif len(state_list[0]) % 50 == 0:
-                            s_dim = len(state_list[0]) // 50
-                            state_concat = state_concat.reshape(-1, s_dim)
-                        else:
-                            if state_concat.ndim == 1: state_concat = state_concat.reshape(-1, 1)
-
-                        if state_concat.shape == concat_data.shape:
-                            concat_data = concat_data - state_concat
-
-                action_parts_all.append(concat_data)
-
-        if action_parts_all:
-            final_action = np.concatenate(action_parts_all, axis=-1)
-            for key in action_keys:
-                stats["action"][key]["mean"] = np.mean(final_action, axis=0).tolist()
-                stats["action"][key]["std"] = np.std(final_action, axis=0).tolist()
-                stats["action"][key]["min"] = np.min(final_action, axis=0).tolist()
-                stats["action"][key]["max"] = np.max(final_action, axis=0).tolist()
-                stats["action"][key]["q01"] = np.quantile(final_action, 0.01, axis=0).tolist()
-                stats["action"][key]["q99"] = np.quantile(final_action, 0.99, axis=0).tolist()
-
-        # Convert inner defaultdicts to regular dicts
         stats["state"] = dict(stats["state"])
         stats["action"] = dict(stats["action"])
-
         self._cached_stats = dict(stats)
         return self._cached_stats
