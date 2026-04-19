@@ -222,12 +222,20 @@ class ShardedLanceDataset(ShardedDataset):
         states = {}
         actions = {}
 
-        # 1. Core Arms
-        s_core_col = "obs/positions/core"
-        a_core_col = "action/q_target/core"
+
+        # 1. Gather all individual components
+        s_core_col, a_core_col = "obs/positions/core", "action/q_target/core"
+        s_l_col, a_l_col = "obs/positions/left_hand", "action/q_target/left_hand"
+        s_r_col, a_r_col = "obs/positions/right_hand", "action/q_target/right_hand"
+
         left_arm_state, right_arm_state = None, None
         left_arm_action, right_arm_action = None, None
 
+        s_arms, a_arms_delta = None, None
+        s_l_hand, a_l_hand = None, None
+        s_r_hand, a_r_hand = None, None
+
+        # Parse Core Arms
         if s_core_col in main_row:
             arr = np.array(main_row[s_core_col], dtype=np.float32)
             if len(arr) % chunk_len == 0 and len(arr) > chunk_len: arr = arr.reshape(chunk_len, -1)
@@ -236,16 +244,11 @@ class ShardedLanceDataset(ShardedDataset):
             if len(arr.shape) >= 2 and arr.shape[-1] >= 29:
                 left_arm_state = arr[..., 15:22]
                 right_arm_state = arr[..., 22:29]
-                arr = arr[..., 15:29]
+                s_arms = arr[..., 15:29]
             elif len(arr.shape) == 1 and arr.shape[0] >= 29:
                 left_arm_state = arr[..., 15:22]
                 right_arm_state = arr[..., 22:29]
-                arr = arr[..., 15:29]
-
-            state_keys = self.modality_configs.get("state", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
-            for key in state_keys:
-                if key not in ["left_gripper", "right_gripper", "left_eef_9d", "right_eef_9d"]:
-                    states[key] = arr
+                s_arms = arr[..., 15:29]
 
         if a_core_col in main_row:
             arr = np.array(main_row[a_core_col], dtype=np.float32)
@@ -255,26 +258,77 @@ class ShardedLanceDataset(ShardedDataset):
             if len(arr.shape) >= 2 and arr.shape[-1] >= 29:
                 left_arm_action = arr[..., 15:22]
                 right_arm_action = arr[..., 22:29]
-                arr = arr[..., 15:29]
+                a_arms = arr[..., 15:29]
             elif len(arr.shape) == 1 and arr.shape[0] >= 29:
                 left_arm_action = arr[..., 15:22]
                 right_arm_action = arr[..., 22:29]
-                arr = arr[..., 15:29]
+                a_arms = arr[..., 15:29]
 
-            if s_core_col in main_row:
-                s_arr = np.array(main_row[s_core_col], dtype=np.float32)
-                if len(s_arr) % chunk_len == 0 and len(s_arr) > chunk_len: s_arr = s_arr.reshape(chunk_len, -1)
-                elif len(s_arr) % 50 == 0 and len(s_arr) > 50: s_arr = s_arr.reshape(50, -1)
-                if len(s_arr.shape) >= 2 and s_arr.shape[-1] >= 29: s_arr = s_arr[..., 15:29]
-                elif len(s_arr.shape) == 1 and s_arr.shape[0] >= 29: s_arr = s_arr[..., 15:29]
-                arr = arr - s_arr
+            if s_arms is not None:
+                a_arms_delta = a_arms - s_arms
 
-            action_keys = self.modality_configs.get("action", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
+        # Parse Left Hand (Gripper) - Binarized, No Deltas
+        if s_l_col in main_row:
+            arr = np.array(main_row[s_l_col], dtype=np.float32)
+            if len(arr) % chunk_len == 0 and len(arr) > chunk_len: arr = arr.reshape(chunk_len, -1)
+            elif len(arr) % 50 == 0 and len(arr) > 50: arr = arr.reshape(50, -1)
+            s_l_hand = np.where(arr < 0.5, 0.0, 1.0).astype(np.float32)
+
+        if a_l_col in main_row:
+            arr = np.array(main_row[a_l_col], dtype=np.float32)
+            if len(arr) % chunk_len == 0 and len(arr) > chunk_len: arr = arr.reshape(chunk_len, -1)
+            elif len(arr) % 50 == 0 and len(arr) > 50: arr = arr.reshape(50, -1)
+            a_l_hand = np.where(arr < 0.5, 0.0, 1.0).astype(np.float32)
+
+        # Parse Right Hand (Gripper) - Binarized, No Deltas
+        if s_r_col in main_row:
+            arr = np.array(main_row[s_r_col], dtype=np.float32)
+            if len(arr) % chunk_len == 0 and len(arr) > chunk_len: arr = arr.reshape(chunk_len, -1)
+            elif len(arr) % 50 == 0 and len(arr) > 50: arr = arr.reshape(50, -1)
+            s_r_hand = np.where(arr < 0.5, 0.0, 1.0).astype(np.float32)
+
+        if a_r_col in main_row:
+            arr = np.array(main_row[a_r_col], dtype=np.float32)
+            if len(arr) % chunk_len == 0 and len(arr) > chunk_len: arr = arr.reshape(chunk_len, -1)
+            elif len(arr) % 50 == 0 and len(arr) > 50: arr = arr.reshape(50, -1)
+            a_r_hand = np.where(arr < 0.5, 0.0, 1.0).astype(np.float32)
+
+        # 2. Concatenate into Unified Arrays
+        s_unified, a_unified = None, None
+        if s_arms is not None and s_l_hand is not None and s_r_hand is not None:
+            if s_arms.ndim == s_l_hand.ndim == s_r_hand.ndim:
+                s_unified = np.concatenate([s_arms, s_l_hand, s_r_hand], axis=-1)
+            elif s_arms.ndim == 1 and s_l_hand.ndim == 1 and s_r_hand.ndim == 1:
+                s_unified = np.concatenate([s_arms, s_l_hand, s_r_hand], axis=-1)
+            else:
+                s_unified = s_arms
+        elif s_arms is not None:
+            s_unified = s_arms
+
+        if a_arms_delta is not None and a_l_hand is not None and a_r_hand is not None:
+            if a_arms_delta.ndim == a_l_hand.ndim == a_r_hand.ndim:
+                a_unified = np.concatenate([a_arms_delta, a_l_hand, a_r_hand], axis=-1)
+            elif a_arms_delta.ndim == 1 and a_l_hand.ndim == 1 and a_r_hand.ndim == 1:
+                a_unified = np.concatenate([a_arms_delta, a_l_hand, a_r_hand], axis=-1)
+            else:
+                a_unified = a_arms_delta
+        elif a_arms_delta is not None:
+            a_unified = a_arms_delta
+
+        state_keys = self.modality_configs.get("state", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
+        action_keys = self.modality_configs.get("action", ModalityConfig(delta_indices=[], modality_keys=[])).modality_keys
+
+        if s_unified is not None:
+            for key in state_keys:
+                if key not in ["left_eef_9d", "right_eef_9d"]:
+                    states[key] = s_unified
+
+        if a_unified is not None:
             for key in action_keys:
-                if key not in ["left_gripper", "right_gripper", "left_eef_9d", "right_eef_9d"]:
-                    actions[key] = arr
+                if key not in ["left_eef_9d", "right_eef_9d"]:
+                    actions[key] = a_unified
 
-        # 2. EEF (from arms)
+        # 3. EEF (from arms)
         if self.g1_fk is not None and left_arm_state is not None and right_arm_state is not None:
             if left_arm_state.ndim == 2:
                 s_l_eef, s_r_eef = self.g1_fk.compute_eef_9d_batch(left_arm_state, right_arm_state)
@@ -293,26 +347,6 @@ class ShardedLanceDataset(ShardedDataset):
             actions["left_eef_9d"] = a_l_eef
             actions["right_eef_9d"] = a_r_eef
 
-        # 3. Grippers (independent)
-        for hand in ["left_hand", "right_hand"]:
-            s_col = f"obs/positions/{hand}"
-            a_col = f"action/q_target/{hand}"
-            g_key = "left_gripper" if hand == "left_hand" else "right_gripper"
-
-            s_arr = None
-            if s_col in main_row:
-                s_arr = np.array(main_row[s_col], dtype=np.float32)
-                if len(s_arr) % chunk_len == 0 and len(s_arr) > chunk_len: s_arr = s_arr.reshape(chunk_len, -1)
-                elif len(s_arr) % 50 == 0 and len(s_arr) > 50: s_arr = s_arr.reshape(50, -1)
-                states[g_key] = s_arr
-
-            if a_col in main_row:
-                a_arr = np.array(main_row[a_col], dtype=np.float32)
-                if len(a_arr) % chunk_len == 0 and len(a_arr) > chunk_len: a_arr = a_arr.reshape(chunk_len, -1)
-                elif len(a_arr) % 50 == 0 and len(a_arr) > 50: a_arr = a_arr.reshape(50, -1)
-                if s_arr is not None:
-                    a_arr = a_arr - s_arr
-                actions[g_key] = a_arr
 
         vla_step_data = VLAStepData(
             images=video_data,
@@ -438,12 +472,56 @@ class ShardedLanceDataset(ShardedDataset):
                                 if len(a_h) % chunk_len == 0 and len(a_h) > chunk_len: a_h = a_h.reshape(chunk_len, -1)
                                 elif len(a_h) % 50 == 0 and len(a_h) > 50: a_h = a_h.reshape(50, -1)
 
+                                # Binarize gripper states: < 0.5 -> 0.0, else 1.0
+                                s_h = np.where(s_h < 0.5, 0.0, 1.0).astype(np.float32)
+                                # Grippers remain absolute, binarized actions
+                                a_h = np.where(a_h < 0.5, 0.0, 1.0).astype(np.float32)
+
                                 all_state_data[g_key].append(s_h)
-                                all_action_data[g_key].append(a_h - s_h)
+                                all_action_data[g_key].append(a_h)
 
         stats = {"state": defaultdict(dict), "action": defaultdict(dict)}
 
-        for k in ["core", "left_gripper", "right_gripper", "left_eef_9d", "right_eef_9d"]:
+        # We need to construct the unified "state" arrays (core + left_gripper + right_gripper) because the model expects them concatenated
+        # To avoid misaligned concatenation, we iterate over zip lengths if all exist.
+        if "core" in all_state_data and "left_gripper" in all_state_data and "right_gripper" in all_state_data:
+            # Reconstruct unified arrays correctly for each chunk
+            s_c_list, a_c_list = [], []
+            for i in range(len(all_state_data["core"])):
+                s_c = all_state_data["core"][i]
+                s_l = all_state_data["left_gripper"][i] if i < len(all_state_data["left_gripper"]) else None
+                s_r = all_state_data["right_gripper"][i] if i < len(all_state_data["right_gripper"]) else None
+
+                a_c = all_action_data["core"][i]
+                a_l = all_action_data["left_gripper"][i] if i < len(all_action_data["left_gripper"]) else None
+                a_r = all_action_data["right_gripper"][i] if i < len(all_action_data["right_gripper"]) else None
+
+                if s_l is not None and s_r is not None and a_l is not None and a_r is not None:
+                    # They all exist for this row, concatenate them.
+                    # Core arms + Left Gripper + Right Gripper
+                    if s_c.ndim == s_l.ndim == s_r.ndim:
+                        s_c_list.append(np.concatenate([s_c, s_l, s_r], axis=-1))
+                        a_c_list.append(np.concatenate([a_c, a_l, a_r], axis=-1))
+                    elif s_c.ndim == 1 and s_l.ndim == 1 and s_r.ndim == 1:
+                        s_c_list.append(np.concatenate([s_c, s_l, s_r], axis=-1))
+                        a_c_list.append(np.concatenate([a_c, a_l, a_r], axis=-1))
+                    else:
+                        s_c_list.append(s_c)
+                        a_c_list.append(a_c)
+                else:
+                    # Fallback to core only if grippers are missing in some extremely rare chunk
+                    s_c_list.append(s_c)
+                    a_c_list.append(a_c)
+
+            all_state_data["unified"] = s_c_list
+            all_action_data["unified"] = a_c_list
+        else:
+            if "core" in all_state_data:
+                all_state_data["unified"] = all_state_data["core"]
+                all_action_data["unified"] = all_action_data["core"]
+
+
+        for k in ["unified", "left_eef_9d", "right_eef_9d"]:
             if k in all_state_data and len(all_state_data[k]) > 0:
                 s_c = np.concatenate(all_state_data[k], axis=0)
                 a_c = np.concatenate(all_action_data[k], axis=0)
@@ -451,8 +529,8 @@ class ShardedLanceDataset(ShardedDataset):
                     s_c = s_c.reshape(-1, s_c.shape[-1] if len(s_c.shape) > 1 else s_c.size)
                     a_c = a_c.reshape(-1, a_c.shape[-1] if len(a_c.shape) > 1 else a_c.size)
 
-                target_k_s = [sk for sk in state_keys if sk not in ["left_gripper", "right_gripper", "left_eef_9d", "right_eef_9d"]] if k == "core" else [k]
-                target_k_a = [ak for ak in action_keys if ak not in ["left_gripper", "right_gripper", "left_eef_9d", "right_eef_9d"]] if k == "core" else [k]
+                target_k_s = [sk for sk in state_keys if sk not in ["left_eef_9d", "right_eef_9d"]] if k == "unified" else [k]
+                target_k_a = [ak for ak in action_keys if ak not in ["left_eef_9d", "right_eef_9d"]] if k == "unified" else [k]
 
                 for tk in target_k_s:
                     stats["state"][tk]["mean"] = np.mean(s_c, axis=0).tolist()
