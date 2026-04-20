@@ -110,7 +110,17 @@ GR00T N1.7 builds on N1.6 with a new VLM backbone and code-level improvements.
 
 GR00T relies on submodules for certain dependencies. Include them when cloning:
 
-**Note:** `git-lfs` is **required** to download parquet data files in `/demo_data`. Install it before cloning: `sudo apt install git-lfs && git lfs install`.
+> **Prerequisite:** `git-lfs` is **required** before you clone. Without it, the LFS-tracked wheels under `scripts/deployment/*/wheels/` and the parquet files in `demo_data/` are fetched as text pointer files instead of real binaries, and `uv sync --python 3.10` later fails with errors such as "Invalid zip file structure" when it tries to read one of those pointer files as a `.whl` archive.
+
+Install and initialise `git-lfs` first:
+
+```sh
+sudo apt update && sudo apt install -y git-lfs
+git lfs install
+```
+
+Then clone the repository:
+
 ```sh
 git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T
 cd Isaac-GR00T
@@ -120,6 +130,12 @@ If you've already cloned without submodules, initialize them separately:
 
 ```sh
 git submodule update --init --recursive
+```
+
+If you've already cloned without `git-lfs` installed, install it as above and then pull the actual binaries into your checkout before continuing:
+
+```sh
+git lfs pull
 ```
 
 ### Set Up the Environment
