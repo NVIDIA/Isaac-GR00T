@@ -1,9 +1,6 @@
 # Thor platform pyproject.toml — Jetson AGX Thor (aarch64, CUDA 13, Python 3.12)
 # This is a self-contained config with no platform markers needed.
 
-[tool.uv.workspace]
-members = ["groot_infra"]
-
 [build-system]
 requires = ["setuptools>=67", "wheel", "pip"]
 build-backend = "setuptools.build_meta"

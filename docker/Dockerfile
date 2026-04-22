@@ -48,7 +48,6 @@ WORKDIR /workspace
 
 # Install Python dependencies from lockfile
 COPY pyproject.toml uv.lock ./
-COPY groot_infra/pyproject.toml groot_infra/pyproject.toml
 
 RUN <<EOF
 set -e
@@ -57,8 +56,7 @@ EOF
 
 # Install workspace packages
 COPY . .
-RUN uv pip install --python /workspace/.venv/bin/python -e . --no-deps && \
-    uv pip install --python /workspace/.venv/bin/python -e groot_infra --no-deps
+RUN uv pip install --python /workspace/.venv/bin/python -e . --no-deps
 
 ENV PATH="/workspace/.venv/bin:${PATH}" \
     VIRTUAL_ENV="/workspace/.venv"

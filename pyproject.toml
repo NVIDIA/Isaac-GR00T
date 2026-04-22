@@ -1,8 +1,5 @@
 # Default platform pyproject.toml (x86, GB200, and any non-Jetson GPU)
 
-[tool.uv.workspace]
-members = ["groot_infra"]
-
 [build-system]
 requires = ["setuptools>=67", "wheel", "pip"]
 build-backend = "setuptools.build_meta"
