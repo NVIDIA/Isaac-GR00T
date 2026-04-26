@@ -1,0 +1,22 @@
+train:
+  datasets:
+    - path: /rlwrld-dataset/foundry-dvc/data/gold/teleop-real/V3/224/61-Mouse_Box_Packing-d748af07
+      embodiment_tag: new_embodiment
+      data_config: allex_thetwo_ck40_egostereo
+      weight: 1.0
+    - path: /rlwrld-dataset/foundry-dvc/data/gold/teleop-real/V4/224/61-Mouse_Box_Packing-83f4d663
+      embodiment_tag: new_embodiment
+      data_config: allex_thetwo_ck40_egostereo
+      weight: 1.0
+    - path: /rlwrld-dataset/foundry-dvc/data/gold/teleop-real/V5/224/61-Mouse_Box_Packing-8c0619e7
+      embodiment_tag: new_embodiment
+      data_config: allex_thetwo_ck40_egostereo
+      weight: 1.0
+    - path: /rlwrld-dataset/foundry-dvc/data/gold/teleop-real/V3/224/61-Mouse_Box_Packing-TurkeyIcecream-eaaa928c
+      embodiment_tag: new_embodiment
+      data_config: allex_thetwo_ck40_egostereo
+      weight: 1.0
+    - path: /rlwrld2/home/david/lerobot_data_convert/61-Mouse_Box_Packing-DAgger1-c6d4a15d_david_filter
+      embodiment_tag: new_embodiment
+      data_config: allex_thetwo_ck40_egostereo
+      weight: 1.0

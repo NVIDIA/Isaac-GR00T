@@ -19,12 +19,20 @@ __pycache__/
 # ML / experiment outputs
 wandb/
 outputs/
+output/
 logs/
 runs/
 out/
 recordings/
 plots/
 *.npz
+*.safetensors
+*.pt
+*.bin
+checkpoint-*/
+
+# Stray notes
+Untitled
 
 # C extensions
 *.so

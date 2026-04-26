@@ -28,7 +28,9 @@ Args:
     modality_config_path: Optional path to a .py config file for custom embodiment tags not in the built-in registry.
 """
 
+import hashlib
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -47,6 +49,55 @@ LE_ROBOT_DATA_FILENAME = "data/*/*.parquet"
 LE_ROBOT_INFO_FILENAME = "meta/info.json"
 LE_ROBOT_STATS_FILENAME = "meta/stats.json"
 LE_ROBOT_REL_STATS_FILENAME = "meta/relative_stats.json"
+
+
+# Fallback cache location used when a dataset directory is read-only. Keyed by
+# a short hash of the absolute dataset path so multiple datasets with the same
+# basename (e.g. different V3/V4 snapshots) don't collide.
+DEFAULT_REL_STATS_CACHE = Path("~/.cache/gr00t/rel_stats").expanduser()
+
+
+def _rel_stats_cache_path(dataset_path: Path) -> Path:
+    """Return the cache-side location for a dataset's relative_stats.json."""
+    cache_root = Path(
+        os.environ.get("GR00T_STATS_CACHE_DIR", str(DEFAULT_REL_STATS_CACHE))
+    ).expanduser()
+    abs_path = str(Path(dataset_path).resolve())
+    key = hashlib.sha1(abs_path.encode()).hexdigest()[:12]
+    return cache_root / f"{Path(dataset_path).name}-{key}" / "relative_stats.json"
+
+
+def resolve_rel_stats_read_path(dataset_path: Path | str) -> Path:
+    """Return where to read relative_stats.json from.
+
+    Prefers the in-dataset location; falls back to the writable cache. The
+    returned path may not exist — callers should `.exists()` before reading.
+    """
+    dataset_path = Path(dataset_path)
+    in_dataset = dataset_path / LE_ROBOT_REL_STATS_FILENAME
+    if in_dataset.exists():
+        return in_dataset
+    return _rel_stats_cache_path(dataset_path)
+
+
+def resolve_rel_stats_write_path(dataset_path: Path | str) -> Path:
+    """Return where to write relative_stats.json.
+
+    Tries the in-dataset `meta/` directory first. On EACCES/EROFS, falls back
+    to the per-user cache under `$GR00T_STATS_CACHE_DIR` (default:
+    ~/.cache/gr00t/rel_stats).
+    """
+    dataset_path = Path(dataset_path)
+    in_dataset = dataset_path / LE_ROBOT_REL_STATS_FILENAME
+    try:
+        in_dataset.parent.mkdir(parents=True, exist_ok=True)
+        if os.access(in_dataset.parent, os.W_OK):
+            return in_dataset
+    except (PermissionError, OSError):
+        pass
+    cache_path = _rel_stats_cache_path(dataset_path)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    return cache_path
 
 
 def calculate_dataset_statistics(
@@ -235,9 +286,9 @@ def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) 
         for key, action_config in zip(action_config.modality_keys, action_config.action_configs)
         if action_config.rep == ActionRepresentation.RELATIVE
     ]
-    stats_path = Path(dataset_path) / LE_ROBOT_REL_STATS_FILENAME
-    if stats_path.exists():
-        with open(stats_path, "r") as f:
+    read_path = resolve_rel_stats_read_path(dataset_path)
+    if read_path.exists():
+        with open(read_path, "r") as f:
             stats = json.load(f)
     else:
         stats = {}
@@ -246,8 +297,11 @@ def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) 
             continue
         print(f"Generating relative stats for {dataset_path} {embodiment_tag} {action_key}")
         stats[action_key] = calculate_stats_for_key(dataset_path, embodiment_tag, action_key)
-    with open(stats_path, "w") as f:
+    write_path = resolve_rel_stats_write_path(dataset_path)
+    with open(write_path, "w") as f:
         json.dump(to_json_serializable(dict(stats)), f, indent=4)
+    if write_path != (Path(dataset_path) / LE_ROBOT_REL_STATS_FILENAME):
+        print(f"[stats] Dataset dir not writable; cached relative stats at {write_path}")
 
 
 def main(

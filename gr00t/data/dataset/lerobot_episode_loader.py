@@ -187,6 +187,11 @@ class LeRobotEpisodeLoader:
             self.stats = json.load(f)
 
         relative_stats_path = meta_dir / LEROBOT_RELATIVE_STATS_FILE_NAME
+        if not relative_stats_path.exists():
+            from gr00t.data.stats import resolve_rel_stats_read_path
+            cached = resolve_rel_stats_read_path(self.dataset_path)
+            if cached.exists():
+                relative_stats_path = cached
         if relative_stats_path.exists():
             with open(relative_stats_path, "r") as f:
                 self.stats["relative_action"] = json.load(f)
