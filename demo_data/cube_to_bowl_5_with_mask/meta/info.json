@@ -3,7 +3,7 @@
     "robot_type": "so101_follower",
     "total_episodes": 1,
     "total_frames": 568,
-    "total_tasks": 1,
+    "total_tasks": 2,
     "chunks_size": 1000,
     "fps": 30,
     "splits": {

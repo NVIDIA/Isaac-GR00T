@@ -1,0 +1,28 @@
+# Coverage.py configuration
+# https://coverage.readthedocs.io/en/latest/config.html
+
+[run]
+data_file = .coverage-data
+disable_warnings =
+    module-not-imported
+    no-data-collected
+parallel = True
+
+[report]
+exclude_lines =
+    @overload
+    def __repr__
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    pragma: no cover
+    raise AssertionError
+    raise NotImplementedError
+omit =
+    */tests/*
+    test_*.py
+    *_test.py
+skip_empty = True
+show_missing = True
+
+[xml]
+output = coverage.xml

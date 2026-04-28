@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.types import (
     ActionConfig,
@@ -9,8 +24,47 @@ from gr00t.data.types import (
 
 
 MODALITY_CONFIGS = {
+    ##### Pre-registered pretrain configurations #####
+    "oxe_droid_relative_eef_relative_joint": {
+        "video": ModalityConfig(
+            delta_indices=[-15, 0],
+            modality_keys=["exterior_image_1_left", "wrist_image_left"],
+        ),
+        "state": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["eef_9d", "gripper_position", "joint_position"],
+        ),
+        "action": ModalityConfig(
+            delta_indices=list(range(40)),
+            modality_keys=["eef_9d", "gripper_position", "joint_position"],
+            action_configs=[
+                ActionConfig(
+                    rep=ActionRepresentation.RELATIVE,
+                    type=ActionType.EEF,
+                    format=ActionFormat.XYZ_ROT6D,
+                    state_key="eef_9d",
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.ABSOLUTE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                    state_key="gripper_position",
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.RELATIVE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                    state_key="joint_position",
+                ),
+            ],
+        ),
+        "language": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["annotation.language.language_instruction"],
+        ),
+    },
     ##### Pre-registered posttrain configurations #####
-    "unitree_g1": {
+    "unitree_g1_full_body_with_waist_height_nav_cmd": {
         "video": ModalityConfig(
             delta_indices=[0],
             modality_keys=["ego_view"],
@@ -28,7 +82,7 @@ MODALITY_CONFIGS = {
             ],
         ),
         "action": ModalityConfig(
-            delta_indices=list(range(30)),
+            delta_indices=list(range(50)),
             modality_keys=[
                 "left_arm",
                 "right_arm",
@@ -88,259 +142,58 @@ MODALITY_CONFIGS = {
             modality_keys=["annotation.human.task_description"],
         ),
     },
-    "libero_panda": {
+    "libero_sim": {
         "video": ModalityConfig(
             delta_indices=[0],
             modality_keys=["image", "wrist_image"],
         ),
         "state": ModalityConfig(
             delta_indices=[0],
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-                "gripper",
-            ],
+            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
         ),
         "action": ModalityConfig(
-            delta_indices=list(range(0, 16)),
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-                "gripper",
-            ],
+            delta_indices=list(range(16)),
+            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
         ),
         "language": ModalityConfig(
             delta_indices=[0],
             modality_keys=["annotation.human.action.task_description"],
         ),
     },
-    "oxe_widowx": {
+    "simpler_env_widowx": {
         "video": ModalityConfig(
             delta_indices=[0],
             modality_keys=["image_0"],
         ),
         "state": ModalityConfig(
             delta_indices=[0],
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-                "pad",
-                "gripper",
-            ],
+            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "pad", "gripper"],
         ),
         "action": ModalityConfig(
-            delta_indices=list(range(0, 8)),
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-                "gripper",
-            ],
-            mean_std_embedding_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-            ],
+            delta_indices=list(range(8)),
+            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
         ),
         "language": ModalityConfig(
             delta_indices=[0],
             modality_keys=["annotation.human.action.task_description"],
         ),
     },
-    "oxe_google": {
+    "simpler_env_google": {
         "video": ModalityConfig(
             delta_indices=[0],
             modality_keys=["image"],
         ),
         "state": ModalityConfig(
             delta_indices=[0],
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "rx",
-                "ry",
-                "rz",
-                "rw",
-                "gripper",
-            ],
+            modality_keys=["x", "y", "z", "rx", "ry", "rz", "rw", "gripper"],
         ),
         "action": ModalityConfig(
-            delta_indices=list(range(0, 8)),
-            modality_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-                "gripper",
-            ],
-            mean_std_embedding_keys=[
-                "x",
-                "y",
-                "z",
-                "roll",
-                "pitch",
-                "yaw",
-            ],
+            delta_indices=list(range(8)),
+            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
         ),
         "language": ModalityConfig(
             delta_indices=[0],
             modality_keys=["annotation.human.action.task_description"],
-        ),
-    },
-    "behavior_r1_pro": {
-        "video": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=[
-                "observation.images.rgb.head_256_256",
-                "observation.images.rgb.left_wrist_256_256",
-                "observation.images.rgb.right_wrist_256_256",
-            ],
-        ),
-        "state": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=[
-                "robot_pos",  # 3
-                "robot_ori_cos",  # 3
-                "robot_ori_sin",  # 3
-                "robot_2d_ori",  # 1
-                "robot_2d_ori_cos",  # 1
-                "robot_2d_ori_sin",  # 1
-                "robot_lin_vel",  # 3
-                "robot_ang_vel",  # 3
-                "arm_left_qpos",  # 7
-                "arm_left_qpos_sin",  # 7
-                "arm_left_qpos_cos",  # 7
-                "eef_left_pos",  # 3
-                "eef_left_quat",  # 4
-                "gripper_left_qpos",  # 2
-                "arm_right_qpos",  # 7
-                "arm_right_qpos_sin",  # 7
-                "arm_right_qpos_cos",  # 7
-                "eef_right_pos",  # 3
-                "eef_right_quat",  # 4
-                "gripper_right_qpos",  # 2
-                "trunk_qpos",  # 4
-            ],
-        ),  # dim = 82
-        "action": ModalityConfig(
-            delta_indices=list(range(0, 32)),
-            modality_keys=[
-                "base",
-                "torso",
-                "left_arm",
-                "left_gripper",
-                "right_arm",
-                "right_gripper",
-            ],
-            action_configs=[
-                # base
-                ActionConfig(
-                    rep=ActionRepresentation.ABSOLUTE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                ),
-                # torso
-                ActionConfig(
-                    rep=ActionRepresentation.RELATIVE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                    state_key="trunk_qpos",
-                ),
-                # left_arm
-                ActionConfig(
-                    rep=ActionRepresentation.RELATIVE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                    state_key="arm_left_qpos",
-                ),
-                # left_gripper
-                ActionConfig(
-                    rep=ActionRepresentation.ABSOLUTE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                ),
-                # right_arm
-                ActionConfig(
-                    rep=ActionRepresentation.RELATIVE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                    state_key="arm_right_qpos",
-                ),
-                # right_gripper
-                ActionConfig(
-                    rep=ActionRepresentation.ABSOLUTE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                ),
-            ],
-        ),
-        "language": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=["annotation.human.coarse_action"],
-        ),
-    },
-    "oxe_droid": {
-        "video": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=[
-                "exterior_image_1_left",
-                "wrist_image_left",
-            ],
-        ),
-        "state": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=[
-                "joint_position",
-                "gripper_position",
-            ],
-        ),
-        "action": ModalityConfig(
-            delta_indices=list(range(0, 32)),
-            modality_keys=[
-                "joint_position",
-                "gripper_position",
-            ],
-            action_configs=[
-                # joint_position
-                ActionConfig(
-                    rep=ActionRepresentation.RELATIVE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                ),
-                # gripper_position
-                ActionConfig(
-                    rep=ActionRepresentation.ABSOLUTE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                ),
-            ],
-        ),
-        "language": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=[
-                "annotation.language.language_instruction",
-            ],
         ),
     },
 }

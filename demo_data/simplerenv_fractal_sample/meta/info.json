@@ -1,0 +1,80 @@
+{
+  "codebase_version": "v2.1",
+  "robot_type": "google_robot",
+  "total_episodes": 3,
+  "total_frames": 206,
+  "fps": 3,
+  "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+  "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+  "chunks_size": 1000,
+  "splits": {
+    "train": "0:3"
+  },
+  "features": {
+    "observation.images.image": {
+      "dtype": "video",
+      "shape": [
+        256,
+        320,
+        3
+      ],
+      "names": [
+        "height",
+        "width",
+        "rgb"
+      ],
+      "info": {
+        "video.fps": 3.0,
+        "video.height": 256,
+        "video.width": 320,
+        "video.channels": 3,
+        "video.codec": "av1",
+        "video.pix_fmt": "yuv420p",
+        "video.is_depth_map": false,
+        "has_audio": false
+      }
+    },
+    "observation.state": {
+      "dtype": "float32",
+      "shape": [
+        8
+      ],
+      "names": {
+        "motors": [
+          "x",
+          "y",
+          "z",
+          "rx",
+          "ry",
+          "rz",
+          "rw",
+          "gripper"
+        ]
+      }
+    },
+    "action": {
+      "dtype": "float32",
+      "shape": [
+        7
+      ],
+      "names": {
+        "motors": [
+          "x",
+          "y",
+          "z",
+          "roll",
+          "pitch",
+          "yaw",
+          "gripper"
+        ]
+      }
+    },
+    "task_index": {
+      "dtype": "int64",
+      "shape": [
+        1
+      ],
+      "names": null
+    }
+  }
+}
