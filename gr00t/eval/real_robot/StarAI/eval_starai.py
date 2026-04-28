@@ -46,19 +46,30 @@ from lerobot_robot_cello.starai_cello import StaraiCello
 
 
 # Training-data episode-start pose from
-# chocolat-nya/20260408_star_3cameras_groot_v2. Used to override the
+# /home/kazu/data/original_data/20260427_data_groot_v2. Used to override the
 # hard-coded StaraiCello.move_to_initial_position() home pose so that
 # evaluation starts inside the training distribution.
-# Values are per-motor medians over all 62 episode-start frames
-# (see src/verify_initial_pose.py).
+# Values are the denser start-pose mode over all 180 episode-start frames
+# (see src/verify_initial_pose.py). Several axes are bimodal, so a simple
+# median can land between modes and start the policy outside its usual pose.
 TRAINING_INITIAL_POSE: Dict[str, float] = {
-    "Motor_0": 0.03,
+    "Motor_0": -0.39,
     "Motor_1": -100.0,
-    "Motor_2": 97.79,
-    "Motor_3": -0.44,
-    "Motor_4": 1.02,
-    "Motor_5": 11.18,
-    "gripper": 96.19,
+    "Motor_2": 72.01,
+    "Motor_3": 3.14,
+    "Motor_4": 16.31,
+    "Motor_5": -1.48,
+    "gripper": 0.86,
+}
+
+MAX_ACTION_STEP: Dict[str, float] = {
+    "Motor_0.pos": 5.0,
+    "Motor_1.pos": 15.0,
+    "Motor_2.pos": 10.0,
+    "Motor_3.pos": 3.0,
+    "Motor_4.pos": 10.0,
+    "Motor_5.pos": 0.15,
+    "gripper.pos": 20.0,
 }
 
 
@@ -85,6 +96,23 @@ def _patched_move_to_initial_position(self: StaraiCello) -> Dict[str, Any]:
 # Monkey-patch once at import time so the override is in place before
 # robot.connect() (which calls move_to_initial_position) is invoked.
 StaraiCello.move_to_initial_position = _patched_move_to_initial_position
+
+
+def clamp_action_to_step(
+    action: Dict[str, float],
+    reference_state: Dict[str, float],
+    max_step: Dict[str, float],
+) -> Dict[str, float]:
+    """Limit absolute joint targets to a small per-cycle move from current state."""
+    clamped: Dict[str, float] = {}
+    for key, target in action.items():
+        ref = reference_state.get(key)
+        limit = max_step.get(key)
+        if ref is None or limit is None:
+            clamped[key] = target
+            continue
+        clamped[key] = float(np.clip(target, ref - limit, ref + limit))
+    return clamped
 
 
 def recursive_add_extra_dim(obs: Dict) -> Dict:
@@ -195,12 +223,16 @@ class EvalConfig:
     robot: RobotConfig
     policy_host: str = "localhost"
     policy_port: int = 5555
-    action_horizon: int = 4
+    # Execute only the first predicted step by default. The 20260428 log showed
+    # large discontinuities inside a single predicted chunk, so receding-horizon
+    # execution is the safer default for real hardware.
+    action_horizon: int = 1
     # Must match the task string used during finetuning
     # (tasks.jsonl of the training dataset).
     lang_instruction: str = "pick_and_place"
     language_key: str = "annotation.human.action.task_description"
     camera_keys: List[str] = field(default_factory=lambda: ["side", "rear", "onhand"])
+    clamp_action_step: bool = True
     play_sounds: bool = False
     timeout: int = 60
 
@@ -222,52 +254,65 @@ def eval(cfg: EvalConfig):
     #    episode-start pose defined in TRAINING_INITIAL_POSE.
     # -------------------------------------------------------------------------
     robot = make_robot_from_config(cfg.robot)
-    robot.connect()
+    try:
+        robot.connect()
 
-    missing = [k for k in cfg.camera_keys if k not in robot.cameras]
-    if missing:
-        raise RuntimeError(
-            f"Camera keys {missing} not found on robot. Configure cameras "
-            f"under --robot.cameras with names matching {cfg.camera_keys}."
+        missing = [k for k in cfg.camera_keys if k not in robot.cameras]
+        if missing:
+            raise RuntimeError(
+                f"Camera keys {missing} not found on robot. Configure cameras "
+                f"under --robot.cameras with names matching {cfg.camera_keys}."
+            )
+
+        log_say("Initializing robot (StarAI Cello)", cfg.play_sounds, blocking=True)
+
+        # ---------------------------------------------------------------------
+        # 2. Initialize Policy Wrapper + Client
+        # ---------------------------------------------------------------------
+        policy_client = PolicyClient(host=cfg.policy_host, port=cfg.policy_port)
+        policy = StarAIAdapter(
+            policy_client,
+            camera_keys=cfg.camera_keys,
+            language_key=cfg.language_key,
         )
 
-    log_say("Initializing robot (StarAI Cello)", cfg.play_sounds, blocking=True)
+        log_say(
+            f'Policy ready with instruction: "{cfg.lang_instruction}"',
+            cfg.play_sounds,
+            blocking=True,
+        )
 
-    # -------------------------------------------------------------------------
-    # 2. Initialize Policy Wrapper + Client
-    # -------------------------------------------------------------------------
-    policy_client = PolicyClient(host=cfg.policy_host, port=cfg.policy_port)
-    policy = StarAIAdapter(
-        policy_client,
-        camera_keys=cfg.camera_keys,
-        language_key=cfg.language_key,
-    )
+        # ---------------------------------------------------------------------
+        # 3. Main real-time control loop
+        # ---------------------------------------------------------------------
+        started = time.monotonic()
+        deadline = started + cfg.timeout if cfg.timeout and cfg.timeout > 0 else None
 
-    log_say(
-        f'Policy ready with instruction: "{cfg.lang_instruction}"',
-        cfg.play_sounds,
-        blocking=True,
-    )
+        while deadline is None or time.monotonic() < deadline:
+            obs = robot.get_observation()
+            obs["lang"] = cfg.lang_instruction
 
-    # -------------------------------------------------------------------------
-    # 3. Main real-time control loop
-    # -------------------------------------------------------------------------
-    while True:
-        obs = robot.get_observation()
-        obs["lang"] = cfg.lang_instruction
+            state_dbg = {k: obs[k] for k in policy.robot_state_keys}
+            print(f"state: {state_dbg}")
 
-        state_dbg = {k: obs[k] for k in policy.robot_state_keys}
-        print(f"state: {state_dbg}")
+            actions = policy.get_action(obs)
 
-        actions = policy.get_action(obs)
+            for i, action_dict in enumerate(actions[: cfg.action_horizon]):
+                tic = time.time()
+                if cfg.clamp_action_step:
+                    action_dict = clamp_action_to_step(action_dict, state_dbg, MAX_ACTION_STEP)
+                print(f"action[{i}]: {action_dict}")
+                robot.send_action(action_dict)
+                toc = time.time()
+                if toc - tic < 1.0 / 30:
+                    time.sleep(1.0 / 30 - (toc - tic))
 
-        for i, action_dict in enumerate(actions[: cfg.action_horizon]):
-            tic = time.time()
-            print(f"action[{i}]: {action_dict}")
-            robot.send_action(action_dict)
-            toc = time.time()
-            if toc - tic < 1.0 / 30:
-                time.sleep(1.0 / 30 - (toc - tic))
+        if deadline is not None:
+            logging.info("Reached timeout=%ss; returning robot to initial position.", cfg.timeout)
+            robot.move_to_initial_position()
+    finally:
+        if robot.is_connected:
+            robot.disconnect()
 
 
 if __name__ == "__main__":
