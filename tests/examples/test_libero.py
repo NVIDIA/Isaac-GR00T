@@ -1,0 +1,363 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import logging
+import os
+import pathlib
+import shutil
+import subprocess
+
+import pytest
+from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
+from test_support.runtime import (
+    DEFAULT_SERVER_STARTUP_SECONDS,
+    TEST_CACHE_PATH,
+    assert_port_available,
+    find_nvidia_egl_vendor_file,
+    get_root,
+    run_subprocess_step,
+    start_server_process,
+    timed,
+    wait_for_server_ready,
+)
+
+
+logger = logging.getLogger(__name__)
+
+
+REPO_ROOT = get_root()
+
+TRAINING_STEPS = 2
+
+README = REPO_ROOT / "examples/LIBERO/README.md"
+
+DATASET_REL_PATH = pathlib.Path("examples/LIBERO/libero_spatial_no_noops_1.0.0_lerobot")
+DATASET_ROOT = REPO_ROOT / DATASET_REL_PATH
+SHARED_DATASETS_ROOT = TEST_CACHE_PATH / "datasets"
+
+SHARED_DATASET_ROOT = SHARED_DATASETS_ROOT / DATASET_REL_PATH
+MODEL_CHECKPOINT = pathlib.Path(f"/tmp/libero_spatial/checkpoint-{TRAINING_STEPS}")
+
+LIBERO_REPO_PATH = REPO_ROOT / "external_dependencies/LIBERO"
+SHARED_LIBERO_REPO = TEST_CACHE_PATH / "repos/LIBERO"
+
+LIBERO_UV_ENV = REPO_ROOT / "gr00t/eval/sim/LIBERO/libero_uv"
+SHARED_LIBERO_VENV = TEST_CACHE_PATH / "repos/LIBERO/venv"
+
+
+def _libero_submodule_initialized() -> bool:
+    """Return True when the LIBERO submodule is properly git-initialized."""
+    return (LIBERO_REPO_PATH / ".git").is_file()
+
+
+def _git_modules_path(submodule_path: pathlib.Path) -> pathlib.Path | None:
+    """Resolve the .git/modules/<name> path from a submodule's .git file."""
+    git_file = submodule_path / ".git"
+    if not git_file.is_file():
+        return None
+    content = git_file.read_text().strip()
+    if not content.startswith("gitdir:"):
+        return None
+    rel = content[len("gitdir:") :].strip()
+    return (submodule_path / rel).resolve()
+
+
+def _prepare_libero_repo(env: dict[str, str]) -> None:
+    """Populate external_dependencies/LIBERO, reusing shared cache when available.
+
+    The cache stores both the working tree (which includes the .git pointer file)
+    and the git modules directory, so that after restore git sees a fully
+    initialized submodule and ``git submodule update --init`` is a fast no-op.
+    """
+    if _libero_submodule_initialized():
+        return
+
+    wt_cache = SHARED_LIBERO_REPO / "wt"
+    modules_cache = SHARED_LIBERO_REPO / "modules"
+
+    if (wt_cache / ".git").is_file() and modules_cache.exists():
+        # Fast path: restore working tree and git modules from cache.
+        print(f"[libero] restoring submodule from cache {wt_cache}", flush=True)
+        shutil.copytree(wt_cache, LIBERO_REPO_PATH, dirs_exist_ok=True)
+        modules_path = _git_modules_path(LIBERO_REPO_PATH)
+        if modules_path is not None:
+            modules_path.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(modules_cache, modules_path, dirs_exist_ok=True)
+        return
+
+    # Slow path: git submodule init, then populate cache.
+    run_subprocess_step(
+        ["git", "submodule", "update", "--init", "external_dependencies/LIBERO"],
+        step="libero_repo_init",
+        cwd=REPO_ROOT,
+        env=env,
+        log_prefix="libero",
+    )
+    if TEST_CACHE_PATH.exists():
+        modules_path = _git_modules_path(LIBERO_REPO_PATH)
+        print(f"[libero] caching submodule to {wt_cache}", flush=True)
+        wt_cache.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(LIBERO_REPO_PATH, wt_cache, dirs_exist_ok=True)
+        if modules_path is not None:
+            modules_cache.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(modules_path, modules_cache, dirs_exist_ok=True)
+
+
+def _libero_venv_ready(root: pathlib.Path = LIBERO_UV_ENV) -> bool:
+    """Return True when the libero uv venv looks usable.
+
+    Two subtleties:
+    1. Uses pyvenv.cfg rather than bin/python: uv creates bin/python as a
+       symlink into /root/.local/share/uv/python/..., which is inaccessible to
+       non-root callers.  Path.is_file() returns False for unreadable symlink
+       targets, so the caching gate would silently never fire.
+    2. Checks for libero-*.dist-info rather than a libero/ source dir: libero
+       is installed with --config-settings editable_mode=compat, which creates
+       dist-info + a .pth file but no top-level package directory.
+    """
+    sp = root / ".venv/lib/python3.10/site-packages"
+    libero_ok = (sp / "libero").is_dir() or any(sp.glob("libero-*.dist-info"))
+    return (root / ".venv/pyvenv.cfg").is_file() and libero_ok
+
+
+def _prepare_libero_venv(setup_block: str, env: dict[str, str]) -> None:
+    """Set up the libero sim venv, using shared cache when available.
+
+    setup_libero.sh always rm -rf's the venv before reinstalling, so this
+    function skips it entirely on a cache hit and only re-runs the fast
+    register_libero_envs() call that writes $HOME/.libero.
+    """
+    venv_python = str(LIBERO_UV_ENV / ".venv/bin/python")
+    register_cmd = (
+        "import os; os.environ.setdefault('MUJOCO_GL','egl');"
+        "os.environ.setdefault('PYOPENGL_PLATFORM','egl');"
+        "from gr00t.eval.sim.LIBERO.libero_env import register_libero_envs;"
+        "register_libero_envs()"
+    )
+
+    if _libero_venv_ready():
+        print("[libero] venv local hit — skipping setup_libero.sh", flush=True)
+    elif _libero_venv_ready(SHARED_LIBERO_VENV):
+        print(f"[libero] symlinking venv from cache {SHARED_LIBERO_VENV}", flush=True)
+        LIBERO_UV_ENV.parent.mkdir(parents=True, exist_ok=True)
+        if LIBERO_UV_ENV.is_symlink():
+            LIBERO_UV_ENV.unlink()
+        LIBERO_UV_ENV.symlink_to(SHARED_LIBERO_VENV, target_is_directory=True)
+    else:
+        print("[libero] venv cache miss — running setup_libero.sh", flush=True)
+        run_bash_blocks([setup_block], cwd=REPO_ROOT, env=env)
+        if TEST_CACHE_PATH.exists() and _libero_venv_ready():
+            print(f"[libero] caching venv to {SHARED_LIBERO_VENV}", flush=True)
+            SHARED_LIBERO_VENV.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(LIBERO_UV_ENV, SHARED_LIBERO_VENV, dirs_exist_ok=True, symlinks=True)
+        return  # setup_libero.sh already ran register_libero_envs
+
+    # Fast path: venv came from cache — just re-register envs (~5 s)
+    import subprocess as _sp
+
+    _sp.run([venv_python, "-c", register_cmd], env=env, check=True, input=b"n\n")
+
+
+def _dataset_ready(dataset_root: pathlib.Path) -> bool:
+    """Return True when the LIBERO dataset looks complete enough to reuse."""
+    modality_path = dataset_root / "meta/modality.json"
+    videos_dir = dataset_root / "videos"
+    if not modality_path.is_file() or not videos_dir.is_dir():
+        return False
+    return next(videos_dir.rglob("*.mp4"), None) is not None
+
+
+def _point_repo_dataset_to_shared() -> None:
+    """Point the repo-local dataset path at the shared cached dataset."""
+    if DATASET_ROOT.is_symlink():
+        if DATASET_ROOT.resolve() == SHARED_DATASET_ROOT.resolve():
+            return
+        DATASET_ROOT.unlink()
+    elif DATASET_ROOT.exists():
+        # Keep an existing real local dataset intact rather than replacing it.
+        return
+
+    DATASET_ROOT.parent.mkdir(parents=True, exist_ok=True)
+    DATASET_ROOT.symlink_to(SHARED_DATASET_ROOT, target_is_directory=True)
+
+
+def _prepare_libero_dataset(blocks: list, env: dict[str, str]) -> None:
+    """Populate the LIBERO spatial dataset once on shared storage and reuse it."""
+    if _dataset_ready(DATASET_ROOT):
+        return
+
+    if _dataset_ready(SHARED_DATASET_ROOT):
+        _point_repo_dataset_to_shared()
+        return
+
+    download_code = find_block(
+        blocks, "libero_spatial_no_noops_1.0.0_lerobot", language="bash"
+    ).code
+    if TEST_CACHE_PATH.exists():
+        download_code = download_code.replace(
+            "examples/LIBERO/libero_spatial_no_noops_1.0.0_lerobot/",
+            f"{SHARED_DATASET_ROOT}/",
+        )
+
+    run_bash_blocks([download_code], cwd=REPO_ROOT, env=env)
+
+    if _dataset_ready(SHARED_DATASET_ROOT):
+        _point_repo_dataset_to_shared()
+        return
+
+    assert _dataset_ready(DATASET_ROOT), f"Expected LIBERO dataset at {DATASET_ROOT}"
+
+
+@pytest.mark.gpu
+@pytest.mark.timeout(1200)
+def test_libero_readme_workflow_executes_via_subprocess() -> None:
+    """Run the LIBERO README finetune (libero_spatial) then server+client eval."""
+
+    print(f"[egl] NVIDIA EGL vendor file: {find_nvidia_egl_vendor_file()}", flush=True)
+
+    env = {**os.environ, "MUJOCO_GL": "egl", "PYOPENGL_PLATFORM": "egl"}
+    blocks = extract_code_blocks(README)
+
+    # Step 1: Download + copy modality once, preferring the shared mounted dataset cache.
+    with timed("step 1: dataset prep"):
+        _prepare_libero_dataset(blocks, env)
+
+    # Remove any leftover output dir so the trainer starts fresh rather than
+    # trying to resume from a stale checkpoint (which would fail with --skip_weight_loading
+    # if a previous run used the real weights and produced a different architecture).
+    if MODEL_CHECKPOINT.parent.exists():
+        shutil.rmtree(MODEL_CHECKPOINT.parent)
+
+    # Step 2: Finetune — inline README values are replaced to keep the run short.
+    # --skip_weight_loading skips loading the 3B checkpoint weights (saves ~80s); the
+    # processor/tokenizer is still loaded from the checkpoint so the data pipeline
+    # is exercised correctly.  Weights don't matter for a 2-step smoke test.
+    finetune_code = replace_once(
+        replace_once(
+            replace_once(
+                replace_once(
+                    find_block(blocks, "--output-dir /tmp/libero_spatial", language="bash").code,
+                    "NUM_GPUS=8",
+                    "NUM_GPUS=1",
+                ),
+                "MAX_STEPS=20000",
+                f"MAX_STEPS={TRAINING_STEPS}",
+            ),
+            "SAVE_STEPS=1000",
+            f"SAVE_STEPS={TRAINING_STEPS}",
+        ),
+        "GLOBAL_BATCH_SIZE=640",
+        "GLOBAL_BATCH_SIZE=2",
+    )
+    # Pass --skip_weight_loading after `--` so finetune.sh routes it to EXTRA_ARGS and on
+    # to launch_finetune.py (unknown args before `--` cause finetune.sh to exit 1).
+    finetune_code = finetune_code.rstrip() + " -- --skip_weight_loading"
+    with timed("step 2: finetune"):
+        run_bash_blocks(
+            [finetune_code],
+            cwd=REPO_ROOT,
+            env={
+                **env,
+                "USE_WANDB": "0",
+                "DATALOADER_NUM_WORKERS": "0",
+                "SHARD_SIZE": "64",
+                "NUM_SHARDS_PER_EPOCH": "1",
+            },
+        )
+    assert MODEL_CHECKPOINT.exists(), (
+        f"Expected model checkpoint after finetune: {MODEL_CHECKPOINT}"
+    )
+
+    model_server_host = "127.0.0.1"
+    model_server_port = 5552
+
+    # Build server and rollout command strings now (checkpoint exists after finetune).
+    server_code = replace_once(
+        find_block(blocks, "checkpoints/GR00T-N1.7-LIBERO/libero_10", language="bash").code,
+        "checkpoints/GR00T-N1.7-LIBERO/libero_10",
+        str(MODEL_CHECKPOINT),
+    )
+    server_code += f" --device cuda:0 --host {model_server_host} --port {model_server_port}"
+
+    rollout_code = replace_once(
+        replace_once(
+            replace_once(
+                replace_once(
+                    find_block(blocks, "libero_uv/.venv/bin/python", language="bash").code,
+                    "--n-episodes 10",
+                    "--n-episodes 1",
+                ),
+                "--policy-client-port 5555",
+                f"--policy-client-port {model_server_port}",
+            ),
+            "--max-episode-steps 720",
+            "--max-episode-steps 2",
+        ),
+        "--n-envs 5",
+        "--n-envs 1",
+    )
+
+    # Steps 3 + 4 overlapped: start the model server immediately after finetune so
+    # model loading runs in parallel with the libero sim venv setup (which takes
+    # several minutes on a cache miss).
+    assert_port_available(model_server_host, model_server_port)
+    model_server_proc, server_log = start_server_process(server_code, cwd=REPO_ROOT, env=env)
+
+    with timed("step 3a: libero repo prep"):
+        _prepare_libero_repo(env)
+    with timed("step 3b: sim venv setup"):
+        _prepare_libero_venv(find_block(blocks, "setup_libero.sh", language="bash").code, env)
+
+    with timed("step 4: server startup"):
+        wait_for_server_ready(
+            proc=model_server_proc,
+            host=model_server_host,
+            port=model_server_port,
+            timeout_s=float(
+                os.getenv("LIBERO_SERVER_STARTUP_SECONDS", str(DEFAULT_SERVER_STARTUP_SECONDS))
+            ),
+            server_log=server_log,
+        )
+
+    try:
+        with timed("step 5: rollout"):
+            simulation_result, _ = run_subprocess_step(
+                ["bash", "-c", rollout_code],
+                step="libero_rollout",
+                cwd=REPO_ROOT,
+                env=env,
+                log_prefix="libero",
+                failure_prefix="LIBERO rollout failed",
+                output_tail_chars=4000,
+            )
+        simulation_output = (simulation_result.stdout or "") + (simulation_result.stderr or "")
+        assert "results:" in simulation_output, (
+            "Simulation output did not include expected 'results:' marker.\n"
+            f"output_tail=\n{simulation_output[-4000:]}"
+        )
+        assert "success rate:" in simulation_output, (
+            "Simulation output did not include expected 'success rate:' marker.\n"
+            f"output_tail=\n{simulation_output[-4000:]}"
+        )
+    finally:
+        if model_server_proc.poll() is None:
+            model_server_proc.terminate()
+            try:
+                model_server_proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                model_server_proc.kill()
+                model_server_proc.wait(timeout=15)

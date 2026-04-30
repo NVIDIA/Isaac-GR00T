@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import json
 import logging
 import math
@@ -13,7 +28,7 @@ import torchvision
 # Neither decord nor torchcodec is imported at module level:
 # - decord bundles its own FFmpeg shared libraries which conflict with torchcodec's,
 #   causing torchcodec to silently fail (see GitHub issue #423).
-# - Merely importing decord crashes certain simulators (e.g. BEHAVIOR Isaac Sim).
+# - Merely importing decord crashes certain simulators.
 # - Lazy-importing both avoids loading unnecessary packages when only one backend is used.
 # Both are instead lazily imported only when explicitly requested via video_backend=<name>.
 
@@ -47,9 +62,6 @@ _INCOMPATIBLE_BACKEND_CODECS: dict[str, set[str]] = {
     "torchvision_av": {"hevc", "h265"},
 }
 
-# Preferred fallback order when the requested backend is unavailable or incompatible.
-_BACKEND_FALLBACK_ORDER = ["torchcodec", "decord", "pyav", "ffmpeg"]
-
 
 def _is_backend_available(backend: str) -> bool:
     """Check if a video backend is available without importing at module level."""
@@ -71,31 +83,23 @@ def _is_backend_available(backend: str) -> bool:
 
 
 def resolve_backend(video_path: str, requested_backend: str) -> str:
-    """Resolve the video backend, auto-falling back if incompatible or unavailable.
+    """Resolve the video backend.
 
-    Checks codec compatibility and backend availability. If the requested backend
-    is incompatible with the video codec or unavailable, falls back to the next
-    available backend and logs a warning (see issue #342).
+    torchcodec is the only officially supported backend. Other backends
+    (decord, ffmpeg, opencv, pyav, torchvision_av) are still accepted if
+    explicitly requested, but torchcodec must be installed for the default
+    path. No automatic fallback is performed.
 
     Returns the backend name to actually use.
     """
-    # Check availability first
     if not _is_backend_available(requested_backend):
-        for fallback in _BACKEND_FALLBACK_ORDER:
-            if fallback != requested_backend and _is_backend_available(fallback):
-                logger.warning(
-                    "Video backend '%s' is not available, falling back to '%s'. "
-                    "Install the missing package or set video_backend explicitly.",
-                    requested_backend,
-                    fallback,
-                )
-                requested_backend = fallback
-                break
-        else:
-            raise ImportError(
-                f"Video backend '{requested_backend}' is not available and no fallback "
-                f"backend could be found. Install torchcodec or decord."
-            )
+        raise ImportError(
+            f"Video backend '{requested_backend}' is not available. "
+            f"torchcodec is the only supported backend — install it via the "
+            f"platform-specific pyproject.toml (see scripts/deployment/). "
+            f"If the default wheel does not work on your system, build "
+            f"torchcodec from source against your system FFmpeg version."
+        )
 
     # Check codec compatibility for known-bad combinations
     bad_codecs = _INCOMPATIBLE_BACKEND_CODECS.get(requested_backend)
@@ -105,26 +109,10 @@ def resolve_backend(video_path: str, requested_backend: str) -> str:
         except ValueError:
             codec = None
         if codec and codec in bad_codecs:
-            for fallback in _BACKEND_FALLBACK_ORDER:
-                if fallback != requested_backend and _is_backend_available(fallback):
-                    fallback_bad = _INCOMPATIBLE_BACKEND_CODECS.get(fallback, set())
-                    if codec not in fallback_bad:
-                        logger.warning(
-                            "Video backend '%s' is incompatible with codec '%s' "
-                            "(may silently read only the first frame). "
-                            "Auto-switching to '%s'. Set video_backend='%s' explicitly "
-                            "to suppress this warning.",
-                            requested_backend,
-                            codec,
-                            fallback,
-                            fallback,
-                        )
-                        return fallback
-            # No compatible fallback found — warn but proceed (user's choice)
             logger.warning(
-                "Video backend '%s' is known to be incompatible with codec '%s', "
-                "but no compatible fallback backend is available. "
-                "Video loading may silently fail (only first frame read).",
+                "Video backend '%s' is known to be incompatible with codec '%s'. "
+                "Video loading may silently fail (only first frame read). "
+                "Switch to torchcodec to avoid this issue.",
                 requested_backend,
                 codec,
             )

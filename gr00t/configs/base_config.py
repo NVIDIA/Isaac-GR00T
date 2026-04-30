@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
@@ -9,7 +24,7 @@ from gr00t.data.types import ActionConfig, ActionFormat, ActionRepresentation, A
 
 from .data.data_config import DataConfig, SingleDatasetConfig
 from .model import create_model_union_type
-from .model.gr00t_n1d6 import Gr00tN1d6Config
+from .model.gr00t_n1d7 import Gr00tN1d7Config
 from .training.training_config import TrainingConfig
 
 
@@ -21,7 +36,7 @@ class Config:
     """Complete configuration."""
 
     load_config_path: Optional[str] = None
-    model: ModelUnionType = field(default_factory=lambda: Gr00tN1d6Config())
+    model: ModelUnionType = field(default_factory=lambda: Gr00tN1d7Config())
     data: DataConfig = field(default_factory=DataConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
 
@@ -97,7 +112,15 @@ class Config:
 
         stripped_modality_configs = {}
         for embodiment_tag in embodiment_tags:
-            stripped_modality_configs[embodiment_tag] = self.data.modality_configs[embodiment_tag]
+            modality_cfg = self.data.modality_configs.get(embodiment_tag)
+            if modality_cfg is None:
+                raise ValueError(
+                    f"No modality config registered for embodiment tag '{embodiment_tag}'. "
+                    f"Available tags: {sorted(self.data.modality_configs.keys())}. "
+                    f"Provide --modality-config-path to register a custom modality config, "
+                    f"or use one of the pre-registered tags."
+                )
+            stripped_modality_configs[embodiment_tag] = modality_cfg
         self.data.modality_configs = stripped_modality_configs
 
         # ensure mix ratios are valid
@@ -116,19 +139,6 @@ class Config:
                         format=ActionFormat.DEFAULT,
                     )
                 ] * len(self.data.modality_configs[embodiment_tag]["action"].modality_keys)
-
-        if isinstance(self.model, Gr00tN1d6Config):
-            import warnings
-
-            if self.model.eagle_collator:
-                warnings.warn(
-                    'eagle_collator is deprecated. Please use backbone_model_type "eagle" in the future.',
-                    DeprecationWarning,
-                )
-                self.model.backbone_model_type = "eagle"
-            assert self.model.backbone_model_type in [
-                "eagle",
-            ], f"Invalid backbone model type: {self.model.backbone_model_type}"
 
         # Validate precision settings
         if self.training.fp16 and self.training.bf16:
