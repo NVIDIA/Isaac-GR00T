@@ -7,3 +7,9 @@
 [submodule "external_dependencies/robocasa"]
 	path = external_dependencies/robocasa
 	url = https://github.com/squarefk/robocasa
+[submodule "external_dependencies/GR00T-WholeBodyControl"]
+	path = external_dependencies/GR00T-WholeBodyControl
+	url = https://github.com/NVlabs/GR00T-WholeBodyControl.git
+[submodule "external_dependencies/robocasa-gr1-tabletop-tasks"]
+	path = external_dependencies/robocasa-gr1-tabletop-tasks
+	url = https://github.com/robocasa/robocasa-gr1-tabletop-tasks
