@@ -49,17 +49,17 @@ from lerobot_robot_cello.starai_cello import StaraiCello
 # /home/kazu/data/original_data/20260427_data_groot_v2. Used to override the
 # hard-coded StaraiCello.move_to_initial_position() home pose so that
 # evaluation starts inside the training distribution.
-# Values are the denser start-pose mode over all 180 episode-start frames
+# Values are the denser start-pose mode over all 300 episode-start frames
 # (see src/verify_initial_pose.py). Several axes are bimodal, so a simple
 # median can land between modes and start the policy outside its usual pose.
 TRAINING_INITIAL_POSE: Dict[str, float] = {
     "Motor_0": -0.39,
     "Motor_1": -100.0,
-    "Motor_2": 72.01,
-    "Motor_3": 3.14,
-    "Motor_4": 16.31,
+    "Motor_2": 71.57,
+    "Motor_3": 7.28,
+    "Motor_4": 17.07,
     "Motor_5": -1.48,
-    "gripper": 0.86,
+    "gripper": 1.0,
 }
 
 MAX_ACTION_STEP: Dict[str, float] = {
