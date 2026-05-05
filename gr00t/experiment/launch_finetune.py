@@ -56,13 +56,19 @@ if __name__ == "__main__":
     if ft_config.modality_config_path is not None:
         load_modality_config(ft_config.modality_config_path)
 
+    dataset_paths = ft_config.dataset_paths or (
+        [ft_config.dataset_path] if ft_config.dataset_path is not None else []
+    )
+    if not dataset_paths:
+        raise ValueError("Please provide --dataset-path or --dataset-paths.")
+
     config = get_default_config().load_dict(
         {
             "data": {
                 "download_cache": False,
                 "datasets": [
                     {
-                        "dataset_paths": [ft_config.dataset_path],
+                        "dataset_paths": dataset_paths,
                         "mix_ratio": 1.0,
                         "embodiment_tag": embodiment_tag,
                     }
@@ -87,9 +93,10 @@ if __name__ == "__main__":
 
     config.model.load_bf16 = False
     config.model.reproject_vision = False
-    config.model.model_name = "nvidia/Cosmos-Reason2-2B"
+    config.model.model_name = "/home/d024/models/nvidia/Cosmos-Reason2-2B"
     config.model.backbone_trainable_params_fp32 = True
-    config.model.use_relative_action = True
+    config.model.apply_sincos_state_encoding = True
+    config.model.use_relative_action = False
 
     config.training.experiment_name = ft_config.experiment_name
     config.training.start_from_checkpoint = ft_config.base_model_path
