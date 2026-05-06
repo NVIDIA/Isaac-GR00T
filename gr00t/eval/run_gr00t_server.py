@@ -140,9 +140,14 @@ class _SteerableActionHead(Gr00tN1d6ActionHead):
         )
 
 
-def _apply_steerable_head(policy: Gr00tPolicy) -> _SteerableActionHead:
+def _apply_steerable_head(policy) -> _SteerableActionHead:
     """Swap the loaded model's action_head class in-place and return it."""
-    action_head = policy.model.action_head
+    # Unwrap Gr00tSimPolicyWrapper (and similar) which expose the underlying
+    # Gr00tPolicy as ``.policy``.
+    inner = policy
+    while not hasattr(inner, "model") and hasattr(inner, "policy"):
+        inner = inner.policy
+    action_head = inner.model.action_head
     action_head.__class__ = _SteerableActionHead
     action_head._injected_noise = None
     print("[run_gr00t_server] SteerableActionHead applied — noise injection enabled")
