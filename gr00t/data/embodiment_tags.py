@@ -41,6 +41,7 @@ class EmbodimentTag(Enum):
 
     Pre-registered posttrain tags (require finetuned checkpoint):
     - UNITREE_G1           -> "unitree_g1_full_body_with_waist_height_nav_cmd"
+    - UNITREE_G1_SONIC     -> "unitree_g1_sonic"
     - SIMPLER_ENV_GOOGLE   -> "simpler_env_google"
     - SIMPLER_ENV_WIDOWX   -> "simpler_env_widowx"
     - LIBERO_PANDA         -> "libero_sim"
@@ -99,6 +100,11 @@ class EmbodimentTag(Enum):
     UNITREE_G1 = "unitree_g1_full_body_with_waist_height_nav_cmd"
     """
     The Unitree G1 robot (sim, full-body with waist height and nav commands).
+    """
+
+    UNITREE_G1_SONIC = "unitree_g1_sonic"
+    """
+    The Unitree G1 robot with SONIC whole-body controller. VLA action space is SONIC latents.
     """
 
     SIMPLER_ENV_GOOGLE = "simpler_env_google"
@@ -186,6 +192,7 @@ PRETRAIN_TAGS: frozenset[EmbodimentTag] = frozenset(
 POSTTRAIN_TAGS: frozenset[EmbodimentTag] = frozenset(
     {
         EmbodimentTag.UNITREE_G1,
+        EmbodimentTag.UNITREE_G1_SONIC,
         EmbodimentTag.SIMPLER_ENV_GOOGLE,
         EmbodimentTag.SIMPLER_ENV_WIDOWX,
         EmbodimentTag.LIBERO_PANDA,

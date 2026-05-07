@@ -375,6 +375,18 @@ Each benchmark has a self-contained README with dataset download, finetune, and 
 | SimplerEnv (Bridge) | `SIMPLER_ENV_WIDOWX` | [examples/SimplerEnv/README.md](examples/SimplerEnv/README.md) |
 | SO100 | `NEW_EMBODIMENT` | [examples/SO100/README.md](examples/SO100/README.md) |
 
+### Humanoid Whole-Body Control (SONIC)
+
+GR00T N1.7 supports whole-body humanoid control via the `UNITREE_G1_SONIC` embodiment tag and the [GEAR-SONIC](https://github.com/NVlabs/GR00T-WholeBodyControl) controller. In this workflow, the VLA predicts compact latent action tokens that a learned whole-body controller decodes into full-body joint commands — including legs, arms, and hands. A single policy produces language-conditioned, coordinated manipulation and locomotion end-to-end. SONIC supports whole-body coordination with precise hand and foot placements.
+
+The complete collect → finetune → deploy workflow is documented in the [GR00T-WholeBodyControl repository](https://github.com/NVlabs/GR00T-WholeBodyControl):
+
+- [Data collection](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/data_collection.html) — VR teleoperation with SONIC for demonstration recording
+- [VLA Workflow](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/vla_workflow.html) — finetuning Isaac-GR00T N1.7 on collected data and deploying the policy
+- [VLA Inference](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/vla_inference.html) — running the PolicyServer + SONIC decoder for real-time control
+
+> **Note:** The `UNITREE_G1` embodiment tag is compatible with the [decoupled WBC](https://github.com/NVlabs/GR00T-WholeBodyControl/tree/main/decoupled_wbc) controller, but the end-to-end collect-finetune-deploy workflow is only supported for GEAR-SONIC (`UNITREE_G1_SONIC`).
+
 ### Fine-tune on Your Own Robot ("NEW_EMBODIMENT")
 
 To finetune GR00T on your own robot data and configuration, follow the detailed tutorial at [`getting_started/finetune_new_embodiment.md`](getting_started/finetune_new_embodiment.md).

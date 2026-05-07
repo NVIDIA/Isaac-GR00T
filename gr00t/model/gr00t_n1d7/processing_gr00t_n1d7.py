@@ -65,6 +65,7 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "real_r1_pro_sharpa_relative_eef_mecka": 26,
     ##### Posttrain embodiment ids #####
     "unitree_g1_full_body_with_waist_height_nav_cmd": 25,
+    "unitree_g1_sonic": 11,
     "simpler_env_google": 0,
     "simpler_env_widowx": 1,
     "libero_sim": 2,
@@ -156,7 +157,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         model_type: str = "qwen",
         max_state_dim: int = 29,
         max_action_dim: int = 29,
-        max_action_horizon: int = 40,
+        max_action_horizon: int = 50,
         apply_sincos_state_encoding: bool = False,
         use_albumentations: bool = False,
         extra_augmentation_config: dict | None = None,
@@ -440,6 +441,11 @@ class Gr00tN1d7Processor(BaseProcessor):
         # Action mask: shape (B, max_action_horizon), 1 in the valid horizon window
         action_config = modality_config["action"]
         action_horizon = len(action_config.delta_indices)
+        assert action_horizon <= self.max_action_horizon, (
+            f"Action horizon {action_horizon} (from delta_indices) exceeds"
+            f" max_action_horizon {self.max_action_horizon}. Increase model config"
+            f" action_horizon to >= {action_horizon}."
+        )
         action_mask = torch.zeros((B, self.max_action_horizon), dtype=torch.float32)
         if action_horizon > 0:
             action_mask[:, :action_horizon] = 1.0
@@ -520,6 +526,11 @@ class Gr00tN1d7Processor(BaseProcessor):
             )  # (t, max_action_dim)
             # Pad action to max_action_horizon
             action_horizon = normalized_actions.shape[0]
+            assert action_horizon <= self.max_action_horizon, (
+                f"Action sequence length {action_horizon} exceeds max_action_horizon"
+                f" {self.max_action_horizon}. Increase model config action_horizon to"
+                f" >= {action_horizon}."
+            )
             normalized_actions = torch.cat(
                 [
                     normalized_actions,
@@ -758,6 +769,9 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "use_mean_std",
                 "model_name",
                 "model_type",
+                "max_action_horizon",
+                "max_state_dim",
+                "max_action_dim",
             ]
             for key in override_keys:
                 if key in kwargs:

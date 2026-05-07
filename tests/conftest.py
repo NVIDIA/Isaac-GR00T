@@ -21,6 +21,38 @@ import os
 import time
 
 
+def _pin_xdist_worker_to_gpu() -> None:
+    """Pin each pytest-xdist worker to a single GPU.
+
+    Runs at conftest import time, which is *before* any test module
+    (and therefore any ``import torch``) executes inside the worker
+    subprocess.  pytest-xdist exposes the worker id as ``PYTEST_XDIST_WORKER``
+    (e.g. ``gw0``, ``gw1``).  We map ``gwN`` to the Nth GPU visible to the
+    parent process so each worker sees exactly one GPU and they don't
+    contend for memory.
+
+    No-op when running outside xdist (single-process pytest).
+    """
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if not worker or not worker.startswith("gw"):
+        return
+    try:
+        idx = int(worker[2:])
+    except ValueError:
+        return
+
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if visible:
+        gpus = [g for g in visible.split(",") if g.strip()]
+        if 0 <= idx < len(gpus):
+            os.environ["CUDA_VISIBLE_DEVICES"] = gpus[idx]
+            return
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(idx)
+
+
+_pin_xdist_worker_to_gpu()
+
+
 _test_start_times: dict[str, float] = {}
 
 

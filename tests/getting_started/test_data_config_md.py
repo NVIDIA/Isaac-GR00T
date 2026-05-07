@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 from test_support.readme import extract_code_blocks, find_block
 from test_support.runtime import get_root, run_subprocess_step
@@ -39,8 +40,9 @@ def test_complete_so100_config() -> None:
     so100 = find_block(blocks, "so100_config = {", language="python", occurrence=2)
     code = _IMPORTS + "\n" + so100.code + "\n" + _REGISTER
     env = {**os.environ}
+    # Inherit the parent venv; `uv run` here would rebuild gr00t every call.
     run_subprocess_step(
-        ["uv", "run", "python", "-c", code],
+        [sys.executable, "-c", code],
         step="so100_config",
         cwd=REPO_ROOT,
         env=env,

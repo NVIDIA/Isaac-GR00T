@@ -27,6 +27,7 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.eval.sim.env_utils import get_embodiment_tag_from_env_name
 from gr00t.eval.sim.wrapper.multistep_wrapper import MultiStepWrapper
 from gr00t.policy import BasePolicy
+from gr00t.utils.determinism import seed_everything
 import gymnasium as gym
 import numpy as np
 from tqdm import tqdm
@@ -224,6 +225,7 @@ def run_rollout_gymnasium_policy(
     wrapper_configs: WrapperConfigs,
     n_episodes: int = 10,
     n_envs: int = 1,
+    seed: int | None = None,
 ) -> Any:
     """Run policy rollouts in parallel environments.
 
@@ -233,7 +235,10 @@ def run_rollout_gymnasium_policy(
         n_episodes: Number of episodes to run
         n_envs: Number of parallel environments
         wrapper_configs: Configuration for environment wrappers
-        ray_env: Whether to use ray gym env to create each env.
+        seed: If set, forwards per-env seeds (``seed+i``) to the first
+            ``env.reset`` so each sub-env is reproducible. Should be paired
+            with :func:`gr00t.utils.determinism.seed_everything` upstream to
+            also constrain policy-side RNGs.
     Returns:
         Collection results from running the episodes
     """
@@ -262,16 +267,23 @@ def run_rollout_gymnasium_policy(
         )
 
     # Storage for results
-    episode_lengths = []
-    current_rewards = [0] * n_envs
+    episode_lengths: list[int] = []
+    episode_rewards: list[float] = []
+    current_rewards = [0.0] * n_envs
     current_lengths = [0] * n_envs
     completed_episodes = 0
     current_successes = [False] * n_envs
     episode_successes = []
     episode_infos = defaultdict(list)
 
-    # Initial reset
-    observations, _ = env.reset()
+    # Initial reset; if a seed is provided, give each sub-env a distinct but
+    # deterministic seed so that parallel workers don't all start from the
+    # same initial state while still being run-to-run reproducible.
+    if seed is not None:
+        reset_seeds = [int(seed) + i for i in range(n_envs)]
+        observations, _ = env.reset(seed=reset_seeds)
+    else:
+        observations, _ = env.reset()
     policy.reset()
     i = 0
 
@@ -326,8 +338,12 @@ def run_rollout_gymnasium_policy(
                     episode_infos["q_score"].append(np.max(env_infos["q_score"][env_idx]))
                 if "valid" in env_infos:
                     episode_infos["valid"].append(all(env_infos["valid"][env_idx]))
-                # Accumulate results
+                # Accumulate per-episode results. Both lists are captured
+                # BEFORE the per-env trackers are reset to 0 below — without
+                # this ordering downstream consumers silently see
+                # episode_length=0 / episode_reward=0.0.
                 episode_lengths.append(current_lengths[env_idx])
+                episode_rewards.append(float(current_rewards[env_idx]))
                 episode_successes.append(current_successes[env_idx])
                 # Reset trackers for this environment.
                 current_successes[env_idx] = False
@@ -340,7 +356,10 @@ def run_rollout_gymnasium_policy(
                     # envs don't return valid
                     completed_episodes += 1
                     pbar.update(1)
-                current_rewards[env_idx] = 0
+                # Reset with `0.0` to match the `[0.0] * n_envs` init and the
+                # `float(...)` cast on line 347; otherwise the per-env entry's
+                # static type silently flips int <-> float across iterations.
+                current_rewards[env_idx] = 0.0
                 current_lengths[env_idx] = 0
         observations = next_obs
     pbar.close()
@@ -352,6 +371,21 @@ def run_rollout_gymnasium_policy(
     assert len(episode_successes) >= n_episodes, (
         f"Expected at least {n_episodes} episodes, got {len(episode_successes)}"
     )
+
+    # `current_lengths[env_idx] += 1` runs before each termination check
+    # above, so any captured episode must have stepped at least once.
+    assert all(length >= 1 for length in episode_lengths), (
+        f"Internal invariant violated: rollout produced zero-length episode(s) "
+        f"in {episode_lengths!r}."
+    )
+
+    # Surface the per-episode length and reward that were tracked locally so
+    # downstream metrics (SimplerEnv / LIBERO / Robocasa / Wholebody) can
+    # read them off episode_infos instead of silently falling back to 0.
+    # Planted BEFORE the "valid" filter so they get filtered in lockstep
+    # with the other episode_infos fields.
+    episode_infos["episode_lengths"] = episode_lengths
+    episode_infos["episode_rewards"] = episode_rewards
 
     episode_infos = dict(episode_infos)  # Convert defaultdict to dict
     for key, value in episode_infos.items():
@@ -412,7 +446,14 @@ def run_gr00t_sim_policy(
     video_dir: str | None = None,
     trt_engine_path: str = "",
     trt_mode: TrtMode = TrtMode.N17_FULL_PIPELINE,
+    seed: int | None = None,
 ):
+    # seed_everything resolves `None` via the GR00T_EVAL_SEED env var and is a
+    # no-op when that is also unset, so the historical non-deterministic
+    # behavior is preserved by default. Returns the effective seed (or None)
+    # which we forward to env.reset below.
+    seed = seed_everything(seed)
+
     embodiment_tag = get_embodiment_tag_from_env_name(env_name)
 
     if video_dir is None:
@@ -449,6 +490,7 @@ def run_gr00t_sim_policy(
         wrapper_configs=wrapper_configs,
         n_episodes=n_episodes,
         n_envs=n_envs,
+        seed=seed,
     )
     print("Video saved to: ", wrapper_configs.video.video_dir)
     return results
@@ -491,6 +533,13 @@ class RolloutConfig:
     trt_mode: TrtMode = TrtMode.N17_FULL_PIPELINE
     """TRT mode: 'n17_full_pipeline' (all engines), 'vit_llm_only', or 'action_head'."""
 
+    seed: int | None = None
+    """Optional seed for deterministic evaluation. When set, seeds Python /
+    NumPy / torch / cuda RNGs, enables cuDNN determinism, and forwards
+    per-env seeds to the sim envs. If left as ``None``, falls back to the
+    ``GR00T_EVAL_SEED`` env var; if that is also unset, keeps the historical
+    non-deterministic behavior."""
+
 
 if __name__ == "__main__":
     args = tyro.cli(RolloutConfig)
@@ -517,6 +566,7 @@ if __name__ == "__main__":
         video_dir=args.video_dir,
         trt_engine_path=args.trt_engine_path,
         trt_mode=args.trt_mode,
+        seed=args.seed,
     )
     print("results: ", results)
     print("success rate: ", np.mean(results[1]))

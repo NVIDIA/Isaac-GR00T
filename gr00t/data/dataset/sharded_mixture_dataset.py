@@ -57,13 +57,19 @@ def merge_statistics(
     # Initialize overall statistics dict
     overall_stats: dict[str, dict[str, list[float]]] = {}
 
-    # Process each modality (e.g., "state", "action")
-    for modality in per_dataset_stats[0]:
+    # Process each modality (e.g., "state", "action"). An entry is treated as
+    # an action key iff it carries a "mean" field; anything else is sidecar
+    # metadata that producers may co-locate at the top level (e.g. the
+    # __fingerprints__ cache map written by generate_rel_stats) and must be
+    # skipped rather than merged.
+    for modality, modality_stats in per_dataset_stats[0].items():
+        if not isinstance(modality_stats, dict) or "mean" not in modality_stats:
+            continue
         # Get dimensionality from first dataset (assumed consistent)
         dim = (
-            [len(per_dataset_stats[0][modality]["mean"])]
+            [len(modality_stats["mean"])]
             if not is_relative_stats
-            else np.array(per_dataset_stats[0][modality]["mean"]).shape
+            else np.array(modality_stats["mean"]).shape
         )
 
         # Initialize accumulators for weighted mean and variance computation

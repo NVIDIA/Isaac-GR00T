@@ -27,7 +27,7 @@ uv pip install numpy==1.26.4
 uv pip install --editable "$PROJECT_REPO" --no-deps
 
 rm -rf $HOME/.libero
-echo "y\n" | python -c "from gr00t.eval.sim.LIBERO.libero_env import register_libero_envs"
+printf 'n\n' | python -c "from gr00t.eval.sim.LIBERO.libero_env import register_libero_envs"
 python - <<'PY'
 import os
 os.environ.setdefault("MUJOCO_GL", "egl")

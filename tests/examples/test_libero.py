@@ -20,6 +20,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import time
 
 import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
@@ -76,6 +77,31 @@ def _git_modules_path(submodule_path: pathlib.Path) -> pathlib.Path | None:
     return (submodule_path / rel).resolve()
 
 
+def _copy_tree_with_timing(
+    src: pathlib.Path,
+    dst: pathlib.Path,
+    label: str,
+    *,
+    symlinks: bool = False,
+) -> None:
+    """copytree(src → dst) wrapped in `timed(...)` plus a files/s summary.
+
+    Only counts files (one extra readdir per directory, no per-file stat) so
+    instrumentation overhead stays negligible even on the slow-NFS day we're
+    trying to characterize.  files/s alone is enough to tell "metadata-bound
+    on small files" (low) from "bandwidth-bound on big files" (high).
+    """
+    with timed(label):
+        file_count = sum(len(files) for _, _, files in os.walk(src))
+        t0 = time.perf_counter()
+        shutil.copytree(src, dst, dirs_exist_ok=True, symlinks=symlinks)
+        elapsed = max(time.perf_counter() - t0, 1e-9)
+        print(
+            f"[libero] {label}: {file_count} files, {file_count / elapsed:.1f} files/s",
+            flush=True,
+        )
+
+
 def _prepare_libero_repo(env: dict[str, str]) -> None:
     """Populate external_dependencies/LIBERO, reusing shared cache when available.
 
@@ -89,32 +115,45 @@ def _prepare_libero_repo(env: dict[str, str]) -> None:
     wt_cache = SHARED_LIBERO_REPO / "wt"
     modules_cache = SHARED_LIBERO_REPO / "modules"
 
-    if (wt_cache / ".git").is_file() and modules_cache.exists():
+    wt_hit = (wt_cache / ".git").is_file()
+    modules_hit = modules_cache.exists()
+    cache_hit = wt_hit and modules_hit
+    print(
+        f"[libero/3a] cache: wt_hit={wt_hit} modules_hit={modules_hit} hit={cache_hit}",
+        flush=True,
+    )
+
+    if cache_hit:
         # Fast path: restore working tree and git modules from cache.
-        print(f"[libero] restoring submodule from cache {wt_cache}", flush=True)
-        shutil.copytree(wt_cache, LIBERO_REPO_PATH, dirs_exist_ok=True)
+        _copy_tree_with_timing(wt_cache, LIBERO_REPO_PATH, "step 3a.hit.1: copy wt cache → repo")
         modules_path = _git_modules_path(LIBERO_REPO_PATH)
         if modules_path is not None:
             modules_path.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(modules_cache, modules_path, dirs_exist_ok=True)
+            _copy_tree_with_timing(
+                modules_cache,
+                modules_path,
+                "step 3a.hit.2: copy modules cache → .git/modules",
+            )
         return
 
     # Slow path: git submodule init, then populate cache.
-    run_subprocess_step(
-        ["git", "submodule", "update", "--init", "external_dependencies/LIBERO"],
-        step="libero_repo_init",
-        cwd=REPO_ROOT,
-        env=env,
-        log_prefix="libero",
-    )
+    with timed("step 3a.miss.1: git submodule update --init"):
+        run_subprocess_step(
+            ["git", "submodule", "update", "--init", "external_dependencies/LIBERO"],
+            step="libero_repo_init",
+            cwd=REPO_ROOT,
+            env=env,
+            log_prefix="libero",
+        )
     if TEST_CACHE_PATH.exists():
         modules_path = _git_modules_path(LIBERO_REPO_PATH)
-        print(f"[libero] caching submodule to {wt_cache}", flush=True)
         wt_cache.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(LIBERO_REPO_PATH, wt_cache, dirs_exist_ok=True)
+        _copy_tree_with_timing(LIBERO_REPO_PATH, wt_cache, "step 3a.miss.2: cache wt → shared")
         if modules_path is not None:
             modules_cache.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(modules_path, modules_cache, dirs_exist_ok=True)
+            _copy_tree_with_timing(
+                modules_path, modules_cache, "step 3a.miss.3: cache modules → shared"
+            )
 
 
 def _libero_venv_ready(root: pathlib.Path = LIBERO_UV_ENV) -> bool:
@@ -149,27 +188,43 @@ def _prepare_libero_venv(setup_block: str, env: dict[str, str]) -> None:
         "register_libero_envs()"
     )
 
-    if _libero_venv_ready():
-        print("[libero] venv local hit — skipping setup_libero.sh", flush=True)
-    elif _libero_venv_ready(SHARED_LIBERO_VENV):
-        print(f"[libero] symlinking venv from cache {SHARED_LIBERO_VENV}", flush=True)
+    local_ready = _libero_venv_ready()
+    shared_ready = _libero_venv_ready(SHARED_LIBERO_VENV) if not local_ready else False
+    print(f"[libero/3b] readiness: local={local_ready} shared={shared_ready}", flush=True)
+
+    if local_ready:
+        print("[libero/3b] venv local hit — skipping setup_libero.sh", flush=True)
+    elif shared_ready:
         LIBERO_UV_ENV.parent.mkdir(parents=True, exist_ok=True)
+        # Wipe any stale local state from a previous run before copying.
         if LIBERO_UV_ENV.is_symlink():
             LIBERO_UV_ENV.unlink()
-        LIBERO_UV_ENV.symlink_to(SHARED_LIBERO_VENV, target_is_directory=True)
+        elif LIBERO_UV_ENV.is_dir():
+            shutil.rmtree(LIBERO_UV_ENV)
+        _copy_tree_with_timing(
+            SHARED_LIBERO_VENV,
+            LIBERO_UV_ENV,
+            "step 3b.hit: copy shared venv → local (avoid NFS-bound imports)",
+            symlinks=True,
+        )
     else:
-        print("[libero] venv cache miss — running setup_libero.sh", flush=True)
-        run_bash_blocks([setup_block], cwd=REPO_ROOT, env=env)
+        print("[libero/3b] venv cache miss — running setup_libero.sh", flush=True)
+        with timed("step 3b.miss.1: setup_libero.sh (uv install)"):
+            run_bash_blocks([setup_block], cwd=REPO_ROOT, env=env)
         if TEST_CACHE_PATH.exists() and _libero_venv_ready():
-            print(f"[libero] caching venv to {SHARED_LIBERO_VENV}", flush=True)
-            SHARED_LIBERO_VENV.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(LIBERO_UV_ENV, SHARED_LIBERO_VENV, dirs_exist_ok=True, symlinks=True)
+            _copy_tree_with_timing(
+                LIBERO_UV_ENV,
+                SHARED_LIBERO_VENV,
+                "step 3b.miss.2: cache venv → shared",
+                symlinks=True,
+            )
         return  # setup_libero.sh already ran register_libero_envs
 
     # Fast path: venv came from cache — just re-register envs (~5 s)
     import subprocess as _sp
 
-    _sp.run([venv_python, "-c", register_cmd], env=env, check=True, input=b"n\n")
+    with timed("step 3b.hit: register_libero_envs subprocess"):
+        _sp.run([venv_python, "-c", register_cmd], env=env, check=True, input=b"n\n")
 
 
 def _dataset_ready(dataset_root: pathlib.Path) -> bool:

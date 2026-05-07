@@ -156,6 +156,9 @@ class LiberoEnv(gym.Env):
         return new_obs
 
     def reset(self, seed=None, options=None):
+        if seed is not None:
+            # OffScreenRenderEnv follows the robosuite API: .seed(int), not reset(seed=...).
+            self._env.seed(int(seed))
         observation = self._env.reset()
         observation = self._process_observation(observation)
         info = {"success": self._env.check_success()}

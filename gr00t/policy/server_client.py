@@ -14,11 +14,9 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-import io
 from typing import Any, Callable
 
-import msgpack
-import numpy as np
+import msgpack_numpy as mnp
 import zmq
 
 from gr00t.data.types import ModalityConfig
@@ -30,34 +28,27 @@ from .policy import BasePolicy
 class MsgSerializer:
     @staticmethod
     def to_bytes(data: Any) -> bytes:
-        return msgpack.packb(data, default=MsgSerializer.encode_custom_classes)
+        return mnp.packb(data, default=MsgSerializer._encode_custom)
 
     @staticmethod
     def from_bytes(data: bytes) -> Any:
-        return msgpack.unpackb(data, object_hook=MsgSerializer.decode_custom_classes)
+        return mnp.unpackb(data, object_hook=MsgSerializer._decode_custom, raw=False)
 
     @staticmethod
-    def decode_custom_classes(obj):
+    def _encode_custom(obj):
+        if isinstance(obj, ModalityConfig):
+            return {"__ModalityConfig__": True, "as_json": to_json_serializable(obj)}
+        return mnp.encode(obj)
+
+    @staticmethod
+    def _decode_custom(obj):
         if not isinstance(obj, dict):
             return obj
-        if "__ModalityConfig_class__" in obj:
-            return ModalityConfig(**obj["as_json"])
-        if "__ndarray_class__" in obj:
-            return np.load(io.BytesIO(obj["as_npy"]), allow_pickle=False)
-        return obj
-
-    @staticmethod
-    def encode_custom_classes(obj):
-        if isinstance(obj, ModalityConfig):
-            return {
-                "__ModalityConfig_class__": True,
-                "as_json": to_json_serializable(obj),
-            }
-        if isinstance(obj, np.ndarray):
-            output = io.BytesIO()
-            np.save(output, obj, allow_pickle=False)
-            return {"__ndarray_class__": True, "as_npy": output.getvalue()}
-        return obj
+        if "__ModalityConfig__" in obj or b"__ModalityConfig__" in obj:
+            key = "as_json" if "as_json" in obj else (b"as_json" if b"as_json" in obj else None)
+            if key is not None:
+                return ModalityConfig(**obj[key])
+        return mnp.decode(obj)
 
 
 @dataclass

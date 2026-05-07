@@ -110,13 +110,13 @@ class BasicPipeline(ModelPipeline):
         dataset_factory = DatasetFactory(self.config)
         train_dataset, eval_dataset = dataset_factory.build(self.processor)
 
-        # Save dataset statistics for inference
-        stats = train_dataset.get_dataset_statistics()
-        stats_dict = convert_tensors_to_lists(stats)
-        # Save statistics
-        with open(save_cfg_dir / "dataset_statistics.json", "w") as f:
-            json.dump(stats_dict, f, indent=2)
-        logging.info("Saved dataset statistics for inference")
+        # Rank-guarded to avoid a multi-rank truncate-and-write race.
+        if get_rank() == 0:
+            stats = train_dataset.get_dataset_statistics()
+            stats_dict = convert_tensors_to_lists(stats)
+            with open(save_cfg_dir / "dataset_statistics.json", "w") as f:
+                json.dump(stats_dict, f, indent=2)
+            logging.info("Saved dataset statistics for inference")
 
         return train_dataset, eval_dataset
 

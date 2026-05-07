@@ -433,6 +433,18 @@ def build_full_pipeline(
         logger.info(f"  {name:20s} -> {status}")
     logger.info("=" * 80)
 
+    # Surface partial failures as a non-zero exit so callers (CI, deployment
+    # scripts) don't treat a half-built engine directory as a green build.
+    # Without this, a single sub-engine TRT failure was absorbed by the
+    # try/except above and the process still exited 0; downstream verify and
+    # benchmark steps then crashed on missing or stale engines.
+    failures = [(name, status) for name, _, status in results if status.startswith("FAILED")]
+    if failures:
+        raise RuntimeError(
+            f"Pipeline build failed for {len(failures)}/{len(results)} engine(s): "
+            + "; ".join(f"{name} ({status})" for name, status in failures)
+        )
+
 
 # ============================================================
 # Main

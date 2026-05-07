@@ -159,6 +159,34 @@ class TestMergeStatistics:
         # weighted mean = (0*0.75 + 2*0.25) = 0.5
         np.testing.assert_allclose(merged["x"]["mean"], [0.5])
 
+    def test_sidecar_metadata_is_skipped(self):
+        """merge_statistics treats only entries that look like stats dicts (i.e.
+        carry a 'mean' field) as action keys. Any sibling metadata producers
+        co-locate at the top level — regardless of naming convention — must be
+        ignored, not merged."""
+        action_entry = {
+            "min": [0.0],
+            "max": [1.0],
+            "mean": [0.5],
+            "std": [0.2],
+            "q01": [0.05],
+            "q99": [0.95],
+        }
+        stats = [
+            {
+                "x": action_entry,
+                # Real-world example: cache fingerprints written by generate_rel_stats (!313).
+                "__fingerprints__": {"x": "sha256:deadbeef"},
+                # Hypothetical future sidecars without dunder convention.
+                "_provenance": {"source": "manual"},
+                "schema_version": "1.0",
+                "row_count": 1234,
+            }
+        ]
+        merged = merge_statistics(stats, [1.0])
+        assert set(merged.keys()) == {"x"}
+        np.testing.assert_allclose(merged["x"]["mean"], [0.5])
+
 
 # ---------------------------------------------------------------------------
 # ShardedMixtureDataset tests
