@@ -77,6 +77,7 @@ if __name__ == "__main__":
     config.model.tune_visual = ft_config.tune_visual
     config.model.tune_projector = ft_config.tune_projector
     config.model.tune_diffusion_model = ft_config.tune_diffusion_model
+    config.model.tune_vlln = ft_config.tune_vlln
     config.model.state_dropout_prob = ft_config.state_dropout_prob
     config.model.random_rotation_angle = ft_config.random_rotation_angle
     config.model.color_jitter_params = ft_config.color_jitter_params
@@ -93,11 +94,12 @@ if __name__ == "__main__":
 
     config.training.experiment_name = ft_config.experiment_name
     config.training.start_from_checkpoint = ft_config.base_model_path
-    config.training.optim = "adamw_torch"
+    config.training.optim = ft_config.optim
     config.training.global_batch_size = ft_config.global_batch_size
     config.training.dataloader_num_workers = ft_config.dataloader_num_workers
     config.training.learning_rate = ft_config.learning_rate
     config.training.gradient_accumulation_steps = ft_config.gradient_accumulation_steps
+    config.training.gradient_checkpointing = ft_config.gradient_checkpointing
     config.training.output_dir = ft_config.output_dir
     config.training.save_steps = ft_config.save_steps
     config.training.save_total_limit = ft_config.save_total_limit

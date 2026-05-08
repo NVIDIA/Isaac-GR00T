@@ -57,7 +57,10 @@ class FinetuneConfig:
     tune_diffusion_model: bool = True
     """If True, fine-tune the diffusion-based action decoder (if present in the model)."""
 
-    state_dropout_prob: float = 0.2
+    tune_vlln: bool = True
+    """If True, fine-tune the vision-language layer norm bridge in the action head."""
+
+    state_dropout_prob: float = 0.0
     """
     Dropout probability applied to state inputs for regularization during training.
     """
@@ -108,8 +111,14 @@ class FinetuneConfig:
     learning_rate: float = 1e-4
     """Initial learning rate for optimizer."""
 
+    optim: str = "adamw_torch_fused"
+    """Optimizer name passed to Transformers TrainingArguments."""
+
     gradient_accumulation_steps: int = 1
     """Number of forward passes to accumulate before performing a backward/update step."""
+
+    gradient_checkpointing: bool = False
+    """If True, trade compute for lower activation memory during training."""
 
     output_dir: str = "./outputs"
     """Directory where model checkpoints, logs, and outputs are saved."""

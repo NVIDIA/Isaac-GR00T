@@ -1,0 +1,17 @@
+* [33md2696ba[m[33m ([m[1;31morigin/starai-main-update[m[33m, [m[1;32mstarai-main-update[m[33m)[m 2026.04.17_GR00T修正
+* [33md33d369[m 2026.04.17_GR00T修正
+* [33m66e59e6[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m)[m 2026.04.14_StarAI追加
+[31m|[m * [33mbca3ce3[m[33m ([m[1;31morigin/starai-update[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m 2026.04.14_StarAI対応追加
+[31m|[m[31m/[m  
+[31m|[m * [33m1e8911b[m[33m ([m[1;31morigin/dependabot/uv/scripts/deployment/thor/cryptography-46.0.7[m[33m)[m Bump cryptography from 46.0.5 to 46.0.7 in /scripts/deployment/thor
+[31m|[m[31m/[m  
+[31m|[m * [33m4ef2f21[m[33m ([m[1;31morigin/dependabot/uv/scripts/deployment/spark/cryptography-46.0.7[m[33m)[m Bump cryptography from 46.0.5 to 46.0.7 in /scripts/deployment/spark
+[31m|[m[31m/[m  
+[31m|[m * [33mf31e1a9[m[33m ([m[1;31morigin/dependabot/uv/scripts/deployment/orin/cryptography-46.0.7[m[33m)[m Bump cryptography from 46.0.5 to 46.0.7 in /scripts/deployment/orin
+[31m|[m[31m/[m  
+[31m|[m * [33m4e72e97[m[33m ([m[1;31morigin/dependabot/uv/cryptography-46.0.7[m[33m)[m Bump cryptography from 46.0.5 to 46.0.7
+[31m|[m[31m/[m  
+[31m|[m * [33mb5074b7[m[33m ([m[1;31morigin/dependabot/uv/scripts/deployment/orin/transformers-5.0.0rc3[m[33m)[m Bump transformers from 4.51.3 to 5.0.0rc3 in /scripts/deployment/orin
+[31m|[m[31m/[m  
+[31m|[m * [33m49e0ef1[m[33m ([m[1;31morigin/dependabot/uv/transformers-5.0.0rc3[m[33m)[m Bump transformers from 4.51.3 to 5.0.0rc3
+[31m|[m[31m/[m  

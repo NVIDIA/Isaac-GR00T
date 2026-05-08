@@ -78,6 +78,14 @@ def main(config: ServerConfig):
     print(f"  Host: {config.host}")
     print(f"  Port: {config.port}")
 
+    # check if the model path exists
+    if (
+        config.model_path is not None
+        and config.model_path.startswith("/")
+        and not os.path.exists(config.model_path)
+    ):
+        raise FileNotFoundError(f"Model path {config.model_path} does not exist")
+
     # Create and start the server
     if config.model_path is not None:
         # check if the model path exists
