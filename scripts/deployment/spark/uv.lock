@@ -335,9 +335,9 @@ wheels = [
 [[package]]
 name = "cuda-toolkit"
 version = "13.2.0"
-source = { registry = "https://pypi.nvidia.com/" }
+source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://pypi.nvidia.com/cuda-toolkit/cuda_toolkit-13.2.0-py2.py3-none-any.whl", hash = "sha256:d749077fdf11010881c208978b5fdd3e302290cc2f141ae92ed6e989ea9a65c7" },
+    { url = "https://files.pythonhosted.org/packages/44/8a/5b9310b41dea015ce1affc049e1465b89381d30cb64bb12332bd80e39d1a/cuda_toolkit-13.2.0-py2.py3-none-any.whl", hash = "sha256:d749077fdf11010881c208978b5fdd3e302290cc2f141ae92ed6e989ea9a65c7", size = 2463, upload-time = "2026-03-10T15:45:17.25Z" },
 ]
 
 [package.optional-dependencies]
@@ -562,14 +562,14 @@ wheels = [
 
 [[package]]
 name = "gitpython"
-version = "3.1.46"
+version = "3.1.50"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "gitdb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/df/b5/59d16470a1f0dfe8c793f9ef56fd3826093fc52b3bd96d6b9d6c26c7e27b/gitpython-3.1.46.tar.gz", hash = "sha256:400124c7d0ef4ea03f7310ac2fbf7151e09ff97f2a3288d64a440c584a29c37f", size = 215371, upload-time = "2026-01-01T15:37:32.073Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/f6/354ae6491228b5eb40e10d89c4d13c651fe1cf7556e35ebdded50cff57ce/gitpython-3.1.50.tar.gz", hash = "sha256:80da2d12504d52e1f998772dc5baf6e553f8d2fcfe1fcc226c9d9a2ee3372dcc", size = 219798, upload-time = "2026-05-06T04:01:26.571Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/09/e21df6aef1e1ffc0c816f0522ddc3f6dcded766c3261813131c78a704470/gitpython-3.1.46-py3-none-any.whl", hash = "sha256:79812ed143d9d25b6d176a10bb511de0f9c67b1fa641d82097b0ab90398a2058", size = 208620, upload-time = "2026-01-01T15:37:30.574Z" },
+    { url = "https://files.pythonhosted.org/packages/20/7a/1c6e3562dfd8950adbb11ffbc65d21e7c89d01a6e4f137fa981056de25c5/gitpython-3.1.50-py3-none-any.whl", hash = "sha256:d352abe2908d07355014abdd21ddf798c2a961469239afec4962e9da884858f9", size = 212507, upload-time = "2026-05-06T04:01:23.799Z" },
 ]
 
 [[package]]
@@ -636,7 +636,7 @@ requires-dist = [
     { name = "diffusers", specifier = "==0.36.0.dev0", index = "https://pypi.jetson-ai-lab.io/sbsa/cu130/+simple" },
     { name = "dm-tree", specifier = "==0.1.8" },
     { name = "einops", specifier = "==0.8.1" },
-    { name = "gitpython", specifier = "==3.1.46" },
+    { name = "gitpython", specifier = "==3.1.50" },
     { name = "gymnasium", specifier = "==1.2.2" },
     { name = "huggingface-hub", extras = ["cli"] },
     { name = "ipython", marker = "extra == 'dev'" },
@@ -1109,37 +1109,37 @@ wheels = [
 [[package]]
 name = "nvidia-cublas"
 version = "13.3.0.5"
-source = { registry = "https://pypi.nvidia.com/" }
+source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://pypi.nvidia.com/nvidia-cublas/nvidia_cublas-13.3.0.5-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:48308e7f44feb337ca24d95efdceeac5703fb5dcf9bfb0c23f1eb48015fdd8a1" },
-    { url = "https://pypi.nvidia.com/nvidia-cublas/nvidia_cublas-13.3.0.5-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:366568e2dc59e6fe71ffd179f9f2a38b8b2772aed626320a64008651b1e72974" },
-    { url = "https://pypi.nvidia.com/nvidia-cublas/nvidia_cublas-13.3.0.5-py3-none-win_amd64.whl", hash = "sha256:065b944083560334e02299050979b7cfd91ec79e5fc5c23d602f7f35c0d1356c" },
+    { url = "https://files.pythonhosted.org/packages/e8/5c/08177998e1234459e46b2cdad73738b5516f84b8fa28a8379c678b95c6c0/nvidia_cublas-13.3.0.5-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:48308e7f44feb337ca24d95efdceeac5703fb5dcf9bfb0c23f1eb48015fdd8a1", size = 505057164, upload-time = "2026-03-09T09:43:27.897Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/7c/ae5d1751819acff18b0fac29c0a4e93d06d36cfabebe36365ddacc7c32a9/nvidia_cublas-13.3.0.5-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:366568e2dc59e6fe71ffd179f9f2a38b8b2772aed626320a64008651b1e72974", size = 403287501, upload-time = "2026-03-09T09:47:05.046Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/6f/7ed17e69ac6799098d7ab9ff46789c10ea58d49f75726ba351badc5f109d/nvidia_cublas-13.3.0.5-py3-none-win_amd64.whl", hash = "sha256:065b944083560334e02299050979b7cfd91ec79e5fc5c23d602f7f35c0d1356c", size = 387823761, upload-time = "2026-03-09T10:05:43.442Z" },
 ]
 
 [[package]]
 name = "nvidia-cudnn-cu13"
 version = "9.20.0.48"
-source = { registry = "https://pypi.nvidia.com/" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "nvidia-cublas" },
 ]
 wheels = [
-    { url = "https://pypi.nvidia.com/nvidia-cudnn-cu13/nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:e31454ae00094b0c55319d9d15b6fa2fc50a9e1c0f5c8c80fb75258234e731e1" },
-    { url = "https://pypi.nvidia.com/nvidia-cudnn-cu13/nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:0c45dd8eeb50b603f07995b1b300c62ffe6a1980482b82b3bcf94a4ca9d49304" },
-    { url = "https://pypi.nvidia.com/nvidia-cudnn-cu13/nvidia_cudnn_cu13-9.20.0.48-py3-none-win_amd64.whl", hash = "sha256:af8139732b99c0118be65ea5aac97f0d46018f8c552889e49d2fb0c6261a4a24" },
+    { url = "https://files.pythonhosted.org/packages/56/c5/83384d846b2fd17c44bd499b36c75a45ed4f095fbbb2252294e89cea5c5c/nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:e31454ae00094b0c55319d9d15b6fa2fc50a9e1c0f5c8c80fb75258234e731e1", size = 444574296, upload-time = "2026-03-09T19:28:27.751Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/5e/edb9c0ae051602c3ccaffe424256463636d639e27d7f302dde9975ef9e7a/nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:0c45dd8eeb50b603f07995b1b300c62ffe6a1980482b82b3bcf94a4ca9d49304", size = 366173588, upload-time = "2026-03-09T19:29:34.474Z" },
+    { url = "https://files.pythonhosted.org/packages/78/39/21507455b1bca8b5702a9e9fc6ce73735f216f558dac2c9ede58e4d456b8/nvidia_cudnn_cu13-9.20.0.48-py3-none-win_amd64.whl", hash = "sha256:af8139732b99c0118be65ea5aac97f0d46018f8c552889e49d2fb0c6261a4a24", size = 350712614, upload-time = "2026-03-09T19:31:11.398Z" },
 ]
 
 [[package]]
 name = "nvidia-cudss-cu13"
 version = "0.7.1.6"
-source = { registry = "https://pypi.nvidia.com/" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cuda-toolkit", extra = ["cublas"] },
 ]
 wheels = [
-    { url = "https://pypi.nvidia.com/nvidia-cudss-cu13/nvidia_cudss_cu13-0.7.1.6-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:6fbc8cf61f0ec66d2d7bffad63605f914cae032412b8881ccdc7e89f29088f6d" },
-    { url = "https://pypi.nvidia.com/nvidia-cudss-cu13/nvidia_cudss_cu13-0.7.1.6-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:ec5d5a53789d282da8bdfac4743e01908589da79844ec9355518465d0615a801" },
-    { url = "https://pypi.nvidia.com/nvidia-cudss-cu13/nvidia_cudss_cu13-0.7.1.6-py3-none-win_amd64.whl", hash = "sha256:df502c3efef8dc5c79efc6c821bc974311588db79b525b1218b129389edccd51" },
+    { url = "https://files.pythonhosted.org/packages/cb/9d/720e6f8f71de8f421e5ce030691d00d4373fc0ccd96fa57c18b072e01009/nvidia_cudss_cu13-0.7.1.6-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:6fbc8cf61f0ec66d2d7bffad63605f914cae032412b8881ccdc7e89f29088f6d", size = 64870097, upload-time = "2025-11-04T21:43:37.383Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/03/57a30eaa0449ee329a8a7bb9611696ccde6b6d96d614371dcc3496635eff/nvidia_cudss_cu13-0.7.1.6-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:ec5d5a53789d282da8bdfac4743e01908589da79844ec9355518465d0615a801", size = 64990578, upload-time = "2025-11-04T21:45:51.147Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/ba/e87736dd80df0d7b0b092e5fb2012c2bb38c8588a1fd4690c2a1bf7d591c/nvidia_cudss_cu13-0.7.1.6-py3-none-win_amd64.whl", hash = "sha256:df502c3efef8dc5c79efc6c821bc974311588db79b525b1218b129389edccd51", size = 71882436, upload-time = "2025-11-04T21:35:45.736Z" },
 ]
 
 [[package]]
@@ -1847,41 +1847,37 @@ wheels = [
 [[package]]
 name = "tensorrt"
 version = "10.15.1.29"
-source = { registry = "https://pypi.nvidia.com/" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "tensorrt-cu13" },
 ]
-sdist = { url = "https://pypi.nvidia.com/tensorrt/tensorrt-10.15.1.29.tar.gz", hash = "sha256:a78fb34aee9695b81a7485ac0648859b802ff1faaac4bde743d9c51d7493204b" }
+sdist = { url = "https://files.pythonhosted.org/packages/29/8d/1b3ea6493ee07d221fdf655a936f6b9d7c4bebfad7c0fdb879440a4172ad/tensorrt-10.15.1.29.tar.gz", hash = "sha256:a78fb34aee9695b81a7485ac0648859b802ff1faaac4bde743d9c51d7493204b", size = 16701, upload-time = "2026-01-30T07:40:25.93Z" }
 
 [[package]]
 name = "tensorrt-cu13"
 version = "10.15.1.29"
-source = { registry = "https://pypi.nvidia.com/" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "tensorrt-cu13-bindings" },
     { name = "tensorrt-cu13-libs" },
 ]
-sdist = { url = "https://pypi.nvidia.com/tensorrt-cu13/tensorrt_cu13-10.15.1.29.tar.gz", hash = "sha256:60edcdf1a68526732ea613c309283af036f418f6ebcbc8e18d24566b74d776e0" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/0b/ff3683ddf1960227fb2c6210e92ab83c26eda92091046c123d8dfc1adc93/tensorrt_cu13-10.15.1.29.tar.gz", hash = "sha256:60edcdf1a68526732ea613c309283af036f418f6ebcbc8e18d24566b74d776e0", size = 19084, upload-time = "2026-01-30T07:42:55.055Z" }
 
 [[package]]
 name = "tensorrt-cu13-bindings"
 version = "10.15.1.29"
-source = { registry = "https://pypi.nvidia.com/" }
+source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://pypi.nvidia.com/tensorrt-cu13-bindings/tensorrt_cu13_bindings-10.15.1.29-cp312-none-manylinux_2_28_x86_64.whl", hash = "sha256:7c17a2d83de68bb13531989d5f2edf4c2a7e710e41e8b5652f0d170d2893b1bc" },
-    { url = "https://pypi.nvidia.com/tensorrt-cu13-bindings/tensorrt_cu13_bindings-10.15.1.29-cp312-none-manylinux_2_35_aarch64.whl", hash = "sha256:503a623a015cfce5bf00477162be2e872fdf2397acaf840f75c9dd22f41d6672" },
-    { url = "https://pypi.nvidia.com/tensorrt-cu13-bindings/tensorrt_cu13_bindings-10.15.1.29-cp312-none-win_amd64.whl", hash = "sha256:7d9b34ac53b480102ce1b55ce6103b961c96997f2254d0c718ea69959b4f2bb4" },
+    { url = "https://files.pythonhosted.org/packages/7f/bf/a3ef059c445d322e0d2a50d47f507f864e9c3794ccf1ad8196c36ee887f6/tensorrt_cu13_bindings-10.15.1.29-cp312-none-manylinux_2_28_x86_64.whl", hash = "sha256:7c17a2d83de68bb13531989d5f2edf4c2a7e710e41e8b5652f0d170d2893b1bc", size = 1140873, upload-time = "2026-01-29T21:00:55.553Z" },
+    { url = "https://files.pythonhosted.org/packages/0c/26/2c78ff712ec9da3aa4851ad86999dae6c5aa927de53a75aa5255cbcdd9c1/tensorrt_cu13_bindings-10.15.1.29-cp312-none-manylinux_2_35_aarch64.whl", hash = "sha256:503a623a015cfce5bf00477162be2e872fdf2397acaf840f75c9dd22f41d6672", size = 1144656, upload-time = "2026-01-29T20:59:50.421Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/77/597e3c67127064bd987ed6d2697b1fb28942bdfaac118e96b86908065d89/tensorrt_cu13_bindings-10.15.1.29-cp312-none-win_amd64.whl", hash = "sha256:7d9b34ac53b480102ce1b55ce6103b961c96997f2254d0c718ea69959b4f2bb4", size = 893000, upload-time = "2026-01-29T20:58:53.619Z" },
 ]
 
 [[package]]
 name = "tensorrt-cu13-libs"
 version = "10.15.1.29"
-source = { registry = "https://pypi.nvidia.com/" }
-wheels = [
-    { url = "https://pypi.nvidia.com/tensorrt-cu13-libs/tensorrt_cu13_libs-10.15.1.29-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:0619b60ba97425909c18442eb36cbe7f99b1a7eeb4ebf9c6b278e6e2c5ac6c3b" },
-    { url = "https://pypi.nvidia.com/tensorrt-cu13-libs/tensorrt_cu13_libs-10.15.1.29-py2.py3-none-manylinux_2_35_aarch64.whl", hash = "sha256:f2f6fdaba477ef5536e9932d7f0ce2952ab3c87c5d0fbf93f080388390cba1de" },
-    { url = "https://pypi.nvidia.com/tensorrt-cu13-libs/tensorrt_cu13_libs-10.15.1.29-py2.py3-none-win_amd64.whl", hash = "sha256:930cf4917b7a3b8174400c1cf9a2d40f81f0c97a844077b18ed308930806373d" },
-]
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/dd/745dacecd032db5720e8bacfbbb436319eb49b621142414b3abf19cafd9a/tensorrt_cu13_libs-10.15.1.29.tar.gz", hash = "sha256:d07fe8b65ce7edb94e805d0b6e9653afe742610b7d5e1b270c918bc9e58a36b1", size = 681, upload-time = "2026-01-29T20:58:43.318Z" }
 
 [[package]]
 name = "termcolor"
