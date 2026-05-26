@@ -28,6 +28,8 @@ ENV_PREFIX_TO_EMBODIMENT_TAG: dict[str, EmbodimentTag] = {
     "simpler_env_google": EmbodimentTag.SIMPLER_ENV_GOOGLE,
     "simpler_env_widowx": EmbodimentTag.SIMPLER_ENV_WIDOWX,
     "libero_sim": EmbodimentTag.LIBERO_PANDA,
+    "robocasa_panda_omron": EmbodimentTag.ROBOCASA_PANDA_OMRON,
+    "gr1_unified": EmbodimentTag.ROBOCASA_GR1_TABLETOP,
 }
 
 

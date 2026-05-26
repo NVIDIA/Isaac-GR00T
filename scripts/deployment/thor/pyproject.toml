@@ -14,9 +14,12 @@ dependencies = [
     "av==16.1.0",
     "diffusers==0.36.0.dev0",
     "dm-tree==0.1.8",
+    "huggingface-hub[cli]",
+    "jsonlines==4.0.0",
     "lmdb==1.7.5",
     "msgpack==1.1.0",
     "msgpack-numpy==0.4.8",
+    "opencv-python-headless>=4.5,<4.13",
     "pandas==2.2.3",
     "peft==0.17.1",
     "termcolor==3.2.0",
@@ -80,7 +83,11 @@ diffusers = [{ index = "jetson-sbsa-cu130" }]
 addopts = "--import-mode=importlib"
 markers = [
     "gpu: tests that require a GPU",
+    "multigpu: tests that require multiple GPUs and use all visible GPUs",
 ]
+# Include fixture setup/teardown in JUnit <testcase time="..."> so duration
+# reports reflect real wall-clock time instead of call-only.
+junit_duration_report = "total"
 
 [tool.ruff]
 line-length = 100

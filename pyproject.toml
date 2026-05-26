@@ -27,7 +27,7 @@ dependencies = [
     "tyro==0.9.17",
     "click==8.1.8",
     "datasets==3.6.0",
-    "cryptography==42.0.8",
+    "cryptography>=44.0.0",
     "einops==0.8.1",
     "gitpython==3.1.46",
     "jsonlines==4.0.0",
@@ -41,12 +41,14 @@ dependencies = [
     "torchcodec==0.10.0a0; platform_machine == 'aarch64' and sys_platform == 'linux'",
     "wandb==0.23.0",
     "pyzmq==27.0.1",
-    # deepspeed has no aarch64 Linux wheel
-    "deepspeed==0.17.6; platform_machine != 'aarch64' or sys_platform != 'linux'",
+    # deepspeed publishes wheels only for x86_64 Linux.
+    "deepspeed==0.17.6; sys_platform == 'linux' and platform_machine == 'x86_64'",
     # triton is needed on aarch64 (GB200) but ships with torch on x86_64
     "triton==3.3.1; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "flash-attn==2.7.4.post1",
+    # flash-attn wheels are sourced from `[tool.uv.sources]` below (x86_64 cp310/cp312 and aarch64 cp310).
+    "flash-attn==2.7.4.post1; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     "onnx>=1.20.0",
+    "onnxscript",
     # cu12 wheels only exist for x86_64; Blackwell / aarch64 requires cu13.
     "tensorrt-cu12>=10.15.1.29; platform_machine == 'x86_64'",
     "tensorrt-cu13>=10.15.1.29; platform_machine == 'aarch64'",
@@ -100,7 +102,14 @@ pythonpath = [".", "tests"]
 addopts = "--import-mode=importlib"
 markers = [
     "gpu: tests that require a GPU",
+    "multigpu: tests that require multiple GPUs and use all visible GPUs",
 ]
+# Include fixture setup/teardown in JUnit <testcase time="..."> so duration
+# reports (ci/print_duration_summary.py) and TestRun.duration in testdb
+# reflect real wall-clock time. With the default ("call"), expensive
+# session/module/class-scoped fixtures (e.g. NFS->local model staging,
+# Gr00tPolicy load) are invisible and tests look misleadingly fast.
+junit_duration_report = "total"
 
 [tool.ruff]
 line-length = 100

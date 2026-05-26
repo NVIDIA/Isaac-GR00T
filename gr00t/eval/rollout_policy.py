@@ -126,12 +126,28 @@ def get_libero_env_fn(
     return env_fn
 
 
+def get_robocasa_env_fn(
+    env_name: str,
+):
+    def env_fn():
+        import robocasa  # noqa: F401
+        import robocasa.utils.gym_utils.gymnasium_groot  # noqa: F401
+
+        return gym.make(env_name, enable_render=True)
+
+    return env_fn
+
+
 def get_gym_env(env_name: str, env_idx: int, total_n_envs: int):
     """Create Ray environment factory function without wrappers."""
 
     env_embodiment = get_embodiment_tag_from_env_name(env_name)
+    env_prefix = env_name.split("/")[0]
 
-    if env_embodiment in (EmbodimentTag.SIMPLER_ENV_GOOGLE, EmbodimentTag.SIMPLER_ENV_WIDOWX):
+    if env_prefix in ("robocasa_panda_omron", "gr1_unified"):
+        env_fn = get_robocasa_env_fn(env_name)
+
+    elif env_embodiment in (EmbodimentTag.SIMPLER_ENV_GOOGLE, EmbodimentTag.SIMPLER_ENV_WIDOWX):
         env_fn = get_simpler_env_fn(env_name)
 
     elif env_embodiment in (EmbodimentTag.LIBERO_PANDA,):

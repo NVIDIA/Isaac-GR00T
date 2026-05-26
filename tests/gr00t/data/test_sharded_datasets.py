@@ -23,9 +23,15 @@ ShardedMixtureDataset tests use lightweight mock ShardedDataset instances.
 
 from unittest.mock import MagicMock, patch
 
-from gr00t.data.dataset.sharded_mixture_dataset import ShardedMixtureDataset, merge_statistics
+from gr00t.data.dataset.sharded_mixture_dataset import (
+    ShardedMixtureDataset,
+    _get_default_pg_tensor_device,
+    merge_statistics,
+)
 from gr00t.data.interfaces import ShardedDataset
 import numpy as np
+import pytest
+import torch
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +248,142 @@ class TestShardedMixtureDataset:
                 seed=42,
             )
         processor.set_statistics.assert_called_once()
+
+    # -----------------------------------------------------------------------
+    # Distributed seeding invariant: rank-symmetric seed enforcement
+    # -----------------------------------------------------------------------
+    #
+    # ShardedMixtureDataset's shard partitioning works only when every rank
+    # generates the same shard_sampling_schedule and slices into it
+    # disjointly. A rank-asymmetric seed silently breaks this (see the class
+    # docstring's "Distributed seeding invariant" section). The
+    # _assert_seed_rank_symmetric guard turns that silent failure into a
+    # fail-fast at __init__ / reset_seed time.
+    #
+    # These tests use unittest.mock to stand in for the torch.distributed
+    # collective so we can simulate a multi-rank environment without spawning
+    # real processes.
+
+    @staticmethod
+    def _make_fake_all_gather(per_rank_seeds):
+        """Build a fake ``dist.all_gather`` that fills the output list with
+        ``per_rank_seeds`` cast to ``int64`` tensors."""
+
+        def _fake(out_list, _in_tensor, group=None):
+            assert len(out_list) == len(per_rank_seeds), "world_size mismatch in test setup"
+            for slot, seed in zip(out_list, per_rank_seeds):
+                slot.copy_(torch.tensor([seed], dtype=torch.long))
+
+        return _fake
+
+    def _make_mixture_dist(self, world_size, this_rank_seed, per_rank_seeds):
+        """Construct a ShardedMixtureDataset under a faked distributed env
+        where ``dist.all_gather`` returns ``per_rank_seeds``."""
+        datasets = [MockShardedDataset("/fake/path_0")]
+        processor = MagicMock()
+        processor.set_statistics = MagicMock()
+        with (
+            patch("torch.distributed.is_initialized", return_value=True),
+            patch("torch.distributed.get_world_size", return_value=world_size),
+            patch("torch.distributed.get_rank", return_value=0),
+            patch(
+                "torch.distributed.all_gather",
+                side_effect=self._make_fake_all_gather(per_rank_seeds),
+            ),
+        ):
+            return ShardedMixtureDataset(
+                datasets=datasets,
+                weights=[1.0],
+                processor=processor,
+                seed=this_rank_seed,
+            )
+
+    def test_seed_collective_uses_cpu_for_cpu_backend(self):
+        with patch("torch.distributed.get_backend", return_value="gloo"):
+            assert _get_default_pg_tensor_device() == torch.device("cpu")
+
+    def test_seed_collective_uses_current_cuda_device_for_nccl_backend(self):
+        with (
+            patch("torch.distributed.get_backend", return_value="nccl"),
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.current_device", return_value=3),
+        ):
+            assert _get_default_pg_tensor_device() == torch.device("cuda", 3)
+
+    def test_seed_collective_raises_for_nccl_without_cuda(self):
+        with (
+            patch("torch.distributed.get_backend", return_value="nccl"),
+            patch("torch.cuda.is_available", return_value=False),
+        ):
+            with pytest.raises(RuntimeError, match="requires CUDA tensors"):
+                _get_default_pg_tensor_device()
+
+    def test_init_passes_when_seeds_match_across_ranks(self):
+        # All ranks pass the same seed: __init__ must succeed.
+        mixture = self._make_mixture_dist(world_size=2, this_rank_seed=42, per_rank_seeds=[42, 42])
+        assert mixture.seed == 42
+
+    def test_init_raises_on_seed_mismatch_across_ranks(self):
+        # rank 0 has seed=42, rank 1 has seed=43 → must fail loudly with a
+        # message pointing at the docstring section.
+        with pytest.raises(ValueError, match="seed must be identical on every rank"):
+            self._make_mixture_dist(world_size=2, this_rank_seed=42, per_rank_seeds=[42, 43])
+
+    def test_init_raises_on_plus_rank_pattern(self):
+        # The classic "drive-by fix" pattern: caller did `seed = base + rank`
+        # so each rank passes a different value. The error message should
+        # surface all observed seeds.
+        with pytest.raises(ValueError, match=r"\[42, 43, 44, 45\]"):
+            self._make_mixture_dist(
+                world_size=4,
+                this_rank_seed=42,
+                per_rank_seeds=[42, 43, 44, 45],
+            )
+
+    def test_reset_seed_raises_on_mismatch_across_ranks(self):
+        # Resume path: reset_seed must enforce the same invariant. We first
+        # construct a single-rank mixture (fast, no collective), then flip
+        # world_size and patch dist for the reset_seed call.
+        mixture = self._make_mixture()
+        mixture.world_size = 2
+        with (
+            patch("torch.distributed.is_initialized", return_value=True),
+            patch(
+                "torch.distributed.all_gather",
+                side_effect=self._make_fake_all_gather([100, 101]),
+            ),
+        ):
+            with pytest.raises(ValueError, match="seed must be identical on every rank"):
+                mixture.reset_seed(100)
+
+    def test_assert_is_noop_in_single_rank(self):
+        # The hot path: not distributed at all. Must not call all_gather.
+        with (
+            patch("torch.distributed.is_initialized", return_value=False),
+            patch("torch.distributed.all_gather") as mock_all_gather,
+        ):
+            self._make_mixture()  # no exception
+            mock_all_gather.assert_not_called()
+
+    def test_assert_is_noop_when_world_size_one(self):
+        # Distributed but world_size == 1 (degenerate single-process dist
+        # init). Still no collective.
+        datasets = [MockShardedDataset("/fake/path_0")]
+        processor = MagicMock()
+        processor.set_statistics = MagicMock()
+        with (
+            patch("torch.distributed.is_initialized", return_value=True),
+            patch("torch.distributed.get_world_size", return_value=1),
+            patch("torch.distributed.get_rank", return_value=0),
+            patch("torch.distributed.all_gather") as mock_all_gather,
+        ):
+            ShardedMixtureDataset(
+                datasets=datasets,
+                weights=[1.0],
+                processor=processor,
+                seed=42,
+            )
+            mock_all_gather.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

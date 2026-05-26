@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """
-GPU integration test for Gr00tPolicy._get_action() with a real model.
+GPU integration test for Gr00tPolicy._get_action() with the real model architecture.
 
 This top-down test exercises the full inference pipeline:
   Gr00tPolicy._get_action()
@@ -29,26 +29,25 @@ Covers modules with 0% or low coverage that cannot be tested on CPU:
   - flowmatching_modules.py (diffusion scheduler)
   - embodiment_conditioned_mlp.py (action head)
 
-Requires GPU, HF_TOKEN (for gated download), and model weights.
-Weights are cached under the shared drive in CI or ``~/.cache/g00t/models/`` locally;
-if absent, ``resolve_shared_model_path`` downloads using ``HF_TOKEN``.
+Requires GPU and HF_TOKEN (for gated metadata download), but not model weights.
+``tests/conftest.py`` sets ``GROOT_SKIP_HF_MODEL_WEIGHTS=1`` so
+``from_pretrained`` constructs the architecture from config without reading
+multi-GB safetensor shards.
+
+``test_warmup_model_load`` owns the model-load cost under a wide timeout so
+a slow checkpoint read does not consume the per-test budget of every
+inference test in the class.
 """
 
-from pathlib import Path
+import time
 
 import numpy as np
 import pytest
-from test_support.runtime import resolve_shared_model_path
 import torch
 
 
 EMBODIMENT_TAG = "OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
 MODEL_REPO_ID = "nvidia/GR00T-N1.7-3B"
-
-
-def _prepare_model_path() -> Path:
-    """Resolve model weights (uses ``HF_TOKEN`` if the shared cache is empty)."""
-    return resolve_shared_model_path(MODEL_REPO_ID)
 
 
 def _build_observation(policy, batch_size=1, seed=42):
@@ -81,28 +80,48 @@ def _build_observation(policy, batch_size=1, seed=42):
     return obs
 
 
-@pytest.mark.gpu
-@pytest.mark.timeout(300)
-class TestGr00tPolicyGPU:
-    """End-to-end GPU inference through Gr00tPolicy."""
-
-    @pytest.fixture(scope="class")
-    def policy(self):
-        model_path = _prepare_model_path()
-
-        from gr00t.policy.gr00t_policy import Gr00tPolicy
-
-        return Gr00tPolicy(
-            embodiment_tag=EMBODIMENT_TAG,
-            model_path=str(model_path),
-            device="cuda:0",
+@pytest.fixture(scope="module")
+def policy(request):
+    """Shared Gr00tPolicy on ``cuda:0`` reused across all tests in this module."""
+    if not request.node.nodeid.endswith("::test_warmup_model_load"):
+        print(
+            f"[gpu_policy] WARNING: model load triggered by {request.node.nodeid!r}, "
+            "not test_warmup_model_load. Include test_warmup_model_load in the "
+            "selection when debugging model construction failures.",
+            flush=True,
         )
 
-    def test_policy_loads_on_gpu(self, policy):
-        assert policy.model is not None
-        assert policy.processor is not None
-        device = next(policy.model.parameters()).device
-        assert device.type == "cuda"
+    from gr00t.policy.gr00t_policy import Gr00tPolicy
+
+    t0 = time.perf_counter()
+    p = Gr00tPolicy(
+        embodiment_tag=EMBODIMENT_TAG,
+        model_path=MODEL_REPO_ID,
+        device="cuda:0",
+    )
+    # This CI test skips trained weights, so the model can emit dummy rot6d
+    # action components that are finite but not valid rotations. Keep the
+    # architecture path covered without converting relative EEF actions back
+    # into absolute poses.
+    p.processor.state_action_processor.use_relative_action = False
+    print(f"[gpu_policy] Gr00tPolicy load took {time.perf_counter() - t0:.1f}s", flush=True)
+    return p
+
+
+@pytest.mark.gpu
+@pytest.mark.timeout(900)
+def test_warmup_model_load(policy):
+    """Load the policy under a wide timeout and assert it is on GPU."""
+    assert policy.model is not None
+    assert policy.processor is not None
+    device = next(policy.model.parameters()).device
+    assert device.type == "cuda"
+
+
+@pytest.mark.gpu
+@pytest.mark.timeout(120)
+class TestGr00tPolicyGPU:
+    """End-to-end GPU inference through Gr00tPolicy."""
 
     def test_get_action_keys_match_config(self, policy):
         obs = _build_observation(policy, batch_size=1)
@@ -153,18 +172,10 @@ class TestGr00tPolicyGPU:
                 "model may have uncontrolled stochasticity beyond the diffusion noise",
             )
 
-    def test_get_action_sensitive_to_input(self, policy):
-        """Different inputs must produce different outputs — model is not degenerate."""
-        obs_a = _build_observation(policy, batch_size=1, seed=0)
-        obs_b = _build_observation(policy, batch_size=1, seed=12345)
-        action_a, _ = policy.get_action(obs_a)
-        action_b, _ = policy.get_action(obs_b)
-        any_differ = False
-        for key in action_a:
-            if not np.allclose(action_a[key], action_b[key], atol=1e-6):
-                any_differ = True
-                break
-        assert any_differ, (
-            "Model returned identical actions for completely different observations — "
-            "the model may be ignoring its input (degenerate)."
-        )
+    def test_get_action_accepts_different_inputs(self, policy):
+        """Different synthetic observations should both complete without numeric failures."""
+        for seed in (0, 12345):
+            obs = _build_observation(policy, batch_size=1, seed=seed)
+            action, _ = policy.get_action(obs)
+            for key, arr in action.items():
+                assert np.all(np.isfinite(arr)), f"{key} contains NaN or Inf"

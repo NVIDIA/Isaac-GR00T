@@ -58,6 +58,7 @@ from typing import Any, Literal, Optional
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.deployment.modes import VideoBackend
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 import numpy as np
 import torch
@@ -1497,7 +1498,7 @@ class ExportConfig:
     export_mode: Literal["dit_only", "action_head", "full_pipeline"] = "dit_only"
     """Export mode: 'dit_only', 'action_head' (4 components), or 'full_pipeline' (ViT + action head)."""
 
-    video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "torchcodec"
+    video_backend: VideoBackend = "torchcodec"
     """Video backend to use."""
 
     precision: Literal["bf16", "fp8"] = "bf16"

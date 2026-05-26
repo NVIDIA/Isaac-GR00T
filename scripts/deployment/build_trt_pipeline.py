@@ -55,6 +55,7 @@ import time
 import traceback
 from typing import IO, Literal, Optional
 
+from gr00t.deployment.modes import VideoBackend
 import tyro
 
 
@@ -225,13 +226,23 @@ class PipelineConfig:
     """Precision for ONNX export and TRT engine build."""
 
     batch_size: int = 1
-    """Batch size baked into the exported ONNX/TRT models (default: 1)."""
+    """Batch size baked into the exported ONNX/TRT models (default: 1).
+
+    Pinned at build time: ``export_onnx_n1d7.py`` does not register the
+    batch dim in ``dynamic_axes``, so the resulting TRT engine only
+    accepts inputs with this exact batch size at runtime. Bs=1 covers
+    the production inference path; pick a larger value only if every
+    runtime call will use the same batch (e.g. tiled benchmarking via
+    ``verify_n1d7_trt.py``). See also
+    ``trt_model_forward._assert_supports_trt_padding_strip`` for the
+    matching runtime-side contract.
+    """
 
     # -- Export options ------------------------------------------------------
     export_mode: Literal["dit_only", "action_head", "full_pipeline"] = "full_pipeline"
     """Export mode: 'dit_only', 'action_head', or 'full_pipeline' (recommended)."""
 
-    video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "torchcodec"
+    video_backend: VideoBackend = "torchcodec"
     """Video backend for dataset loading."""
 
     # -- Build options ------------------------------------------------------

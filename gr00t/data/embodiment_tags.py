@@ -47,7 +47,9 @@ class EmbodimentTag(Enum):
     - LIBERO_PANDA         -> "libero_sim"
 
     Finetuning tag (for custom robots):
-    - NEW_EMBODIMENT       -> "new_embodiment"
+    - NEW_EMBODIMENT        -> "new_embodiment"
+    - ROBOCASA_PANDA_OMRON  -> "robocasa_panda_omron"
+    - ROBOCASA_GR1_TABLETOP -> "robocasa_gr1_tabletop"
 
     Use ``EmbodimentTag.resolve(s)`` to look up a tag by name or value,
     case-insensitively.
@@ -128,6 +130,18 @@ class EmbodimentTag(Enum):
     Any new embodiment.
     """
 
+    ROBOCASA_GR1_TABLETOP = "robocasa_gr1_tabletop"
+    """
+    RoboCasa GR1 tabletop tasks with arms, waist, and Fourier hands.
+    Uses the custom-embodiment finetuning projector slot.
+    """
+
+    ROBOCASA_PANDA_OMRON = "robocasa_panda_omron"
+    """
+    RoboCasa Panda arm tasks with an Omron gripper.
+    Uses the custom-embodiment finetuning projector slot.
+    """
+
     @classmethod
     def resolve(cls, tag: "str | EmbodimentTag") -> "EmbodimentTag":
         """Resolve a string to an EmbodimentTag, case-insensitively.
@@ -203,6 +217,8 @@ POSTTRAIN_TAGS: frozenset[EmbodimentTag] = frozenset(
 FINETUNE_ONLY_TAGS: frozenset[EmbodimentTag] = frozenset(
     {
         EmbodimentTag.NEW_EMBODIMENT,
+        EmbodimentTag.ROBOCASA_PANDA_OMRON,
+        EmbodimentTag.ROBOCASA_GR1_TABLETOP,
     }
 )
 """Tags for custom robots (finetuning only, not in any shipped checkpoint)."""

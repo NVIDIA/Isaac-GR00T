@@ -99,10 +99,13 @@ class LiberoEnv(gym.Env):
     """LanguageTable env."""
 
     def __init__(self, task_bddl_file: str, task_description: str):
+        # `ignore_done=True`: outer `MultiStepWrapper` owns truncation; robosuite's
+        # horizon-termination is redundant and conflicts with LIBERO's done-override.
         self._env = OffScreenRenderEnv(
             bddl_file_name=task_bddl_file,
             camera_heights=256,
             camera_widths=256,
+            ignore_done=True,
         )
         self._task_description = task_description
         # Convert Gym action space to Gymnasium.

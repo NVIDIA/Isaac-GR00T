@@ -22,6 +22,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -49,44 +50,82 @@ def get_root() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parents[2]
 
 
-def resolve_shared_model_path(
-    repo_id: str,
+def fast_copy_tree(
+    src: pathlib.Path,
+    dst: pathlib.Path,
     *,
-    subdir: str | None = None,
-    allow_patterns: list[str] | None = None,
-) -> pathlib.Path:
-    """Return a shared model path, downloading once if not present.
+    symlinks: bool = False,
+) -> None:
+    """Recursively copy *src* → *dst*, optimised for slow-NFS sources.
 
-    Models are stored at ``TEST_CACHE_PATH/models/<repo_name>/`` so all tests
-    share a single copy.  If *subdir* is given the returned path points to that
-    subdirectory (useful for HF repos with nested checkpoint folders).
+    Many-small-files trees over a contended NFS mount stall
+    ``shutil.copytree`` badly: each file pays an open + stat + read +
+    close NFS round-trip, so metadata-bound trees (e.g. a Python venv
+    with pandas/sympy/torch test fixtures, ~50k tiny files) collapse
+    from thousands of files/s on a healthy mount to single-digit
+    files/s on a contended one. Job 313566325 observed 3.4 files/s,
+    blowing the 1200 s ``pytest-timeout`` on a single venv copy that
+    finishes in <60 s on a quiet runner.
+
+    This helper streams the tree through a single ``tar`` pipe — one
+    sequential read on the source side, one sequential write on the
+    destination, no per-file network round-trips. Falls back to
+    ``shutil.copytree(dirs_exist_ok=True)`` when ``tar`` is missing
+    (e.g. some minimal containers) so the helper is always usable.
 
     Args:
-        repo_id: HuggingFace repo id, e.g. ``"nvidia/GR00T-N1.7-3B"``.
-        subdir: Optional subdirectory within the downloaded repo.
-        allow_patterns: Optional list of file patterns to download (passed to
-            ``snapshot_download``).  If ``None`` the entire repo is fetched.
+        src: source directory (must exist).
+        dst: destination directory (created when absent; existing
+            entries are merged, matching
+            ``shutil.copytree(dirs_exist_ok=True)``).
+        symlinks: when ``False`` (default) symlinks are dereferenced
+            and real bytes are copied — load-bearing for ``/shared``
+            sources, where preserving symlinks would route runtime
+            reads back over NFS and defeat the purpose of staging.
+            When ``True`` symlinks are preserved verbatim (used for
+            ``libero_uv`` venvs whose internal ``bin/python`` symlink
+            points outside the tree and must stay a symlink).
     """
-    model_name = repo_id.split("/")[-1]
-    model_root = TEST_CACHE_PATH / "models" / model_name
-    target = model_root / subdir if subdir else model_root
+    src = pathlib.Path(src)
+    dst = pathlib.Path(dst)
+    if not src.is_dir():
+        raise NotADirectoryError(f"fast_copy_tree source is not a directory: {src}")
+    dst.mkdir(parents=True, exist_ok=True)
 
-    # Quick check: already downloaded?
-    if target.is_dir() and any(target.iterdir()):
-        return target
+    tar_bin = shutil.which("tar")
+    if tar_bin is None:
+        shutil.copytree(src, dst, dirs_exist_ok=True, symlinks=symlinks)
+        return
 
-    token = os.environ.get("HF_TOKEN", "")
-    assert token, "HF_TOKEN is required to download gated models. Set via: export HF_TOKEN=hf_..."
+    # ``tar -h`` (--dereference) follows symlinks at archive-creation
+    # time, matching ``shutil.copytree(symlinks=False)``.
+    create_flags = "-cpf" if symlinks else "-chpf"
+    src_cmd = [tar_bin, "-C", str(src), create_flags, "-", "."]
+    dst_cmd = [tar_bin, "-C", str(dst), "-xpf", "-"]
 
-    from huggingface_hub import snapshot_download
+    src_proc = subprocess.Popen(src_cmd, stdout=subprocess.PIPE)
+    try:
+        try:
+            dst_proc = subprocess.Popen(dst_cmd, stdin=src_proc.stdout)
+        except BaseException:
+            # dst_proc never started, so nobody will drain src_proc's stdout.
+            # Reap src_proc explicitly to avoid leaving a zombie.
+            src_proc.kill()
+            src_proc.wait()
+            raise
+    finally:
+        # Close our copy of the pipe so dst_proc gets SIGPIPE if it dies
+        # before src_proc finishes writing — otherwise we'd deadlock.
+        if src_proc.stdout is not None:
+            src_proc.stdout.close()
 
-    snapshot_download(
-        repo_id=repo_id,
-        local_dir=str(model_root),
-        token=token,
-        **({"allow_patterns": allow_patterns} if allow_patterns else {}),
-    )
-    return target
+    dst_rc = dst_proc.wait()
+    src_rc = src_proc.wait()
+    if src_rc != 0 or dst_rc != 0:
+        raise subprocess.CalledProcessError(
+            dst_rc or src_rc,
+            f"tar-pipe {src} → {dst} (src_rc={src_rc} dst_rc={dst_rc})",
+        )
 
 
 def checkpoint_tree_ready(path: pathlib.Path) -> bool:
@@ -184,13 +223,28 @@ def resolve_model_checkpoint_path(
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
+    shared_root = TEST_CACHE_PATH / "models" / model_name
+    shared = shared_root / hf_subdir if hf_subdir else shared_root
+    if checkpoint_tree_ready(shared):
+        return shared
+
     allow = [f"{hf_subdir}/*"] if hf_subdir else None
-    target = resolve_shared_model_path(hf_repo_id, subdir=hf_subdir, allow_patterns=allow)
-    assert checkpoint_tree_ready(target), (
-        f"Checkpoint at {target} is incomplete after resolve/download "
+    token = os.environ.get("HF_TOKEN", "")
+    assert token, "HF_TOKEN is required to download gated models. Set via: export HF_TOKEN=hf_..."
+
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(
+        repo_id=hf_repo_id,
+        local_dir=str(shared_root),
+        token=token,
+        **({"allow_patterns": allow} if allow else {}),
+    )
+    assert checkpoint_tree_ready(shared), (
+        f"Checkpoint at {shared} is incomplete after resolve/download "
         "(check HF_TOKEN, network, and Hugging Face repo layout)."
     )
-    return target
+    return shared
 
 
 # ---------------------------------------------------------------------------
@@ -380,12 +434,11 @@ def resolve_droid_n17_checkpoint_path(
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    target = resolve_shared_model_path(_DROID_N17_REPO)
-    assert libero_checkpoint_tree_ready(target), (
-        f"Checkpoint at {target} is incomplete after resolve/download "
-        "(check HF_TOKEN, network, and Hugging Face repo layout)."
+    return resolve_model_checkpoint_path(
+        hf_repo_id=_DROID_N17_REPO,
+        path_override_env=path_override_env,
+        repo_root=repo_root,
     )
-    return target
 
 
 def resolve_droid_demo_dataset_path(

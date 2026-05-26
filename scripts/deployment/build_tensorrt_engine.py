@@ -366,13 +366,18 @@ def build_full_pipeline(
 
     # Components: (name, onnx_file, engine_file)
     components = [
-        # FP32 ViT preferred for accuracy; falls back to BF16 if only bf16 was exported.
+        # FP32 ViT preferred for accuracy; falls back to BF16 if only bf16 was
+        # exported. Engine filename is precision-neutral (vit.engine) because
+        # the input ONNX may be either FP32 or BF16; baking a precision tag
+        # into the engine name was misleading whenever the FP32 ONNX path was
+        # taken. The actual engine precision is recorded in
+        # export_metadata.json and inspectable via TRT tooling.
         (
             "ViT",
             "vit_fp32.onnx"
             if os.path.exists(os.path.join(onnx_dir, "vit_fp32.onnx"))
             else "vit_bf16.onnx",
-            "vit_bf16.engine",
+            "vit.engine",
         ),
         ("LLM", "llm_bf16.onnx", "llm_bf16.engine"),
         ("VL Self-Attention", "vl_self_attention.onnx", "vl_self_attention.engine"),

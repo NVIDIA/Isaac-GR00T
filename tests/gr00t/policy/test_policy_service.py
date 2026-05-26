@@ -218,3 +218,58 @@ class TestMsgSerializer:
         result = MsgSerializer.from_bytes(MsgSerializer.to_bytes(config))
         assert isinstance(result, ModalityConfig)
         assert result.modality_keys == ["x", "y"]
+
+    def test_encode_rejects_object_dtype_ndarray(self):
+        # Object-dtype ndarrays would be pickled by msgpack_numpy. The
+        # pre-MR-307 implementation used np.save(..., allow_pickle=False)
+        # which raised. Restore that safety contract on encode.
+        arr = np.array([{"any": "object"}, [1, 2, 3]], dtype=object)
+        with pytest.raises(TypeError, match="object-dtype"):
+            MsgSerializer.to_bytes(arr)
+
+    def test_decode_rejects_object_dtype_ndarray_bin_keys(self):
+        # Forge a wire payload that claims object-dtype with msgpack-bin
+        # (bytes) keys — the shape msgpack_numpy itself emits. We must
+        # reject it before mnp.decode would call pickle.loads.
+        import msgpack_numpy as mnp
+
+        forged = mnp.packb(
+            {b"nd": True, b"kind": b"O", b"type": "|O", b"shape": (1,), b"data": b""}
+        )
+        with pytest.raises(ValueError, match="object-dtype"):
+            MsgSerializer.from_bytes(forged)
+
+    def test_decode_rejects_object_dtype_ndarray_str_keys(self):
+        # Defense-in-depth: enforce the allow_pickle=False contract even
+        # for str-keyed forged payloads. msgpack_numpy 0.4.8 happens not
+        # to pickle-decode this shape (it only matches bytes keys), but
+        # MsgSerializer must not depend on mnp's internal key conventions.
+        import msgpack_numpy as mnp
+
+        forged = mnp.packb({"nd": True, "kind": "O", "type": "|O", "shape": (1,), "data": b""})
+        with pytest.raises(ValueError, match="object-dtype"):
+            MsgSerializer.from_bytes(forged)
+
+    def test_decode_rejects_object_dtype_ndarray_int_nd(self):
+        # Defense-in-depth: a forged payload that uses msgpack int 1 in
+        # place of bool True for ``nd`` (different msgpack type codes,
+        # both Python-truthy) must still be rejected. mnp 0.4.8's own
+        # check is ``is True`` so this variant doesn't currently reach
+        # pickle.loads inside mnp.decode either, but the MsgSerializer
+        # contract is "any payload claiming nd + kind=O is refused"
+        # regardless of mnp's identity-check semantics.
+        import msgpack_numpy as mnp
+
+        forged = mnp.packb({b"nd": 1, b"kind": b"O", b"type": "|O", b"shape": (1,), b"data": b""})
+        with pytest.raises(ValueError, match="object-dtype"):
+            MsgSerializer.from_bytes(forged)
+
+    def test_decode_raises_on_marker_without_payload(self):
+        # A truncated / malformed message that carries the marker but no
+        # 'as_json' field used to fall through to a plain dict — silent
+        # corruption. Now it must raise.
+        import msgpack_numpy as mnp
+
+        malformed = mnp.packb({"__ModalityConfig__": True})
+        with pytest.raises(ValueError, match="Malformed ModalityConfig payload"):
+            MsgSerializer.from_bytes(malformed)

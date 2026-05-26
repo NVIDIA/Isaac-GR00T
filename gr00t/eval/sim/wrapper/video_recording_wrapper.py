@@ -168,6 +168,11 @@ class VideoRecordingWrapper(gym.Wrapper):
 
         self.is_success = False
 
+        # Caption buffer height is cached on the first overlay frame of each
+        # episode so that every frame in the encoded stream has the same total
+        # height; the H.264 encoder rejects mid-stream shape changes.
+        self.caption_height = None
+
     def _resize_frames_to_common_height(self, frames):
         """
         Resize all frames to have the same height for horizontal concatenation.
@@ -205,6 +210,9 @@ class VideoRecordingWrapper(gym.Wrapper):
         self.frames = list()
         self.step_count = 1
         self.video_recorder.stop()
+        # New episode == new video file == new VideoRecorder shape lock, so
+        # drop the cached caption height too.
+        self.caption_height = None
 
         if self.video_dir is not None and self.file_path is not None and self.file_path.exists():
             # rename the file to indicate success or failure
@@ -410,29 +418,51 @@ class VideoRecordingWrapper(gym.Wrapper):
                         text_size = cv2.getTextSize(language, font, font_scale, font_thickness)[0]
                     font_scale *= 0.9  # Scale back slightly to ensure fit
 
-                # Calculate position
-                text_x = padding
-                text_y = frame.shape[0] - 20
+                _, baseline = cv2.getTextSize(language, font, font_scale, font_thickness)
+                caption_height = text_size[1] + baseline + 2 * padding
+                if (frame.shape[0] + caption_height) % 2:
+                    caption_height += 1
 
-                # Add dark background rectangle
-                cv2.rectangle(
-                    frame,
-                    (text_x - padding, text_y - text_size[1] - padding),
-                    (text_x + text_size[0] + padding, text_y + padding),
-                    (0, 0, 0),
-                    -1,
+                # Caption height must stay constant for the whole episode so
+                # that the encoded frame shape never changes (the H.264 stream
+                # rejects late shape changes and the VideoRecorder asserts it).
+                # First overlay frame fixes the height; later frames whose
+                # natural caption would be taller (e.g. the success suffix
+                # changes from "(0)" to "(1)" and the dynamic scaler picks a
+                # slightly larger font) shrink font_scale further until they
+                # fit in the cached buffer.
+                if self.caption_height is None:
+                    self.caption_height = caption_height
+                else:
+                    # If `font_scale` bottoms out at 0.05 with caption_height
+                    # still > self.caption_height, we deliberately keep the
+                    # buffer at the cached size: frame-shape stability outranks
+                    # text completeness here. cv2.putText below will silently
+                    # clip the few overflowing pixels, which is preferable to
+                    # tripping the VideoRecorder shape-lock assert.
+                    while caption_height > self.caption_height and font_scale > 0.05:
+                        font_scale *= 0.9
+                        text_size, baseline = cv2.getTextSize(
+                            language, font, font_scale, font_thickness
+                        )
+                        caption_height = text_size[1] + baseline + 2 * padding
+                        if (frame.shape[0] + caption_height) % 2:
+                            caption_height += 1
+
+                caption = np.zeros(
+                    (self.caption_height, frame.shape[1], frame.shape[2]), dtype=frame.dtype
                 )
 
-                # Add text
                 cv2.putText(
-                    frame,
+                    caption,
                     language,
-                    (text_x, text_y),
+                    (padding, padding + text_size[1]),
                     font,
                     font_scale,
                     font_color,
                     font_thickness,
                 )
+                frame = np.concatenate([frame, caption], axis=0)
 
             self.video_recorder.write_frame(frame)
 

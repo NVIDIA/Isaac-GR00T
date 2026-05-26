@@ -17,8 +17,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import time
+
+import pytest
 
 
 def _pin_xdist_worker_to_gpu() -> None:
@@ -95,7 +98,27 @@ def pytest_configure(config) -> None:  # noqa: ARG001
     # uv run inherit it — PYTEST_CURRENT_TEST alone can be cleared by uv.
     os.environ["GROOT_PATCH_MISTRAL"] = "1"
     os.environ["GROOT_HF_LOCAL_FIRST"] = "1"
+    os.environ.setdefault("GROOT_SKIP_HF_MODEL_WEIGHTS", "1")
     _configure_shared_caches()
+
+
+@pytest.fixture(scope="session")
+def load_hf_model_weights():
+    """Temporarily opt a test into normal Hugging Face checkpoint weight loading."""
+
+    @contextlib.contextmanager
+    def _enabled():
+        previous = os.environ.get("GROOT_SKIP_HF_MODEL_WEIGHTS")
+        os.environ["GROOT_SKIP_HF_MODEL_WEIGHTS"] = "0"
+        try:
+            yield
+        finally:
+            if previous is None:
+                os.environ.pop("GROOT_SKIP_HF_MODEL_WEIGHTS", None)
+            else:
+                os.environ["GROOT_SKIP_HF_MODEL_WEIGHTS"] = previous
+
+    return _enabled
 
 
 def pytest_runtest_logstart(nodeid: str, location: tuple) -> None:

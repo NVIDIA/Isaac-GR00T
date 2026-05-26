@@ -100,7 +100,7 @@ def _truncated_policy():
 @pytest.mark.gpu
 @pytest.mark.timeout(600)
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_trt_full_pipeline(batch_size: int, tmp_path) -> None:
+def test_trt_full_pipeline(batch_size: int, tmp_path, load_hf_model_weights) -> None:
     """Export ONNX, build TRT engines, and verify cosine similarity >= threshold."""
 
     model_path = str(
@@ -124,7 +124,11 @@ def test_trt_full_pipeline(batch_size: int, tmp_path) -> None:
     engine_dir = str(tmp_path / "engines")
     embodiment_tag = _resolve_embodiment(cfg.model_path, cfg.embodiment_tag)
 
-    with open(tmp_path / "pipeline.log", "w") as log_fp, _truncated_policy():
+    with (
+        load_hf_model_weights(),
+        open(tmp_path / "pipeline.log", "w") as log_fp,
+        _truncated_policy(),
+    ):
         _run_export(cfg, onnx_dir, embodiment_tag, log_fp)
         _run_build(cfg, onnx_dir, engine_dir, log_fp, trt_severity=trt.Logger.WARNING)
         cosine = _run_verify(cfg, engine_dir, embodiment_tag, log_fp)

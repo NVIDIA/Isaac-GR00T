@@ -15,6 +15,7 @@
 
 from copy import deepcopy
 import json
+import logging
 import os
 from pathlib import Path
 import random
@@ -52,6 +53,8 @@ except ImportError:
 # Suppress protobuf deprecation warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.protobuf")
 
+logger = logging.getLogger(__name__)
+
 ### Mapping from embodiment tag to projector index.
 EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     ##### Pretrain embodiment ids (in base model) #####
@@ -70,6 +73,8 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "simpler_env_widowx": 1,
     "libero_sim": 2,
     "new_embodiment": 10,
+    "robocasa_panda_omron": 10,
+    "robocasa_gr1_tabletop": 10,
 }
 
 
@@ -275,10 +280,24 @@ class Gr00tN1d7Processor(BaseProcessor):
         for key in statistics:
             if key not in self.statistics or override:
                 if override:
-                    print(f"Overriding statistics for {key}")
+                    logger.info("Overriding statistics for embodiment %r", key)
                 self.statistics[key] = deepcopy(statistics[key])
             else:
-                print(f"Embodiment tag {key} already in statistics, skipping updating")
+                # Surfaced as a warning (not print) because callers running with
+                # override_pretraining_statistics=False on a mixture dataset will
+                # otherwise silently keep the pre-existing pretraining stats and
+                # discard newly-merged per-dataset stats — training proceeds with
+                # the wrong mean/std and only an easy-to-miss stdout line records
+                # the drop.
+                logger.warning(
+                    "Statistics for embodiment %r already present; new stats "
+                    "DISCARDED (override=False). If the new data differs from "
+                    "the existing distribution this will cause silent "
+                    "normalization mismatch — pass override=True (or "
+                    "override_pretraining_statistics=True at the dataset level) "
+                    "to use the merged stats instead.",
+                    key,
+                )
 
         self.state_action_processor.set_statistics(statistics, override=override)
 
@@ -722,16 +741,34 @@ class Gr00tN1d7Processor(BaseProcessor):
         transformers_loading_kwargs = kwargs.pop(
             "transformers_loading_kwargs", {"trust_remote_code": True}
         )
+        hub_keys = (
+            "_commit_hash",
+            "cache_dir",
+            "force_download",
+            "local_files_only",
+            "proxies",
+            "revision",
+            "subfolder",
+            "token",
+        )
+        hub_kwargs = {key: kwargs.pop(key) for key in hub_keys if key in kwargs}
+        use_auth_token = kwargs.pop("use_auth_token", None)
+        if "token" not in hub_kwargs and use_auth_token is not None:
+            hub_kwargs["token"] = use_auth_token
         pretrained_model_name_or_path = Path(pretrained_model_name_or_path)
         config_file = pretrained_model_name_or_path / "processor_config.json"
         statistics_file = pretrained_model_name_or_path / "statistics.json"
         embodiment_id_file = pretrained_model_name_or_path / "embodiment_id.json"
         is_local = os.path.isdir(pretrained_model_name_or_path)
         if not is_local:
-            config_file = Path(cached_file(pretrained_model_name_or_path, "processor_config.json"))
-            statistics_file = Path(cached_file(pretrained_model_name_or_path, "statistics.json"))
+            config_file = Path(
+                cached_file(pretrained_model_name_or_path, "processor_config.json", **hub_kwargs)
+            )
+            statistics_file = Path(
+                cached_file(pretrained_model_name_or_path, "statistics.json", **hub_kwargs)
+            )
             embodiment_id_file = Path(
-                cached_file(pretrained_model_name_or_path, "embodiment_id.json")
+                cached_file(pretrained_model_name_or_path, "embodiment_id.json", **hub_kwargs)
             )
 
         with open(config_file, "r") as f:

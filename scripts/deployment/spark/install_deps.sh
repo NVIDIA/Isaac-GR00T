@@ -4,6 +4,14 @@
 # After install, use `source scripts/activate_spark.sh` in each new shell.
 set -euo pipefail
 
+# Track /tmp source-build dirs so they get cleaned up even when `set -e`
+# aborts the script mid-build (e.g. a failed `pip install`). Without this
+# trap, a failed flash-attn / torchcodec build leaves /tmp/flash-attn or
+# /tmp/torchcodec behind, and the next run on the same host (CI runner /
+# Docker build layer / dev machine) silently reuses the stale clone.
+TMP_BUILD_DIRS=()
+trap 'for _d in "${TMP_BUILD_DIRS[@]:-}"; do rm -rf "$_d"; done' EXIT
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
@@ -144,6 +152,7 @@ else
     export FLASH_ATTN_CUDA_ARCHS="${FLASH_ATTN_CUDA_ARCHS:-121}"
     export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-12.1}"
     rm -rf /tmp/flash-attn
+    TMP_BUILD_DIRS+=(/tmp/flash-attn)
     git clone --depth 1 --branch v2.8.3 https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attn
     rm -rf /tmp/flash-attn/csrc/cutlass
     git clone --depth 1 https://github.com/NVIDIA/cutlass.git /tmp/flash-attn/csrc/cutlass
@@ -184,10 +193,11 @@ else
         pkg-config pybind11-dev python3-dev
     uv pip install --python "$VENV_PYTHON" setuptools
     rm -rf /tmp/torchcodec
+    TMP_BUILD_DIRS+=(/tmp/torchcodec)
     git clone --depth 1 --branch v0.10.0 https://github.com/pytorch/torchcodec.git /tmp/torchcodec
     cd /tmp/torchcodec
     I_CONFIRM_THIS_IS_NOT_A_LICENSE_VIOLATION=1 uv pip install --python "$VENV_PYTHON" . --no-build-isolation
-    cd - && rm -rf /tmp/torchcodec
+    cd -
 fi
 
 echo ""

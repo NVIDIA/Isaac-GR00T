@@ -14,9 +14,12 @@
 # limitations under the License.
 
 from dataclasses import dataclass
+import functools
 from typing import Any, Callable
 
+import msgpack
 import msgpack_numpy as mnp
+import numpy as np
 import zmq
 
 from gr00t.data.types import ModalityConfig
@@ -26,29 +29,87 @@ from .policy import BasePolicy
 
 
 class MsgSerializer:
+    """msgpack_numpy serializer with a hard ``allow_pickle=False`` boundary.
+
+    Implementation note: msgpack_numpy's ``Packer``/``Unpacker`` wire any
+    user-provided ``default``/``object_hook`` *behind* their own
+    ``mnp.encode``/``mnp.decode`` (``functools.partial(encode, chain=user_fn)``).
+    That means an object-dtype ndarray is serialised by ``mnp.encode`` (and a
+    forged ``{nd: True, kind: 'O', ...}`` payload is fed to ``pickle.loads`` by
+    ``mnp.decode``) *before* a hook installed via ``mnp.packb``/``mnp.unpackb``
+    can intervene. We therefore drive ``msgpack`` directly and chain
+    ``_safe_{encode,decode} → mnp.{encode,decode} → custom`` ourselves, so the
+    refusal runs first.
+    """
+
     @staticmethod
     def to_bytes(data: Any) -> bytes:
-        return mnp.packb(data, default=MsgSerializer._encode_custom)
+        default = functools.partial(MsgSerializer._safe_encode, chain=MsgSerializer._encode_custom)
+        return msgpack.packb(data, default=default)
 
     @staticmethod
     def from_bytes(data: bytes) -> Any:
-        return mnp.unpackb(data, object_hook=MsgSerializer._decode_custom, raw=False)
+        object_hook = functools.partial(
+            MsgSerializer._safe_decode, chain=MsgSerializer._decode_custom
+        )
+        return msgpack.unpackb(data, object_hook=object_hook, raw=False)
+
+    @staticmethod
+    def _safe_encode(obj, chain=None):
+        # Refuse object-dtype ndarrays before mnp.encode would emit a
+        # ``{nd: True, kind: 'O', data: pickle.dumps(arr)}`` envelope, which
+        # silently re-enables the arbitrary-code surface that the previous
+        # ``np.save(..., allow_pickle=False)`` path explicitly forbade.
+        if isinstance(obj, np.ndarray) and obj.dtype.kind == "O":
+            raise TypeError(
+                f"Refusing to encode object-dtype ndarray (shape={obj.shape}); "
+                f"msgpack_numpy would invoke pickle. Convert to a concrete "
+                f"numeric dtype before sending."
+            )
+        return mnp.encode(obj, chain=chain)
+
+    @staticmethod
+    def _safe_decode(obj, chain=None):
+        # Refuse object-dtype ndarray payloads before mnp.decode would call
+        # ``pickle.loads`` on attacker-controlled bytes. Check both bytes- and
+        # str-encoded keys, and accept any truthy ``nd`` value (not just
+        # boolean ``True``) so a forged ``{nd: 1, kind: 'O', ...}`` payload
+        # can't sidestep the guard via msgpack's int-vs-bool type codes.
+        # msgpack_numpy 0.4.8's own check is ``obj[b'nd'] is True``, so the
+        # described variants don't actually reach pickle.loads today, but
+        # MsgSerializer enforces the contract at this boundary regardless of
+        # mnp's wire / identity-check conventions.
+        if isinstance(obj, dict):
+            nd_val = obj.get(b"nd", obj.get("nd"))
+            kind_val = obj.get(b"kind", obj.get("kind"))
+            if nd_val and kind_val in (b"O", "O"):
+                raise ValueError(
+                    "Refusing to decode object-dtype ndarray payload (pickle-bearing); "
+                    "the allow_pickle=False contract is enforced by MsgSerializer."
+                )
+        return mnp.decode(obj, chain=chain)
 
     @staticmethod
     def _encode_custom(obj):
         if isinstance(obj, ModalityConfig):
             return {"__ModalityConfig__": True, "as_json": to_json_serializable(obj)}
-        return mnp.encode(obj)
+        return obj
 
     @staticmethod
     def _decode_custom(obj):
         if not isinstance(obj, dict):
             return obj
+        # If the ModalityConfig marker is present but 'as_json' is missing,
+        # raise instead of returning a half-broken dict.
         if "__ModalityConfig__" in obj or b"__ModalityConfig__" in obj:
-            key = "as_json" if "as_json" in obj else (b"as_json" if b"as_json" in obj else None)
-            if key is not None:
-                return ModalityConfig(**obj[key])
-        return mnp.decode(obj)
+            key = next((k for k in ("as_json", b"as_json") if k in obj), None)
+            if key is None:
+                raise ValueError(
+                    f"Malformed ModalityConfig payload: marker present but "
+                    f"'as_json' missing. keys={sorted(repr(k) for k in obj.keys())}"
+                )
+            return ModalityConfig(**obj[key])
+        return obj
 
 
 @dataclass

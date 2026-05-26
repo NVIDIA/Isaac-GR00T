@@ -33,7 +33,7 @@ class FinetuneConfig:
     """Path to the pretrained base model checkpoint (e.g., Hugging Face model hub or local directory)."""
 
     dataset_path: str
-    """Path to the dataset root directory containing trajectory data for fine-tuning."""
+    """Path to one dataset root, or an os.pathsep-separated list of dataset roots."""
 
     embodiment_tag: str
     """Embodiment tag (name or value, case-insensitive). See EmbodimentTag for known tags."""

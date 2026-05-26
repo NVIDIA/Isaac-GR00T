@@ -4,6 +4,14 @@
 # After install, use `source scripts/activate_thor.sh` in each new shell.
 set -euo pipefail
 
+# Track /tmp source-build dirs so they get cleaned up even when `set -e`
+# aborts the script mid-build (e.g. a failed `pip install`). Without this
+# trap, a failed source build leaves /tmp/torchcodec behind, and the next
+# run on the same host (CI runner / Docker build layer / dev machine)
+# silently reuses the stale clone.
+TMP_BUILD_DIRS=()
+trap 'for _d in "${TMP_BUILD_DIRS[@]:-}"; do rm -rf "$_d"; done' EXIT
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
@@ -120,10 +128,11 @@ else
     export C_INCLUDE_PATH="${CUDA_HOME}/include:${C_INCLUDE_PATH:-}"
     export CPLUS_INCLUDE_PATH="${CUDA_HOME}/include:${CPLUS_INCLUDE_PATH:-}"
     rm -rf /tmp/torchcodec
+    TMP_BUILD_DIRS+=(/tmp/torchcodec)
     git clone --depth 1 --branch v0.10.0 https://github.com/pytorch/torchcodec.git /tmp/torchcodec
     cd /tmp/torchcodec
     I_CONFIRM_THIS_IS_NOT_A_LICENSE_VIOLATION=1 uv pip install --python "$VENV_PYTHON" . --no-build-isolation
-    cd - && rm -rf /tmp/torchcodec
+    cd -
 fi
 
 echo ""

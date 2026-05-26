@@ -17,10 +17,28 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import time
 
 import numpy as np
+import torch
 import torch.distributed as dist
 from torch.utils.data import IterableDataset, get_worker_info
 
 from gr00t.data.interfaces import BaseProcessor, ShardedDataset
+
+
+def _get_default_pg_tensor_device() -> torch.device:
+    """Return a tensor device supported by the default process-group backend."""
+    try:
+        backend = dist.get_backend()
+    except (AssertionError, RuntimeError, ValueError):
+        return torch.device("cpu")
+
+    if str(backend).lower() == "nccl":
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "ShardedMixtureDataset seed check requires CUDA tensors when the "
+                "distributed process group uses NCCL, but CUDA is not available."
+            )
+        return torch.device("cuda", torch.cuda.current_device())
+    return torch.device("cpu")
 
 
 def merge_statistics(
@@ -149,11 +167,38 @@ class ShardedMixtureDataset(IterableDataset):
     weights while accounting for differences in shard sizes, preventing bias toward
     datasets with smaller shards.
 
+    Distributed seeding invariant:
+        ``seed`` MUST be identical on every rank. ``generate_shard_sampling_schedule``
+        is called from ``__init__`` on every rank and consumes ``np.random.default_rng(self.seed + self.epoch)``;
+        every rank therefore produces a byte-identical ``shard_sampling_schedule``.
+        Disjoint partitioning across ranks is then performed by index in
+        ``filter_shard_sample_schedule``:
+
+            ``i % (world_size * num_workers) == rank * num_workers + worker_id``
+
+        Using a per-rank seed (e.g. ``set_seed(seed + global_rank)`` in the entry
+        point, or ``self.seed = base_seed + self.rank`` here) silently breaks
+        partitioning: each rank's filter targets a different schedule, so the
+        same physical shard is processed on multiple ranks (duplicate work)
+        and other shards are never processed (unseen training data). Training
+        losses look fine — the corruption only surfaces as degraded eval /
+        deployment performance.
+
+        See ``gr00t/experiment/experiment.py`` (``set_seed(config.data.seed)``)
+        and ``gr00t/experiment/trainer.py`` (``reset_seed`` callsite during
+        resume) for the two places this invariant is established.
+
+        ``__init__`` and ``reset_seed`` enforce the invariant at runtime via
+        ``_assert_seed_rank_symmetric``: a cross-rank ``all_gather`` that
+        raises ``ValueError`` on mismatch. The check is a no-op in
+        single-rank / non-distributed contexts.
+
     Args:
         datasets: List of ShardedDataset instances to combine
         weights: Mixing weights for each dataset (will be normalized)
         processor: Data processor to apply to all datasets
-        seed: Random seed for reproducible sampling
+        seed: Random seed for reproducible sampling. Must be identical on every
+            rank — see "Distributed seeding invariant" above.
         training: Whether in training mode (affects sampling strategy)
         num_shards_per_epoch: Number of shards to sample per epoch during training
 
@@ -209,6 +254,8 @@ class ShardedMixtureDataset(IterableDataset):
         self.curr_shard = None
         self._executor = None
         self._cache_job: Future | None = None
+
+        self._assert_seed_rank_symmetric(self.seed)
 
     def merge_statistics(self):
         """
@@ -442,8 +489,18 @@ class ShardedMixtureDataset(IterableDataset):
 
         Used for deterministic training restarts or seed changes during training.
 
+        Distributed seeding invariant: ``seed`` MUST be identical on every rank
+        for the same reason it must be at construction time — see the
+        "Distributed seeding invariant" section in this class's docstring.
+        ``Gr00tTrainer.get_train_dataloader`` honors this by computing
+        ``new_seed = self.train_dataset.seed + curr_global_step`` (a quantity that
+        is the same on every rank because both ``self.train_dataset.seed`` and
+        ``self.state.global_step`` are rank-symmetric). Do not change that
+        formula to include ``rank`` / ``global_rank`` / ``local_rank`` without
+        also redesigning ``filter_shard_sample_schedule``'s partitioning.
+
         Args:
-            seed: New random seed to use
+            seed: New random seed to use. Must be identical on every rank.
         """
         self.seed = seed
         self.epoch = 0
@@ -451,6 +508,32 @@ class ShardedMixtureDataset(IterableDataset):
         self.curr_shard_index = -1
         self.curr_shard = None
         self._cache_job = None
+        self._assert_seed_rank_symmetric(self.seed)
+
+    def _assert_seed_rank_symmetric(self, seed: int) -> None:
+        """Verify ``seed`` is identical on every rank.
+
+        See the "Distributed seeding invariant" section of the class
+        docstring for the partition mechanism this guards. A rank-asymmetric
+        seed silently corrupts the shard partition; this assertion turns
+        that silent failure into a fail-fast at construction (or
+        ``reset_seed``) time. No-op when not distributed or
+        ``world_size == 1``.
+        """
+        if self.world_size <= 1 or not dist.is_initialized():
+            return
+        device = _get_default_pg_tensor_device()
+        seed_t = torch.tensor([seed], dtype=torch.long, device=device)
+        gathered = [torch.zeros_like(seed_t) for _ in range(self.world_size)]
+        dist.all_gather(gathered, seed_t)
+        seeds = [int(s.item()) for s in gathered]
+        if any(s != seed for s in seeds):
+            raise ValueError(
+                f"ShardedMixtureDataset: seed must be identical on every rank, "
+                f"got {seeds} (this rank passed {seed}). A rank-asymmetric seed "
+                f"silently breaks the shard partition — see this class's "
+                f'"Distributed seeding invariant" docstring section.'
+            )
 
     def print_dataset_statistics(self):
         """Print formatted dataset statistics for debugging and monitoring."""

@@ -150,7 +150,7 @@ class LoadedVariant:
 
 
 @pytest.fixture(scope="module", params=VARIANTS, ids=str)
-def loaded_variant(request):
+def loaded_variant(request, load_hf_model_weights):
     """Load Gr00tPolicy + LeRobotEpisodeLoader once per variant for the whole module."""
     variant: InferenceVariant = request.param
     model_path = _model_path(variant)
@@ -158,11 +158,12 @@ def loaded_variant(request):
     embodiment_tag = EmbodimentTag.resolve(variant.embodiment_tag)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    policy = Gr00tPolicy(
-        embodiment_tag=embodiment_tag,
-        model_path=model_path,
-        device=device,
-    )
+    with load_hf_model_weights():
+        policy = Gr00tPolicy(
+            embodiment_tag=embodiment_tag,
+            model_path=model_path,
+            device=device,
+        )
 
     modality = policy.get_modality_config()
 

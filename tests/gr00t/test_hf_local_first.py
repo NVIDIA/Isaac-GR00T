@@ -28,10 +28,36 @@ from __future__ import annotations
 
 from gr00t import _hf_local_first_call
 import pytest
+from transformers import PretrainedConfig
 
 
 class _FakeKlass:
     """Sentinel class used as the first argument to a from_pretrained-shaped fn."""
+
+
+class _FakeConfig(PretrainedConfig):
+    model_type = "groot_fake"
+
+    def __init__(self, width: int = 1, **kwargs):
+        super().__init__(**kwargs)
+        self.width = width
+
+
+class _FakeModel:
+    config_class = _FakeConfig
+
+    def __init__(self, config, *, extra=None):
+        self.config = config
+        self.extra = extra
+        self.eval_called = False
+
+    def eval(self):
+        self.eval_called = True
+        return self
+
+    def to(self, **kwargs):
+        self.to_kwargs = kwargs
+        return self
 
 
 def _make_orig(side_effect_by_local_files_only=None, default_return="ok"):
@@ -93,6 +119,68 @@ class TestExplicitOfflineRequest:
                 orig, _FakeKlass, "nvidia/Cosmos-Reason2-2B", local_files_only=True
             )
         assert len(orig.calls) == 1, "must not retry when caller demanded offline"
+
+
+class TestSkipModelWeights:
+    """The test-only weight-skip path builds model architecture from config
+    without invoking the original checkpoint loader."""
+
+    def test_returns_architecture_only_model_and_loading_info(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.setenv("GROOT_SKIP_HF_MODEL_WEIGHTS", "1")
+        _FakeConfig(width=7).save_pretrained(tmp_path)
+        orig = _make_orig()
+
+        model, loading_info = _hf_local_first_call(
+            orig,
+            _FakeModel,
+            tmp_path,
+            extra="kept",
+            output_loading_info=True,
+            trust_remote_code=True,
+            local_files_only=True,
+            skip_model_weights=True,
+        )
+
+        assert len(orig.calls) == 0, "weight-skip path must not resolve checkpoint files"
+        assert isinstance(model, _FakeModel)
+        assert model.config.width == 7
+        assert model.extra == "kept"
+        assert model.eval_called is True
+        assert loading_info == {
+            "missing_keys": [],
+            "unexpected_keys": [],
+            "mismatched_keys": [],
+            "error_msgs": [],
+        }
+        assert "[groot/hf] skip model weights:" in capsys.readouterr().out
+
+    def test_uses_regular_local_first_when_env_disabled(self, monkeypatch):
+        monkeypatch.setenv("GROOT_SKIP_HF_MODEL_WEIGHTS", "0")
+        orig = _make_orig(side_effect_by_local_files_only={True: "from-cache"})
+
+        result = _hf_local_first_call(
+            orig,
+            _FakeModel,
+            "repo/x",
+            skip_model_weights=True,
+        )
+
+        assert result == "from-cache"
+        assert len(orig.calls) == 1
+
+    def test_fixture_temporarily_enables_weight_loading(self, load_hf_model_weights):
+        orig = _make_orig(side_effect_by_local_files_only={True: "from-cache"})
+
+        with load_hf_model_weights():
+            result = _hf_local_first_call(
+                orig,
+                _FakeModel,
+                "repo/x",
+                skip_model_weights=True,
+            )
+
+        assert result == "from-cache"
+        assert len(orig.calls) == 1
 
 
 class TestRepoIdCacheHit:

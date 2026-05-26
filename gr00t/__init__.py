@@ -16,6 +16,13 @@
 import os
 
 
+_FALSEY_ENV_VALUES = {"", "0", "false", "no", "off"}
+
+
+def _env_flag_enabled(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() not in _FALSEY_ENV_VALUES
+
+
 def _hf_env_repr() -> str:
     """Human-readable HF cache env (for log lines)."""
     hf_home = os.environ.get("HF_HOME")
@@ -23,7 +30,183 @@ def _hf_env_repr() -> str:
     return f"HF_HOME={hf_home} HUGGINGFACE_HUB_CACHE={hf_hub}"
 
 
-def _hf_local_first_call(orig_func, klass, pretrained_model_name_or_path, *args, **kwargs):
+def _torch_dtype_from_arg(dtype):
+    """Resolve a transformers dtype argument into a torch dtype, if concrete."""
+    if dtype is None or dtype == "auto":
+        return None
+
+    try:
+        import torch
+    except Exception:
+        return None
+
+    if isinstance(dtype, torch.dtype):
+        return dtype
+    if isinstance(dtype, str):
+        name = dtype.removeprefix("torch.")
+        candidate = getattr(torch, name, None)
+        if isinstance(candidate, torch.dtype):
+            return candidate
+    return None
+
+
+def _zero_no_weight_model_parameters(model) -> None:
+    """Replace no-init tensor contents with deterministic finite values."""
+    try:
+        import torch
+    except Exception:
+        return
+
+    parameters = getattr(model, "parameters", None)
+    buffers = getattr(model, "buffers", None)
+    tensors = []
+    if callable(parameters):
+        tensors.extend(parameters())
+    if callable(buffers):
+        tensors.extend(buffers())
+
+    with torch.no_grad():
+        for tensor in tensors:
+            if getattr(tensor, "device", None) is not None and tensor.device.type == "meta":
+                continue
+            try:
+                tensor.zero_()
+            except Exception:
+                pass
+
+
+def _hf_no_weight_model_call(orig_func, klass, pretrained_model_name_or_path, *args, **kwargs):
+    """Instantiate a HF model from config without resolving checkpoint weight files.
+
+    This is intentionally test-only and gated by ``GROOT_SKIP_HF_MODEL_WEIGHTS``.
+    It keeps the architecture, processor/config loading, and model code paths
+    alive while avoiding multi-GB safetensor reads in tests that only need shape
+    and integration coverage.
+    """
+    if kwargs.get("state_dict") is not None:
+        return orig_func(klass, pretrained_model_name_or_path, *args, **kwargs)
+
+    import copy
+
+    import torch
+    from transformers import PretrainedConfig
+    from transformers.modeling_utils import no_init_weights
+
+    name_str = str(pretrained_model_name_or_path)
+    output_loading_info = kwargs.pop("output_loading_info", False)
+    config = kwargs.pop("config", None)
+    requested_dtype = kwargs.pop("dtype", None)
+    requested_torch_dtype = kwargs.pop("torch_dtype", None)
+    if requested_dtype is None:
+        requested_dtype = requested_torch_dtype
+    attn_implementation = kwargs.pop("attn_implementation", None)
+
+    loader_kwargs = {}
+    config_loader_keys = {
+        "cache_dir",
+        "force_download",
+        "proxies",
+        "local_files_only",
+        "token",
+        "revision",
+        "subfolder",
+    }
+    loader_only_keys = {
+        "_commit_hash",
+        "_fast_init",
+        "_from_auto",
+        "_from_pipeline",
+        "adapter_kwargs",
+        "adapter_name",
+        "device_map",
+        "distributed_config",
+        "from_flax",
+        "from_tf",
+        "generation_config",
+        "gguf_file",
+        "ignore_mismatched_sizes",
+        "key_mapping",
+        "load_in_4bit",
+        "load_in_8bit",
+        "low_cpu_mem_usage",
+        "max_memory",
+        "mirror",
+        "offload_buffers",
+        "offload_folder",
+        "offload_state_dict",
+        "quantization_config",
+        "resume_download",
+        "state_dict",
+        "tp_plan",
+        "tp_size",
+        "trust_remote_code",
+        "use_auth_token",
+        "use_kernels",
+        "use_safetensors",
+        "variant",
+        "weights_only",
+    }
+    for key in sorted(config_loader_keys | loader_only_keys):
+        if key in kwargs:
+            loader_kwargs[key] = kwargs.pop(key)
+
+    token = loader_kwargs.get("token")
+    use_auth_token = loader_kwargs.get("use_auth_token")
+    if token is None and use_auth_token is not None:
+        loader_kwargs["token"] = use_auth_token
+
+    if not isinstance(config, PretrainedConfig):
+        config_path = config if config is not None else pretrained_model_name_or_path
+        config_kwargs = {k: loader_kwargs[k] for k in config_loader_keys if k in loader_kwargs}
+        config, model_kwargs = klass.config_class.from_pretrained(
+            config_path,
+            return_unused_kwargs=True,
+            **config_kwargs,
+            **kwargs,
+        )
+    else:
+        config = copy.deepcopy(config)
+        model_kwargs = kwargs
+
+    if attn_implementation is not None:
+        config._attn_implementation = attn_implementation
+
+    torch_dtype = _torch_dtype_from_arg(requested_dtype)
+    previous_dtype = None
+    if torch_dtype is not None:
+        previous_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch_dtype)
+    try:
+        with no_init_weights():
+            model = klass(config, *args, **model_kwargs)
+    finally:
+        if previous_dtype is not None:
+            torch.set_default_dtype(previous_dtype)
+
+    if torch_dtype is not None:
+        model.to(dtype=torch_dtype)
+    _zero_no_weight_model_parameters(model)
+    model.eval()
+    print(f"[groot/hf] skip model weights: {name_str} | {_hf_env_repr()}", flush=True)
+
+    if output_loading_info:
+        return model, {
+            "missing_keys": [],
+            "unexpected_keys": [],
+            "mismatched_keys": [],
+            "error_msgs": [],
+        }
+    return model
+
+
+def _hf_local_first_call(
+    orig_func,
+    klass,
+    pretrained_model_name_or_path,
+    *args,
+    skip_model_weights: bool = False,
+    **kwargs,
+):
     """Invoke ``orig_func`` (an unwrapped from_pretrained) preferring the local cache.
 
     Strategy:
@@ -44,6 +227,11 @@ def _hf_local_first_call(orig_func, klass, pretrained_model_name_or_path, *args,
     ``from_pretrained`` does not always create — observed to cause 100%
     false-miss rate in CI Job 308778931).
     """
+    if skip_model_weights and _env_flag_enabled("GROOT_SKIP_HF_MODEL_WEIGHTS"):
+        return _hf_no_weight_model_call(
+            orig_func, klass, pretrained_model_name_or_path, *args, **kwargs
+        )
+
     name_str = str(pretrained_model_name_or_path)
     if os.path.isdir(name_str):
         print(f"[groot/hf] local path: {name_str} | {_hf_env_repr()}", flush=True)
@@ -95,7 +283,12 @@ def _patch_hf_local_first() -> None:
         @classmethod  # type: ignore[misc]
         def patched(klass, pretrained_model_name_or_path, *args, **kwargs):
             return _hf_local_first_call(
-                orig_func, klass, pretrained_model_name_or_path, *args, **kwargs
+                orig_func,
+                klass,
+                pretrained_model_name_or_path,
+                *args,
+                skip_model_weights=cls.__name__ == "PreTrainedModel",
+                **kwargs,
             )
 
         patched._groot_hf_local_patched = True  # type: ignore[attr-defined]

@@ -1,0 +1,132 @@
+# RoboCasa Evaluation Benchmark
+
+[RoboCasa](https://robocasa.ai/) is a large-scale simulation framework for training generally capable robots to perform everyday tasks, featuring realistic kitchen environments with over 2,500 3D assets and 100 diverse manipulation tasks. This evaluation benchmark uses RoboCasa with the Panda robot equipped with an Omron gripper to test household manipulation tasks including operating kitchen appliances, pick-and-place operations, and interacting with doors, drawers, and various objects.
+
+To run it on N1.7, finetune from the base model (`nvidia/GR00T-N1.7-3B`) using the instructions below — RoboCasa is not in the N1.7 pretrained embodiment set, so finetuning is required before evaluation.
+
+---
+
+## Checkpoint Results
+
+- GR00T 1.6: [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B)
+- GR00T 1.7: finetuned checkpoint
+
+| Task | GR00T 1.6 | GR00T 1.7 |
+| ---- | --------- | --------- |
+| `robocasa_panda_omron/CoffeeSetupMug_PandaOmron_Env` | 31.0% | 30.0% |
+| `robocasa_panda_omron/CoffeeServeMug_PandaOmron_Env` | 63.5% | 85.0% |
+| `robocasa_panda_omron/CoffeePressButton_PandaOmron_Env` | 98.5% | 100.0% |
+| `robocasa_panda_omron/OpenSingleDoor_PandaOmron_Env` | 81.5% | 90.0% |
+| `robocasa_panda_omron/OpenDoubleDoor_PandaOmron_Env` | 39.0% | 25.0% |
+| `robocasa_panda_omron/CloseSingleDoor_PandaOmron_Env` | 96.0% | 95.0% |
+| `robocasa_panda_omron/CloseDoubleDoor_PandaOmron_Env` | 88.5% | 80.0% |
+| `robocasa_panda_omron/OpenDrawer_PandaOmron_Env` | 81.1% | 95.0% |
+| `robocasa_panda_omron/CloseDrawer_PandaOmron_Env` | 100.0% | 100.0% |
+| `robocasa_panda_omron/TurnOnMicrowave_PandaOmron_Env` | 91.5% | 95.0% |
+| `robocasa_panda_omron/TurnOffMicrowave_PandaOmron_Env` | 96.0% | 95.0% |
+| `robocasa_panda_omron/PnPCounterToCab_PandaOmron_Env` | 47.5% | 60.0% |
+| `robocasa_panda_omron/PnPCabToCounter_PandaOmron_Env` | 41.0% | 65.0% |
+| `robocasa_panda_omron/PnPCounterToSink_PandaOmron_Env` | 46.0% | 60.0% |
+| `robocasa_panda_omron/PnPSinkToCounter_PandaOmron_Env` | 50.0% | 65.0% |
+| `robocasa_panda_omron/PnPCounterToMicrowave_PandaOmron_Env` | 19.0% | 30.0% |
+| `robocasa_panda_omron/PnPMicrowaveToCounter_PandaOmron_Env` | 24.5% | 19.0% |
+| `robocasa_panda_omron/PnPCounterToStove_PandaOmron_Env` | 63.2% | 60.0% |
+| `robocasa_panda_omron/PnPStoveToCounter_PandaOmron_Env` | 54.5% | 65.0% |
+| `robocasa_panda_omron/TurnOnSinkFaucet_PandaOmron_Env` | 89.0% | 95.0% |
+| `robocasa_panda_omron/TurnOffSinkFaucet_PandaOmron_Env` | 93.5% | 100.0% |
+| `robocasa_panda_omron/TurnSinkSpout_PandaOmron_Env` | 87.0% | 80.0% |
+| `robocasa_panda_omron/TurnOnStove_PandaOmron_Env` | 76.5% | 85.0% |
+| `robocasa_panda_omron/TurnOffStove_PandaOmron_Env` | 31.0% | 25.0% |
+| **Average** | 66.22% | 70.8% |
+
+
+---
+
+# Finetune
+
+Use the RoboCasa Panda Omron LeRobot datasets from Hugging Face, then launch the shared finetune script. These datasets already include the LeRobot metadata and statistics expected by GR00T and match the built-in N1.7 `ROBOCASA_PANDA_OMRON` finetuning tag.
+
+For a small local smoke-test dataset, download one task:
+
+```bash
+huggingface-cli download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
+  --repo-type dataset \
+  --include "single_panda_gripper.OpenDrawer/**" \
+  --local-dir /root/.cache/g00t/datasets/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim
+
+DATASET_PATH=/root/.cache/g00t/datasets/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/single_panda_gripper.OpenDrawer
+uv run python scripts/repair_lerobot_metadata.py "$DATASET_PATH" \
+  --embodiment-tag ROBOCASA_PANDA_OMRON
+```
+
+For the full benchmark training set, download the `single_panda_gripper.*` task directories and pass an `os.pathsep`-separated list of dataset directories to `--dataset-path`:
+
+```bash
+huggingface-cli download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
+  --repo-type dataset \
+  --include "single_panda_gripper.*/**" \
+  --local-dir /root/.cache/g00t/datasets/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim
+
+DATASET_PATH=$(find /root/.cache/g00t/datasets/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
+  -maxdepth 1 -type d -name "single_panda_gripper.*" | sort | paste -sd: -)
+uv run python scripts/repair_lerobot_metadata.py "$DATASET_PATH" \
+  --embodiment-tag ROBOCASA_PANDA_OMRON
+```
+
+```bash
+NUM_GPUS=8 MAX_STEPS=60000 GLOBAL_BATCH_SIZE=512 SAVE_STEPS=2000 uv run bash examples/finetune.sh \
+  --base-model-path nvidia/GR00T-N1.7-3B \
+  --dataset-path "$DATASET_PATH" \
+  --embodiment-tag ROBOCASA_PANDA_OMRON \
+  --output-dir /tmp/robocasa_finetune
+```
+
+RoboCasa Panda Omron is not present in the base model checkpoint; use a checkpoint finetuned with `ROBOCASA_PANDA_OMRON` for evaluation.
+
+# Evaluate checkpoint
+
+First, setup the evaluation simulation environment. This only needs to run once for each simulation benchmark. After it's done, we only need to launch server and client.
+
+```bash
+sudo apt update
+sudo apt install libegl1-mesa-dev libglu1-mesa
+bash gr00t/eval/sim/robocasa/setup_RoboCasa.sh
+```
+
+#### Downloading RoboCasa Datasets (Optional)
+
+To download RoboCasa demonstration datasets, you **must** use the robocasa venv created by the setup script above (the main project venv does not have `robosuite` installed, which `robocasa` requires at import time):
+
+```bash
+# Download human demonstration datasets
+gr00t/eval/sim/robocasa/robocasa_uv/.venv/bin/python \
+    external_dependencies/robocasa/robocasa/scripts/download_datasets.py --ds_types human_im
+
+# Download machine-generated datasets
+gr00t/eval/sim/robocasa/robocasa_uv/.venv/bin/python \
+    external_dependencies/robocasa/robocasa/scripts/download_datasets.py --ds_types mg
+```
+
+> **Note:** Running `python -m robocasa.scripts.download_datasets` from the main project environment will fail because `robocasa` depends on `robosuite`, which is only installed in the robocasa venv.
+
+Then, run client server evaluation under the project root directory in separate terminals:
+
+**Terminal 1 - Server:**
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --model-path <path-to-finetuned-robocasa-checkpoint> \
+    --embodiment-tag ROBOCASA_PANDA_OMRON \
+    --use-sim-policy-wrapper
+```
+
+**Terminal 2 - Client:**
+```bash
+gr00t/eval/sim/robocasa/robocasa_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
+    --n-episodes 10 \
+    --policy-client-host 127.0.0.1 \
+    --policy-client-port 5555 \
+    --max-episode-steps 720 \
+    --env-name robocasa_panda_omron/OpenDrawer_PandaOmron_Env \
+    --n-action-steps 8 \
+    --n-envs 5
+```

@@ -21,8 +21,46 @@ from typing import List, Optional, Tuple
 
 import av
 import cv2
+from gr00t.deployment.modes import VIDEO_BACKEND_CANONICAL
 import numpy as np
 import torchvision
+
+
+# Per-function allow-lists. Each must remain a subset of
+# `VIDEO_BACKEND_CANONICAL` (pinned by tests/scripts/deployment/
+# test_video_backend_consistency.py). The catch-all `else:` branches
+# use these to tell the caller which backends each function implements.
+_GET_FRAMES_BY_INDICES_BACKENDS: tuple[str, ...] = (
+    "torchcodec",
+    "decord",
+    "ffmpeg",
+    "opencv",
+)
+_GET_FRAMES_BY_TIMESTAMPS_BACKENDS: tuple[str, ...] = (
+    "torchcodec",
+    "decord",
+    "ffmpeg",
+    "opencv",
+    "torchvision_av",
+)
+_GET_ALL_FRAMES_BACKENDS: tuple[str, ...] = (
+    "torchcodec",
+    "decord",
+    "ffmpeg",
+    "pyav",
+)
+
+
+def _unsupported_backend_error(
+    func_name: str, backend: str, allowed: tuple[str, ...]
+) -> ValueError:
+    """Build the catch-all dispatch error, naming the bad backend, the
+    function's allowed set, and the canonical superset."""
+    return ValueError(
+        f"{func_name}: unsupported video_backend {backend!r}; "
+        f"expected one of {list(allowed)} "
+        f"(canonical superset: {list(VIDEO_BACKEND_CANONICAL)})."
+    )
 
 
 # Neither decord nor torchcodec is imported at module level:
@@ -387,7 +425,9 @@ def get_frames_by_indices(
         frames = np.array(frames)
         return frames
     else:
-        raise NotImplementedError
+        raise _unsupported_backend_error(
+            "get_frames_by_indices", video_backend, _GET_FRAMES_BY_INDICES_BACKENDS
+        )
 
 
 def get_frames_by_timestamps(
@@ -509,7 +549,9 @@ def get_frames_by_timestamps(
             reader = None
 
     else:
-        raise NotImplementedError
+        raise _unsupported_backend_error(
+            "get_frames_by_timestamps", video_backend, _GET_FRAMES_BY_TIMESTAMPS_BACKENDS
+        )
 
 
 def get_all_frames(
@@ -549,7 +591,7 @@ def get_all_frames(
         return np.stack(frames), np.array(timestamps)
 
     else:
-        raise NotImplementedError
+        raise _unsupported_backend_error("get_all_frames", video_backend, _GET_ALL_FRAMES_BACKENDS)
 
 
 def get_accumulate_timestamp_idxs(

@@ -227,6 +227,12 @@ class Gr00tTrainer(Trainer):
         curr_global_step = self.state.global_step
         print(f"Current global step: {curr_global_step}")
         if curr_global_step > 0:
+            # ``new_seed`` MUST be the same on every rank: ``ShardedMixtureDataset``
+            # builds its shard schedule from this seed and partitions disjointly
+            # by index, so a per-rank delta here would cause sample duplication
+            # / loss across ranks. Both inputs are rank-symmetric (the dataset's
+            # own seed was set rank-symmetrically at __init__, and global_step
+            # is read from TrainerState which is broadcast via rendezvous).
             new_seed = self.train_dataset.seed + curr_global_step
             self.train_dataset.reset_seed(new_seed)
             print(
