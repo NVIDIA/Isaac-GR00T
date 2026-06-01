@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Allow-list for `tools/check_manifest_alignment.py`. Each entry
+# documents an intentional drift on a non-HW package that the check
+# tolerates. CUDA / wheel-index-tied packages are auto-skipped by name
+# pattern in the script and do NOT need an entry here.
+
+# `diffusers` versions are pinned to the per-Jetson-family wheel index
+# (orin uses jp6/cu126, spark/thor use sbsa/cu130, main uses PyPI
+# 0.35.1). The dev pins (`0.35.0.dev0`, `0.36.0.dev0`) only resolve
+# against the Jetson AI Lab indices, so this is effectively HW-forced
+# but doesn't match the auto-skip pattern (the package name has no
+# CUDA / nvidia prefix).
+[allowed_drifts.diffusers]
+reason = "HW-forced via jetson-jp6-cu126 / jetson-sbsa-cu130 wheel indices"
+
+# `transformers==4.57.3` (main, spark) vs `==4.57.6` (orin, thor) is a
+# patch-level sync lag, not a HW constraint. Aligning requires owner
+# sign-off + Jetson CI to confirm tokenizer / processor behaviour does
+# not regress at 4.57.6 on x86 dGPU. Tracked separately; the check
+# tolerates the divergence until aligned.
+[allowed_drifts.transformers]
+reason = "patch sync lag pending owner alignment to a single version"
+
+# `dm-tree` is loose (`dm-tree`) on main but pinned exactly
+# (`==0.1.8`) on the three Jetson manifests because the Jetson AI Lab
+# indices serve a single curated wheel. Low-priority drift; documented
+# until owner decides whether to pin main.
+[allowed_drifts.dm-tree]
+reason = "loose on main, exact ==0.1.8 on Jetson — pending owner alignment"

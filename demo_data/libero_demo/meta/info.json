@@ -1,0 +1,134 @@
+{
+    "codebase_version": "v2.1",
+    "robot_type": "franka",
+    "total_episodes": 5,
+    "total_frames": 1406,
+    "total_tasks": 3,
+    "total_videos": 10,
+    "total_chunks": 1,
+    "chunks_size": 1000,
+    "fps": 20,
+    "splits": {
+        "train": "0:5"
+    },
+    "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+    "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+    "features": {
+        "observation.images.wrist_image": {
+            "dtype": "video",
+            "shape": [
+                256,
+                256,
+                3
+            ],
+            "names": [
+                "height",
+                "width",
+                "rgb"
+            ],
+            "info": {
+                "video.height": 256,
+                "video.width": 256,
+                "video.codec": "av1",
+                "video.pix_fmt": "yuv420p",
+                "video.is_depth_map": false,
+                "video.fps": 20,
+                "video.channels": 3,
+                "has_audio": false
+            }
+        },
+        "observation.images.image": {
+            "dtype": "video",
+            "shape": [
+                256,
+                256,
+                3
+            ],
+            "names": [
+                "height",
+                "width",
+                "rgb"
+            ],
+            "info": {
+                "video.height": 256,
+                "video.width": 256,
+                "video.codec": "av1",
+                "video.pix_fmt": "yuv420p",
+                "video.is_depth_map": false,
+                "video.fps": 20,
+                "video.channels": 3,
+                "has_audio": false
+            }
+        },
+        "observation.state": {
+            "dtype": "float32",
+            "shape": [
+                8
+            ],
+            "names": {
+                "motors": [
+                    "x",
+                    "y",
+                    "z",
+                    "axis_angle1",
+                    "axis_angle2",
+                    "axis_angle3",
+                    "gripper",
+                    "gripper"
+                ]
+            }
+        },
+        "action": {
+            "dtype": "float32",
+            "shape": [
+                7
+            ],
+            "names": {
+                "motors": [
+                    "x",
+                    "y",
+                    "z",
+                    "axis_angle1",
+                    "axis_angle2",
+                    "axis_angle3",
+                    "gripper"
+                ]
+            }
+        },
+        "timestamp": {
+            "dtype": "float32",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "frame_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "episode_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "task_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        }
+    }
+}

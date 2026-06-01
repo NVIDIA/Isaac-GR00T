@@ -2,9 +2,6 @@
 # Uses jetson-jp6-cu126 index for torch/torchvision/triton/flash-attn/diffusers
 # (generic pytorch-cu128 wheels don't support Orin's sm_87 GPU).
 
-[tool.uv.workspace]
-members = ["groot_infra"]
-
 [build-system]
 requires = ["setuptools>=67", "wheel", "pip"]
 build-backend = "setuptools.build_meta"
@@ -18,16 +15,19 @@ dependencies = [
     "av==16.1.0",
     "diffusers==0.35.0.dev0",
     "dm-tree==0.1.8",
+    "huggingface-hub[cli]",
+    "jsonlines==4.0.0",
     "lmdb==1.7.5",
     "msgpack==1.1.0",
     "msgpack-numpy==0.4.8",
+    "opencv-python-headless>=4.5,<4.13",
     "pandas==2.2.3",
     "peft==0.17.1",
     "termcolor==3.2.0",
     "torch==2.10.0",
     "triton==3.5.1",
     "torchvision==0.25.0",
-    "transformers==4.51.3",
+    "transformers==4.57.6",
     "tyro==0.9.17",
     "click==8.1.8",
     "datasets==3.6.0",
@@ -41,7 +41,6 @@ dependencies = [
     "scipy==1.15.3",
     "wandb==0.23.0",
     "pyzmq==27.0.1",
-    "torchcodec==0.10.0",
     "flash-attn==2.8.3",
     "onnx>=1.20.0",
     "onnxscript",
@@ -66,7 +65,6 @@ include = ["gr00t*"]
 [tool.uv.sources]
 torch = [{ index = "jetson-jp6-cu126" }]
 torchvision = [{ index = "jetson-jp6-cu126" }]
-torchcodec = [{ index = "jetson-jp6-cu126" }]
 triton = [{ index = "jetson-jp6-cu126" }]
 flash-attn = [{ index = "jetson-jp6-cu126" }]
 diffusers = [{ index = "jetson-jp6-cu126" }]
@@ -75,7 +73,11 @@ diffusers = [{ index = "jetson-jp6-cu126" }]
 addopts = "--import-mode=importlib"
 markers = [
     "gpu: tests that require a GPU",
+    "multigpu: tests that require multiple GPUs and use all visible GPUs",
 ]
+# Include fixture setup/teardown in JUnit <testcase time="..."> so duration
+# reports reflect real wall-clock time instead of call-only.
+junit_duration_report = "total"
 
 [tool.ruff]
 line-length = 100
@@ -91,7 +93,6 @@ exclude = [
     "dist",
     "logs",
     "*.ipynb",
-    "gr00t/model/modules/nvidia/Eagle-Block2A-2B-v2",
     "external_dependencies",
 ]
 

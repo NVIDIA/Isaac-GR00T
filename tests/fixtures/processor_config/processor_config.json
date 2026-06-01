@@ -1,15 +1,15 @@
 {
-  "processor_class": "Gr00tN1d6Processor",
+  "processor_class": "Gr00tN1d7Processor",
   "processor_kwargs": {
     "modality_configs": {
-      "libero_panda": {
+      "libero_sim": {
         "video": {
           "delta_indices": [
             0
           ],
           "modality_keys": [
-            "image",
-            "wrist_image"
+            "observation.images.rgb.head_256_256",
+            "observation.images.rgb.left_wrist_256_256"
           ],
           "sin_cos_embedding_keys": null,
           "mean_std_embedding_keys": null,
@@ -132,15 +132,19 @@
     },
     "shortest_image_edge": 256,
     "crop_fraction": 0.95,
-    "model_name": "nvidia/Eagle-Block2A-2B-v2",
-    "model_type": "eagle",
+    "letter_box_transform": false,
+    "model_name": "nvidia/Cosmos-Reason2-2B",
+    "model_type": "qwen",
     "formalize_language": true,
     "max_state_dim": 128,
     "max_action_dim": 128,
     "max_action_horizon": 50,
     "use_percentiles": false,
+    "use_mean_std": false,
     "clip_outliers": true,
     "apply_sincos_state_encoding": true,
-    "use_relative_action": true
+    "use_relative_action": true,
+    "exclude_state": false,
+    "state_dropout_prob": 0.0
   }
 }

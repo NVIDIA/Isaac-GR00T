@@ -253,6 +253,18 @@ The most common issues in real-world deployment are **jittering** and **stop-and
 
 Jittering typically originates from **inconsistent model outputs** or **insufficient robot-side control quality**. Analyze these two components separately to localize the issue. The suggestions below are general guidelines and may not apply to every robot platform or control stack — always verify against your own hardware and environment.
 
+```mermaid
+flowchart TD
+    A[Jittering observed] --> B[Save & visualize action chunks in 3D]
+    B --> C{Where is the jitter?}
+    C -->|Inside each chunk| D[Case A: Model undertrained or poor data quality]
+    C -->|Between consecutive chunks| E[Case B: Inconsistent chunk predictions]
+    C -->|Chunks look smooth| F[Case C: Robot hardware / low-level control issue]
+    D --> D1[Add more data, train longer, check train/eval consistency]
+    E --> E1[Use state-relative actions + RTC chunking strategy]
+    F --> F1[Check drive control, interpolation, hardware status]
+```
+
 **Diagnosis and mitigation**
 
 1. **Save and visualize Action Chunks**
@@ -342,7 +354,6 @@ def metric_momentum_shift(chunks, execute_steps=None):
     exec_steps = chunks.shape[1] if execute_steps is None else execute_steps
 
     # velocity at the end of previous chunk
-    idx = exec_steps - 1
     idx = exec_steps - 1
     if idx < 1:
         raise ValueError("execute_steps must be >= 2 to compute end velocity")

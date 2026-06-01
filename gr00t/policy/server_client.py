@@ -1,8 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass
-import io
+import functools
 from typing import Any, Callable
 
 import msgpack
+import msgpack_numpy as mnp
 import numpy as np
 import zmq
 
@@ -13,35 +29,86 @@ from .policy import BasePolicy
 
 
 class MsgSerializer:
+    """msgpack_numpy serializer with a hard ``allow_pickle=False`` boundary.
+
+    Implementation note: msgpack_numpy's ``Packer``/``Unpacker`` wire any
+    user-provided ``default``/``object_hook`` *behind* their own
+    ``mnp.encode``/``mnp.decode`` (``functools.partial(encode, chain=user_fn)``).
+    That means an object-dtype ndarray is serialised by ``mnp.encode`` (and a
+    forged ``{nd: True, kind: 'O', ...}`` payload is fed to ``pickle.loads`` by
+    ``mnp.decode``) *before* a hook installed via ``mnp.packb``/``mnp.unpackb``
+    can intervene. We therefore drive ``msgpack`` directly and chain
+    ``_safe_{encode,decode} → mnp.{encode,decode} → custom`` ourselves, so the
+    refusal runs first.
+    """
+
     @staticmethod
     def to_bytes(data: Any) -> bytes:
-        return msgpack.packb(data, default=MsgSerializer.encode_custom_classes)
+        default = functools.partial(MsgSerializer._safe_encode, chain=MsgSerializer._encode_custom)
+        return msgpack.packb(data, default=default)
 
     @staticmethod
     def from_bytes(data: bytes) -> Any:
-        return msgpack.unpackb(data, object_hook=MsgSerializer.decode_custom_classes)
+        object_hook = functools.partial(
+            MsgSerializer._safe_decode, chain=MsgSerializer._decode_custom
+        )
+        return msgpack.unpackb(data, object_hook=object_hook, raw=False)
 
     @staticmethod
-    def decode_custom_classes(obj):
-        if not isinstance(obj, dict):
-            return obj
-        if "__ModalityConfig_class__" in obj:
-            return ModalityConfig(**obj["as_json"])
-        if "__ndarray_class__" in obj:
-            return np.load(io.BytesIO(obj["as_npy"]), allow_pickle=False)
+    def _safe_encode(obj, chain=None):
+        # Refuse object-dtype ndarrays before mnp.encode would emit a
+        # ``{nd: True, kind: 'O', data: pickle.dumps(arr)}`` envelope, which
+        # silently re-enables the arbitrary-code surface that the previous
+        # ``np.save(..., allow_pickle=False)`` path explicitly forbade.
+        if isinstance(obj, np.ndarray) and obj.dtype.kind == "O":
+            raise TypeError(
+                f"Refusing to encode object-dtype ndarray (shape={obj.shape}); "
+                f"msgpack_numpy would invoke pickle. Convert to a concrete "
+                f"numeric dtype before sending."
+            )
+        return mnp.encode(obj, chain=chain)
+
+    @staticmethod
+    def _safe_decode(obj, chain=None):
+        # Refuse object-dtype ndarray payloads before mnp.decode would call
+        # ``pickle.loads`` on attacker-controlled bytes. Check both bytes- and
+        # str-encoded keys, and accept any truthy ``nd`` value (not just
+        # boolean ``True``) so a forged ``{nd: 1, kind: 'O', ...}`` payload
+        # can't sidestep the guard via msgpack's int-vs-bool type codes.
+        # msgpack_numpy 0.4.8's own check is ``obj[b'nd'] is True``, so the
+        # described variants don't actually reach pickle.loads today, but
+        # MsgSerializer enforces the contract at this boundary regardless of
+        # mnp's wire / identity-check conventions.
+        if isinstance(obj, dict):
+            nd_val = obj.get(b"nd", obj.get("nd"))
+            kind_val = obj.get(b"kind", obj.get("kind"))
+            if nd_val and kind_val in (b"O", "O"):
+                raise ValueError(
+                    "Refusing to decode object-dtype ndarray payload (pickle-bearing); "
+                    "the allow_pickle=False contract is enforced by MsgSerializer."
+                )
+        return mnp.decode(obj, chain=chain)
+
+    @staticmethod
+    def _encode_custom(obj):
+        if isinstance(obj, ModalityConfig):
+            return {"__ModalityConfig__": True, "as_json": to_json_serializable(obj)}
         return obj
 
     @staticmethod
-    def encode_custom_classes(obj):
-        if isinstance(obj, ModalityConfig):
-            return {
-                "__ModalityConfig_class__": True,
-                "as_json": to_json_serializable(obj),
-            }
-        if isinstance(obj, np.ndarray):
-            output = io.BytesIO()
-            np.save(output, obj, allow_pickle=False)
-            return {"__ndarray_class__": True, "as_npy": output.getvalue()}
+    def _decode_custom(obj):
+        if not isinstance(obj, dict):
+            return obj
+        # If the ModalityConfig marker is present but 'as_json' is missing,
+        # raise instead of returning a half-broken dict.
+        if "__ModalityConfig__" in obj or b"__ModalityConfig__" in obj:
+            key = next((k for k in ("as_json", b"as_json") if k in obj), None)
+            if key is None:
+                raise ValueError(
+                    f"Malformed ModalityConfig payload: marker present but "
+                    f"'as_json' missing. keys={sorted(repr(k) for k in obj.keys())}"
+                )
+            return ModalityConfig(**obj[key])
         return obj
 
 
@@ -174,6 +241,8 @@ class PolicyClient(BasePolicy):
     def _init_socket(self):
         """Initialize or reinitialize the socket with current settings"""
         self.socket = self.context.socket(zmq.REQ)
+        self.socket.setsockopt(zmq.RCVTIMEO, self.timeout_ms)
+        self.socket.setsockopt(zmq.SNDTIMEO, self.timeout_ms)
         self.socket.connect(f"tcp://{self.host}:{self.port}")
 
     def ping(self) -> bool:
@@ -207,8 +276,15 @@ class PolicyClient(BasePolicy):
         if self.api_token:
             request["api_token"] = self.api_token
 
-        self.socket.send(MsgSerializer.to_bytes(request))
-        message = self.socket.recv()
+        try:
+            self.socket.send(MsgSerializer.to_bytes(request))
+            message = self.socket.recv()
+        except zmq.error.Again:
+            # Timeout — REQ socket is now in an invalid state (waiting for a
+            # reply that will never arrive).  Recreate it so the next call can
+            # send again, then re-raise so the caller knows this request failed.
+            self._init_socket()
+            raise
         if message == b"ERROR":
             raise RuntimeError("Server error. Make sure we are running the correct policy server.")
         response = MsgSerializer.from_bytes(message)

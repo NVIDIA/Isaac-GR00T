@@ -1,4 +1,19 @@
-# Launch finetuning for N1.6 on "single node".
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Launch finetuning for N1.7 on "single node".
 # This script tries to provide a similar user experience as current OSS.
 
 import json
@@ -32,11 +47,16 @@ if __name__ == "__main__":
         os.environ["LOGURU_LEVEL"] = "INFO"
     # Use tyro for clean CLI
     ft_config = tyro.cli(FinetuneConfig, description=__doc__)
+    from gr00t.data.embodiment_tags import EmbodimentTag
+
+    ft_config.embodiment_tag = EmbodimentTag.resolve(ft_config.embodiment_tag)
     embodiment_tag = ft_config.embodiment_tag.value
 
     # all rank workers should register for the modality config
     if ft_config.modality_config_path is not None:
         load_modality_config(ft_config.modality_config_path)
+
+    dataset_paths = [path for path in ft_config.dataset_path.split(os.pathsep) if path]
 
     config = get_default_config().load_dict(
         {
@@ -44,7 +64,7 @@ if __name__ == "__main__":
                 "download_cache": False,
                 "datasets": [
                     {
-                        "dataset_paths": [ft_config.dataset_path],
+                        "dataset_paths": dataset_paths,
                         "mix_ratio": 1.0,
                         "embodiment_tag": embodiment_tag,
                     }
@@ -69,11 +89,11 @@ if __name__ == "__main__":
 
     config.model.load_bf16 = False
     config.model.reproject_vision = False
-    config.model.eagle_collator = True
-    config.model.model_name = "nvidia/Eagle-Block2A-2B-v2"
+    config.model.model_name = "nvidia/Cosmos-Reason2-2B"
     config.model.backbone_trainable_params_fp32 = True
     config.model.use_relative_action = True
 
+    config.training.experiment_name = ft_config.experiment_name
     config.training.start_from_checkpoint = ft_config.base_model_path
     config.training.optim = "adamw_torch"
     config.training.global_batch_size = ft_config.global_batch_size
@@ -88,10 +108,13 @@ if __name__ == "__main__":
     config.training.max_steps = ft_config.max_steps
     config.training.weight_decay = ft_config.weight_decay
     config.training.warmup_ratio = ft_config.warmup_ratio
-    config.training.wandb_project = "finetune-gr00t-n1d6"
+    config.training.wandb_project = ft_config.wandb_project
 
     config.data.shard_size = ft_config.shard_size
     config.data.episode_sampling_rate = ft_config.episode_sampling_rate
     config.data.num_shards_per_epoch = ft_config.num_shards_per_epoch
+
+    config.training.save_only_model = ft_config.save_only_model
+    config.training.skip_weight_loading = ft_config.skip_weight_loading
 
     run(config)

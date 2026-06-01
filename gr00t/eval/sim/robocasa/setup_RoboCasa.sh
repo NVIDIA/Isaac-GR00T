@@ -5,9 +5,18 @@ set -euxo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_REPO="$SCRIPT_DIR/../../../.."
 ROBOCASA_REPO="$PROJECT_REPO/external_dependencies/robocasa"
+ROBOCASA_PATH="external_dependencies/robocasa"
 UV_ENV="$SCRIPT_DIR/robocasa_uv"
 
-git submodule update --init $ROBOCASA_REPO
+if [ ! -e "$ROBOCASA_REPO/.git" ]; then
+    if ! git -C "$PROJECT_REPO" submodule update --init "$ROBOCASA_PATH"; then
+        # Cache setup can leave asset directories under the submodule path
+        # before the submodule is initialized. Git refuses to clone into that
+        # non-empty directory, so clear the pre-submodule path and retry.
+        rm -rf "$ROBOCASA_REPO"
+        git -C "$PROJECT_REPO" submodule update --init "$ROBOCASA_PATH"
+    fi
+fi
 
 # Build helpers
 # python -m pip install cmake==3.18.4
@@ -28,7 +37,7 @@ fi
 # Sim stack
 uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@master"
 uv pip install -e "$ROBOCASA_REPO" --config-settings editable_mode=compat
-uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.51.3 msgpack==1.1.0 msgpack-numpy==0.4.8
+uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.57.3 msgpack==1.1.0 msgpack-numpy==0.4.8 tyro==1.0.13
 
 # Make your project importable in this venv without re-resolving deps
 uv pip install --editable "$PROJECT_REPO" --no-deps
@@ -49,7 +58,10 @@ uv pip install --editable "$PROJECT_REPO" --no-deps
 # PY
 
 # Assets for RoboCasa (kitchen)
-python "$ROBOCASA_REPO/robocasa/scripts/download_kitchen_assets.py" -y
+SKIP_DOWNLOAD_ASSETS=${SKIP_DOWNLOAD_ASSETS:-0}
+if [[ "$SKIP_DOWNLOAD_ASSETS" == "0" ]]; then
+    echo y | python "$ROBOCASA_REPO/robocasa/scripts/download_kitchen_assets.py"
+fi
 
 # Sanity import & env construction
 python - <<'PY'

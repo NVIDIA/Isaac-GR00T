@@ -5,12 +5,25 @@ set -euxo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_REPO="$SCRIPT_DIR/../../../.."
 ROBOCASA_GR1_TABLETOP_TASKS_REPO="$PROJECT_REPO/external_dependencies/robocasa-gr1-tabletop-tasks"
+ROBOCASA_GR1_TABLETOP_TASKS_PATH="external_dependencies/robocasa-gr1-tabletop-tasks"
+ROBOCASA_GR1_TABLETOP_TASKS_PIN="4840e671596f93ca03651524b9f72ffb1aadfeff"
 UV_ENV="$SCRIPT_DIR/robocasa_uv"
 
 # Optional: if you want to avoid hardlink warnings with uv cache
 # export UV_LINK_MODE=copy
 
-git submodule update --init $ROBOCASA_GR1_TABLETOP_TASKS_REPO
+if [ ! -e "$ROBOCASA_GR1_TABLETOP_TASKS_REPO/.git" ]; then
+    if ! git -C "$PROJECT_REPO" submodule update --init "$ROBOCASA_GR1_TABLETOP_TASKS_PATH"; then
+        rm -rf "$ROBOCASA_GR1_TABLETOP_TASKS_REPO"
+        git clone https://github.com/robocasa/robocasa-gr1-tabletop-tasks "$ROBOCASA_GR1_TABLETOP_TASKS_REPO"
+        git -C "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" checkout "$ROBOCASA_GR1_TABLETOP_TASKS_PIN"
+    fi
+fi
+
+if [ "$(git -C "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" rev-parse HEAD)" != "$ROBOCASA_GR1_TABLETOP_TASKS_PIN" ]; then
+    git -C "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" fetch origin "$ROBOCASA_GR1_TABLETOP_TASKS_PIN" || git -C "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" fetch origin
+    git -C "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" checkout "$ROBOCASA_GR1_TABLETOP_TASKS_PIN"
+fi
 
 # Ensure build tools (mirrors your LIBERO flow)
 # python -m pip install cmake==3.18.4
@@ -44,7 +57,7 @@ uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@v1.5.1"
 uv pip install -e "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" --config-settings editable_mode=compat
 
 # Optional: your eval stack uses gymnasium
-uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.51.3 msgpack==1.1.0 msgpack-numpy==0.4.8
+uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.57.3 msgpack==1.1.0 msgpack-numpy==0.4.8 tyro
 
 # Make your project importable without re-resolving deps
 uv pip install --editable "$PROJECT_REPO" --no-deps
@@ -71,7 +84,7 @@ uv pip install --editable "$PROJECT_REPO" --no-deps
 SKIP_DOWNLOAD_ASSETS=${SKIP_DOWNLOAD_ASSETS:-0}
 if [[ "$SKIP_DOWNLOAD_ASSETS" == "0" ]]; then
   echo "asset download enabled (SKIP_DOWNLOAD_ASSETS=0)"
-python "$ROBOCASA_GR1_TABLETOP_TASKS_REPO/robocasa/scripts/download_tabletop_assets.py" -y
+  python "$ROBOCASA_GR1_TABLETOP_TASKS_REPO/robocasa/scripts/download_tabletop_assets.py" -y
 else
   echo "Skipping tabletop assets download (SKIP_DOWNLOAD_ASSETS=1)"
 fi

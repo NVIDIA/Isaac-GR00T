@@ -1,18 +1,39 @@
 #!/usr/bin/env python
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Calculate dataset statistics for LeRobot datasets.
-Note: Please update the `gr00t/configs/data/embodiment_configs.py` file with the correct modality configurations for the dataset you are using before running this script.
 
 Usage:
-    python gr00t/data/stats.py <dataset_path> <embodiment_tag>
+    python gr00t/data/stats.py --dataset-path <dataset_path> --embodiment-tag <embodiment_tag>
+    python gr00t/data/stats.py --dataset-path <dataset_path> --embodiment-tag <embodiment_tag> --modality-config-path <config.py>
 
 Args:
     dataset_path: Path to the dataset.
-    embodiment_tag: Embodiment tag to use to load modality configurations from `gr00t/configs/data/embodiment_configs.py`.
+    embodiment_tag: Embodiment tag to use to load modality configurations.
+    modality_config_path: Optional path to a .py config file for custom embodiment tags not in the built-in registry.
 """
 
 import json
+import logging
+import os
 from pathlib import Path
+import tempfile
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -30,6 +51,80 @@ LE_ROBOT_DATA_FILENAME = "data/*/*.parquet"
 LE_ROBOT_INFO_FILENAME = "meta/info.json"
 LE_ROBOT_STATS_FILENAME = "meta/stats.json"
 LE_ROBOT_REL_STATS_FILENAME = "meta/relative_stats.json"
+
+logger = logging.getLogger(__name__)
+
+
+def _load_stats_cache(path: Path) -> dict[str, Any]:
+    """Load a stats JSON cache, treating any unreadable state as "no cache".
+
+    A stats file becomes unreadable when a previous writer was killed mid-flush
+    (ENOSPC, SIGKILL, runner reboot) and left a 0-byte / truncated file behind.
+    Without this guard, the leftover file traps every subsequent caller in a
+    ``json.JSONDecodeError`` until a human deletes it — observed taking down 6
+    of 8 retried test.unit.gpu jobs after a /shared NFS ENOSPC event.
+
+    Empty file, missing file, JSON parse error, and OSError are all treated
+    equivalently: regenerate from scratch. Callers MUST then write back via
+    :func:`_dump_stats_cache_atomic` so the same partial-write scenario does
+    not recur on the very next ENOSPC.
+    """
+    try:
+        if not path.exists() or path.stat().st_size == 0:
+            return {}
+        with open(path, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("[stats] discarding unreadable cache %s: %s; regenerating", path, exc)
+        return {}
+
+
+def _dump_stats_cache_atomic(path: Path, data: dict[str, Any], *, indent: int | None = 4) -> None:
+    """Atomically write *data* as JSON to *path* via tmp-file + ``os.replace``.
+
+    Avoids the leave-a-0-byte-file failure mode that motivates
+    :func:`_load_stats_cache`: ``open(path, "w")`` truncates immediately, so a
+    SIGKILL between truncate and the final ``write()`` poisons the cache for
+    every future caller. Writing to a unique sibling temp file and then
+    ``os.replace`` guarantees that *path* either points to the previous valid
+    content (writer killed) or to the new fully-flushed content (writer
+    succeeded) — never to a partial intermediate.
+
+    The temp filename must be unique per writer. CI can run multiple GPU jobs
+    against the same cached dataset path, and a fixed ``<name>.tmp`` lets one
+    writer rename or clean up another writer's temp file.
+
+    Best-effort cleanup of the tmp file on exception so we don't litter
+    ``meta/`` with abandoned ``*.tmp`` shards.
+
+    NFS durability: explicitly ``flush`` + ``fsync`` before ``os.replace`` so
+    the tmp file's bytes are forced from the page cache to the storage
+    backend before the rename makes the new name visible. Without this, a
+    SIGKILL between a successful ``os.replace`` and the kernel's writeback
+    can still leave a 0-byte file on NFS after a client reconnect — the
+    very failure mode this helper exists to prevent.
+    """
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            tmp = Path(f.name)
+            json.dump(data, f, indent=indent)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def calculate_dataset_statistics(
@@ -80,10 +175,10 @@ def calculate_dataset_statistics(
 
 def check_stats_validity(dataset_path: Path | str, features: list[str]):
     stats_path = Path(dataset_path) / LE_ROBOT_STATS_FILENAME
-    if not stats_path.exists():
+    stats = _load_stats_cache(stats_path)
+    if not stats:
+        # Missing, empty, or unreadable — caller must regenerate.
         return False
-    with open(stats_path, "r") as f:
-        stats = json.load(f)
     for feature in features:
         if feature not in stats:
             return False
@@ -110,8 +205,7 @@ def generate_stats(dataset_path: Path | str):
     parquet_files = list(dataset_path.glob(LE_ROBOT_DATA_FILENAME))
     stats = calculate_dataset_statistics(parquet_files, lowdim_features)
     stats_path = dataset_path / LE_ROBOT_STATS_FILENAME
-    with open(stats_path, "w") as f:
-        json.dump(stats, f, indent=4)
+    _dump_stats_cache_atomic(stats_path, stats)
 
 
 class RelativeActionLoader:
@@ -219,21 +313,41 @@ def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) 
         if action_config.rep == ActionRepresentation.RELATIVE
     ]
     stats_path = Path(dataset_path) / LE_ROBOT_REL_STATS_FILENAME
-    if stats_path.exists():
-        with open(stats_path, "r") as f:
-            stats = json.load(f)
-    else:
-        stats = {}
+    stats = _load_stats_cache(stats_path)
     for action_key in sorted(action_keys):
         if action_key in stats:
             continue
         print(f"Generating relative stats for {dataset_path} {embodiment_tag} {action_key}")
         stats[action_key] = calculate_stats_for_key(dataset_path, embodiment_tag, action_key)
-    with open(stats_path, "w") as f:
-        json.dump(to_json_serializable(dict(stats)), f, indent=4)
+    _dump_stats_cache_atomic(stats_path, to_json_serializable(dict(stats)))
 
 
-def main(dataset_path: Path | str, embodiment_tag: EmbodimentTag):
+def main(
+    dataset_path: Path | str,
+    embodiment_tag: EmbodimentTag,
+    modality_config_path: str | None = None,
+):
+    """Generate dataset statistics.
+
+    Args:
+        dataset_path: Path to the dataset.
+        embodiment_tag: Embodiment tag for modality configurations.
+        modality_config_path: Optional path to a .py modality config file. Required for custom
+            embodiment tags not in the built-in MODALITY_CONFIGS registry.
+    """
+    if modality_config_path is not None:
+        import importlib
+        import sys
+
+        config_path = Path(modality_config_path)
+        if config_path.exists() and config_path.suffix == ".py":
+            sys.path.append(str(config_path.parent))
+            importlib.import_module(config_path.stem)
+            print(f"Loaded modality config: {config_path}")
+        else:
+            raise FileNotFoundError(
+                f"Modality config path does not exist or is not a .py file: {modality_config_path}"
+            )
     generate_stats(dataset_path)
     generate_rel_stats(dataset_path, embodiment_tag)
 

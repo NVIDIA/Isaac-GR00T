@@ -21,14 +21,17 @@ uv pip install --requirements $LIBERO_REPO/requirements.txt
 uv pip install -e $LIBERO_REPO --config-settings editable_mode=compat
 uv pip install --editable $PROJECT_REPO --no-deps
 uv pip install torch==2.5.1 torchvision==0.20.1 pydantic av tianshou==0.5.1 tyro pandas dm_tree einops==0.8.1 albumentations==1.4.18 zmq
-uv pip install transformers==4.51.3 msgpack==1.1.0 msgpack-numpy==0.4.8 gymnasium==0.29.1
+uv pip install transformers==4.57.3 msgpack==1.1.0 msgpack-numpy==0.4.8 gymnasium==0.29.1
 uv pip install numpy==1.26.4
 
 uv pip install --editable "$PROJECT_REPO" --no-deps
 
 rm -rf $HOME/.libero
-echo "y\n" | python -c "from gr00t.eval.sim.LIBERO.libero_env import register_libero_envs"
+printf 'n\n' | python -c "from gr00t.eval.sim.LIBERO.libero_env import register_libero_envs"
 python - <<'PY'
+import os
+os.environ.setdefault("MUJOCO_GL", "egl")
+os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 from gr00t.eval.sim.LIBERO.libero_env import register_libero_envs
 register_libero_envs()
 import gymnasium as gym
