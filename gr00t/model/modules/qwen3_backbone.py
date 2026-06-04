@@ -83,11 +83,22 @@ class Qwen3Backbone(torch.nn.Module):
             **transformers_loading_kwargs,
         ).eval()
 
-        # needed since we don't use these layers. Also saves compute
-        while len(self.model.language_model.layers) > select_layer:
+        total_layers = len(self.model.language_model.layers)
+        if select_layer == -1:
+            effective_layer_count = total_layers
+        else:
+            if not (1 <= select_layer <= total_layers):
+                raise ValueError(
+                    f"Invalid select_layer={select_layer}. Must be -1 (use all layers) "
+                    f"or in [1, {total_layers}]"
+                )
+            effective_layer_count = select_layer
+
+        # Remove upper layers when selecting an intermediate hidden-state depth.
+        while len(self.model.language_model.layers) > effective_layer_count:
             self.model.language_model.layers.pop(-1)
 
-        self.select_layer = select_layer
+        self.select_layer = effective_layer_count
         self.set_trainable_parameters(tune_llm, tune_visual, tune_top_llm_layers)
         if load_bf16 and trainable_params_fp32:
             # cast trainable parameters to fp32

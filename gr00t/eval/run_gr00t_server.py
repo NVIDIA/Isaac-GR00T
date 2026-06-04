@@ -39,7 +39,7 @@ class ServerConfig:
     model_path: str | None = None
     """Path to the model checkpoint directory"""
 
-    embodiment_tag: str = "new_embodiment"
+    embodiment_tag: str = "oxe_droid_relative_eef_relative_joint"
     """Embodiment tag (name or value, case-insensitive). Run with --help to see known tags."""
 
     device: str = "cuda"
@@ -68,6 +68,30 @@ class ServerConfig:
     use_sim_policy_wrapper: bool = False
     """Whether to use the sim policy wrapper"""
 
+    enable_vlm_debug_generation: bool = False
+    """Whether to run extra VLM text generation and return it in info.vlm_debug"""
+
+    vlm_debug_model_name: str = "nvidia/Cosmos-Reason2-2B"
+    """Model name/path used only for VLM debug generation"""
+
+    vlm_debug_overlay_model_name: str = "nvidia/GR00T-N1.7-3B"
+    """Checkpoint used to override matching VLM layers after loading Cosmos"""
+
+    vlm_debug_overlay_enabled: bool = True
+    """Whether to override matching VLM layers from vlm_debug_overlay_model_name"""
+
+    vlm_debug_num_layers: int = 28
+    """Number of language layers to keep for VLM debug generation"""
+
+    vlm_debug_max_new_tokens: int = 64
+    """Max generated tokens for VLM debug text generation"""
+
+    vlm_debug_temperature: float = 0.0
+    """Sampling temperature for VLM debug generation (0.0 means greedy)"""
+
+    vlm_debug_do_sample: bool = False
+    """Whether to sample during VLM debug generation"""
+
 
 def main(config: ServerConfig):
     config.embodiment_tag = EmbodimentTag.resolve(config.embodiment_tag)
@@ -77,6 +101,7 @@ def main(config: ServerConfig):
     print(f"  Device: {config.device}")
     print(f"  Host: {config.host}")
     print(f"  Port: {config.port}")
+    print(f"  VLM debug generation: {config.enable_vlm_debug_generation}")
 
     # Create and start the server
     if config.model_path is not None:
@@ -88,6 +113,14 @@ def main(config: ServerConfig):
             model_path=config.model_path,
             device=config.device,
             strict=config.strict,
+            enable_vlm_debug_generation=config.enable_vlm_debug_generation,
+            vlm_debug_model_name=config.vlm_debug_model_name,
+            vlm_debug_overlay_model_name=config.vlm_debug_overlay_model_name,
+            vlm_debug_overlay_enabled=config.vlm_debug_overlay_enabled,
+            vlm_debug_num_layers=config.vlm_debug_num_layers,
+            vlm_debug_max_new_tokens=config.vlm_debug_max_new_tokens,
+            vlm_debug_temperature=config.vlm_debug_temperature,
+            vlm_debug_do_sample=config.vlm_debug_do_sample,
         )
     elif config.dataset_path is not None:
         if config.execution_horizon is None:

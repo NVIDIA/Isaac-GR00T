@@ -1,0 +1,44 @@
+{
+    "state": {
+        "eef_9d": {
+            "start": 0,
+            "end": 9
+        },
+        "gripper_position": {
+            "start": 13,
+            "end": 14
+        },
+        "joint_position": {
+            "start": 7,
+            "end": 14
+        }
+    },
+    "action": {
+        "eef_9d": {
+            "start": 0,
+            "end": 9
+        },
+        "gripper_position": {
+            "start": 13,
+            "end": 14
+        },
+        "joint_position": {
+            "start": 7,
+            "end": 14
+        }
+    },
+    "video": {
+        "exterior_image_1_left": {
+            "original_key": "observation.images.head"
+        },
+        "wrist_image_left": {
+            "original_key": "observation.images.right_wrist"
+        }
+    },
+    "annotation": {
+        "annotation.language.language_instruction": {
+            "original_key": "task_index"
+        }
+    }
+}
+
