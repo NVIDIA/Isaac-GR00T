@@ -75,11 +75,12 @@ def merge_statistics(
     # Initialize overall statistics dict
     overall_stats: dict[str, dict[str, list[float]]] = {}
 
-    # Process each modality (e.g., "state", "action"). An entry is treated as
-    # an action key iff it carries a "mean" field; anything else is sidecar
+    # Process each modality (e.g., "state", "action"). An entry is a real
+    # stats group iff it carries a "mean" field; anything else is sidecar
     # metadata that producers may co-locate at the top level (e.g. the
     # __fingerprints__ cache map written by generate_rel_stats) and must be
-    # skipped rather than merged.
+    # skipped rather than merged. Structural duck-typing keeps this consumer
+    # decoupled from whatever sidecar names the producer adopts.
     for modality, modality_stats in per_dataset_stats[0].items():
         if not isinstance(modality_stats, dict) or "mean" not in modality_stats:
             continue

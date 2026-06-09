@@ -28,6 +28,7 @@ Args:
     modality_config_path: Optional path to a .py config file for custom embodiment tags not in the built-in registry.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -53,6 +54,12 @@ LE_ROBOT_STATS_FILENAME = "meta/stats.json"
 LE_ROBOT_REL_STATS_FILENAME = "meta/relative_stats.json"
 
 logger = logging.getLogger(__name__)
+
+# Reserved top-level key, used inside both ``relative_stats.json`` and
+# ``stats.json``, mapping ``entry_name -> fingerprint``. Sits next to the
+# per-entry stat dicts; in-tree consumers always look up entries by name, so
+# the reserved key does not collide.
+STATS_FINGERPRINTS_KEY = "__fingerprints__"
 
 
 def _load_stats_cache(path: Path) -> dict[str, Any]:
@@ -173,39 +180,115 @@ def calculate_dataset_statistics(
     return dataset_statistics
 
 
+def _compute_stats_fingerprint(feature_name: str, feature_meta: dict) -> str:
+    """Hash the per-feature schema in ``info.json`` that drives ``calculate_dataset_statistics``.
+
+    Without this, ``meta/stats.json`` was reused whenever every feature name was
+    still present, even if the underlying ``dtype`` / ``shape`` had changed
+    (e.g. column dim grew, dtype widened). Result: silently wrong normalization
+    at training/eval time. Hashing the per-feature schema makes any such change
+    invalidate just that feature's cached entry.
+    """
+    payload = {
+        "feature": feature_name,
+        "dtype": feature_meta.get("dtype"),
+        "shape": feature_meta.get("shape"),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _stale_features(stats: dict | None, le_features: dict, lowdim_features: list[str]) -> list[str]:
+    """Return the subset of ``lowdim_features`` whose cached entry is missing or stale.
+
+    A feature is considered fresh iff its stat-dict has all six fields and its
+    fingerprint in ``__fingerprints__`` matches the canonical hash for its
+    current ``info.json`` schema. Anything else (missing info entry, missing
+    stat entry, missing stat field, missing fingerprint, mismatched
+    fingerprint) is treated as stale and recomputed.
+    """
+    if stats is None:
+        return list(lowdim_features)
+    fingerprints = stats.get(STATS_FINGERPRINTS_KEY)
+    if not isinstance(fingerprints, dict):
+        fingerprints = {}
+    stale = []
+    for feature in lowdim_features:
+        feature_meta = le_features.get(feature)
+        if feature_meta is None:
+            stale.append(feature)
+            continue
+        if feature not in stats or not isinstance(stats[feature], dict):
+            stale.append(feature)
+            continue
+        if any(k not in stats[feature] for k in ("mean", "std", "min", "max", "q01", "q99")):
+            stale.append(feature)
+            continue
+        if fingerprints.get(feature) != _compute_stats_fingerprint(feature, feature_meta):
+            stale.append(feature)
+    return stale
+
+
 def check_stats_validity(dataset_path: Path | str, features: list[str]):
-    stats_path = Path(dataset_path) / LE_ROBOT_STATS_FILENAME
-    stats = _load_stats_cache(stats_path)
+    """Return True iff every feature in ``features`` has a fingerprint-matching cached entry.
+
+    A True result means ``generate_stats`` can skip recomputation entirely. We
+    re-derive the expected fingerprint from the *current* ``info.json`` so any
+    schema drift since the cache was written invalidates it.
+    """
+    dataset_path = Path(dataset_path)
+    stats = _load_stats_cache(dataset_path / LE_ROBOT_STATS_FILENAME)
     if not stats:
-        # Missing, empty, or unreadable — caller must regenerate.
         return False
-    for feature in features:
-        if feature not in stats:
-            return False
-        if not isinstance(stats[feature], dict):
-            return False
-        for stat in ["mean", "std", "min", "max", "q01", "q99"]:
-            if stat not in stats[feature]:
-                return False
-    return True
+    info_path = dataset_path / LE_ROBOT_INFO_FILENAME
+    if not info_path.exists():
+        return False
+    with open(info_path, "r") as f:
+        le_features = json.load(f).get("features", {})
+    return not _stale_features(stats, le_features, features)
 
 
 def generate_stats(dataset_path: Path | str):
     dataset_path = Path(dataset_path)
     print(f"Generating stats for {str(dataset_path)}")
-    lowdim_features = []
     with open(dataset_path / LE_ROBOT_INFO_FILENAME, "r") as f:
         le_features = json.load(f)["features"]
-    for feature in le_features:
-        if "float" in le_features[feature]["dtype"]:
-            lowdim_features.append(feature)
-    if check_stats_validity(dataset_path, lowdim_features):
+    lowdim_features = [f for f in le_features if "float" in le_features[f]["dtype"]]
+
+    stats_path = dataset_path / LE_ROBOT_STATS_FILENAME
+    existing = _load_stats_cache(stats_path)
+    stale = _stale_features(existing, le_features, lowdim_features)
+
+    # Pull the reserved sidecar aside so the cleanup pass below can iterate
+    # ``existing`` cleanly. Drop entries for features that no longer exist in
+    # info.json (e.g. a sensor / DOF was removed in an upstream dataset rev)
+    # so the on-disk file stays consistent with info.json under feature
+    # churn — otherwise stale stat dicts accumulate without bound on shared
+    # NFS. Any non-stat-dict, non-sidecar key is owned by an external writer
+    # and is left untouched.
+    fingerprints = existing.pop(STATS_FINGERPRINTS_KEY, None)
+    if not isinstance(fingerprints, dict):
+        fingerprints = {}
+    lowdim_set = set(lowdim_features)
+    dropped = False
+    for f in [k for k in list(existing) if k not in lowdim_set and isinstance(existing[k], dict)]:
+        del existing[f]
+        dropped = True
+    for f in [k for k in list(fingerprints) if k not in lowdim_set]:
+        del fingerprints[f]
+        dropped = True
+
+    if not stale and not dropped:
         return
 
     parquet_files = list(dataset_path.glob(LE_ROBOT_DATA_FILENAME))
-    stats = calculate_dataset_statistics(parquet_files, lowdim_features)
-    stats_path = dataset_path / LE_ROBOT_STATS_FILENAME
-    _dump_stats_cache_atomic(stats_path, stats)
+    fresh = calculate_dataset_statistics(parquet_files, stale) if stale else {}
+    for feature, values in fresh.items():
+        existing[feature] = values
+        fingerprints[feature] = _compute_stats_fingerprint(feature, le_features[feature])
+
+    existing[STATS_FINGERPRINTS_KEY] = fingerprints
+    _dump_stats_cache_atomic(stats_path, existing)
 
 
 class RelativeActionLoader:
@@ -302,6 +385,33 @@ def calculate_stats_for_key(
     }
 
 
+def _compute_relative_action_fingerprint(embodiment_tag: EmbodimentTag, action_key: str) -> str:
+    """Hash the inputs that change ``calculate_stats_for_key``'s output.
+
+    Cached entries in ``relative_stats.json`` are only safe to reuse when every
+    such input matches what they were computed under. A stats file produced for
+    one ``(delta_indices, format, state_key, ...)`` combo would otherwise be
+    silently reused for a different combo with the same ``action_key`` name,
+    leading to wrong normalization without any error.
+    """
+    action_modality = MODALITY_CONFIGS[embodiment_tag.value]["action"]
+    state_modality = MODALITY_CONFIGS[embodiment_tag.value]["state"]
+    idx = action_modality.modality_keys.index(action_key)
+    action_config = action_modality.action_configs[idx]
+    payload = {
+        "embodiment_tag": embodiment_tag.value,
+        "action_key": action_key,
+        "action_delta_indices": list(action_modality.delta_indices),
+        "state_delta_indices": list(state_modality.delta_indices),
+        "rep": action_config.rep.name,
+        "type": action_config.type.name,
+        "format": action_config.format.name,
+        "state_key": action_config.state_key,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) -> None:
     dataset_path = Path(dataset_path)
     action_config = MODALITY_CONFIGS[embodiment_tag.value]["action"]
@@ -314,11 +424,14 @@ def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) 
     ]
     stats_path = Path(dataset_path) / LE_ROBOT_REL_STATS_FILENAME
     stats = _load_stats_cache(stats_path)
+    fingerprints = stats.setdefault(STATS_FINGERPRINTS_KEY, {})
     for action_key in sorted(action_keys):
-        if action_key in stats:
+        expected_fp = _compute_relative_action_fingerprint(embodiment_tag, action_key)
+        if action_key in stats and fingerprints.get(action_key) == expected_fp:
             continue
         print(f"Generating relative stats for {dataset_path} {embodiment_tag} {action_key}")
         stats[action_key] = calculate_stats_for_key(dataset_path, embodiment_tag, action_key)
+        fingerprints[action_key] = expected_fp
     _dump_stats_cache_atomic(stats_path, to_json_serializable(dict(stats)))
 
 

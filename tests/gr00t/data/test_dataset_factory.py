@@ -109,7 +109,6 @@ class TestDatasetFactory:
         with (
             patch("gr00t.data.dataset.factory.generate_stats"),
             patch("gr00t.data.dataset.factory.generate_rel_stats"),
-            patch("gr00t.data.dataset.factory.barrier"),
             patch("gr00t.data.dataset.factory.ShardedSingleStepDataset", return_value=mock_dataset),
             patch("torch.distributed.is_initialized", return_value=False),
         ):

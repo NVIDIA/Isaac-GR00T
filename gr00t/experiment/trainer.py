@@ -267,25 +267,30 @@ class Gr00tTrainer(Trainer):
         resume_from_checkpoint=None,
         **kwargs,
     ):
-        """Correctly set self.state from checkpoint so get_train_dataloader can read from it."""
-        if resume_from_checkpoint is False:
-            resume_from_checkpoint = None
-
-        if isinstance(resume_from_checkpoint, bool) and resume_from_checkpoint:
-            resume_from_checkpoint = get_last_checkpoint(self.args.output_dir)
-            if resume_from_checkpoint is None:
-                logging.warning(
+        """Pre-load TrainerState before super().train() so get_train_dataloader
+        can read self.state.global_step (stateful samplers rely on this).
+        ``resume_from_checkpoint=True`` with no checkpoint raises rather than
+        silently starting fresh.
+        """
+        if resume_from_checkpoint is True:
+            latest_checkpoint = get_last_checkpoint(self.args.output_dir)
+            if latest_checkpoint is None:
+                raise ValueError(
                     f"No valid checkpoint found in output directory ({self.args.output_dir})"
                 )
+        elif resume_from_checkpoint in (False, None):
+            latest_checkpoint = None
+        else:
+            latest_checkpoint = resume_from_checkpoint  # caller passed an explicit path
 
-        if resume_from_checkpoint is not None:
-            logging.info(f"Resuming from checkpoint {resume_from_checkpoint}")
+        if latest_checkpoint is not None:
+            logging.info(f"Resuming from checkpoint {latest_checkpoint}")
             # In case of repeating the find_executable_batch_size, set `self._train_batch_size` properly
             self.state = TrainerState.load_from_json(
-                os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME)
+                os.path.join(latest_checkpoint, TRAINER_STATE_NAME)
             )
 
-        return super().train(resume_from_checkpoint=resume_from_checkpoint, **kwargs)
+        return super().train(resume_from_checkpoint=latest_checkpoint, **kwargs)
 
     # ------------------------------------------------------------------
     # Loss / accuracy computation override

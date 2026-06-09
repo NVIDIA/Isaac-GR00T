@@ -32,6 +32,7 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.deployment.modes import VideoBackend
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 from gr00t.policy.policy import BasePolicy
+from gr00t.utils.video_utils import resolve_backend
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
@@ -600,8 +601,8 @@ class ArgsConfig:
     action_horizon: int = 16
     """Action horizon to evaluate."""
 
-    video_backend: VideoBackend = "torchcodec"
-    """Video backend to use for various codec options. h264: decord or av: torchvision_av"""
+    video_backend: VideoBackend = "ffmpeg"
+    """Video backend for dataset frame loading. Use torchcodec only with a compatible FFmpeg."""
 
     dataset_path: str = "demo_data/droid_sample"
     """Path to the dataset."""
@@ -649,6 +650,12 @@ def main(args: ArgsConfig):
     logging.info(f"Seed: {args.seed}")
     set_seed(args.seed)
     logging.info("=" * 80)
+
+    try:
+        resolve_backend("", args.video_backend)
+    except ImportError as exc:
+        logging.error("Video backend preflight failed before model loading: %s", exc)
+        sys.exit(1)
 
     if not torch.cuda.is_available():
         logging.error("CUDA is not available. This script requires a GPU. Exiting.")

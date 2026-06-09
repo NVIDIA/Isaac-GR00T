@@ -15,9 +15,8 @@
 
 """Shared ``video_backend`` types for the deployment CLIs and runtime.
 
-The three deployment CLIs (``export_onnx_n1d7``, ``build_trt_pipeline``,
-``standalone_inference_script``) all import :data:`VideoBackend` for
-their ``--video-backend`` flag, so the set stays aligned in one place.
+The deployment CLIs import :data:`VideoBackend` for their
+``--video-backend`` flag, so the set stays aligned in one place.
 
 :data:`VIDEO_BACKEND_CANONICAL` lists every backend the runtime
 dispatch in :mod:`gr00t.utils.video_utils` can drive (a superset of the
@@ -31,9 +30,11 @@ from __future__ import annotations
 from typing import Literal
 
 
-VideoBackend = Literal["decord", "torchvision_av", "torchcodec"]
+VideoBackend = Literal["decord", "ffmpeg", "torchcodec"]
 """Allowed values for the ``--video-backend`` CLI flag, shared by the
-three deployment CLIs."""
+deployment CLIs. Each option must be implemented by
+``get_frames_by_indices()``, which is what the LeRobot dataset loader
+uses for deployment/export inputs."""
 
 
 VIDEO_BACKEND_CANONICAL = (

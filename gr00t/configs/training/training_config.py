@@ -15,6 +15,7 @@
 
 from dataclasses import dataclass, field
 from typing import Optional
+import warnings
 
 
 @dataclass
@@ -27,9 +28,18 @@ class TrainingConfig:
 
     # Basic training
     max_steps: int = 30000  # this will override num_epochs
+
     global_batch_size: int = 1024
-    batch_size: Optional[int] = None
+    """Total batch summed across all GPUs in one forward/backward, BEFORE
+    gradient accumulation. See :attr:`accumulated_batch_size` for the
+    post-accumulation per-optimizer-step value."""
+
+    per_gpu_batch_size: Optional[int] = None
+    """Deprecated. When set, overrides ``global_batch_size`` as the per-GPU batch."""
+
     gradient_accumulation_steps: int = 1
+    """Forward passes per optimizer step. Passed through to HuggingFace
+    ``TrainingArguments``; see :attr:`accumulated_batch_size`."""
 
     # Optimization
     learning_rate: float = 1e-4
@@ -61,6 +71,9 @@ class TrainingConfig:
     # Model saving
     save_vl_model: bool = False  # Control whether to save VL model and processor in callbacks
     save_only_model: bool = False  # Skip optimizer/scheduler/RNG states — cannot resume training
+
+    # Default False so a rerun against an existing output_dir starts fresh.
+    resume_from_checkpoint: bool = False
 
     # Checkpoint uploading
     upload_checkpoints: bool = False
@@ -125,3 +138,41 @@ class TrainingConfig:
 
     open_loop_eval_plot_indices: Optional[list[int]] = None
     """List of action indices to plot. If None, plots all indices."""
+
+    @property
+    def accumulated_batch_size(self) -> int:
+        """Total samples per optimizer step, after gradient accumulation."""
+        if self.per_gpu_batch_size is not None:
+            global_batch = self.per_gpu_batch_size * self.num_gpus
+        else:
+            global_batch = self.global_batch_size
+        return global_batch * self.gradient_accumulation_steps
+
+    def __post_init__(self) -> None:
+        if self.gradient_accumulation_steps < 1:
+            raise ValueError(
+                f"gradient_accumulation_steps must be >= 1, got {self.gradient_accumulation_steps}"
+            )
+        if self.gradient_accumulation_steps > 1 and self.per_gpu_batch_size is None:
+            warnings.warn(
+                f"global_batch_size={self.global_batch_size} is pre-accumulation; "
+                f"accumulated_batch_size={self.accumulated_batch_size} "
+                f"(× gradient_accumulation_steps={self.gradient_accumulation_steps}).",
+                stacklevel=2,
+            )
+
+
+def check_resume_compatibility(training: TrainingConfig) -> None:
+    """Reject ``save_only_model=True`` + ``resume_from_checkpoint=True``.
+
+    HF Trainer would otherwise restore ``global_step`` from
+    ``trainer_state.json`` and silently re-init optimizer / LR schedule.
+    """
+    if training.save_only_model and training.resume_from_checkpoint:
+        raise ValueError(
+            "save_only_model=True is incompatible with resume_from_checkpoint=True: "
+            "the checkpoint lacks optimizer/scheduler/RNG state, so resuming "
+            "silently re-initializes the optimizer and LR schedule, degrading "
+            "training quality. Either disable save_only_model, or start fresh "
+            "(set resume_from_checkpoint=False or use a different output_dir)."
+        )

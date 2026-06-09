@@ -21,7 +21,7 @@ from gr00t.configs.base_config import Config
 from gr00t.data.collator import BasicDataCollator
 from gr00t.data.dataset.factory import DatasetFactory
 from gr00t.data.interfaces import BaseProcessor
-from gr00t.experiment.dist_utils import get_rank
+from gr00t.experiment.dist_utils import get_rank, run_or_wait_on_rank0
 import numpy as np
 import torch
 from transformers import PreTrainedModel
@@ -110,13 +110,13 @@ class BasicPipeline(ModelPipeline):
         dataset_factory = DatasetFactory(self.config)
         train_dataset, eval_dataset = dataset_factory.build(self.processor)
 
-        # Rank-guarded to avoid a multi-rank truncate-and-write race.
-        if get_rank() == 0:
-            stats = train_dataset.get_dataset_statistics()
-            stats_dict = convert_tensors_to_lists(stats)
-            with open(save_cfg_dir / "dataset_statistics.json", "w") as f:
-                json.dump(stats_dict, f, indent=2)
-            logging.info("Saved dataset statistics for inference")
+        with run_or_wait_on_rank0(label="dataset_statistics.json write") as is_rank0:
+            if is_rank0:
+                stats = train_dataset.get_dataset_statistics()
+                stats_dict = convert_tensors_to_lists(stats)
+                with open(save_cfg_dir / "dataset_statistics.json", "w") as f:
+                    json.dump(stats_dict, f, indent=2)
+                logging.info("Saved dataset statistics for inference")
 
         return train_dataset, eval_dataset
 

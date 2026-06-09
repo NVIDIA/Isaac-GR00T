@@ -24,7 +24,7 @@ from transformers import AutoModel, AutoProcessor
 from gr00t.configs.base_config import Config
 from gr00t.configs.model.gr00t_n1d7 import Gr00tN1d7Config
 from gr00t.data.dataset.factory import DatasetFactory
-from gr00t.experiment.dist_utils import get_rank
+from gr00t.experiment.dist_utils import run_or_wait_on_rank0
 from gr00t.model.base.model_pipeline import ModelPipeline
 from gr00t.model.gr00t_n1d7.gr00t_n1d7 import Gr00tN1d7
 from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor
@@ -126,9 +126,10 @@ class Gr00tN1d7Pipeline(ModelPipeline):
             )
 
         logging.debug(f"Model Config: {model.config}")
-        if get_rank() == 0:
-            with open(self.save_cfg_dir / "final_model_config.json", "w") as f:
-                f.write(model.config.to_filtered_json())
+        with run_or_wait_on_rank0(label="final_model_config.json write") as is_rank0:
+            if is_rank0:
+                with open(self.save_cfg_dir / "final_model_config.json", "w") as f:
+                    f.write(model.config.to_filtered_json())
         # Print parameter statistics
         total_params = sum(p.numel() for p in model.parameters())
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -210,21 +211,22 @@ class Gr00tN1d7Pipeline(ModelPipeline):
         logging.debug(
             f"Processor configs for training: {json.dumps({k: str(v) for k, v in vars(processor).items()}, indent=2)}"
         )
-        if get_rank() == 0:
-            with open(self.save_cfg_dir / "final_processor_config.json", "w") as f:
-                json.dump({k: str(v) for k, v in vars(processor).items()}, f, indent=2)
+        with run_or_wait_on_rank0(label="final_processor_config.json write") as is_rank0:
+            if is_rank0:
+                with open(self.save_cfg_dir / "final_processor_config.json", "w") as f:
+                    json.dump({k: str(v) for k, v in vars(processor).items()}, f, indent=2)
 
         self.processor = processor
         dataset_factory = DatasetFactory(config=self.config)
         train_dataset, eval_dataset = dataset_factory.build(processor=self.processor)
 
-        # Rank-guarded for the same reason as final_processor_config.json above.
-        if get_rank() == 0:
-            stats = train_dataset.get_dataset_statistics()
-            stats_dict = convert_tensors_to_lists(stats)
-            with open(save_cfg_dir / "dataset_statistics.json", "w") as f:
-                json.dump(stats_dict, f, indent=2)
-            logging.info("Saved dataset statistics for inference")
+        with run_or_wait_on_rank0(label="dataset_statistics.json write") as is_rank0:
+            if is_rank0:
+                stats = train_dataset.get_dataset_statistics()
+                stats_dict = convert_tensors_to_lists(stats)
+                with open(save_cfg_dir / "dataset_statistics.json", "w") as f:
+                    json.dump(stats_dict, f, indent=2)
+                logging.info("Saved dataset statistics for inference")
 
         return train_dataset, eval_dataset
 

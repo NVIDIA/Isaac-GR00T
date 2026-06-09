@@ -28,6 +28,8 @@ from transformers import TrainingArguments, set_seed
 import wandb
 
 from gr00t.configs.base_config import Config
+from gr00t.configs.training.training_config import check_resume_compatibility
+from gr00t.experiment.dist_utils import run_on_rank0, run_or_wait_on_rank0
 
 # Use custom trainer that profiles data loading & forward times
 from gr00t.experiment.trainer import Gr00tTrainer, ProfCallback
@@ -54,14 +56,23 @@ def warn_configs(config: Config):
         "global_batch_size must be divisible by num_gpus"
     )
 
+    if config.training.gradient_accumulation_steps > 1:
+        logging.info(
+            "global_batch_size=%d × gradient_accumulation_steps=%d "
+            "→ accumulated_batch_size=%d per optimizer step",
+            config.training.global_batch_size,
+            config.training.gradient_accumulation_steps,
+            config.training.accumulated_batch_size,
+        )
+
     if config.data.video_backend != "torchcodec":
         warnings.warn(
             "video_backend is not torchcodec. Only torchcodec will be supported in the future."
         )
 
-    if config.training.batch_size is not None:
+    if config.training.per_gpu_batch_size is not None:
         warnings.warn(
-            "batch_size will be deprecated in the future, please use global_batch_size instead. For now, this will override global_batch_size."
+            "per_gpu_batch_size will be deprecated in the future, please use global_batch_size instead. For now, this will override global_batch_size."
         )
 
     if config.training.warmup_steps > 0:
@@ -113,22 +124,62 @@ def warn_configs(config: Config):
         )
 
 
-def run(config: Config):
-    warn_configs(config)
-
-    """Main training function."""
-    # If using distributed training, initialize the process group
+def _init_distributed_process_group() -> int:
+    """Init the NCCL process group with ``device_id=cuda:LOCAL_RANK`` so NCCL
+    binds the communicator eagerly (the PyTorch >=2.4 recommended pattern).
+    No-op when ``dist`` is already initialized or ``WORLD_SIZE`` is unset / 1.
+    """
     if dist.is_initialized():
-        global_rank = dist.get_rank()
-    elif "WORLD_SIZE" in os.environ and int(os.environ["WORLD_SIZE"]) > 1:
-        dist.init_process_group(backend="nccl")
-        # only meaningful for torchrun, for ray it is always 0
+        return dist.get_rank()
+    if "WORLD_SIZE" in os.environ and int(os.environ["WORLD_SIZE"]) > 1:
         local_rank = int(os.environ["LOCAL_RANK"])
         torch.cuda.set_device(local_rank)
-        global_rank = dist.get_rank()
-    else:
-        local_rank = 0
-        global_rank = 0
+        dist.init_process_group(
+            backend="nccl",
+            device_id=torch.device(f"cuda:{local_rank}"),
+        )
+        return dist.get_rank()
+    return 0
+
+
+def save_run_config_artifacts(
+    save_cfg_dir: Path, output_dir: Path, config: Config, experiment_name: str
+):
+    """Write ``config.yaml`` / ``conf.yaml`` / ``wandb_config.json``."""
+    save_cfg_dir.mkdir(parents=True, exist_ok=True)
+    config.save(save_cfg_dir / "config.yaml")
+    omegaconf_config = OmegaConf.create(config.__dict__)
+    omegaconf_config["max_steps"] = config.training.max_steps
+    omegaconf_config["save_steps"] = config.training.save_steps
+    OmegaConf.save(omegaconf_config, save_cfg_dir / "conf.yaml", resolve=True)
+    wandb_config_file = output_dir / "wandb_config.json"
+    with open(wandb_config_file, "w") as f:
+        json.dump(
+            {
+                "project": config.training.wandb_project,
+                "run_id": experiment_name,
+            },
+            f,
+        )
+    logging.info(f"Saved config to {save_cfg_dir}")
+
+
+def save_initial_actions_artifact(train_dataset, save_cfg_dir: Path):
+    """Write ``initial_actions.npz`` from ``train_dataset``; a falsy payload is a no-op."""
+    initial_actions = train_dataset.get_initial_actions()
+    if not initial_actions:
+        return
+    initial_actions_path = save_cfg_dir / INITIAL_ACTIONS_FILENAME
+    save_initial_actions(initial_actions, initial_actions_path)
+    logging.info(f"Saved {len(initial_actions)} initial actions to {initial_actions_path}")
+
+
+def run(config: Config):
+    """Main training function."""
+    warn_configs(config)
+    check_resume_compatibility(config.training)
+
+    global_rank = _init_distributed_process_group()
 
     # Setup
     setup_logging()
@@ -149,40 +200,34 @@ def run(config: Config):
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save config
     save_cfg_dir = output_dir / "experiment_cfg"
     processor_dir = output_dir / "processor"
-    config.save(save_cfg_dir / "config.yaml")
-    omegaconf_config = OmegaConf.create(config.__dict__)
-    omegaconf_config["max_steps"] = config.training.max_steps
-    omegaconf_config["save_steps"] = config.training.save_steps
-    OmegaConf.save(omegaconf_config, save_cfg_dir / "conf.yaml", resolve=True)
-    wandb_config_file = output_dir / "wandb_config.json"
-    with open(wandb_config_file, "w") as f:
-        json.dump(
-            {
-                "project": config.training.wandb_project,
-                "run_id": experiment_name,
-            },
-            f,
-        )
 
-    logging.info(f"Saved config to {save_cfg_dir}")
+    # Rank-0-only write; wrapped so a rank-0 failure surfaces on every rank
+    # instead of stranding peers at the next NCCL collective.
+    run_on_rank0(
+        save_run_config_artifacts,
+        save_cfg_dir,
+        output_dir,
+        config,
+        experiment_name,
+    )
 
-    # Initialize wandb if configured, but only on the main process
-    if config.training.use_wandb and global_rank == 0:
-        # Add git commit hash and version info to config
-        config_dict = {
-            **config.__dict__,
-            "git_commit_hash": os.environ.get("GROOT_COMMIT_HASH", "unknown"),
-        }
+    # wandb.init does network I/O; wrap so a rank-0 failure can't strand peers.
+    if config.training.use_wandb:
+        with run_or_wait_on_rank0(label="wandb.init") as is_rank0:
+            if is_rank0:
+                config_dict = {
+                    **config.__dict__,
+                    "git_commit_hash": os.environ.get("GROOT_COMMIT_HASH", "unknown"),
+                }
 
-        wandb.init(
-            project=config.training.wandb_project,
-            name=experiment_name,
-            config=config_dict,
-            tags=[config.data.mode],
-        )
+                wandb.init(
+                    project=config.training.wandb_project,
+                    name=experiment_name,
+                    config=config_dict,
+                    tags=[config.data.mode],
+                )
 
     # Setup model training pipeline.
     pipeline = MODEL_REGISTRY.get(type(config.model))(config, save_cfg_dir)
@@ -191,7 +236,9 @@ def run(config: Config):
     train_dataset, eval_dataset = pipeline.return_dataset()
     data_collator = pipeline.return_collator()
     processor = pipeline.return_processor()
-    processor.save_pretrained(processor_dir)
+    # statistics.json here is read by Gr00tPolicy.from_pretrained at deploy time;
+    # a torn write silently degrades inference, so gate + broadcast failures.
+    run_on_rank0(processor.save_pretrained, processor_dir, label="processor.save_pretrained")
 
     # deepspeed config
     if config.training.num_gpus > 1 and not config.training.use_ddp:
@@ -199,11 +246,11 @@ def run(config: Config):
     else:
         deepspeed_config = None
 
-    # for now we will let batch_size override global_batch_size, in future we will deprecate batch_size
-    if config.training.batch_size is None:
+    # for now we will let per_gpu_batch_size override global_batch_size, in future we will deprecate per_gpu_batch_size
+    if config.training.per_gpu_batch_size is None:
         per_device_train_batch_size = config.training.global_batch_size // config.training.num_gpus
     else:
-        per_device_train_batch_size = config.training.batch_size
+        per_device_train_batch_size = config.training.per_gpu_batch_size
 
     # Create training arguments
     training_args = TrainingArguments(
@@ -263,15 +310,12 @@ def run(config: Config):
                 metric_name=config.training.save_best_eval_metric_name,
                 greater_is_better=config.training.save_best_eval_metric_greater_is_better,
                 exp_cfg_dir=save_cfg_dir,
+                trainer=trainer,
             )
         )
 
     if hasattr(train_dataset, "get_initial_actions"):
-        initial_actions = train_dataset.get_initial_actions()
-        if initial_actions:
-            initial_actions_path = save_cfg_dir / INITIAL_ACTIONS_FILENAME
-            save_initial_actions(initial_actions, initial_actions_path)
-            logging.info(f"Saved {len(initial_actions)} initial actions to {initial_actions_path}")
+        run_on_rank0(save_initial_actions_artifact, train_dataset, save_cfg_dir)
 
     # Train
     logging.info("🚀 Starting training...")
@@ -302,9 +346,9 @@ def run(config: Config):
             on_trace_ready=partial(on_trace_ready_handler, trainer, profile_dir),
         ) as prof:
             trainer.add_callback(ProfCallback(prof=prof))
-            trainer.train(resume_from_checkpoint=True)
+            trainer.train(resume_from_checkpoint=config.training.resume_from_checkpoint)
     else:
-        trainer.train(resume_from_checkpoint=True)
+        trainer.train(resume_from_checkpoint=config.training.resume_from_checkpoint)
 
     # Save final model
     trainer.save_model()

@@ -40,21 +40,35 @@ from pprint import pformat
 import time
 from typing import Any, Dict, List
 
-import draccus
 from gr00t.policy.server_client import PolicyClient
-
-# Importing various robot configs ensures CLI autocompletion works
-from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig  # noqa: F401
-from lerobot.robots import (  # noqa: F401
-    Robot,
-    RobotConfig,
-    koch_follower,
-    make_robot_from_config,
-    so100_follower,
-    so101_follower,
-)
-from lerobot.utils.utils import init_logging, log_say
 import numpy as np
+
+
+try:
+    import draccus
+
+    # Importing various robot configs ensures CLI autocompletion works.
+    from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig  # noqa: F401
+    from lerobot.robots import (  # noqa: F401
+        Robot,
+        RobotConfig,
+        koch_follower,
+        make_robot_from_config,
+        so100_follower,
+        so101_follower,
+    )
+    from lerobot.utils.utils import init_logging, log_say
+except ModuleNotFoundError as exc:
+    if exc.name is not None and (
+        exc.name in {"draccus", "lerobot"} or exc.name.startswith("lerobot.")
+    ):
+        raise ModuleNotFoundError(
+            "SO100 real-robot evaluation uses its own client environment. Run "
+            "`cd gr00t/eval/real_robot/SO100 && uv venv && source .venv/bin/activate && "
+            "uv pip install -e . --verbose && uv pip install --no-deps -e ../../../../` "
+            "before launching eval_so100.py."
+        ) from None
+    raise
 
 
 def recursive_add_extra_dim(obs: Dict) -> Dict:

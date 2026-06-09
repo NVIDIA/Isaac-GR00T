@@ -229,6 +229,9 @@ def test_experiment_run_all_visible_gpus(tmp_path, _visible_multigpu_count):
     # Some GB200 CI nodes report disabled P2P between NVLINK-connected GPUs.
     # NCCL treats that as fatal unless this override is present.
     env.setdefault("NCCL_IGNORE_DISABLED_P2P", "1")
+    # Surface the selected transport, peer-access topology, and underlying CUDA
+    # error on the next flake instead of one opaque ``ncclUnhandledCudaError``.
+    env.setdefault("NCCL_DEBUG", "WARN")
 
     proc = subprocess.Popen(
         cmd,
@@ -265,6 +268,13 @@ def test_experiment_run_all_visible_gpus(tmp_path, _visible_multigpu_count):
         local_ranks.append(payload["local_rank"])
         assert payload["world_size"] == num_gpus
         assert payload["visible_cuda_device_count"] == num_gpus
+        assert payload["current_cuda_device"] == payload["local_rank"], (
+            f"rank {payload['rank']} expected to be bound to cuda:{payload['local_rank']} "
+            f"but current_cuda_device is cuda:{payload['current_cuda_device']}; "
+            "experiment.run() likely stopped calling torch.cuda.set_device(local_rank) "
+            "before init_process_group, which silently puts every rank on cuda:0 and "
+            "leads to NCCL 'invalid device ordinal' on strict-NCCL GPU topologies"
+        )
 
     assert sorted(ranks) == list(range(num_gpus))
     assert sorted(local_ranks) == list(range(num_gpus))

@@ -33,6 +33,7 @@ Usage: bash examples/finetune.sh \
   [--modality-config-path <path>] \
   [--state-dropout-prob <value>] \
   [--save-only-model] \
+  [--resume-from-checkpoint] \
   [-- <extra launch_finetune.py args>...]
 EOF
 }
@@ -73,6 +74,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --save-only-model)
             SAVE_ONLY_MODEL=1
+            shift
+            ;;
+        --resume-from-checkpoint)
+            RESUME_FROM_CHECKPOINT=1
             shift
             ;;
         --help|-h)
@@ -142,6 +147,9 @@ if [ -n "$STATE_DROPOUT_PROB" ]; then
 fi
 if [ -n "${SAVE_ONLY_MODEL:-}" ]; then
     LAUNCH_CMD+=(--save_only_model)
+fi
+if [ -n "${RESUME_FROM_CHECKPOINT:-}" ]; then
+    LAUNCH_CMD+=(--resume_from_checkpoint)
 fi
 
 if [ "${#EXTRA_ARGS[@]}" -gt 0 ]; then

@@ -189,7 +189,12 @@ class LeRobotEpisodeLoader:
         relative_stats_path = meta_dir / LEROBOT_RELATIVE_STATS_FILE_NAME
         if relative_stats_path.exists():
             with open(relative_stats_path, "r") as f:
-                self.stats["relative_action"] = json.load(f)
+                relative_stats = json.load(f)
+            # Drop the cache-invalidation sidecar written by gr00t.data.stats
+            # (mirrors STATS_FINGERPRINTS_KEY there). Consumers index by
+            # feature name and would otherwise treat it as a stats group.
+            relative_stats.pop("__fingerprints__", None)
+            self.stats["relative_action"] = relative_stats
 
         # Extract key configuration parameters
         self.feature_config = self.info_meta.get("features", {})

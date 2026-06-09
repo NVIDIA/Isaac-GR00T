@@ -1,5 +1,5 @@
 GitPython
-3.1.46
+3.1.50
 BSD-3-Clause
 https://github.com/gitpython-developers/GitPython
 Copyright (C) 2008, 2009 Michael Trier and contributors

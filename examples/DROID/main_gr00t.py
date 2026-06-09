@@ -29,17 +29,12 @@ import time
 from collections import deque
 
 import cv2
-import imageio
 import numpy as np
 import pandas as pd
 import tqdm
 import tyro
-from moviepy.editor import ImageSequenceClip
 from PIL import Image
 
-from droid.robot_env import RobotEnv
-from server_client import PolicyClient
-from utils import resize_with_pad
 from scipy.spatial.transform import Rotation
 
 faulthandler.enable()
@@ -104,6 +99,24 @@ class Args:
     delay_seconds: int = 5
 
 
+def _load_runtime_deps():
+    """Load robot-only dependencies after CLI parsing so --help stays usable."""
+    try:
+        import imageio
+        from droid.robot_env import RobotEnv
+        from moviepy.editor import ImageSequenceClip
+        from server_client import PolicyClient
+        from utils import resize_with_pad
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "examples/DROID/main_gr00t.py requires the DROID robot-control environment. "
+            "Follow examples/DROID/README.md and install the DROID package plus "
+            "`pip install tyro moviepy==1.0.3 pydantic numpy==1.26.4` before running."
+        ) from exc
+
+    return RobotEnv, PolicyClient, ImageSequenceClip, imageio, resize_with_pad
+
+
 # We are using Ctrl+C to optionally terminate rollouts early -- however, if we press Ctrl+C while the policy server is
 # waiting for a new action chunk, it will raise an exception and the server connection dies.
 # This context manager temporarily prevents Ctrl+C and delays it after the server call is complete.
@@ -127,6 +140,8 @@ def prevent_keyboard_interrupt():
 
 
 def main(args: Args):
+    RobotEnv, PolicyClient, ImageSequenceClip, imageio, resize_with_pad = _load_runtime_deps()
+
     assert args.external_camera in ["left", "right"], (
         f"Invalid exterior camera: {args.exterior_camera}"
     )

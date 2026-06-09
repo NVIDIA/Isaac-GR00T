@@ -154,11 +154,40 @@ else
     rm -rf /tmp/flash-attn
     TMP_BUILD_DIRS+=(/tmp/flash-attn)
     git clone --depth 1 --branch v2.8.3 https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attn
+
+    # Pin cutlass to a specific commit so the build doesn't silently shift
+    # when upstream NVIDIA/cutlass main moves. SHA is cutlass HEAD as of
+    # 2026-04-30; bump to a tagged release in a follow-up once flash-attn
+    # v2.8.3 is verified against it.
+    CUTLASS_SHA="f74fea9ce35868d3ae9f8d1dce1969d7250d3f90"
     rm -rf /tmp/flash-attn/csrc/cutlass
-    git clone --depth 1 https://github.com/NVIDIA/cutlass.git /tmp/flash-attn/csrc/cutlass
+    mkdir -p /tmp/flash-attn/csrc/cutlass
+    git -C /tmp/flash-attn/csrc/cutlass init --quiet
+    git -C /tmp/flash-attn/csrc/cutlass remote add origin https://github.com/NVIDIA/cutlass.git
+    git -C /tmp/flash-attn/csrc/cutlass fetch --depth 1 --quiet origin "$CUTLASS_SHA"
+    git -C /tmp/flash-attn/csrc/cutlass checkout --quiet FETCH_HEAD
     rm -rf /tmp/flash-attn/.git
-    sed -i 's/FLASH_ATTN_CUDA_ARCHS", "80;90;100;120"/FLASH_ATTN_CUDA_ARCHS", "121"/' /tmp/flash-attn/setup.py
-    perl -0pi -e 's/if bare_metal_version >= Version\\("12\\.8"\\) and "100" in cuda_archs\\(\\):\\n            cc_flag\\.append\\("-gencode"\\)\\n            cc_flag\\.append\\("arch=compute_100,code=sm_100"\\)\\n        if bare_metal_version >= Version\\("12\\.8"\\) and "120" in cuda_archs\\(\\):\\n            cc_flag\\.append\\("-gencode"\\)\\n            cc_flag\\.append\\("arch=compute_120,code=sm_120"\\)/if bare_metal_version >= Version("12.8") and "100" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_100,code=sm_100")\\n        if bare_metal_version >= Version("12.8") and "120" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_120,code=sm_120")\\n        if bare_metal_version >= Version("12.8") and "121" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_121,code=sm_121")/' /tmp/flash-attn/setup.py
+
+    # Patch setup.py to add sm_121 (DGX Spark GB10) support to flash-attn's
+    # arch list. sed and perl both exit 0 even when their patterns don't
+    # match, so verify the expected post-state is present after each patch —
+    # otherwise the build would silently produce a wheel without sm_121
+    # kernels and any attention call on Spark would crash at runtime with
+    # "no kernel image is available for execution on the device".
+    PATCH_FILE=/tmp/flash-attn/setup.py
+    sed -i 's/FLASH_ATTN_CUDA_ARCHS", "80;90;100;120"/FLASH_ATTN_CUDA_ARCHS", "121"/' "$PATCH_FILE"
+    grep -q 'FLASH_ATTN_CUDA_ARCHS", "121"' "$PATCH_FILE" || {
+        echo "ERROR: sed pattern did not match $PATCH_FILE — upstream FLASH_ATTN_CUDA_ARCHS default may have changed." >&2
+        echo "       Verify v2.8.3 setup.py and update the sed pattern in this script." >&2
+        exit 1
+    }
+    perl -0pi -e 's/if bare_metal_version >= Version\\("12\\.8"\\) and "100" in cuda_archs\\(\\):\\n            cc_flag\\.append\\("-gencode"\\)\\n            cc_flag\\.append\\("arch=compute_100,code=sm_100"\\)\\n        if bare_metal_version >= Version\\("12\\.8"\\) and "120" in cuda_archs\\(\\):\\n            cc_flag\\.append\\("-gencode"\\)\\n            cc_flag\\.append\\("arch=compute_120,code=sm_120"\\)/if bare_metal_version >= Version("12.8") and "100" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_100,code=sm_100")\\n        if bare_metal_version >= Version("12.8") and "120" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_120,code=sm_120")\\n        if bare_metal_version >= Version("12.8") and "121" in cuda_archs():\\n            cc_flag.append("-gencode")\\n            cc_flag.append("arch=compute_121,code=sm_121")/' "$PATCH_FILE"
+    grep -q '"arch=compute_121,code=sm_121"' "$PATCH_FILE" || {
+        echo "ERROR: perl pattern did not insert the sm_121 cc_flag block in $PATCH_FILE." >&2
+        echo "       Upstream flash-attn v2.8.3 setup.py may have been reformatted." >&2
+        echo "       Re-derive the multi-line regex against the current setup.py." >&2
+        exit 1
+    }
     "$VENV_PYTHON" -m pip install \
         --no-build-isolation \
         --force-reinstall \

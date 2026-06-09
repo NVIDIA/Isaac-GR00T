@@ -16,6 +16,7 @@
 import json
 import logging
 import math
+import shutil
 import subprocess
 from typing import List, Optional, Tuple
 
@@ -79,8 +80,14 @@ def _lazy_import_torchcodec():
         import torchcodec
 
         return torchcodec
-    except (ImportError, RuntimeError):
-        raise ImportError("torchcodec is not available.")
+    except (ImportError, RuntimeError) as exc:
+        raise ImportError(
+            "torchcodec is not available. On x86_64, the pinned torchcodec==0.4.0 "
+            "wheel supports FFmpeg 4-7; systems with FFmpeg 8 need either a "
+            "compatible FFmpeg installation or a newer torch/torchcodec stack. "
+            "For deployment CLIs that only need dataset frame loading, retry with "
+            "`--video-backend ffmpeg`."
+        ) from exc
 
 
 def _lazy_import_decord():
@@ -115,7 +122,9 @@ def _is_backend_available(backend: str) -> bool:
             return True
         except ImportError:
             return False
-    elif backend in ("ffmpeg", "opencv", "pyav", "torchvision_av"):
+    elif backend == "ffmpeg":
+        return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+    elif backend in ("opencv", "pyav", "torchvision_av"):
         return True
     return False
 

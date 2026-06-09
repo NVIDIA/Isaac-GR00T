@@ -183,7 +183,8 @@ class TestMergeStatistics:
                 "x": action_entry,
                 # Real-world example: cache fingerprints written by generate_rel_stats (!313).
                 "__fingerprints__": {"x": "sha256:deadbeef"},
-                # Hypothetical future sidecars without dunder convention.
+                # Hypothetical future sidecars without dunder convention — the
+                # structural duck-typing in merge_statistics doesn't care.
                 "_provenance": {"source": "manual"},
                 "schema_version": "1.0",
                 "row_count": 1234,
@@ -192,6 +193,21 @@ class TestMergeStatistics:
         merged = merge_statistics(stats, [1.0])
         assert set(merged.keys()) == {"x"}
         np.testing.assert_allclose(merged["x"]["mean"], [0.5])
+
+    def test_skips_fingerprints_only_input_does_not_raise(self):
+        """A relative_stats.json with only a ``__fingerprints__`` key (no real
+        entries) must merge to an empty dict instead of ``KeyError``.
+
+        Reproduces the failure shape captured in jobs/311959243:
+        ``per_dataset_stats = [{'__fingerprints__': {}}]`` — building
+        ShardedMixtureDataset on a LIBERO_PANDA embodiment (no relative-action
+        keys) wrote ``{"__fingerprints__": {}}`` to ``relative_stats.json``, the
+        loader exposed it as the ``relative_action`` stats dict, and
+        ``merge_statistics`` crashed before any training step could run.
+        """
+        stats = [{"__fingerprints__": {}}]
+        merged = merge_statistics(stats, [1.0], is_relative_stats=True)
+        assert merged == {}
 
 
 # ---------------------------------------------------------------------------

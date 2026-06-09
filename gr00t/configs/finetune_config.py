@@ -15,6 +15,7 @@
 
 # Finetune config used for single node post-training.
 from dataclasses import dataclass
+import warnings
 
 
 @dataclass
@@ -100,7 +101,8 @@ class FinetuneConfig:
 
     # --- Training Configuration ---
     global_batch_size: int = 64
-    """Total effective batch size across all GPUs and accumulation steps."""
+    """Total batch summed across all GPUs in one forward/backward, BEFORE
+    gradient accumulation."""
 
     dataloader_num_workers: int = 2
     """Number of parallel worker processes used for data loading."""
@@ -109,7 +111,8 @@ class FinetuneConfig:
     """Initial learning rate for optimizer."""
 
     gradient_accumulation_steps: int = 1
-    """Number of forward passes to accumulate before performing a backward/update step."""
+    """Forward passes per optimizer step. Multiplies ``global_batch_size`` to
+    produce the post-accumulation per-optimizer-step batch."""
 
     output_dir: str = "./outputs"
     """Directory where model checkpoints, logs, and outputs are saved."""
@@ -157,7 +160,27 @@ class FinetuneConfig:
     save_only_model: bool = False
     """If True, save only model weights (skip optimizer/scheduler/RNG states). Cannot resume training from these checkpoints."""
 
+    resume_from_checkpoint: bool = False
+    """If True, resume from the latest ``checkpoint-*`` in ``output_dir``. Default
+    False so a rerun against an existing ``output_dir`` starts fresh instead of
+    silently merging with a previous experiment. Incompatible with
+    ``save_only_model=True`` (enforced by ``experiment.run``)."""
+
     skip_weight_loading: bool = False
     """If True, skip loading model weights from base_model_path (architecture only).
     The processor (tokenizer/config) is still loaded from base_model_path.
     Useful for CI/testing to skip the slow checkpoint shard loading."""
+
+    def __post_init__(self) -> None:
+        if self.gradient_accumulation_steps < 1:
+            raise ValueError(
+                f"gradient_accumulation_steps must be >= 1, got {self.gradient_accumulation_steps}"
+            )
+        if self.gradient_accumulation_steps > 1:
+            accumulated_batch_size = self.global_batch_size * self.gradient_accumulation_steps
+            warnings.warn(
+                f"global_batch_size={self.global_batch_size} is pre-accumulation; "
+                f"accumulated_batch_size={accumulated_batch_size} "
+                f"(× gradient_accumulation_steps={self.gradient_accumulation_steps}).",
+                stacklevel=2,
+            )

@@ -115,6 +115,7 @@ if __name__ == "__main__":
     config.data.num_shards_per_epoch = ft_config.num_shards_per_epoch
 
     config.training.save_only_model = ft_config.save_only_model
+    config.training.resume_from_checkpoint = ft_config.resume_from_checkpoint
     config.training.skip_weight_loading = ft_config.skip_weight_loading
 
     run(config)
