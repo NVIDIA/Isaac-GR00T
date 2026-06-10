@@ -630,7 +630,7 @@ class Siglip2VisionEmbeddings(nn.Module):
                 size=(height, width),
                 mode="bilinear",
                 align_corners=False,
-                antialias=True,
+                antialias=False,
             )
 
             # (1, dim, target_height, target_width) -> (target_height * target_width, dim)
