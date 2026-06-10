@@ -205,19 +205,25 @@ class ShardedSingleStepDataset(ShardedDataset):
             f"No valid timesteps found for dataset {self.dataset_path}; "
             f"episode lengths may be shorter than action horizon {self.action_horizon}"
         )
-        num_shards = min(
-            np.ceil(total_steps / self.shard_size).astype(int),
-            len(episode_splits),
-        )
+
+        # Calculate num_shards: bounded by total_steps/shard_size and episode_splits count
+        # Never more shards than episode_splits to ensure all shards are non-empty
+        num_shards = min(np.ceil(total_steps / self.shard_size).astype(int), len(episode_splits))
 
         # Initialize shard containers
         sharded_episodes = [[] for _ in range(num_shards)]
         shard_lengths = np.zeros(num_shards, dtype=int)
 
         # Distribute episode sub-sequences across shards
-        for ep_idx, split_step_indices in episode_splits:
-            # Assign to shard with minimum current length (greedy balancing)
-            shard_index = np.argmin(shard_lengths)
+        # First pass: ensure each shard gets at least one episode_split (round-robin)
+        # This guarantees no shard is empty when num_shards <= len(episode_splits)
+        for i, (ep_idx, split_step_indices) in enumerate(episode_splits):
+            if i < num_shards:
+                # First num_shards items: one per shard (guarantees non-empty)
+                shard_index = i
+            else:
+                # Remaining items: assign to shard with minimum current length (greedy balancing)
+                shard_index = np.argmin(shard_lengths)
             sharded_episodes[shard_index].append((ep_idx, split_step_indices))
             shard_lengths[shard_index] += len(split_step_indices)
 

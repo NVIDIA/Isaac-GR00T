@@ -475,3 +475,99 @@ class TestShardedSingleStepDataset:
 
         # effective = 50 - 8 + 1 = 43
         assert dataset.get_effective_episode_length(0) == 43
+
+    def test_shard_creation_no_empty_shards_edge_case(self):
+        """Test that all shards are non-empty even with few episodes and large shard_size.
+
+        This test verifies the fix for GitHub #654 where the assertion
+        "All shards must have length greater than 0" could fail when:
+        - Small number of episodes
+        - Large shard_size relative to total steps
+        - High action_horizon reducing effective episode lengths
+        """
+        from gr00t.data.embodiment_tags import EmbodimentTag
+        from gr00t.data.types import ModalityConfig
+
+        modality_configs = {
+            "video": ModalityConfig(delta_indices=[0], modality_keys=["cam"]),
+            "state": ModalityConfig(delta_indices=[0], modality_keys=["x"]),
+            "action": ModalityConfig(delta_indices=list(range(4)), modality_keys=["x"]),
+            "language": ModalityConfig(delta_indices=[0], modality_keys=["task"]),
+        }
+
+        # Test case 1: Very few episodes (2) with large shard_size
+        with patch(
+            "gr00t.data.dataset.sharded_single_step_dataset.LeRobotEpisodeLoader"
+        ) as MockLoader:
+            mock_loader = MagicMock()
+            # 2 episodes, 50 steps each = 100 total steps
+            # With shard_size=1024, ceil(100/1024) = 1, so num_shards = min(1, 2) = 1
+            mock_loader.episode_lengths = [50, 50]
+            mock_loader.get_episode_length = lambda idx: 50
+            MockLoader.return_value = mock_loader
+
+            from gr00t.data.dataset.sharded_single_step_dataset import ShardedSingleStepDataset
+
+            dataset = ShardedSingleStepDataset(
+                dataset_path="/fake/dataset",
+                embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
+                modality_configs=modality_configs,
+                shard_size=1024,
+                episode_sampling_rate=0.5,  # Creates 2 splits per episode = 4 splits total
+                seed=42,
+            )
+
+        assert len(dataset) > 0
+        assert all(length > 0 for length in dataset.shard_lengths), (
+            "All shards must have length > 0"
+        )
+
+        # Test case 2: Single episode with action_horizon reducing effective length
+        with patch(
+            "gr00t.data.dataset.sharded_single_step_dataset.LeRobotEpisodeLoader"
+        ) as MockLoader:
+            mock_loader = MagicMock()
+            # 1 episode, 20 steps, action_horizon=8 -> effective = 20 - 8 + 1 = 13 steps
+            mock_loader.episode_lengths = [20]
+            mock_loader.get_episode_length = lambda idx: 20
+            MockLoader.return_value = mock_loader
+
+            dataset = ShardedSingleStepDataset(
+                dataset_path="/fake/dataset",
+                embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
+                modality_configs=modality_configs,
+                shard_size=10,  # Small shard_size
+                episode_sampling_rate=1.0,  # 1 split per episode
+                seed=42,
+            )
+
+        assert len(dataset) > 0
+        assert all(length > 0 for length in dataset.shard_lengths), (
+            "All shards must have length > 0"
+        )
+
+        # Test case 3: Many episodes but small shard_size creating more shards than episodes
+        with patch(
+            "gr00t.data.dataset.sharded_single_step_dataset.LeRobotEpisodeLoader"
+        ) as MockLoader:
+            mock_loader = MagicMock()
+            # 5 episodes, 100 steps each = 500 total steps
+            # With shard_size=50, ceil(500/50) = 10, but only 5 episodes
+            # num_shards = min(10, num_splits) should handle this
+            mock_loader.episode_lengths = [100, 100, 100, 100, 100]
+            mock_loader.get_episode_length = lambda idx: 100
+            MockLoader.return_value = mock_loader
+
+            dataset = ShardedSingleStepDataset(
+                dataset_path="/fake/dataset",
+                embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
+                modality_configs=modality_configs,
+                shard_size=50,
+                episode_sampling_rate=0.5,  # 2 splits per episode = 10 splits
+                seed=42,
+            )
+
+        assert len(dataset) > 0
+        assert all(length > 0 for length in dataset.shard_lengths), (
+            "All shards must have length > 0"
+        )

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Sequence
 import os
 from pathlib import Path
 import uuid
@@ -145,12 +146,16 @@ class VideoRecordingWrapper(gym.Wrapper):
         steps_per_render=1,
         max_episode_steps=720,
         overlay_text=True,
+        record_video_keys: Sequence[str] | None = None,
         **kwargs,
     ):
         """
         When file_path is None, don't record.
         """
         super().__init__(env)
+
+        if record_video_keys is not None and len(record_video_keys) == 0:
+            raise ValueError("record_video_keys must not be empty when provided")
 
         if video_dir is not None:
             video_dir.mkdir(parents=True, exist_ok=True)
@@ -163,6 +168,7 @@ class VideoRecordingWrapper(gym.Wrapper):
         self.video_recorder = video_recorder
         self.file_path = None
         self.overlay_text = overlay_text
+        self.record_video_keys = tuple(record_video_keys) if record_video_keys is not None else None
 
         self.step_count = 0
 
@@ -172,6 +178,17 @@ class VideoRecordingWrapper(gym.Wrapper):
         # episode so that every frame in the encoded stream has the same total
         # height; the H.264 encoder rejects mid-stream shape changes.
         self.caption_height = None
+
+    def _get_video_frames(self, obs: dict) -> list[np.ndarray]:
+        if self.record_video_keys is None:
+            return [frame for key, frame in obs.items() if key.startswith("video.")]
+
+        missing_keys = [key for key in self.record_video_keys if key not in obs]
+        if missing_keys:
+            raise KeyError(
+                f"Video observation keys missing from rollout observation: {missing_keys}"
+            )
+        return [obs[key] for key in self.record_video_keys]
 
     def _resize_frames_to_common_height(self, frames):
         """
@@ -363,10 +380,7 @@ class VideoRecordingWrapper(gym.Wrapper):
 
             # frame = self.env.render()
             obs = result[0]
-            video_frames = []
-            for k, v in obs.items():
-                if "video" in k:
-                    video_frames.append(v)
+            video_frames = self._get_video_frames(obs)
 
             assert len(video_frames) > 0, "No video frame found in the observation"
 

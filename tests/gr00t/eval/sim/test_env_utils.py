@@ -33,6 +33,7 @@ class TestEnvPrefixMapping:
             "gr00tlocomanip_g1_sim",
             "gr00tlocomanip_g1_new",
             "gr1_unified",
+            "robocasa365_panda_omron",
             "robocasa_panda_omron",
             "simpler_env_google",
             "simpler_env_widowx",
@@ -92,6 +93,10 @@ class TestGetEmbodimentTagFromEnvName:
 
     def test_robocasa_panda_omron_maps_to_dedicated_tag(self):
         env_name = "robocasa_panda_omron/OpenDrawer_PandaOmron_Env"
+        assert get_embodiment_tag_from_env_name(env_name) == EmbodimentTag.ROBOCASA_PANDA_OMRON
+
+    def test_robocasa365_panda_omron_maps_to_dedicated_tag(self):
+        env_name = "robocasa365_panda_omron/CloseFridge_PandaOmron_Env"
         assert get_embodiment_tag_from_env_name(env_name) == EmbodimentTag.ROBOCASA_PANDA_OMRON
 
     # --- Edge cases ---
