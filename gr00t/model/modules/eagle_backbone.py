@@ -38,12 +38,12 @@ class EagleBackbone(torch.nn.Module):
             extra_kwargs["torch_dtype"] = torch.bfloat16
 
         if model_name == "nvidia/Eagle-Block2A-2B-v2":
-            assert use_flash_attention, (
-                "nvidia/Eagle-Block2A-2B-v2 requires flash attention by default"
-            )
             assert load_bf16, "nvidia/Eagle-Block2A-2B-v2 requires bfloat16 by default"
             eagle_path = os.path.join(os.path.dirname(__file__), "nvidia", "Eagle-Block2A-2B-v2")
             config = AutoConfig.from_pretrained(eagle_path, trust_remote_code=True)
+            config._attn_implementation = "eager"
+            config.text_config._attn_implementation = "eager"
+            config.vision_config._attn_implementation = "eager"
             self.model = AutoModel.from_config(config, trust_remote_code=True)
         else:
             raise ValueError(f"Model {model_name} not supported")
