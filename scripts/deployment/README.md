@@ -322,6 +322,12 @@ Then run the TRT pipeline or PyTorch inference as shown in the [TensorRT Acceler
 The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
 and `torch.compile` need on Thor.
 </details>
+> ⚠️ **aarch64 users (Thor):** After running `install_deps.sh`, always
+> activate the venv with `source .venv/bin/activate && source scripts/activate_thor.sh`
+> and invoke training with **plain `python`**, not `uv run python`. The latter will
+> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
+> destroy the platform-specific environment.
+
 
 ---
 
@@ -390,6 +396,12 @@ Then run the TRT pipeline or PyTorch inference as shown in the [TensorRT Acceler
 If you later rerun `uv sync`, rerun `bash scripts/deployment/spark/install_deps.sh` so the
 Spark-specific `flash-attn` build is restored and revalidated.
 </details>
+> ⚠️ **aarch64 users (Spark):** After running `install_deps.sh`, always
+> activate the venv with `source .venv/bin/activate && source scripts/activate_spark.sh`
+> and invoke training with **plain `python`**, not `uv run python`. The latter will
+> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
+> destroy the platform-specific environment.
+
 
 ---
 
@@ -461,6 +473,12 @@ Then run the TRT pipeline (with `--export-mode dit_only`) or PyTorch inference a
 The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
 and `torch.compile` need on Orin.
 </details>
+> ⚠️ **aarch64 users (Orin):** After running `install_deps.sh`, always
+> activate the venv with `source .venv/bin/activate && source scripts/activate_orin.sh`
+> and invoke training with **plain `python`**, not `uv run python`. The latter will
+> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
+> destroy the platform-specific environment.
+
 
 > **Orin storage tip:** If your eMMC root is low on space, redirect the HuggingFace cache to an NVMe SSD with `export HF_HOME=/path/to/ssd/.cache/huggingface` before downloading models.
 

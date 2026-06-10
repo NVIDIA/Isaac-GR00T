@@ -73,6 +73,14 @@ register_modality_config(so100_config, embodiment_tag=EmbodimentTag.NEW_EMBODIME
 
 ## Step 3: Run Fine-tuning
 
+
+> ⚠️ **aarch64 users (Spark / Thor / Orin):** After running `install_deps.sh`, always
+> activate the venv with `source .venv/bin/activate && source scripts/activate_<platform>.sh`
+> (e.g. `activate_spark.sh`, `activate_thor.sh`, or `activate_orin.sh`)
+> and invoke training with **plain `python`**, not `uv run python`. The latter will
+> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
+> destroy the platform-specific environment.
+
 We'll use `gr00t/experiment/launch_finetune.py` as the entry point. Ensure that the uv environment is enabled before launching. You can do this by running the command `uv run bash <example_script_name>`.
 
 ### View Available Arguments

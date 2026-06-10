@@ -189,6 +189,13 @@ source scripts/activate_spark.sh
 See the [Spark setup guide](scripts/deployment/README.md#dgx-spark-setup) for Docker and bare metal details.
 </details>
 
+> ⚠️ **aarch64 users (Spark):** After running `install_deps.sh`, always
+> activate the venv with `source .venv/bin/activate && source scripts/activate_spark.sh`
+> and invoke training with **plain `python`**, not `uv run python`. The latter will
+> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
+> destroy the platform-specific environment.
+
+
 <details>
 <summary><strong>Jetson AGX Thor</strong> (tested with JetPack 7.1)</summary>
 
@@ -207,6 +214,13 @@ source scripts/activate_thor.sh
 See the [Thor setup guide](scripts/deployment/README.md#jetson-thor-setup) for Docker and bare metal details.
 </details>
 
+> ⚠️ **aarch64 users (Thor):** After running `install_deps.sh`, always
+> activate the venv with `source .venv/bin/activate && source scripts/activate_thor.sh`
+> and invoke training with **plain `python`**, not `uv run python`. The latter will
+> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
+> destroy the platform-specific environment.
+
+
 <details>
 <summary><strong>Jetson Orin</strong> (tested with JetPack 6.2)</summary>
 
@@ -218,6 +232,13 @@ source scripts/activate_orin.sh
 
 See the [Orin setup guide](scripts/deployment/README.md#jetson-orin-setup) for Docker and bare metal details.
 </details>
+
+> ⚠️ **aarch64 users (Orin):** After running `install_deps.sh`, always
+> activate the venv with `source .venv/bin/activate && source scripts/activate_orin.sh`
+> and invoke training with **plain `python`**, not `uv run python`. The latter will
+> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
+> destroy the platform-specific environment.
+
 
 For a containerized setup that avoids system-level dependency conflicts, see our [Docker Setup Guide](docker/README.md).
 
@@ -586,4 +607,3 @@ Support during Early Access is best-effort. We will continue iterating toward a 
   booktitle  = {ArXiv Preprint},
 }
 ```
-
