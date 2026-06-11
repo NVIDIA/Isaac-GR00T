@@ -185,6 +185,12 @@ bash scripts/deployment/spark/install_deps.sh
 source .venv/bin/activate
 source scripts/activate_spark.sh
 ```
+### Install System Dependencies
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg libsm6 libxext6
+```
 
 See the [Spark setup guide](scripts/deployment/README.md#dgx-spark-setup) for Docker and bare metal details.
 </details>
