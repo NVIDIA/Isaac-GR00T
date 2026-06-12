@@ -238,6 +238,14 @@ class ViTInputCapture:
             if isinstance(output, tuple):
                 self.output_shape = output[0].shape
                 self.deepstack_shapes = [f.shape for f in output[1]]
+            elif hasattr(output, "pooler_output"):
+                # transformers >= 5.x returns BaseModelOutputWithDeepstackFeatures
+                # (a dataclass). The merged patch embeds the LLM actually consumes
+                # are in `pooler_output` (post spatial-merger), NOT last_hidden_state
+                # (pre-merger, 2x the tokens). See Qwen3VLModel.get_image_features.
+                self.output_shape = output.pooler_output.shape
+                deepstack = getattr(output, "deepstack_features", None) or []
+                self.deepstack_shapes = [f.shape for f in deepstack]
             else:
                 self.output_shape = output.shape
             self.captured = True
@@ -434,6 +442,35 @@ def _restore_vision_attention(vision_model, originals):
         block.attn.forward = orig
 
 
+def _compute_vision_pos_and_rotary(vision_model, grid_thw: torch.Tensor):
+    """Compute (pos_embeds, rotary_pos_emb) for a fixed grid_thw.
+
+    transformers >=5.x deprecates `Qwen3VLVisionModel.fast_pos_embed_interpolate` and
+    `rot_pos_emb` (removed in v5.11) in favor of helpers in `transformers.vision_utils`.
+    Use the new API when available, fall back to the legacy methods on 4.x.
+    """
+    try:
+        from transformers.vision_utils import (
+            get_vision_bilinear_indices_and_weights,
+            get_vision_position_ids,
+        )
+    except ImportError:
+        # transformers 4.x: legacy methods, numerically identical
+        pos_embeds = vision_model.fast_pos_embed_interpolate(grid_thw)
+        rotary = vision_model.rot_pos_emb(grid_thw)
+        return pos_embeds, rotary
+
+    bilinear_indices, bilinear_weights = get_vision_bilinear_indices_and_weights(
+        grid_thw,
+        num_grid_per_side=vision_model.num_grid_per_side,
+        spatial_merge_size=vision_model.config.spatial_merge_size,
+    )
+    pos_embeds = (vision_model.pos_embed(bilinear_indices) * bilinear_weights[:, :, None]).sum(0)
+    position_ids = get_vision_position_ids(grid_thw, vision_model.spatial_merge_size)
+    rotary = vision_model.rotary_pos_emb(position_ids)
+    return pos_embeds, rotary
+
+
 class Qwen3VisionForExport(torch.nn.Module):
     """ONNX-exportable wrapper for Qwen3-VL Vision Model.
 
@@ -455,8 +492,7 @@ class Qwen3VisionForExport(torch.nn.Module):
         # Pre-compute position embeddings (avoids grid_thw-dependent Python loops
         # and ComplexDouble operations in rotary embedding computation)
         with torch.no_grad():
-            pos_embeds = vision_model.fast_pos_embed_interpolate(grid_thw)
-            rotary = vision_model.rot_pos_emb(grid_thw)
+            pos_embeds, rotary = _compute_vision_pos_and_rotary(vision_model, grid_thw)
             emb = torch.cat((rotary, rotary), dim=-1)
 
         self.register_buffer("_pos_embeds", pos_embeds.clone().detach().contiguous())

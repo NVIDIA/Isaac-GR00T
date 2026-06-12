@@ -108,7 +108,7 @@ GR00T N1.7 builds on N1.6 with a new VLM backbone and code-level improvements.
 
 **Fine-tuning:** 1 or more GPUs with 40 GB+ VRAM recommended. We recommend H100 or L40 nodes for optimal performance. Other hardware (e.g., A6000) works but may require longer training time. See the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md) for detailed specs.
 
-**CUDA / Python per platform:** dGPU on CUDA 12.8 with Python 3.10; Jetson Orin on CUDA 12.6 with Python 3.10; Jetson Thor and DGX Spark on CUDA 13.0 with Python 3.12. The per-platform install scripts and Dockerfiles live under `scripts/deployment/`; see the [Deployment & Inference Guide](scripts/deployment/README.md) for the full matrix.
+**CUDA / Python per platform:** Python 3.12–3.14 and CUDA 13.0 (PyTorch 2.12 + Triton 3.7) on dGPU, Jetson Orin (JetPack 7.2+), Thor, and DGX Spark. Per-platform install scripts and Dockerfiles live under `scripts/deployment/`; see the [Deployment & Inference Guide](scripts/deployment/README.md) for the full matrix.
 
 ### Clone the Repository
 
@@ -143,39 +143,31 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 
 Create the environment and install GR00T:
 ```sh
-uv sync --python 3.10
+uv sync --python 3.12
 ```
-GPU dependencies (flash-attn, TensorRT, etc.) are included in the default install.
+On Linux, `scripts/deployment/dgpu/install_deps.sh` also installs TensorRT from NVIDIA PyPI. `flash-attn` builds from source on x86_64; Jetson platforms resolve it from the Jetson AI Lab cu130 index.
 
 Verify the installation:
 ```sh
 uv run python -c "import gr00t; print('GR00T installed successfully')"
 ```
 
-> **`flash-attn` message on every `uv run`:** You may see `Installing flash-attn...` each time you run `uv run`. This is a known `uv` behavior with URL-pinned wheel sources — `uv` re-validates the cached wheel against the source URL on each invocation. It is **not** rebuilding from source; the wheel is already cached locally and the operation takes 2-3 seconds. This only affects x86_64 platforms. 
-> To suppress it, remove the `flash-attn` entries under `[tool.uv.sources]` in your local `pyproject.toml` after the initial install. But that will break `uv lock` and cause flash-attn to build from source on next lock regeneration.
-
 <details>
 <summary><strong>Alternative: pip install (without uv)</strong></summary>
 
-If you prefer pip/conda over uv, create a Python 3.10 virtualenv and install:
+If you prefer pip/conda over uv, create a Python 3.10+ virtualenv and install:
 ```sh
-python3.10 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
-Note: GPU dependencies (flash-attn, TensorRT) may require manual installation with pip. The `uv` workflow handles these automatically.
+Note: GPU dependencies (flash-attn, TensorRT) may require manual installation with pip. Prefer `bash scripts/deployment/dgpu/install_deps.sh` on Linux.
 </details>
 
 > **If fine-tuning fails with `CUDA_HOME is unset`:** Run `bash scripts/deployment/dgpu/install_deps.sh` once to configure CUDA paths, or manually `export CUDA_HOME=/usr/local/cuda`.
 
-> **CUDA 13.x Users (Thor, Spark, and other CUDA 13+ platforms):** PyTorch 2.7 pins Triton to 3.3.1, which does not recognize CUDA major version 13+. This causes a `RuntimeError` in Triton's `ptx_get_version()`. Run the patch script to fix:
-> ```sh
-> uv run bash scripts/patch_triton_cuda13.sh
-> ```
+> **NVIDIA driver:** PyTorch 2.12 + CUDA 13.0 wheels require a recent driver (580+ on Linux). See the [PyTorch 2.12 release notes](https://github.com/pytorch/pytorch/releases/tag/v2.12.0).
 
-> **GB300 (sm_103) Users:** Triton 3.3.1 (pinned by PyTorch 2.7) does not support the GB300 GPU architecture (sm_103). `torch.compile` will fail on GB300. Use PyTorch eager mode or TensorRT inference instead. Triton 3.5.1+ adds sm_103 support but is not yet compatible with the pinned PyTorch version.
-
-> **aarch64 Video Backend:** On aarch64 platforms (Thor, Orin, Spark), `torchcodec` is the required video backend. `install_deps.sh` prefers the prebuilt aarch64 wheel under `scripts/deployment/dgpu/wheels/` (shared by Thor/Spark against FFmpeg 6; Orin uses a matching build against FFmpeg 4) and falls back to a source build only if the wheel is missing. If you encounter `NotImplementedError` from the video backend, ensure `torchcodec` was installed successfully during setup. Other backends (decord, pyav) are not supported on aarch64.
+> **aarch64 video backend:** On Jetson and GB200, install platform deps via the matching `scripts/deployment/*/install_deps.sh` so `torchcodec` resolves from the Jetson AI Lab cu130 index.
 
 <details>
 <summary><strong>DGX Spark</strong> (tested with DGX Spark GB10)</summary>
@@ -197,13 +189,12 @@ See the [Spark setup guide](scripts/deployment/README.md#dgx-spark-setup) for Do
 
 
 <details>
-<summary><strong>Jetson AGX Thor</strong> (tested with JetPack 7.1)</summary>
+<summary><strong>Jetson AGX Thor</strong> (tested with JetPack 7.2+)</summary>
 
-> **flash-attn on older systems (e.g., Ubuntu 20.04 with glibc < 2.35):** The pre-built `flash-attn` wheel may fail with `ImportError: glibc_compat.so: cannot open shared object file`. To fix this, build from source:
+> **flash-attn on older systems (e.g., Ubuntu 20.04 with glibc < 2.35):** Build from source if the pre-built wheel fails:
 > ```sh
-> uv pip install flash-attn==2.7.4.post1 --no-binary flash-attn --no-cache
+> uv pip install flash-attn==2.8.3 --no-binary flash-attn --no-cache
 > ```
-> This compiles locally (~10-30 minutes) and avoids the glibc compatibility issue.
 
 ```bash
 bash scripts/deployment/thor/install_deps.sh
@@ -222,7 +213,7 @@ See the [Thor setup guide](scripts/deployment/README.md#jetson-thor-setup) for D
 
 
 <details>
-<summary><strong>Jetson Orin</strong> (tested with JetPack 6.2)</summary>
+<summary><strong>Jetson Orin</strong> (tested with JetPack 7.2+)</summary>
 
 ```bash
 bash scripts/deployment/orin/install_deps.sh

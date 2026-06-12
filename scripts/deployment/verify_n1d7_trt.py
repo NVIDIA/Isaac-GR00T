@@ -123,6 +123,11 @@ def main(args: VerifyConfig | None = None):
         # Capture output (image_embeds after merger)
         if isinstance(output, tuple):
             pt_vit_output = output[0].detach().clone()
+        elif hasattr(output, "pooler_output"):
+            # transformers >= 5.x returns BaseModelOutputWithDeepstackFeatures.
+            # The merged patch embeds the LLM consumes are in `pooler_output`
+            # (post spatial-merger), NOT last_hidden_state (pre-merger, 2x tokens).
+            pt_vit_output = output.pooler_output.detach().clone()
         else:
             pt_vit_output = output.detach().clone()
         return output

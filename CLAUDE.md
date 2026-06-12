@@ -5,7 +5,7 @@
 Isaac GR00T N1.7 is an open vision-language-action (VLA) model for generalized humanoid robot skills.
 The repo contains the model, training pipeline, evaluation harness, and deployment tooling.
 
-- **Language:** Python 3.10 (dGPU, Orin); Python 3.12 (Thor, DGX Spark — see deployment dir)
+- **Language:** Python 3.12–3.14 (`requires-python = ">=3.12,<3.15"`)
 - **Package manager:** [uv](https://docs.astral.sh/uv/)
 - **Build system:** setuptools (see `pyproject.toml`)
 - **CI:** internal GitLab CI (`.gitlab-ci.yml` + includes under `ci/`, not shipped to the public GitHub EA repo); public GitHub Actions (`.github/workflows/`)
@@ -13,8 +13,8 @@ The repo contains the model, training pipeline, evaluation harness, and deployme
 ## Quick-start commands
 
 ```bash
-# Install (dev mode with all extras)
-uv sync --all-extras
+# Install (Linux; regenerates lock with: uv lock --prerelease=allow)
+uv sync --python 3.12
 
 # Lint and format (uses ruff via pre-commit)
 pre-commit run --all-files
@@ -28,8 +28,8 @@ python -m pytest tests/ -m gpu -v --timeout=300
 # Build package
 uv build
 
-# Validate lockfile
-uv lock --locked
+# Validate lockfile (on Linux)
+uv lock --locked --prerelease=allow
 ```
 
 ## Code style
@@ -72,9 +72,9 @@ getting_started/    # User-facing guides and notebooks
 
 ## Deployment platforms
 
-- **dGPU (H100, A100, RTX):** CUDA 12.8 — install via `scripts/deployment/dgpu/install_deps.sh`, container via top-level `docker/Dockerfile` (supports x86_64 and aarch64)
-- **Jetson Orin:** CUDA 12.6 — install via `scripts/deployment/orin/install_deps.sh`, container via `scripts/deployment/orin/Dockerfile`
-- **Jetson Thor:** CUDA 13.0 — install via `scripts/deployment/thor/install_deps.sh`, container via `scripts/deployment/thor/Dockerfile`
-- **DGX Spark:** CUDA 13.0 — install via `scripts/deployment/spark/install_deps.sh`, container via `scripts/deployment/spark/Dockerfile`
+- **dGPU (H100, A100, RTX, GB200):** CUDA 13.0 — `bash scripts/deployment/dgpu/install_deps.sh`, container via top-level `docker/Dockerfile`
+- **Jetson Orin:** CUDA 13.0 (JetPack 7.2+) — `scripts/deployment/orin/install_deps.sh`, `scripts/activate_orin.sh`
+- **Jetson Thor:** CUDA 13.0 — `scripts/deployment/thor/install_deps.sh`, `scripts/activate_thor.sh`
+- **DGX Spark:** CUDA 13.0 — `scripts/deployment/spark/install_deps.sh`, `scripts/activate_spark.sh`
 
-Each Jetson/Spark platform ships an `activate_*.sh` helper (`scripts/activate_orin.sh`, `scripts/activate_spark.sh`, `scripts/activate_thor.sh`) that exports platform-specific library paths. For dGPU, the standard `source .venv/bin/activate` is sufficient.
+LeRobot v0.5.1 is used only in `scripts/lerobot_conversion/` and `gr00t/eval/real_robot/SO100/` (not the core `gr00t` package).

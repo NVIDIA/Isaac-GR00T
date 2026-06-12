@@ -550,6 +550,75 @@ class Gr00tN1d7(PreTrainedModel):
             transformers_loading_kwargs=transformers_loading_kwargs,
         )
 
+        self._register_tied_weights_keys()
+
+    def _register_tied_weights_keys(self) -> None:
+        """Populate ``all_tied_weights_keys`` for transformers >= 5.10.
+
+        transformers 5.x computes this attribute inside ``post_init()``. GR00T
+        never calls ``post_init()`` because it would run ``init_weights()`` and
+        re-randomize the VLM backbone that the submodules already loaded from
+        pretrained checkpoints. Without the attribute, ``from_pretrained``'s
+        ``_move_missing_keys_from_meta_to_device`` raises
+        ``AttributeError: 'Gr00tN1d7' object has no attribute
+        'all_tied_weights_keys'``. We replicate only the tied-key aggregation
+        (no weight init) so the loader finds an empty/expanded mapping.
+
+        Guarded with ``hasattr`` so transformers < 5.10 (no such API) is a no-op.
+        """
+        if not hasattr(self, "get_expanded_tied_weights_keys"):
+            return
+        self.all_tied_weights_keys = self.get_expanded_tied_weights_keys(all_submodels=False)
+        for name, module in self.named_children():
+            tied_keys = getattr(module, "all_tied_weights_keys", None)
+            if tied_keys:
+                self.all_tied_weights_keys.update(
+                    {f"{name}.{k}": f"{name}.{v}" for k, v in tied_keys.copy().items()}
+                )
+
+    def _move_missing_keys_from_meta_to_device(self, *args, **kwargs):
+        """Recompute rotary buffers clobbered by the transformers >= 5.10 loader.
+
+        ``from_pretrained`` builds the outer model under the meta device and, at
+        the end of loading, re-materializes every NON-PERSISTENT buffer with
+        ``torch.empty_like`` (uninitialized memory). Standard models then
+        recompute those buffers in ``_init_weights``; GR00T never runs weight
+        init (it would re-randomize the pretrained VLM backbone), so rotary
+        ``inv_freq`` buffers were left as garbage — non-deterministically
+        corrupting RoPE (observed: bf16 near-zero inv_freq → degenerate actions
+        → scipy ``SVD did not converge`` / NaN backbone outputs).
+        """
+        super()._move_missing_keys_from_meta_to_device(*args, **kwargs)
+        self._recompute_rotary_buffers()
+
+    def _recompute_rotary_buffers(self) -> None:
+        """Rebuild RotaryEmbedding modules and restore their buffers."""
+        for name, module in self.named_modules():
+            if "RotaryEmbedding" not in type(module).__name__:
+                continue
+            if not hasattr(module, "inv_freq"):
+                continue
+            cfg = getattr(module, "config", None)
+            try:
+                if cfg is not None:
+                    # Text rotary: Qwen3VLTextRotaryEmbedding(config)
+                    rebuilt = type(module)(cfg)
+                elif hasattr(module, "dim"):
+                    # Vision rotary: Qwen3VLVisionRotaryEmbedding(dim, theta)
+                    rebuilt = type(module)(module.dim, getattr(module, "theta", 10000.0))
+                else:
+                    continue
+            except TypeError:
+                continue
+            for buf_name, buf in rebuilt.named_buffers(recurse=False):
+                old = getattr(module, buf_name, None)
+                device = old.device if isinstance(old, torch.Tensor) else "cpu"
+                persistent = buf_name in getattr(module, "_persistent_buffers_set", set())
+                module.register_buffer(buf_name, buf.to(device), persistent=persistent)
+            # Some implementations keep a plain-attr copy used by dynamic rope.
+            if hasattr(rebuilt, "original_inv_freq") and hasattr(module, "original_inv_freq"):
+                module.original_inv_freq = rebuilt.original_inv_freq.to(module.inv_freq.device)
+
     def prepare_input(self, inputs: dict) -> Tuple[BatchFeature, BatchFeature]:
         """Prepare inputs for backbone and action head."""
 

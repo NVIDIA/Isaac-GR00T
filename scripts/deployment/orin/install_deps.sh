@@ -1,5 +1,5 @@
 #!/bin/bash
-# install_deps.sh — One-time install of GR00T deps on Jetson Orin (aarch64, JetPack 6.2, Python 3.10)
+# install_deps.sh — One-time install of GR00T deps on Jetson Orin (aarch64, JetPack 7.2+, CUDA 13, Python 3.10+)
 # Used by both bare metal and scripts/deployment/orin/Dockerfile.
 # After install, use `source scripts/activate_orin.sh` in each new shell.
 set -euo pipefail
@@ -20,9 +20,13 @@ if [ "$ARCH" != "aarch64" ]; then
     exit 1
 fi
 
+python3 -c 'import sys; assert (3, 10) <= sys.version_info[:2] < (3, 15), (
+    f"Python 3.10–3.14 required, got {sys.version_info.major}.{sys.version_info.minor}"
+)'
 PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-if [ "$PYTHON_VERSION" != "3.10" ]; then
-    echo "WARNING: Expected Python 3.10 for Orin, detected Python $PYTHON_VERSION"
+UV_PYTHON="${UV_PYTHON:-$PYTHON_VERSION}"
+if [ "$PYTHON_VERSION" != "3.12" ]; then
+    echo "NOTE: Orin CI targets Python 3.12; detected Python $PYTHON_VERSION"
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -36,21 +40,9 @@ if ! command -v uv &> /dev/null; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# Install platform-specific deps from the Orin pyproject without mutating
-# the repo-root pyproject.toml / uv.lock.
-#
-# UV_PROJECT_ENVIRONMENT pins the venv location. Respect a pre-set value
-# from the Docker build (scripts/deployment/orin/Dockerfile sets it to
-# /opt/gr00t-venv and adds /opt/gr00t-venv/bin to PATH); fall back to
-# $REPO_ROOT/.venv on bare metal so activate_orin.sh still finds the venv
-# where users expect.
-#
-# --no-install-project skips installing "gr00t" from the Orin pyproject
-# (its source layout points at the platform dir, which has no gr00t src);
-# the real editable install comes from $REPO_ROOT below.
 export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}"
 echo "Running uv sync with the Orin pyproject at $SCRIPT_DIR (venv: $UV_PROJECT_ENVIRONMENT)..."
-uv sync --project "$SCRIPT_DIR" --no-install-project
+uv sync --project "$SCRIPT_DIR" --no-install-project --python "$UV_PYTHON"
 
 VENV_DIR="$UV_PROJECT_ENVIRONMENT"
 VENV_PYTHON="$VENV_DIR/bin/python"
@@ -60,24 +52,14 @@ echo "Installing gr00t in editable mode from the repo root (--no-deps)..."
 uv pip install --python "$VENV_PYTHON" --no-deps -e "$REPO_ROOT"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# nvidia-cudss-cu12 — needed by torch 2.10.0 at runtime (libcudss.so.0)
-# Installed with --no-deps to avoid pulling in nvidia-cublas-cu12 which
-# conflicts with the system CUDA 12.6 libs on JetPack 6.2.
-# ──────────────────────────────────────────────────────────────────────────────
-echo "Installing nvidia-cudss-cu12 (no-deps to avoid system CUDA conflicts)..."
-uv pip install --python "$VENV_PYTHON" --no-deps nvidia-cudss-cu12
-
-# ──────────────────────────────────────────────────────────────────────────────
 # JetPack system packages (TensorRT, etc.) — expose to the venv via .pth file.
-# TRT is shipped as a system Python package on JetPack and is not available on
-# PyPI; adding the system dist-packages path makes it importable from the venv.
 # ──────────────────────────────────────────────────────────────────────────────
 echo "Linking JetPack system packages (TensorRT) into venv..."
 echo "/usr/lib/python${PYTHON_VERSION}/dist-packages" \
     > "${SITE_PKGS}/jetpack-system-packages.pth"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# torchcodec — prebuilt wheel (built against Orin's FFmpeg 4) or source build
+# torchcodec — prebuilt wheel from platform wheels/ dir or source build
 # ──────────────────────────────────────────────────────────────────────────────
 echo "Installing FFmpeg runtime..."
 $SUDO apt-get update -qq
@@ -88,24 +70,7 @@ if [ -n "$TORCHCODEC_WHL" ]; then
     echo "Installing torchcodec from prebuilt wheel: $TORCHCODEC_WHL"
     uv pip install --python "$VENV_PYTHON" --force-reinstall --no-deps "$TORCHCODEC_WHL"
 else
-    echo "No prebuilt torchcodec wheel found — building from source..."
-    $SUDO apt-get install -y --no-install-recommends \
-        libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev \
-        libavutil-dev libswresample-dev libswscale-dev \
-        pkg-config pybind11-dev python3-dev
-    uv pip install --python "$VENV_PYTHON" setuptools
-    NVIDIA_LIB_DIRS="$(find "${SITE_PKGS}/nvidia" -name "lib" -type d 2>/dev/null | tr '\n' ':')"
-    export LD_LIBRARY_PATH="/usr/local/cuda-12.6/lib64:${SITE_PKGS}/torch/lib:${NVIDIA_LIB_DIRS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-    export CUDA_HOME=/usr/local/cuda-12.6
-    export CUDA_PATH=/usr/local/cuda-12.6
-    export CPATH="${CUDA_HOME}/include:${CPATH:-}"
-    export C_INCLUDE_PATH="${CUDA_HOME}/include:${C_INCLUDE_PATH:-}"
-    export CPLUS_INCLUDE_PATH="${CUDA_HOME}/include:${CPLUS_INCLUDE_PATH:-}"
-    rm -rf /tmp/torchcodec
-    git clone --depth 1 --branch v0.10.0 https://github.com/pytorch/torchcodec.git /tmp/torchcodec
-    cd /tmp/torchcodec
-    I_CONFIRM_THIS_IS_NOT_A_LICENSE_VIOLATION=1 uv pip install --python "$VENV_PYTHON" . --no-build-isolation
-    cd "$REPO_ROOT" && rm -rf /tmp/torchcodec
+    echo "No prebuilt torchcodec wheel found — installing from jetson-sbsa-cu130 index via uv sync."
 fi
 
 echo ""

@@ -23,6 +23,13 @@ import torch
 import torchvision.transforms.v2 as transforms
 
 
+def _albumentations_p(p: float, always_apply: bool | None) -> float:
+    """Map legacy always_apply to Albumentations 2.x (always_apply was removed)."""
+    if always_apply:
+        return 1.0
+    return p
+
+
 def apply_with_replay(transform, images, masks=None, replay=None):
     """
     Apply albumentations transforms to multiple images with replay functionality.
@@ -56,7 +63,7 @@ def apply_with_replay(transform, images, masks=None, replay=None):
     for idx, img in enumerate(images):
         img_array = np.array(img)
         mask_array = None if masks is None else np.array(masks[idx])
-        if mask_array is not None and mask_array.dtype == np.bool_:
+        if mask_array is not None and mask_array.dtype.kind == "b":
             mask_array = mask_array.astype(np.uint8)
 
         # Apply mask-based transforms FIRST (per-frame, using current frame's mask)
@@ -111,7 +118,7 @@ class MaskedColorTransform(A.ImageOnlyTransform):
         p: float = 0.5,
         always_apply: bool | None = None,
     ):
-        super().__init__(p=p, always_apply=always_apply)
+        super().__init__(p=_albumentations_p(p, always_apply))
         self.target_mask_values = list(target_mask_values)
         self.alpha_range = alpha_range
 
@@ -161,7 +168,7 @@ class BackgroundNoiseTransform(A.ImageOnlyTransform):
         target_mask_values: Sequence[int] | None = None,
         always_apply: bool | None = None,
     ):
-        super().__init__(p=p, always_apply=always_apply)
+        super().__init__(p=_albumentations_p(p, always_apply))
         self.target_mask_values = [0] if target_mask_values is None else list(target_mask_values)
 
     def apply(self, img: np.ndarray, mask: np.ndarray = None, **params) -> np.ndarray:
@@ -206,7 +213,7 @@ class FractionalRandomCrop(A.DualTransform):
         p: float = 1.0,
         always_apply: bool | None = None,
     ):
-        super().__init__(p=p, always_apply=always_apply)
+        super().__init__(p=_albumentations_p(p, always_apply))
         if not 0.0 < crop_fraction <= 1.0:
             raise ValueError("crop_fraction must be between 0.0 and 1.0")
         self.crop_fraction = crop_fraction
@@ -275,7 +282,7 @@ class FractionalCenterCrop(A.DualTransform):
         p: float = 1.0,
         always_apply: bool | None = None,
     ):
-        super().__init__(p=p, always_apply=always_apply)
+        super().__init__(p=_albumentations_p(p, always_apply))
         if not 0.0 < crop_fraction <= 1.0:
             raise ValueError("crop_fraction must be between 0.0 and 1.0")
         self.crop_fraction = crop_fraction
@@ -336,7 +343,7 @@ class LetterBoxPad(A.DualTransform):
     """
 
     def __init__(self, p: float = 1.0, always_apply: bool | None = None):
-        super().__init__(p=p, always_apply=always_apply)
+        super().__init__(p=_albumentations_p(p, always_apply))
 
     def apply(
         self,

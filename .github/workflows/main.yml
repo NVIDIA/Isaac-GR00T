@@ -16,7 +16,7 @@ on:
 
 env:
   # Change this to invalidate existing cache.
-  CACHE_PREFIX: v4
+  CACHE_PREFIX: v5
   PYTHONPATH: ./
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - python: "3.10"
+          - python: "3.12"
             task:
               name: Lint
               run: |

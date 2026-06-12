@@ -9,6 +9,13 @@ LIBERO_REPO="$SCRIPT_DIR/../../../../external_dependencies/LIBERO"
 PROJECT_REPO="$SCRIPT_DIR/../../../.."
 LIBERO_UV_ENV="$SCRIPT_DIR/libero_uv"
 
+# Some transitive sim deps (e.g. egl_probe, pulled in by robosuite) ship a
+# CMakeLists.txt that calls cmake_minimum_required(VERSION <3.5). CMake >= 4.0
+# removed compatibility with those, failing the build with "Compatibility with
+# CMake < 3.5 has been removed". CMake reads this env var natively (>= 3.31) and
+# treats it as the minimum policy version, letting the legacy build configure.
+export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
+
 git submodule update --init $LIBERO_REPO
 
 # python -m pip install cmake==3.18.4
@@ -19,12 +26,16 @@ source $LIBERO_UV_ENV/.venv/bin/activate
 # uv pip install gymnasium==1.2.0 # -> 2.9.1 -> 
 uv pip install --requirements $LIBERO_REPO/requirements.txt
 uv pip install -e $LIBERO_REPO --config-settings editable_mode=compat
-uv pip install --editable $PROJECT_REPO --no-deps
+uv pip install --editable $PROJECT_REPO --no-deps --python-version 3.12
 uv pip install torch==2.5.1 torchvision==0.20.1 pydantic av tianshou==0.5.1 tyro pandas dm_tree einops==0.8.1 albumentations==1.4.18 zmq
 uv pip install transformers==4.57.3 msgpack==1.1.0 msgpack-numpy==0.4.8 gymnasium==0.29.1
 uv pip install numpy==1.26.4
 
-uv pip install --editable "$PROJECT_REPO" --no-deps
+# --python-version 3.12: gr00t's pyproject pins requires-python >=3.12,<3.15,
+# but this sim venv must be 3.10 (LIBERO/robosuite ship cp310 wheels only).
+# Resolving against 3.12 satisfies the metadata check while still installing
+# into the active 3.10 interpreter (pure-python package, no compiled bits).
+uv pip install --editable "$PROJECT_REPO" --no-deps --python-version 3.12
 
 rm -rf $HOME/.libero
 printf 'n\n' | python -c "from gr00t.eval.sim.LIBERO.libero_env import register_libero_envs"

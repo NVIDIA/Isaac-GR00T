@@ -8,7 +8,7 @@ GR00T N1.7 has two hardware profiles: **fine-tuning** (needs GPU VRAM and comput
 
 ## Inference Hardware
 
-**Minimum:** 1 GPU with 16 GB+ VRAM, CUDA 12.6+.
+**Minimum:** 1 GPU with 16 GB+ VRAM, CUDA 13.0+ (driver 580+ on Linux).
 
 The table below summarizes end-to-end inference frequency across tested platforms (GR00T N1.7, 4 denoising steps, 1 camera):
 
@@ -61,10 +61,10 @@ The table below summarizes end-to-end inference frequency across tested platform
 
 | Requirement | Version |
 |-------------|---------|
-| Python | 3.10 |
-| CUDA | 12.6+ (dGPU, Orin) / 13.0 (Thor, Spark) |
-| PyTorch | 2.7+ |
-| OS | Ubuntu 22.04+ (dGPU), JetPack 6.2 (Orin), Ubuntu 24.04 (Thor, Spark) |
+| Python | 3.12–3.14 |
+| CUDA | 13.0 (all supported platforms) |
+| PyTorch | 2.12+ |
+| OS | Ubuntu 22.04+ (dGPU), JetPack 7.2+ (Orin), Ubuntu 24.04 (Thor, Spark) |
 | Package manager | [uv](https://docs.astral.sh/uv/) (recommended) |
 
 Platform-specific installation instructions: see the [Deployment Guide](../scripts/deployment/README.md).

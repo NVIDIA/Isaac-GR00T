@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import contextmanager
 import os
 
 
@@ -48,6 +49,68 @@ def _torch_dtype_from_arg(dtype):
         if isinstance(candidate, torch.dtype):
             return candidate
     return None
+
+
+@contextmanager
+def _no_init_weights(use_meta_device: bool = True):
+    """Skip random weight initialization during module construction.
+
+    transformers<=4.x exposed ``no_init_weights``; transformers 5.x removed it.
+    Prefer accelerate's ``init_empty_weights`` when available, otherwise patch
+    ``torch.nn.init`` callables for the duration of the context.
+
+    ``use_meta_device=False`` forces the ``torch.nn.init`` patching fallback.
+    This is needed when the model constructor itself calls ``from_pretrained``
+    (e.g. to load a VLM backbone): transformers >= 5.10 raises a RuntimeError
+    if ``from_pretrained`` runs under a meta-device context manager.
+    """
+    init_empty_weights = None
+    if use_meta_device:
+        try:
+            from accelerate import init_empty_weights
+        except ImportError:
+            init_empty_weights = None
+
+    if init_empty_weights is not None:
+        with init_empty_weights():
+            yield
+        return
+
+    import torch.nn as nn
+
+    patched = {}
+    for name in dir(nn.init):
+        if name.startswith("_"):
+            continue
+        fn = getattr(nn.init, name)
+        if callable(fn):
+            patched[name] = fn
+            setattr(nn.init, name, lambda *args, **kwargs: None)
+    try:
+        yield
+    finally:
+        for name, fn in patched.items():
+            setattr(nn.init, name, fn)
+
+
+def _materialize_meta_model(model, *, device, dtype):
+    """Move meta-device parameters from init_empty_weights onto a real device."""
+    import torch
+
+    parameters = getattr(model, "parameters", None)
+    if not callable(parameters):
+        return model
+
+    if not any(
+        getattr(p, "device", None) is not None and p.device.type == "meta" for p in parameters()
+    ):
+        return model
+
+    target_device = torch.device(device)
+    model = model.to_empty(device=target_device)
+    if dtype is not None:
+        model.to(dtype=dtype)
+    return model
 
 
 def _zero_no_weight_model_parameters(model) -> None:
@@ -90,7 +153,6 @@ def _hf_no_weight_model_call(orig_func, klass, pretrained_model_name_or_path, *a
 
     import torch
     from transformers import PretrainedConfig
-    from transformers.modeling_utils import no_init_weights
 
     name_str = str(pretrained_model_name_or_path)
     output_loading_info = kwargs.pop("output_loading_info", False)
@@ -177,14 +239,21 @@ def _hf_no_weight_model_call(orig_func, klass, pretrained_model_name_or_path, *a
         previous_dtype = torch.get_default_dtype()
         torch.set_default_dtype(torch_dtype)
     try:
-        with no_init_weights():
+        # use_meta_device=False: GR00T constructors call from_pretrained for the
+        # VLM backbone, which transformers >= 5.10 forbids under a meta context.
+        with _no_init_weights(use_meta_device=False):
             model = klass(config, *args, **model_kwargs)
     finally:
         if previous_dtype is not None:
             torch.set_default_dtype(previous_dtype)
 
-    if torch_dtype is not None:
-        model.to(dtype=torch_dtype)
+    device_map = loader_kwargs.get("device_map")
+    materialize_device = device_map if isinstance(device_map, str) else "cpu"
+    model = _materialize_meta_model(
+        model,
+        device=materialize_device,
+        dtype=torch_dtype,
+    )
     _zero_no_weight_model_parameters(model)
     model.eval()
     print(f"[groot/hf] skip model weights: {name_str} | {_hf_env_repr()}", flush=True)

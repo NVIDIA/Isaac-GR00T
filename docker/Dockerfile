@@ -1,9 +1,8 @@
 # syntax=docker/dockerfile:1
 # GR00T Docker image (x86_64 + aarch64)
 #
-# Single Dockerfile for both architectures. On aarch64 (GB200, Grace Hopper)
-# flash-attn and torchcodec are installed from prebuilt wheels under
-# scripts/deployment/dgpu/wheels/ via pyproject.toml path sources.
+# Single Dockerfile for both architectures (CUDA 13.0, Python 3.12; supports 3.10–3.14).
+# aarch64 flash-attn/torchcodec resolve from the jetson-sbsa-cu130 index when applicable.
 #
 # Build:
 #   docker build -f docker/Dockerfile -t gr00t .
@@ -11,7 +10,7 @@
 # Run:
 #   docker run -it --rm --gpus all --ipc=host gr00t
 
-FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
+FROM nvidia/cuda:13.0.0-devel-ubuntu22.04
 
 SHELL ["/bin/bash", "-c"]
 
@@ -62,9 +61,9 @@ apt_install_retry() {
             git-lfs \
             curl \
             wget \
-            python3.10 \
-            python3.10-venv \
-            python3.10-dev \
+            python3.12 \
+            python3.12-venv \
+            python3.12-dev \
             python3-pip \
             python-is-python3 \
             software-properties-common \
@@ -100,18 +99,17 @@ INNEREOF
 
 WORKDIR /workspace
 
-# Install Python dependencies from lockfile
-# The wheels/ dir must be present before `uv sync` because pyproject.toml
-# references them as path sources for aarch64 flash-attn and torchcodec.
-COPY pyproject.toml uv.lock ./
-COPY scripts/deployment/dgpu/wheels/ ./scripts/deployment/dgpu/wheels/
+# Install Python dependencies (uv.lock is gitignored; lock inside the image on Linux)
+COPY pyproject.toml ./
 
 RUN <<INNEREOF
 set -euo pipefail
 
+uv lock --prerelease=allow
+
 uv_sync_retry() {
     for attempt in 1 2 3 4 5; do
-        if UV_PREVIEW=1 UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv sync --frozen --no-install-project --extra dev --no-cache; then
+        if UV_PREVIEW=1 UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv sync --frozen --prerelease=allow --no-install-project --extra dev --no-cache; then
             return 0
         fi
         sleep $((attempt * 10))
@@ -120,6 +118,15 @@ uv_sync_retry() {
 }
 
 uv_sync_retry
+
+ARCH="$(uname -m)"
+if [ "$ARCH" = "aarch64" ]; then
+    uv pip install --python /workspace/.venv/bin/python \
+        --index-url https://pypi.nvidia.com "tensorrt-cu13==10.16.1.11"
+else
+    uv pip install --python /workspace/.venv/bin/python \
+        --index-url https://pypi.nvidia.com "tensorrt-cu13==10.16.1.11"
+fi
 INNEREOF
 
 # Install the gr00t project itself
@@ -168,8 +175,5 @@ JSONEOF
 ENV MUJOCO_GL="egl" \
     PYOPENGL_PLATFORM="egl" \
     __EGL_VENDOR_LIBRARY_FILENAMES="/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
-
-# torchcodec and flash-attn for aarch64 are installed from prebuilt wheels
-# by `uv sync` above via pyproject.toml path sources — no source build needed.
 
 CMD ["/bin/bash"]

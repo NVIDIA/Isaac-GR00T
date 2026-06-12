@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "eval_lerobot"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.12,<3.15"
 
 dependencies = [
     "draccus",
@@ -14,7 +14,26 @@ dependencies = [
     "msgpack==1.1.0",
     "msgpack-numpy==0.4.8",
     "zmq",
-    "lerobot @ git+https://github.com/huggingface/lerobot.git@c75455a6de5c818fa1bb69fb2d92423e86c70475",
+    "lerobot @ git+https://github.com/huggingface/lerobot.git@v0.5.1",
 ]
+
+[tool.uv]
+constraint-dependencies = [
+    "torch==2.12.0",
+    "triton==3.7.0",
+]
+override-dependencies = [
+    "torch==2.12.0",
+    "torchvision==0.27.0",
+]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
+triton = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 # Please also manually install `uv pip install --no-deps -e ../../../../`

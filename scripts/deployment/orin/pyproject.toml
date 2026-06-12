@@ -1,6 +1,5 @@
-# Orin platform pyproject.toml — Jetson Orin (aarch64, JetPack 6.2, CUDA 12.6, Python 3.10)
-# Uses jetson-jp6-cu126 index for torch/torchvision/triton/flash-attn/diffusers
-# (generic pytorch-cu128 wheels don't support Orin's sm_87 GPU).
+# Orin platform pyproject.toml — Jetson Orin (aarch64, JetPack 7.2+, CUDA 13, Python 3.12+)
+# Uses public pytorch-cu130 (sbsa) wheels for torch/torchvision/triton/torchcodec; flash-attn builds from sdist.
 
 [build-system]
 requires = ["setuptools>=67", "wheel", "pip"]
@@ -9,48 +8,53 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gr00t"
 version = "0.1.0"
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.12,<3.15"
 dependencies = [
-    "albumentations==1.4.18",
-    "av==16.1.0",
-    "diffusers==0.35.0.dev0",
-    "dm-tree==0.1.8",
-    "huggingface-hub[cli]",
+    "albumentations==2.0.8",
+    "av==17.1.0",
+    "diffusers==0.38.0",
+    "dm-tree==0.1.10",
+    "huggingface-hub==1.19.0",
     "jsonlines==4.0.0",
-    "lmdb==1.7.5",
-    "msgpack==1.1.0",
+    "lmdb==2.2.1",
+    "msgpack==1.2.0",
     "msgpack-numpy==0.4.8",
-    "opencv-python-headless>=4.5,<4.13",
+    "opencv-python-headless==4.13.0.92",
     "pandas==2.2.3",
-    "peft==0.17.1",
-    "termcolor==3.2.0",
-    "torch==2.10.0",
-    "triton==3.5.1",
-    "torchvision==0.25.0",
-    "transformers==4.57.6",
-    "tyro==0.9.17",
-    "click==8.1.8",
-    "datasets==3.6.0",
-    "cryptography>=46.0.7",
-    "einops==0.8.1",
+    "peft==0.19.1",
+    "termcolor==3.3.0",
+    "torch==2.12.0",
+    "triton==3.7.0",
+    "torchvision==0.27.0",
+    "transformers==5.11.0",
+    "tyro==1.0.13",
+    "click==8.4.1",
+    "datasets==5.0.0",
+    "cryptography==48.0.1",
+    "einops==0.8.2",
     "gitpython==3.1.50",
-    "gymnasium==1.2.2",
-    "matplotlib==3.10.1",
-    "numpy==1.26.4",
-    "omegaconf==2.3.0",
-    "scipy==1.15.3",
-    "wandb==0.23.0",
-    "pyzmq==27.0.1",
-    "flash-attn==2.8.3",
-    "onnx>=1.20.0",
-    "onnxscript",
+    "gymnasium==1.3.0",
+    "matplotlib==3.11.0",
+    "numpy==2.2.6; python_version < '3.14'",
+    "numpy==2.4.6; python_version >= '3.14'",
+    "omegaconf==2.3.1",
+    "scipy==1.17.1",
+    "wandb==0.27.2",
+    "pyzmq==27.1.0",
+    "torchcodec==0.14.0",
+    "nvidia-cudnn-cu13",
+    "nvidia-cudss-cu13",
+    "flash-attn==2.8.3.post1",
+    "onnx==1.21.0",
+    "onnxscript==0.7.0",
+    "tensorrt>=10.14.1.48.post1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "ruff",
+    "ruff==0.15.17",
     "ipython",
-    "pytest",
+    "pytest==9.0.3",
     "pytest-timeout",
     "build",
     "pre-commit",
@@ -61,13 +65,16 @@ where = ["."]
 include = ["gr00t*"]
 
 [tool.uv]
+prerelease = "allow"
+
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch==2.12.0", "numpy==2.2.6", "triton==3.7.0"]
 
 [tool.uv.sources]
-torch = [{ index = "jetson-jp6-cu126" }]
-torchvision = [{ index = "jetson-jp6-cu126" }]
-triton = [{ index = "jetson-jp6-cu126" }]
-flash-attn = [{ index = "jetson-jp6-cu126" }]
-diffusers = [{ index = "jetson-jp6-cu126" }]
+torch = [{ index = "pytorch-cu130" }]
+torchvision = [{ index = "pytorch-cu130" }]
+torchcodec = [{ index = "pytorch-cu130" }]
+triton = [{ index = "pytorch-cu130" }]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
@@ -75,13 +82,11 @@ markers = [
     "gpu: tests that require a GPU",
     "multigpu: tests that require multiple GPUs and use all visible GPUs",
 ]
-# Include fixture setup/teardown in JUnit <testcase time="..."> so duration
-# reports reflect real wall-clock time instead of call-only.
 junit_duration_report = "total"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 src = ["gr00t"]
 exclude = [
     "__pycache__",
@@ -123,6 +128,6 @@ url = "https://pypi.nvidia.com"
 explicit = true
 
 [[tool.uv.index]]
-name = "jetson-jp6-cu126"
-url = "https://pypi.jetson-ai-lab.io/jp6/cu126/+simple"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true

@@ -82,6 +82,7 @@ def policy():
                 "attention_mask": torch.ones(1, 10, dtype=torch.long),
                 "pixel_values": torch.randn(1, 3, 256, 256),
                 "image_grid_thw": torch.tensor([[1, 16, 16]]),
+                "mm_token_type_ids": torch.zeros(1, 10, dtype=torch.long),
             }
         )
 

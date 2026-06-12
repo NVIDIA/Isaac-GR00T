@@ -30,7 +30,17 @@ import torch
 import torchvision.transforms.v2 as transforms
 from transformers import AutoProcessor
 from transformers.feature_extraction_utils import BatchFeature
-from transformers.utils import cached_file
+
+
+try:
+    from huggingface_hub import hf_hub_download
+except ImportError:
+    hf_hub_download = None
+
+try:
+    from transformers.utils import cached_file
+except ImportError:
+    cached_file = None
 
 from gr00t.configs.data.embodiment_configs import ModalityConfig
 from gr00t.data.embodiment_tags import EmbodimentTag
@@ -761,15 +771,25 @@ class Gr00tN1d7Processor(BaseProcessor):
         embodiment_id_file = pretrained_model_name_or_path / "embodiment_id.json"
         is_local = os.path.isdir(pretrained_model_name_or_path)
         if not is_local:
-            config_file = Path(
-                cached_file(pretrained_model_name_or_path, "processor_config.json", **hub_kwargs)
-            )
-            statistics_file = Path(
-                cached_file(pretrained_model_name_or_path, "statistics.json", **hub_kwargs)
-            )
-            embodiment_id_file = Path(
-                cached_file(pretrained_model_name_or_path, "embodiment_id.json", **hub_kwargs)
-            )
+
+            def _resolve_hub_file(filename: str) -> Path:
+                if cached_file is not None:
+                    return Path(cached_file(pretrained_model_name_or_path, filename, **hub_kwargs))
+                if hf_hub_download is None:
+                    raise ImportError(
+                        "huggingface_hub is required to load processor files from the Hub."
+                    )
+                return Path(
+                    hf_hub_download(
+                        repo_id=str(pretrained_model_name_or_path),
+                        filename=filename,
+                        **hub_kwargs,
+                    )
+                )
+
+            config_file = _resolve_hub_file("processor_config.json")
+            statistics_file = _resolve_hub_file("statistics.json")
+            embodiment_id_file = _resolve_hub_file("embodiment_id.json")
 
         with open(config_file, "r") as f:
             config = json.load(f)
