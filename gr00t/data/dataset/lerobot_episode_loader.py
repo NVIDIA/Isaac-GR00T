@@ -164,6 +164,30 @@ class LeRobotEpisodeLoader:
 
         # Load episode metadata (one episode per line)
         episodes_path = meta_dir / LEROBOT_EPISODES_FILENAME
+        if not episodes_path.exists():
+            # Detect LeRobot v3.0 datasets: they keep per-chunk episode metadata
+            # under meta/episodes/chunk-XXX/file-YYY.parquet instead of a single
+            # meta/episodes.jsonl file. Surface an actionable error pointing
+            # users at the v3 -> v2 converter shipped in this repo.
+            v3_episodes_dir = meta_dir / "episodes"
+            codebase_version = self.info_meta.get("codebase_version", "unknown")
+            if v3_episodes_dir.exists() or str(codebase_version).startswith("v3"):
+                raise FileNotFoundError(
+                    f"{episodes_path} not found. The dataset at "
+                    f"'{self.dataset_path}' looks like LeRobot codebase_version "
+                    f"'{codebase_version}' (v3.0 layout), which is not yet "
+                    f"natively supported by the GR00T loader (expects v2.1).\n\n"
+                    f"Convert it with the helper shipped in this repo:\n"
+                    f"    cd scripts/lerobot_conversion\n"
+                    f"    uv venv && source .venv/bin/activate\n"
+                    f"    uv pip install -e .\n"
+                    f"    python convert_v3_to_v2.py --repo-id <hf-org/dataset-name>\n\n"
+                    f"See scripts/lerobot_conversion/README.md for details."
+                )
+            raise FileNotFoundError(
+                f"{episodes_path} not found for dataset {self.dataset_path}. "
+                f"Expected a LeRobot v2.1 layout (meta/episodes.jsonl)."
+            )
         with open(episodes_path, "r") as f:
             self.episodes_metadata = [json.loads(line) for line in f]
 
