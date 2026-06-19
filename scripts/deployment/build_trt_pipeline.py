@@ -55,7 +55,7 @@ import time
 import traceback
 from typing import IO, Literal, Optional
 
-from gr00t.deployment.modes import VideoBackend
+from gr00t.deployment.modes import ExportMode
 import tyro
 
 
@@ -222,8 +222,15 @@ class PipelineConfig:
     output_dir: str = "./gr00t_trt_deployment"
     """Root output directory. ONNX files go to <output_dir>/onnx/, engines to <output_dir>/engines/."""
 
-    precision: Literal["bf16", "fp16", "fp32"] = "bf16"
-    """Precision for ONNX export and TRT engine build."""
+    precision: Literal["bf16"] = "bf16"
+    """Precision baked into the exported ONNX and the built TRT engine.
+
+    Only 'bf16' is honored end-to-end: the ONNX export hardcodes a
+    mixed-dtype graph (ViT FP32, every other component BF16) and the
+    builder treats this as the single supported configuration. Adding
+    'fp16'/'fp32'/'fp8' here without first wiring them through
+    export_onnx_n1d7.py would silently produce a bf16 artifact under a
+    different name."""
 
     batch_size: int = 1
     """Batch size baked into the exported ONNX/TRT models (default: 1).
@@ -239,11 +246,8 @@ class PipelineConfig:
     """
 
     # -- Export options ------------------------------------------------------
-    export_mode: Literal["dit_only", "action_head", "full_pipeline"] = "full_pipeline"
+    export_mode: ExportMode = ExportMode.full_pipeline
     """Export mode: 'dit_only', 'action_head', or 'full_pipeline' (recommended)."""
-
-    video_backend: VideoBackend = "torchcodec"
-    """Video backend for dataset loading."""
 
     # -- Build options ------------------------------------------------------
     workspace: int = 8192
@@ -281,7 +285,6 @@ def _run_export(cfg: PipelineConfig, onnx_dir: str, embodiment_tag, log_fp) -> N
         embodiment_tag=embodiment_tag,
         output_dir=onnx_dir,
         export_mode=cfg.export_mode,
-        video_backend=cfg.video_backend,
         precision=cfg.precision,
         batch_size=cfg.batch_size,
     )

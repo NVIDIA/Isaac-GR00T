@@ -99,7 +99,7 @@ NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash exa
 
 2. Install dependencies for the GR00T control script in the environment from step 1:
 ```bash
-pip install tyro moviepy==1.0.3 pydantic numpy==1.26.4
+pip install tyro pydantic numpy==1.26.4
 ```
 
 3. Enter the camera IDs for your ZED cameras in `examples/DROID/main_gr00t.py`.

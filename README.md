@@ -136,7 +136,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 #### dGPU (x86_64) — Default
 
-Install FFmpeg (required by `torchcodec`, the default video backend):
+Install FFmpeg (required by `torchcodec`, the only supported video backend):
 ```sh
 sudo apt-get update && sudo apt-get install -y ffmpeg
 ```
@@ -175,7 +175,7 @@ Note: GPU dependencies (flash-attn, TensorRT) may require manual installation wi
 
 > **GB300 (sm_103) Users:** Triton 3.3.1 (pinned by PyTorch 2.7) does not support the GB300 GPU architecture (sm_103). `torch.compile` will fail on GB300. Use PyTorch eager mode or TensorRT inference instead. Triton 3.5.1+ adds sm_103 support but is not yet compatible with the pinned PyTorch version.
 
-> **aarch64 Video Backend:** On aarch64 platforms (Thor, Orin, Spark), `torchcodec` is the required video backend. `install_deps.sh` prefers the prebuilt aarch64 wheel under `scripts/deployment/dgpu/wheels/` (shared by Thor/Spark against FFmpeg 6; Orin uses a matching build against FFmpeg 4) and falls back to a source build only if the wheel is missing. If you encounter `NotImplementedError` from the video backend, ensure `torchcodec` was installed successfully during setup. Other backends (decord, pyav) are not supported on aarch64.
+> **Video Backend:** GR00T uses [`torchcodec`](https://github.com/pytorch/torchcodec) as its sole video decoding backend. Backends such as `decord` and `pyav` are no longer supported. `torchcodec` requires FFmpeg and supports H.264 on all platforms; AV1 decoding is not guaranteed (convert AV1 datasets to H.264 with `examples/SimplerEnv/convert_av1_to_h264.py`). On aarch64 platforms (Thor, Orin), `torchcodec` is built from source during `install_deps.sh` because pre-built wheels are not available — if you encounter a `NotImplementedError`, ensure the build completed successfully.
 
 <details>
 <summary><strong>DGX Spark</strong> (tested with DGX Spark GB10)</summary>
@@ -240,7 +240,7 @@ See the [Orin setup guide](scripts/deployment/README.md#jetson-orin-setup) for D
 > destroy the platform-specific environment.
 
 
-For a containerized setup that avoids system-level dependency conflicts, see our [Docker Setup Guide](docker/README.md).
+For a containerized setup that avoids system-level dependency conflicts, see our [Docker Setup Guide](docker/README.md). The recommended container workflow is to start the image first, then clone or pull the repo inside the running container so your checkout uses the image's prebuilt dependency environment.
 
 ---
 
@@ -310,6 +310,8 @@ See the full [Data Preparation Guide](getting_started/data_preparation.md) for s
 
 ## Inference
 
+> **Prefer an interactive walkthrough?** The [`getting_started/GR00T_inference.ipynb`](getting_started/GR00T_inference.ipynb) notebook steps through loading the model and predicting actions from observations on a sample dataset.
+
 ### Zero-Shot Inference (Base Model)
 
 The included `demo_data/droid_sample` dataset works with the base model out of the box — no finetuning or checkpoint download needed:
@@ -325,8 +327,6 @@ uv run python scripts/deployment/standalone_inference_script.py \
 ```
 
 This runs open-loop inference on 2 DROID episodes, comparing predicted actions against ground truth. The base model downloads automatically from HuggingFace on first run (~6 GB).
-
-The standalone inference script defaults to the `ffmpeg` video backend so this demo works on systems with newer FFmpeg releases. If you explicitly use `--video-backend torchcodec`, make sure your installed `torchcodec` wheel is compatible with your system FFmpeg version.
 
 ### Finetuned Inference
 

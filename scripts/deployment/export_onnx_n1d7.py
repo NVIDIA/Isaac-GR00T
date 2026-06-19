@@ -58,7 +58,7 @@ from typing import Any, Literal, Optional
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
-from gr00t.deployment.modes import VideoBackend
+from gr00t.deployment.modes import ExportMode
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 import numpy as np
 import torch
@@ -1284,8 +1284,6 @@ def main(args):
     dataset = LeRobotEpisodeLoader(
         dataset_path=args.dataset_path,
         modality_configs=policy.get_modality_config(),
-        video_backend=args.video_backend,
-        video_backend_kwargs=None,
     )
     logger.info(f"  Dataset loaded ({len(dataset)} trajectories)")
 
@@ -1495,14 +1493,18 @@ class ExportConfig:
     output_dir: str = "./gr00t_n1d7_onnx"
     """Output directory for ONNX models."""
 
-    export_mode: Literal["dit_only", "action_head", "full_pipeline"] = "dit_only"
+    export_mode: ExportMode = ExportMode.dit_only
     """Export mode: 'dit_only', 'action_head' (4 components), or 'full_pipeline' (ViT + action head)."""
 
-    video_backend: VideoBackend = "torchcodec"
-    """Video backend to use."""
+    precision: Literal["bf16"] = "bf16"
+    """Export precision for the generated ONNX graph.
 
-    precision: Literal["bf16", "fp8"] = "bf16"
-    """Export precision: 'bf16' (default) or 'fp8' (TODO for N1.7)."""
+    Currently fixed to 'bf16': every Step 4 exporter passes a hardcoded
+    `use_bf16=` argument and does not read this field beyond writing it
+    into export_metadata.json. Re-introducing 'fp16'/'fp32'/'fp8' here
+    requires plumbing this field into each exporter first; until then
+    the Literal is narrowed so the CLI cannot accept a value the export
+    will ignore."""
 
     batch_size: int = 1
     """Batch size baked into the exported ONNX models (default: 1)."""

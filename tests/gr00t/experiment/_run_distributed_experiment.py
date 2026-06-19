@@ -52,7 +52,6 @@ def _build_config(args: argparse.Namespace):
                         "embodiment_tag": EMBODIMENT_TAG,
                     }
                 ],
-                "video_backend": "torchcodec",
                 "shard_size": 64,
                 "num_shards_per_epoch": args.num_gpus,
                 "multiprocessing_context": "fork",

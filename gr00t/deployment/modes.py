@@ -13,38 +13,77 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared ``video_backend`` types for the deployment CLIs and runtime.
+"""Single source of truth for the deployment CLIs' shared mode-flag value sets.
 
-The deployment CLIs import :data:`VideoBackend` for their
-``--video-backend`` flag, so the set stays aligned in one place.
+``scripts/deployment`` is not an importable package, so every value set
+shared across the CLIs lives here and is imported via ``gr00t.*``. A CLI
+never re-authors these strings — it imports the enum or fails on a name
+that does not exist, so cross-file drift is not expressible.
 
-:data:`VIDEO_BACKEND_CANONICAL` lists every backend the runtime
-dispatch in :mod:`gr00t.utils.video_utils` can drive (a superset of the
-CLI surface, since some backends are only reachable from internal call
-paths). Consistency tests pin ``VideoBackend`` and each per-function
-runtime allow-list as subsets of this canonical tuple.
+Each mode flag is one enum here, imported by its CLI. The enums hold the
+legitimate *subset* each tool supports (the tools really do run different
+subsets — that is genuine capability, not duplication):
+
+- :class:`ExportMode` — the two ``export_mode`` CLIs (``export_onnx_n1d7``,
+  ``build_trt_pipeline``).
+- :class:`VerifyMode` — ``verify_n1d7_trt`` ``--mode``.
+- :class:`BenchmarkMode` — ``benchmark_inference`` ``--trt-mode``.
+- :class:`BuildEngineMode` — ``build_tensorrt_engine`` ``--mode``.
+
+Each member's value equals its name (via :func:`_generate_next_value_`), so
+``tyro`` keeps the value-form CLI surface unchanged (``--mode full_pipeline``,
+not ``--mode FULL_PIPELINE``) — no CLI/README/docstring edits needed when
+switching from a ``Literal``.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+import enum
 
 
-VideoBackend = Literal["decord", "ffmpeg", "torchcodec"]
-"""Allowed values for the ``--video-backend`` CLI flag, shared by the
-deployment CLIs. Each option must be implemented by
-``get_frames_by_indices()``, which is what the LeRobot dataset loader
-uses for deployment/export inputs."""
+class _StrEnum(str, enum.Enum):
+    """``enum.StrEnum`` stand-in for Python 3.10 (dGPU/Orin).
+
+    Members are ``str`` subclasses whose value equals their name, so ``==``,
+    ``in``, dict-keying, JSON, f-strings, and ``tyro`` choices all see the bare
+    value. ``__str__`` is restored to ``str``'s so ``str()``/``%s`` yield the
+    value rather than ``ClassName.member``.
+    """
+
+    @staticmethod
+    def _generate_next_value_(name, start, count, last_values):
+        return name
+
+    __str__ = str.__str__
 
 
-VIDEO_BACKEND_CANONICAL = (
-    "torchcodec",
-    "decord",
-    "torchvision_av",
-    "ffmpeg",
-    "opencv",
-    "pyav",
-)
-"""Every backend the runtime in :mod:`gr00t.utils.video_utils` can
-dispatch to. Per-function subsets differ; each must be a subset of this
-tuple."""
+class ExportMode(_StrEnum):
+    """Allowed values for the ``--export-mode`` flag, shared by the two
+    ``export_mode`` CLIs."""
+
+    dit_only = enum.auto()
+    action_head = enum.auto()
+    full_pipeline = enum.auto()
+
+
+class VerifyMode(_StrEnum):
+    """Allowed values for ``verify_n1d7_trt`` ``--mode``."""
+
+    action_head = enum.auto()
+    n17_full_pipeline = enum.auto()
+    vit_llm_only = enum.auto()
+
+
+class BenchmarkMode(_StrEnum):
+    """Allowed values for ``benchmark_inference`` ``--trt-mode``."""
+
+    dit_only = enum.auto()
+    n17_full_pipeline = enum.auto()
+    vit_llm_only = enum.auto()
+
+
+class BuildEngineMode(_StrEnum):
+    """Allowed values for ``build_tensorrt_engine`` ``--mode``."""
+
+    single = enum.auto()
+    full_pipeline = enum.auto()

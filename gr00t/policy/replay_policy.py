@@ -61,8 +61,6 @@ class ReplayPolicy(BasePolicy):
         modality_configs: dict[str, ModalityConfig],
         execution_horizon: int,
         *,
-        video_backend: str = "torchcodec",
-        video_backend_kwargs: dict[str, Any] | None = None,
         strict: bool = True,
     ):
         """Initialize the Replay Policy.
@@ -72,8 +70,6 @@ class ReplayPolicy(BasePolicy):
             modality_configs: Dictionary mapping modality names to ModalityConfig objects
                 that specify temporal sampling and data keys to load
             execution_horizon: Policy execution horizon during inference. Will determine the number of steps to skip per get_action call.
-            video_backend: Video decoding backend ('torchcodec', 'decord', etc.)
-            video_backend_kwargs: Additional arguments for the video backend
             strict: Whether to enforce strict input validation (default: True)
         """
         super().__init__(strict=strict)
@@ -98,8 +94,6 @@ class ReplayPolicy(BasePolicy):
         self.episode_loader = LeRobotEpisodeLoader(
             dataset_path=dataset_path,
             modality_configs=modality_configs,
-            video_backend=video_backend,
-            video_backend_kwargs=video_backend_kwargs,
         )
 
         # Load the episode data

@@ -50,7 +50,7 @@ fi
 # the real editable install comes from $REPO_ROOT below.
 export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}"
 echo "Running uv sync with the Orin pyproject at $SCRIPT_DIR (venv: $UV_PROJECT_ENVIRONMENT)..."
-uv sync --project "$SCRIPT_DIR" --no-install-project
+uv sync --project "$SCRIPT_DIR" --no-install-project --extra dev
 
 VENV_DIR="$UV_PROJECT_ENVIRONMENT"
 VENV_PYTHON="$VENV_DIR/bin/python"

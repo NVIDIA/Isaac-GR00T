@@ -104,17 +104,16 @@ def _load_runtime_deps():
     try:
         import imageio
         from droid.robot_env import RobotEnv
-        from moviepy.editor import ImageSequenceClip
         from server_client import PolicyClient
         from utils import resize_with_pad
     except ModuleNotFoundError as exc:
         raise ModuleNotFoundError(
             "examples/DROID/main_gr00t.py requires the DROID robot-control environment. "
             "Follow examples/DROID/README.md and install the DROID package plus "
-            "`pip install tyro moviepy==1.0.3 pydantic numpy==1.26.4` before running."
+            "`pip install tyro pydantic numpy==1.26.4` before running."
         ) from exc
 
-    return RobotEnv, PolicyClient, ImageSequenceClip, imageio, resize_with_pad
+    return RobotEnv, PolicyClient, imageio, resize_with_pad
 
 
 # We are using Ctrl+C to optionally terminate rollouts early -- however, if we press Ctrl+C while the policy server is
@@ -140,7 +139,7 @@ def prevent_keyboard_interrupt():
 
 
 def main(args: Args):
-    RobotEnv, PolicyClient, ImageSequenceClip, imageio, resize_with_pad = _load_runtime_deps()
+    RobotEnv, PolicyClient, imageio, resize_with_pad = _load_runtime_deps()
 
     assert args.external_camera in ["left", "right"], (
         f"Invalid exterior camera: {args.exterior_camera}"
@@ -380,9 +379,9 @@ def main(args: Args):
         save_filename = os.path.join(
             results_dir, "videos", f"{sanitized_instruction}_video_" + timestamp
         )
-        ImageSequenceClip(list(video), fps=args.render_fps).write_videofile(
-            save_filename + ".mp4", codec="libx264"
-        )
+        with imageio.get_writer(save_filename + ".mp4", fps=args.render_fps) as writer:
+            for frame in video:
+                writer.append_data(frame)
 
         if args.debug:
             model_wrist_image_writer.close()

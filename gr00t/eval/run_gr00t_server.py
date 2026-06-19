@@ -148,18 +148,15 @@ def main(config: ServerConfig):
 
         policy = Gr00tSimPolicyWrapper(policy)
 
-    server = PolicyServer(
+    with PolicyServer(
         policy=policy,
         host=config.host,
         port=config.port,
-    )
-
-    print(f"\n✓ Server ready — listening on {config.host}:{config.port}\n")
-
-    try:
-        server.run()
-    except KeyboardInterrupt:
-        print("\nShutting down server...")
+    ) as server:
+        try:
+            server.run()
+        except KeyboardInterrupt:
+            print("\nShutting down server...")
 
 
 if __name__ == "__main__":

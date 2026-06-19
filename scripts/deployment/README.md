@@ -514,7 +514,6 @@ and `torch.compile` need on Orin.
 | `--precision` | `bf16` | Precision for ONNX export and TRT engine build (`bf16`, `fp16`, `fp32`) |
 | `--batch-size` | `1` | Batch size baked into exported ONNX/TRT models (static — see note below) |
 | `--export-mode` | `full_pipeline` | Export mode: `dit_only`, `action_head`, or `full_pipeline` |
-| `--video-backend` | `torchcodec` | Video backend for dataset loading |
 | `--workspace` | `8192` | TRT builder workspace size in MB |
 | `--num-iterations` | `20` | Number of benchmark iterations |
 | `--warmup` | `5` | Number of warmup iterations |
@@ -536,7 +535,6 @@ and `torch.compile` need on Orin.
 | `--trt-engine-path` | `./gr00t_n1d7_engines` | Directory containing pre-built TRT engines |
 | `--denoising-steps` | `4` | Diffusion denoising iterations |
 | `--save-plot-path` | `None` | Save per-trajectory GT-vs-predicted comparison plots |
-| `--video-backend` | `torchcodec` | Video decoder: `torchcodec`, `decord`, or `torchvision_av` |
 | `--skip-timing-steps` | `1` | Initial steps excluded from timing stats (warmup) |
 | `--host` / `--port` | `127.0.0.1` / `5555` | Server address (when using client mode without `--model-path`) |
 | `--seed` | `42` | Random seed for reproducibility |

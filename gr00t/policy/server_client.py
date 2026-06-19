@@ -132,7 +132,10 @@ class PolicyServer:
         api_token: str = None,
     ):
         self.policy = policy
+        self.host = host
+        self.port = port
         self.running = True
+        self._closed = False
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.bind(f"tcp://{host}:{port}")
@@ -151,10 +154,36 @@ class PolicyServer:
         )
 
     def _kill_server(self):
-        """
-        Kill the server.
-        """
+        """Stop the run loop. Does not release the socket / context — use ``close()``."""
         self.running = False
+
+    def close(self) -> None:
+        """Release the bound socket and ZMQ context. Idempotent."""
+        if getattr(self, "_closed", True):
+            return
+        self._closed = True
+        self.running = False
+        socket = getattr(self, "socket", None)
+        if socket is not None:
+            try:
+                socket.close(linger=0)
+            except Exception:
+                pass
+        context = getattr(self, "context", None)
+        if context is not None:
+            try:
+                context.term()
+            except Exception:
+                pass
+
+    def __enter__(self):
+        # Reached only after __init__ completed socket.bind(), so the socket is
+        # guaranteed live here — safe to announce readiness.
+        print(f"\n✓ Server ready — listening on {self.host}:{self.port}\n")
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
 
     def _handle_ping(self) -> dict:
         """
@@ -217,8 +246,8 @@ class PolicyServer:
 
     @staticmethod
     def start_server(policy: BasePolicy, port: int, host: str = "*", api_token: str = None):
-        server = PolicyServer(policy, host=host, port=port, api_token=api_token)
-        server.run()
+        with PolicyServer(policy, host=host, port=port, api_token=api_token) as server:
+            server.run()
 
 
 class PolicyClient(BasePolicy):
@@ -231,6 +260,7 @@ class PolicyClient(BasePolicy):
         strict: bool = False,
     ):
         super().__init__(strict=strict)
+        self._closed = False
         self.context = zmq.Context()
         self.host = host
         self.port = port
@@ -293,10 +323,38 @@ class PolicyClient(BasePolicy):
             raise RuntimeError(f"Server error: {response['error']}")
         return response
 
+    def close(self) -> None:
+        """Release the REQ socket and ZMQ context. Idempotent."""
+        if getattr(self, "_closed", True):
+            return
+        self._closed = True
+        socket = getattr(self, "socket", None)
+        if socket is not None:
+            try:
+                socket.close(linger=0)
+            except Exception:
+                pass
+        context = getattr(self, "context", None)
+        if context is not None:
+            try:
+                context.term()
+            except Exception:
+                pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+
     def __del__(self):
-        """Cleanup resources on destruction"""
-        self.socket.close()
-        self.context.term()
+        # Best-effort GC fallback. ``__del__`` can fire during interpreter
+        # shutdown after module-level names (``zmq``, our own attributes)
+        # have been torn down; raising here is just noise on stderr.
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def _get_action(
         self, observation: dict[str, Any], options: dict[str, Any] | None = None

@@ -14,11 +14,27 @@
 # limitations under the License.
 
 from collections import defaultdict, deque
+from enum import Enum
 import warnings
 
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+
+
+class AggregateMethod(str, Enum):
+    """Supported strategies for reducing a sequence of per-step values.
+
+    Subclassing ``str`` keeps the members interchangeable with their
+    string values, so existing callers (and configs) that pass e.g.
+    ``"max"`` keep working while the code itself references the typed
+    members instead of magic strings.
+    """
+
+    MAX = "max"
+    MIN = "min"
+    MEAN = "mean"
+    SUM = "sum"
 
 
 def stack_repeated(x, n, loc):
@@ -118,19 +134,24 @@ def compress_dict_list(ds, recursive=False):
     return result
 
 
-def aggregate(data, method="max"):
-    if method == "max":
+def aggregate(data, method: AggregateMethod = AggregateMethod.MAX):
+    try:
+        method = AggregateMethod(method)
+    except ValueError:
+        raise ValueError(
+            f"Unsupported aggregate method {method!r}; "
+            f"expected one of {[m.value for m in AggregateMethod]}."
+        )
+    if method is AggregateMethod.MAX:
         # equivalent to any
         return np.max(data)
-    elif method == "min":
+    elif method is AggregateMethod.MIN:
         # equivalent to all
         return np.min(data)
-    elif method == "mean":
+    elif method is AggregateMethod.MEAN:
         return np.mean(data)
-    elif method == "sum":
+    elif method is AggregateMethod.SUM:
         return np.sum(data)
-    else:
-        raise NotImplementedError()
 
 
 class MultiStepWrapper(gym.Wrapper):
@@ -141,7 +162,7 @@ class MultiStepWrapper(gym.Wrapper):
         state_delta_indices,
         n_action_steps,
         max_episode_steps=None,
-        reward_agg_method="max",
+        reward_agg_method: AggregateMethod = AggregateMethod.MAX,
         terminate_on_success=False,
     ):
         """
@@ -149,6 +170,13 @@ class MultiStepWrapper(gym.Wrapper):
         state_delta_indices: np.ndarray[int] | None, please check `assert_delta_indices` to see the requirements
           if None, it means the model is vision-only
         """
+        try:
+            reward_agg_method = AggregateMethod(reward_agg_method)
+        except ValueError:
+            raise ValueError(
+                f"Unsupported reward_agg_method {reward_agg_method!r}; "
+                f"expected one of {[m.value for m in AggregateMethod]}."
+            )
         super().__init__(env)
         # Assign action space
         self._action_space = repeated_space(env.action_space, n_action_steps)
@@ -293,7 +321,7 @@ class MultiStepWrapper(gym.Wrapper):
 
         observation = self._get_obs(self.video_delta_indices, self.state_delta_indices)
         reward = aggregate(self.reward, self.reward_agg_method)
-        done = aggregate(self.done, "max")
+        done = aggregate(self.done, AggregateMethod.MAX)
         info = dict_take_last_n(self.info, self.n_action_steps)
         states = np.array(states)
         rewards = np.array(rewards)

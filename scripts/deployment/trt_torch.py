@@ -32,7 +32,6 @@ Loads serialized TRT engines, manages input/output tensor bindings, and
 executes inference. Supports dynamic shapes and BF16/FP16/FP32 dtypes.
 """
 
-import atexit
 import ctypes
 import os
 
@@ -66,6 +65,10 @@ class Engine(object):
     def __init__(self, file, plugins=[]):
         super().__init__()
 
+        self._closed = False
+        self.execution_context = None
+        self.handle = None
+
         self.logger = trt.Logger(trt.Logger.ERROR)
         trt.init_libnvinfer_plugins(self.logger, "")
 
@@ -73,12 +76,27 @@ class Engine(object):
         self.file = file
         self.load(file)
 
-        def destroy(self):
-            del self.execution_context
-            del self.handle
-
-        atexit.register(destroy, self)
         self.print()
+
+    def close(self):
+        """Release the execution context, then the engine handle.
+
+        TensorRT requires the context be dropped before the engine.
+        Idempotent so it composes safely with ``__del__``.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        self.execution_context = None
+        self.handle = None
+
+    def __del__(self):
+        # tensorrt / CUDA context may already be gone at shutdown; swallow
+        # so the traceback doesn't surface as a spurious error on exit.
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def print(self):
         """Display engine details (inputs/outputs) on rank 0 only."""

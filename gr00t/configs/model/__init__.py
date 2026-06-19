@@ -43,6 +43,12 @@ def create_model_union_type():
         # A Union of no types is invalid, so just return None
         return None
 
+    if len(MODEL_CONFIG_TYPES) == 1:
+        # A single-element Union collapses to its sole member; return the plain
+        # type so it parses as a normal nested config rather than a subcommand.
+        (model_type,) = MODEL_CONFIG_TYPES.values()
+        return model_type
+
     annotated_types = tuple(
         typing.Annotated[model_type, tyro.conf.subcommand(model_shortname)]
         for model_shortname, model_type in MODEL_CONFIG_TYPES.items()

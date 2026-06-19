@@ -14,7 +14,9 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Annotated, Any, List, Optional
+
+import tyro
 
 from gr00t.data.types import ModalityConfig
 
@@ -62,7 +64,10 @@ class DataConfig:
     # 2. Modality configs supplied through command line: --data.modality_configs (although rare and inconvenient)
     # 1 and 2 are unified through `config.data.modality_configs`.
     # 3. modality configs saved in the pretrained checkpoint.
-    modality_configs: dict[str, dict[str, ModalityConfig]] = field(
+    #
+    # Supplied via code defaults / a `--load-config-path` YAML / the pretrained
+    # checkpoint, not typed on the CLI, so it is hidden from tyro with Suppress.
+    modality_configs: Annotated[dict[str, dict[str, ModalityConfig]], tyro.conf.Suppress] = field(
         default_factory=lambda: MODALITY_CONFIGS
     )
 
@@ -92,4 +97,3 @@ class DataConfig:
     # DP Image Config
     image_crop_size: List[int] = field(default_factory=lambda: [244, 244])
     image_target_size: List[int] = field(default_factory=lambda: [224, 224])
-    video_backend: str = "torchcodec"

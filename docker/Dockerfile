@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1
 # GR00T Docker image (x86_64 + aarch64)
 #
-# Single Dockerfile for both architectures. On aarch64 (GB200, Grace Hopper)
-# flash-attn and torchcodec are installed from prebuilt wheels under
-# scripts/deployment/dgpu/wheels/ via pyproject.toml path sources.
+# Single Dockerfile for both architectures. On aarch64 (GB200, Grace Hopper),
+# flash-attn and torchcodec are installed from wheels under
+# scripts/deployment/dgpu/wheels/ via pyproject.toml path sources. If those
+# wheels are missing, the Docker build bootstraps them from source first.
 #
 # Build:
 #   docker build -f docker/Dockerfile -t gr00t .
@@ -17,6 +18,8 @@ SHELL ["/bin/bash", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
     NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute \
+    GR00T_GLOBAL_VENV=/opt/gr00t-venv \
+    UV_PROJECT_ENVIRONMENT=/opt/gr00t-venv \
     PYTHON=/usr/bin/python \
     CUDA_HOME=/usr/local/cuda \
     PATH=/usr/local/cuda/bin:${PATH} \
@@ -68,7 +71,18 @@ apt_install_retry() {
             python3-pip \
             python-is-python3 \
             software-properties-common \
+            cmake \
+            ninja-build \
+            pkg-config \
+            pybind11-dev \
             ffmpeg \
+            libavdevice-dev \
+            libavfilter-dev \
+            libavformat-dev \
+            libavcodec-dev \
+            libavutil-dev \
+            libswresample-dev \
+            libswscale-dev \
             libegl1; then
             return 0
         fi
@@ -98,16 +112,27 @@ pip_install_retry
 curl --retry 5 --retry-delay 10 --retry-max-time 300 -LsSf https://astral.sh/uv/0.8.14/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 INNEREOF
 
-WORKDIR /workspace
+WORKDIR /tmp/gr00t-venv-build
 
 # Install Python dependencies from lockfile
 # The wheels/ dir must be present before `uv sync` because pyproject.toml
 # references them as path sources for aarch64 flash-attn and torchcodec.
 COPY pyproject.toml uv.lock ./
+COPY scripts/deployment/dgpu/bootstrap_wheels.sh ./scripts/deployment/dgpu/bootstrap_wheels.sh
 COPY scripts/deployment/dgpu/wheels/ ./scripts/deployment/dgpu/wheels/
 
 RUN <<INNEREOF
 set -euo pipefail
+
+uv_lock_retry() {
+    for attempt in 1 2 3 4 5; do
+        if UV_PREVIEW=1 UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv lock; then
+            return 0
+        fi
+        sleep $((attempt * 10))
+    done
+    return 1
+}
 
 uv_sync_retry() {
     for attempt in 1 2 3 4 5; do
@@ -119,29 +144,25 @@ uv_sync_retry() {
     return 1
 }
 
+if [ "$(uname -m)" = "aarch64" ]; then
+    bash scripts/deployment/dgpu/bootstrap_wheels.sh
+    uv_lock_retry
+fi
+
 uv_sync_retry
+sha256sum uv.lock | awk '{print $1}' > "${GR00T_GLOBAL_VENV}/.gr00t-uv-lock.sha256"
+mkdir -p /opt/gr00t-image-metadata
+cp pyproject.toml uv.lock /opt/gr00t-image-metadata/
+cd /
+rm -rf /tmp/gr00t-venv-build
 INNEREOF
 
-# Install the gr00t project itself
-COPY . .
-RUN <<INNEREOF
-set -euo pipefail
+WORKDIR /
+RUN mkdir -p /workspace && ln -sfn "${GR00T_GLOBAL_VENV}" /workspace/.venv
+WORKDIR /workspace
 
-uv_pip_install_retry() {
-    for attempt in 1 2 3 4 5; do
-        if uv pip install --python /workspace/.venv/bin/python -e . --no-deps; then
-            return 0
-        fi
-        sleep $((attempt * 10))
-    done
-    return 1
-}
-
-uv_pip_install_retry
-INNEREOF
-
-ENV PATH="/workspace/.venv/bin:${PATH}" \
-    VIRTUAL_ENV="/workspace/.venv"
+ENV PATH="${GR00T_GLOBAL_VENV}/bin:${PATH}" \
+    VIRTUAL_ENV="${GR00T_GLOBAL_VENV}"
 
 # EGL/Vulkan setup for headless rendering (MuJoCo, PyOpenGL)
 RUN mkdir -p /usr/share/glvnd/egl_vendor.d && \
@@ -169,7 +190,8 @@ ENV MUJOCO_GL="egl" \
     PYOPENGL_PLATFORM="egl" \
     __EGL_VENDOR_LIBRARY_FILENAMES="/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
 
-# torchcodec and flash-attn for aarch64 are installed from prebuilt wheels
-# by `uv sync` above via pyproject.toml path sources — no source build needed.
+# torchcodec and flash-attn for aarch64 are installed from build-context wheels
+# by `uv sync` above via pyproject.toml path sources. Missing wheels are built
+# from source before sync, then committed back to the repo.
 
 CMD ["/bin/bash"]
