@@ -87,7 +87,7 @@ fi
 # fall back to $REPO_ROOT/.venv on bare metal.
 export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}"
 echo "Running uv sync with the Thor pyproject at $SCRIPT_DIR (venv: $UV_PROJECT_ENVIRONMENT)..."
-uv sync --project "$SCRIPT_DIR" --no-install-project
+uv sync --project "$SCRIPT_DIR" --no-install-project --extra dev
 
 VENV_DIR="$UV_PROJECT_ENVIRONMENT"
 VENV_PYTHON="$VENV_DIR/bin/python"
@@ -97,19 +97,18 @@ echo "Installing gr00t in editable mode from the repo root (--no-deps)..."
 uv pip install --python "$VENV_PYTHON" --no-deps -e "$REPO_ROOT"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# torchcodec — prebuilt wheel (shared with Spark, both FFmpeg 6) or source build
-# Thor and Spark share the same cp312 aarch64 wheel since both run Ubuntu 24.04
-# with FFmpeg 6. The wheel lives under spark/wheels/.
+# torchcodec — prebuilt wheel or source build
+# Thor and Spark both use cp312 aarch64 wheels, but keep separate wheel
+# directories because the built bytes can differ across device stacks.
 # ──────────────────────────────────────────────────────────────────────────────
 echo "Installing FFmpeg runtime..."
 $SUDO apt-get update -qq
 $SUDO apt-get install -y --no-install-recommends ffmpeg
 
-SPARK_DIR="$SCRIPT_DIR/../spark"
-if [ ! -d "$SPARK_DIR/wheels" ]; then
-    echo "Warning: Spark wheels directory not found at $SPARK_DIR/wheels — will attempt source build"
+if [ ! -d "$SCRIPT_DIR/wheels" ]; then
+    echo "Warning: Thor wheels directory not found at $SCRIPT_DIR/wheels — will attempt source build"
 fi
-TORCHCODEC_WHL=$(find "$SPARK_DIR/wheels" -name 'torchcodec-*.whl' -print -quit 2>/dev/null || true)
+TORCHCODEC_WHL=$(find "$SCRIPT_DIR/wheels" -name 'torchcodec-*.whl' -print -quit 2>/dev/null || true)
 if [ -n "$TORCHCODEC_WHL" ]; then
     echo "Installing torchcodec from prebuilt wheel: $TORCHCODEC_WHL"
     uv pip install --python "$VENV_PYTHON" --force-reinstall --no-deps "$TORCHCODEC_WHL"

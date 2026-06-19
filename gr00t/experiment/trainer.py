@@ -38,7 +38,6 @@ from typing import Any, Optional
 import torch
 from transformers.trainer import TRAINER_STATE_NAME, Trainer, TrainerState, get_last_checkpoint
 from transformers.trainer_callback import TrainerCallback
-from transformers.trainer_utils import EvalPrediction
 
 
 class ProfCallback(TrainerCallback):
@@ -150,46 +149,6 @@ def _batch_accuracy(
     return accuracy
 
 
-# Global variables for batched evaluation metrics
-_eval_accuracy_accumulated_correct = 0
-_eval_accuracy_accumulated_total = 0
-
-
-def compute_eval_accuracy(
-    eval_pred: EvalPrediction, compute_result: bool, action_offset: Optional[int] = None
-):
-    logits = eval_pred.predictions[0]
-    if action_offset is not None:
-        logits = logits[..., action_offset:]
-    preds = logits.argmax(axis=-1)
-    labels = eval_pred.label_ids
-
-    preds = preds[:, :-1]
-    labels = labels[:, 1:]
-
-    # Ignore positions with label == -100 (HF convention)
-    mask = labels != -100
-
-    if action_offset is not None:
-        # we offset the labels to the action tokens range, with normal tokens in the negatives
-        labels = labels - action_offset
-
-    correct = ((preds == labels) & mask).sum()
-    total = mask.sum()
-
-    global _eval_accuracy_accumulated_correct, _eval_accuracy_accumulated_total
-    _eval_accuracy_accumulated_correct += correct
-    _eval_accuracy_accumulated_total += total
-
-    if compute_result:
-        accuracy = _eval_accuracy_accumulated_correct / max(_eval_accuracy_accumulated_total, 1)
-        _eval_accuracy_accumulated_correct = 0
-        _eval_accuracy_accumulated_total = 0
-        return {"eval_accuracy": accuracy}
-    else:
-        return {}
-
-
 class Gr00tTrainer(Trainer):
     """Trainer that bypasses torch dataloader and makes data collator async."""
 
@@ -205,11 +164,7 @@ class Gr00tTrainer(Trainer):
         """
         self.action_offset = kwargs.pop("action_offset", None)
         self.multiprocessing_context = kwargs.pop("multiprocessing_context", "fork")
-        super().__init__(
-            *args,
-            **kwargs,
-            # compute_metrics=partial(compute_eval_accuracy, action_offset=self.action_offset),
-        )
+        super().__init__(*args, **kwargs)
 
     def log(self, logs: dict[str, float], start_time: Optional[float] = None) -> None:
         # Hide epoch from logged metrics as it's misleading for Iterable datasets.

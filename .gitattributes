@@ -4,3 +4,4 @@ demo_data/**/*.parquet filter=lfs diff=lfs merge=lfs -text
 scripts/deployment/dgpu/wheels/*.whl filter=lfs diff=lfs merge=lfs -text
 scripts/deployment/orin/wheels/*.whl filter=lfs diff=lfs merge=lfs -text
 scripts/deployment/spark/wheels/*.whl filter=lfs diff=lfs merge=lfs -text
+scripts/deployment/thor/wheels/*.whl filter=lfs diff=lfs merge=lfs -text

@@ -38,9 +38,32 @@ def get_embodiment_tag_from_env_name(env_name: str) -> EmbodimentTag:
     """Get the EmbodimentTag for a gym-registered environment name.
 
     Looks up the env_name prefix (before "/") in ENV_PREFIX_TO_EMBODIMENT_TAG.
-    Falls back to using the prefix directly as an EmbodimentTag value.
+    Falls back to using the prefix directly as an EmbodimentTag value (most
+    prefixes are deliberately equal to their tag's value; the dict above only
+    patches the prefixes that diverge).
+
+    Raises:
+        ValueError: If the prefix is neither a key in
+            ENV_PREFIX_TO_EMBODIMENT_TAG nor a valid EmbodimentTag value. This
+            is the expected failure when a new benchmark is registered under a
+            new prefix but no mapping entry was added — the message points at
+            the exact fix so the failure is actionable at the call boundary
+            instead of surfacing as a cryptic enum error deeper in eval.
     """
     prefix = env_name.split("/")[0]
     if prefix in ENV_PREFIX_TO_EMBODIMENT_TAG:
         return ENV_PREFIX_TO_EMBODIMENT_TAG[prefix]
-    return EmbodimentTag(prefix)
+    try:
+        return EmbodimentTag(prefix)
+    except ValueError:
+        known_prefixes = sorted(ENV_PREFIX_TO_EMBODIMENT_TAG)
+        valid_tag_values = [tag.value for tag in EmbodimentTag]
+        raise ValueError(
+            f"env_name prefix {prefix!r} (from env_name {env_name!r}) maps to no "
+            f"EmbodimentTag. A gym environment is registered under this prefix, but "
+            f"it is neither a key in ENV_PREFIX_TO_EMBODIMENT_TAG nor a valid "
+            f"EmbodimentTag value. Add an entry to ENV_PREFIX_TO_EMBODIMENT_TAG in "
+            f"gr00t/eval/sim/env_utils.py.\n"
+            f"  known prefixes:    {known_prefixes}\n"
+            f"  valid tag values:  {valid_tag_values}"
+        ) from None

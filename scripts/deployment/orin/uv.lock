@@ -161,21 +161,6 @@ wheels = [
 ]
 
 [[package]]
-name = "av"
-version = "16.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/78/cd/3a83ffbc3cc25b39721d174487fb0d51a76582f4a1703f98e46170ce83d4/av-16.1.0.tar.gz", hash = "sha256:a094b4fd87a3721dacf02794d3d2c82b8d712c85b9534437e82a8a978c175ffd", size = 4285203, upload-time = "2026-01-11T07:31:33.772Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/97/51/2217a9249409d2e88e16e3f16f7c0def9fd3e7ffc4238b2ec211f9935bdb/av-16.1.0-cp310-cp310-macosx_11_0_x86_64.whl", hash = "sha256:2395748b0c34fe3a150a1721e4f3d4487b939520991b13e7b36f8926b3b12295", size = 26942590, upload-time = "2026-01-09T20:17:58.588Z" },
-    { url = "https://files.pythonhosted.org/packages/bf/cd/a7070f4febc76a327c38808e01e2ff6b94531fe0b321af54ea3915165338/av-16.1.0-cp310-cp310-macosx_14_0_arm64.whl", hash = "sha256:72d7ac832710a158eeb7a93242370aa024a7646516291c562ee7f14a7ea881fd", size = 21507910, upload-time = "2026-01-09T20:18:02.309Z" },
-    { url = "https://files.pythonhosted.org/packages/ae/30/ec812418cd9b297f0238fe20eb0747d8a8b68d82c5f73c56fe519a274143/av-16.1.0-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:6cbac833092e66b6b0ac4d81ab077970b8ca874951e9c3974d41d922aaa653ed", size = 38738309, upload-time = "2026-01-09T20:18:04.701Z" },
-    { url = "https://files.pythonhosted.org/packages/3a/b8/6c5795bf1f05f45c5261f8bce6154e0e5e86b158a6676650ddd77c28805e/av-16.1.0-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:eb990672d97c18f99c02f31c8d5750236f770ffe354b5a52c5f4d16c5e65f619", size = 40293006, upload-time = "2026-01-09T20:18:07.238Z" },
-    { url = "https://files.pythonhosted.org/packages/a7/44/5e183bcb9333fc3372ee6e683be8b0c9b515a506894b2d32ff465430c074/av-16.1.0-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:05ad70933ac3b8ef896a820ea64b33b6cca91a5fac5259cb9ba7fa010435be15", size = 40123516, upload-time = "2026-01-09T20:18:09.955Z" },
-    { url = "https://files.pythonhosted.org/packages/12/1d/b5346d582a3c3d958b4d26a2cc63ce607233582d956121eb20d2bbe55c2e/av-16.1.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:d831a1062a3c47520bf99de6ec682bd1d64a40dfa958e5457bb613c5270e7ce3", size = 41463289, upload-time = "2026-01-09T20:18:12.459Z" },
-    { url = "https://files.pythonhosted.org/packages/fa/31/acc946c0545f72b8d0d74584cb2a0ade9b7dfe2190af3ef9aa52a2e3c0b1/av-16.1.0-cp310-cp310-win_amd64.whl", hash = "sha256:358ab910fef3c5a806c55176f2b27e5663b33c4d0a692dafeb049c6ed71f8aff", size = 31754959, upload-time = "2026-01-09T20:18:14.718Z" },
-]
-
-[[package]]
 name = "build"
 version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -609,7 +594,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "albumentations" },
-    { name = "av" },
     { name = "click" },
     { name = "cryptography" },
     { name = "datasets" },
@@ -656,7 +640,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "albumentations", specifier = "==1.4.18" },
-    { name = "av", specifier = "==16.1.0" },
     { name = "build", marker = "extra == 'dev'" },
     { name = "click", specifier = "==8.1.8" },
     { name = "cryptography", specifier = ">=46.0.7" },

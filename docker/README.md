@@ -18,23 +18,49 @@ From the repository root:
 bash docker/build.sh
 ```
 
-This builds from `nvidia/cuda:12.8.0-devel-ubuntu22.04`, installs all dependencies via `uv sync`, and sets up the GR00T codebase at `/workspace/`.
+This builds from `nvidia/cuda:12.8.0-devel-ubuntu22.04` and installs all dependencies into `/opt/gr00t-venv`. The image does not include a working source checkout; for normal use, start the image and then clone or pull the repo you want to run inside the container.
 
 ## Running the Container
 
-**Interactive shell (uses code baked into image):**
+**Recommended workflow: run the image, then clone or update the repo inside it.**
+
+Start an interactive shell:
+
 ```bash
 docker run -it --rm --gpus all \
     --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
     gr00t
 ```
 
-**Development mode (mounts local codebase for live editing):**
+Then, inside the container:
+
+```bash
+git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T /workspace/Isaac-GR00T
+cd /workspace/Isaac-GR00T
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+python -c "import gr00t; print('GR00T ready')"
+```
+
+The image venv is active by default (`/opt/gr00t-venv`; `/workspace/.venv` is a compatibility symlink), and uv is configured with `UV_PROJECT_ENVIRONMENT=/opt/gr00t-venv`. After setting `PYTHONPATH` to the checked-out repo, both `python ...` and `uv run ...` use the global image venv instead of creating a checkout-local `.venv`. If you are working on an existing checkout in the container, run `git pull --ff-only` from that checkout instead of cloning again.
+
+The global venv records the `uv.lock` hash it was built from. If your checked-out repo uses a different lockfile, create a checkout-local venv before running commands. Reusing a uv cache keeps this path from starting cold:
+
+```bash
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/workspace/uv-cache}"
+export UV_LINK_MODE=copy
+UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv sync
+source .venv/bin/activate
+```
+
+Do not run a bare `uv sync` unless you intend to update the global image venv. Use `UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv sync` when you want an isolated per-checkout environment.
+
+Avoid bind-mounting over `/workspace`, because that can hide the image's `/workspace/.venv` compatibility symlink. If you need to mount local source for live editing, mount it under a subdirectory:
+
 ```bash
 docker run -it --rm --gpus all \
     --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
-    -v $(pwd):/workspace \
-    gr00t bash -c "uv pip install -e . && bash"
+    -v "$(pwd):/workspace/Isaac-GR00T" \
+    gr00t bash -c 'cd /workspace/Isaac-GR00T && export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" && bash'
 ```
 
 ## Edge Device Containers

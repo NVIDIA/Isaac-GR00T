@@ -27,6 +27,7 @@ from gr00t.data.types import ModalityConfig
 from gr00t.policy.server_client import MsgSerializer, PolicyClient, PolicyServer
 import numpy as np
 import pytest
+import zmq
 
 
 class MockPolicy:
@@ -71,34 +72,28 @@ def _find_free_port():
 
 @pytest.fixture
 def server_client():
-    """Start a PolicyServer on a random port and yield a connected client."""
+    """Start a PolicyServer on a random port and yield a connected client.
+
+    Cleanup is delegated to ``PolicyServer.close()`` / ``PolicyClient.close()``
+    via context managers, which release the bound port and zmq fds even when
+    the test body raises.
+    """
     port = _find_free_port()
     policy = MockPolicy()
-    server = PolicyServer(policy, host="127.0.0.1", port=port)
+    with PolicyServer(policy, host="127.0.0.1", port=port) as server:
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        time.sleep(0.3)  # give ZMQ socket time to bind
 
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    time.sleep(0.3)  # give ZMQ socket time to bind
-
-    client = PolicyClient(host="127.0.0.1", port=port, timeout_ms=5000)
-    yield client, server, policy
-
-    # Cleanup: kill server, close sockets, terminate contexts
-    try:
-        client.kill_server()
-    except Exception:
-        server.running = False
-    thread.join(timeout=2)
-    try:
-        client.socket.close(linger=0)
-        client.context.term()
-    except Exception:
-        pass
-    try:
-        server.socket.close(linger=0)
-        server.context.term()
-    except Exception:
-        pass
+        with PolicyClient(host="127.0.0.1", port=port, timeout_ms=5000) as client:
+            try:
+                yield client, server, policy
+            finally:
+                try:
+                    client.kill_server()
+                except Exception:
+                    server.running = False
+                thread.join(timeout=2)
 
 
 @pytest.mark.timeout(30)
@@ -135,20 +130,16 @@ class TestPolicyServerClient:
         """Test that kill_server stops the server loop."""
         port = _find_free_port()
         policy = MockPolicy()
-        server = PolicyServer(policy, host="127.0.0.1", port=port)
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
-        time.sleep(0.3)
+        with PolicyServer(policy, host="127.0.0.1", port=port) as server:
+            thread = threading.Thread(target=server.run, daemon=True)
+            thread.start()
+            time.sleep(0.3)
 
-        client = PolicyClient(host="127.0.0.1", port=port, timeout_ms=5000)
-        assert client.ping()
-        client.kill_server()
-        thread.join(timeout=3)
-        assert not thread.is_alive(), "Server thread should have stopped"
-        client.socket.close(linger=0)
-        client.context.term()
-        server.socket.close(linger=0)
-        server.context.term()
+            with PolicyClient(host="127.0.0.1", port=port, timeout_ms=5000) as client:
+                assert client.ping()
+                client.kill_server()
+            thread.join(timeout=3)
+            assert not thread.is_alive(), "Server thread should have stopped"
 
     def test_unknown_endpoint_returns_error(self, server_client):
         client, _, _ = server_client
@@ -163,42 +154,36 @@ class TestPolicyServerAuth:
     def test_valid_token(self):
         port = _find_free_port()
         token = "test-secret-123"
-        server = PolicyServer(MockPolicy(), host="127.0.0.1", port=port, api_token=token)
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
-        time.sleep(0.3)
+        with PolicyServer(MockPolicy(), host="127.0.0.1", port=port, api_token=token) as server:
+            thread = threading.Thread(target=server.run, daemon=True)
+            thread.start()
+            time.sleep(0.3)
 
-        client = PolicyClient(host="127.0.0.1", port=port, timeout_ms=5000, api_token=token)
-        assert client.ping()
-        client.kill_server()
-        thread.join(timeout=3)
-        client.socket.close(linger=0)
-        client.context.term()
-        server.socket.close(linger=0)
-        server.context.term()
+            with PolicyClient(
+                host="127.0.0.1", port=port, timeout_ms=5000, api_token=token
+            ) as client:
+                assert client.ping()
+                client.kill_server()
+            thread.join(timeout=3)
 
     def test_invalid_token(self):
         port = _find_free_port()
-        server = PolicyServer(MockPolicy(), host="127.0.0.1", port=port, api_token="correct")
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
-        time.sleep(0.3)
+        with PolicyServer(MockPolicy(), host="127.0.0.1", port=port, api_token="correct") as server:
+            thread = threading.Thread(target=server.run, daemon=True)
+            thread.start()
+            time.sleep(0.3)
 
-        client = PolicyClient(host="127.0.0.1", port=port, timeout_ms=5000, api_token="wrong")
-        with pytest.raises(RuntimeError, match="Unauthorized"):
-            client.call_endpoint("ping", requires_input=False)
+            with PolicyClient(
+                host="127.0.0.1", port=port, timeout_ms=5000, api_token="wrong"
+            ) as client:
+                with pytest.raises(RuntimeError, match="Unauthorized"):
+                    client.call_endpoint("ping", requires_input=False)
 
-        # Clean up
-        valid_client = PolicyClient(
-            host="127.0.0.1", port=port, timeout_ms=5000, api_token="correct"
-        )
-        valid_client.kill_server()
-        thread.join(timeout=3)
-        for c in [client, valid_client]:
-            c.socket.close(linger=0)
-            c.context.term()
-        server.socket.close(linger=0)
-        server.context.term()
+                with PolicyClient(
+                    host="127.0.0.1", port=port, timeout_ms=5000, api_token="correct"
+                ) as valid_client:
+                    valid_client.kill_server()
+                thread.join(timeout=3)
 
 
 class TestMsgSerializer:
@@ -273,3 +258,130 @@ class TestMsgSerializer:
         malformed = mnp.packb({"__ModalityConfig__": True})
         with pytest.raises(ValueError, match="Malformed ModalityConfig payload"):
             MsgSerializer.from_bytes(malformed)
+
+
+def _can_bind(host: str, port: int) -> bool:
+    """Return True iff a fresh ZMQ REP socket can bind to ``tcp://host:port``.
+
+    Used to assert that ``PolicyServer.close()`` actually released the OS port
+    rather than just clearing internal state.
+    """
+    ctx = zmq.Context()
+    try:
+        sock = ctx.socket(zmq.REP)
+        try:
+            sock.bind(f"tcp://{host}:{port}")
+        except zmq.error.ZMQError:
+            return False
+        finally:
+            sock.close(linger=0)
+    finally:
+        ctx.term()
+    return True
+
+
+class TestPolicyServerLifecycle:
+    """Pin that ``PolicyServer.close()`` / ``__exit__`` actually release the OS port."""
+
+    def test_close_releases_bound_port(self):
+        port = _find_free_port()
+        server = PolicyServer(MockPolicy(), host="127.0.0.1", port=port)
+        try:
+            assert not _can_bind("127.0.0.1", port), "port must be held while server is alive"
+        finally:
+            server.close()
+        assert _can_bind("127.0.0.1", port), "port must be reusable after close()"
+
+    def test_close_is_idempotent(self):
+        port = _find_free_port()
+        server = PolicyServer(MockPolicy(), host="127.0.0.1", port=port)
+        server.close()
+        server.close()
+        server.close()
+        assert _can_bind("127.0.0.1", port)
+
+    def test_context_manager_releases_port_on_exit(self):
+        port = _find_free_port()
+        with PolicyServer(MockPolicy(), host="127.0.0.1", port=port):
+            assert not _can_bind("127.0.0.1", port)
+        assert _can_bind("127.0.0.1", port)
+
+    def test_context_manager_releases_port_when_body_raises(self):
+        port = _find_free_port()
+        with pytest.raises(RuntimeError, match="boom"):
+            with PolicyServer(MockPolicy(), host="127.0.0.1", port=port):
+                raise RuntimeError("boom")
+        assert _can_bind("127.0.0.1", port)
+
+    @pytest.mark.timeout(10)
+    def test_start_server_releases_port_after_run_returns(self):
+        """``start_server`` is the documented one-shot entry point. Without the
+        context-manager wrap its bound port leaks until interpreter exit, so a
+        second invocation in the same process hits ``Address already in use``.
+        """
+        port = _find_free_port()
+        thread = threading.Thread(
+            target=PolicyServer.start_server,
+            kwargs={"policy": MockPolicy(), "port": port, "host": "127.0.0.1"},
+            daemon=True,
+        )
+        thread.start()
+        time.sleep(0.3)  # let the bind settle
+
+        with PolicyClient(host="127.0.0.1", port=port, timeout_ms=5000) as client:
+            client.kill_server()
+        thread.join(timeout=3)
+        assert not thread.is_alive(), "start_server thread must exit after kill_server()"
+        assert _can_bind("127.0.0.1", port), "start_server must release the port on exit"
+
+
+class TestPolicyClientLifecycle:
+    """Pin that ``PolicyClient.__del__`` survives interpreter-shutdown attribute teardown."""
+
+    def test_close_is_idempotent(self):
+        client = PolicyClient(host="127.0.0.1", port=_find_free_port(), timeout_ms=100)
+        client.close()
+        client.close()
+        client.close()
+        assert client.socket.closed
+
+    def test_context_manager_closes_client(self):
+        with PolicyClient(host="127.0.0.1", port=_find_free_port(), timeout_ms=100) as client:
+            assert not client.socket.closed
+        assert client.socket.closed
+
+    def test_del_does_not_raise_when_socket_attribute_missing(self):
+        """Simulate interpreter teardown clearing ``self.socket`` before ``__del__``.
+
+        Closes the socket explicitly first so ``context.term()`` does not depend
+        on GC timing (CPython refcount vs PyPy / Jython tracing GC) to release
+        the socket before the term() call inside ``close()``.
+        """
+        client = PolicyClient(host="127.0.0.1", port=_find_free_port(), timeout_ms=100)
+        client.socket.close(linger=0)
+        del client.socket
+        client.__del__()  # must not raise
+
+    def test_del_does_not_raise_when_context_attribute_missing(self):
+        """Simulate interpreter teardown clearing ``self.context`` before ``__del__``."""
+        client = PolicyClient(host="127.0.0.1", port=_find_free_port(), timeout_ms=100)
+        client.socket.close(linger=0)  # close socket while we still have it
+        del client.context
+        client.__del__()  # must not raise
+
+    def test_del_does_not_raise_on_partially_initialized_client(self):
+        """``__init__`` raising mid-way still triggers ``__del__`` via GC; the
+        partially-constructed instance must not crash on cleanup."""
+        captured: dict[str, PolicyClient] = {}
+
+        class _FailingClient(PolicyClient):
+            def _init_socket(self) -> None:
+                # Capture self before the raise so the test owns the partially-
+                # constructed instance regardless of GC timing on this interpreter.
+                captured["instance"] = self
+                raise RuntimeError("simulated init failure")
+
+        with pytest.raises(RuntimeError, match="simulated init failure"):
+            _FailingClient(host="127.0.0.1", port=_find_free_port(), timeout_ms=100)
+
+        captured["instance"].__del__()  # must not raise

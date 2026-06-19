@@ -14,7 +14,6 @@
 # limitations under the License.
 
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -105,8 +104,6 @@ class ShardedSingleStepDataset(ShardedDataset):
         dataset_path: Path to LeRobot format dataset directory
         embodiment_tag: Embodiment identifier for cross-embodiment training
         modality_configs: Configuration for each modality (sampling, keys)
-        video_backend: Video decoding backend ('torchcodec', 'decord', etc.)
-        video_backend_kwargs: Additional arguments for video backend
         shard_size: Target number of timesteps per shard
         episode_sampling_rate: Fraction of episode timesteps to use (for efficiency)
         seed: Random seed for reproducible sharding and sampling
@@ -134,8 +131,6 @@ class ShardedSingleStepDataset(ShardedDataset):
         dataset_path: str | Path,
         embodiment_tag: EmbodimentTag,
         modality_configs: dict[str, ModalityConfig],
-        video_backend: str = "torchcodec",
-        video_backend_kwargs: dict[str, Any] | None = None,
         shard_size: int = 2**10,  # 1024 steps
         episode_sampling_rate: float = 0.1,
         seed: int = 42,
@@ -145,8 +140,6 @@ class ShardedSingleStepDataset(ShardedDataset):
         super().__init__(dataset_path)
         self.embodiment_tag = embodiment_tag
         self.modality_configs = modality_configs
-        self.video_backend = video_backend
-        self.video_backend_kwargs = video_backend_kwargs
         self.shard_size = shard_size
         self.episode_sampling_rate = episode_sampling_rate
         self.seed = seed
@@ -159,8 +152,6 @@ class ShardedSingleStepDataset(ShardedDataset):
         self.episode_loader = LeRobotEpisodeLoader(
             dataset_path=dataset_path,
             modality_configs=modality_configs,
-            video_backend=video_backend,
-            video_backend_kwargs=video_backend_kwargs,
         )
 
         # Create balanced shards from episode timesteps

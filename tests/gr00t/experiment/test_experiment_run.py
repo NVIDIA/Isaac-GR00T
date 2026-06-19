@@ -104,7 +104,6 @@ def test_experiment_run_single_gpu(tmp_path, monkeypatch):
                         "embodiment_tag": EMBODIMENT_TAG,
                     }
                 ],
-                "video_backend": "torchcodec",
                 "shard_size": 64,
                 "num_shards_per_epoch": 1,
                 "multiprocessing_context": "fork",

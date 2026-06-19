@@ -12,7 +12,6 @@ dependencies = [
     "albumentations==1.4.18",
     "huggingface-hub[cli]",
     "opencv-python-headless>=4.5,<4.13",
-    "av==16.1.0",
     "diffusers==0.35.1",
     "dm-tree",
     "lmdb==1.7.5",
@@ -52,6 +51,8 @@ dependencies = [
     # cu12 wheels only exist for x86_64; Blackwell / aarch64 requires cu13.
     "tensorrt-cu12>=10.15.1.29; platform_machine == 'x86_64'",
     "tensorrt-cu13>=10.15.1.29; platform_machine == 'aarch64'",
+    "tensorrt-cu12-libs>=10.15.1.29; platform_machine == 'x86_64'",
+    "tensorrt-cu13-libs>=10.15.1.29; platform_machine == 'aarch64'",
 ]
 
 [project.optional-dependencies]
@@ -59,10 +60,15 @@ dev = [
     "boto3",
     "ruff",
     "ipython",
+    "pip-licenses",
     "pytest",
+    "pytest-cov",
     "pytest-timeout",
+    "pytest-xdist",
     "build",
     "pre-commit",
+    # `tomllib` is 3.11+ stdlib; provide `tomli` for the 3.10 fallback.
+    "tomli; python_version < '3.11'",
 ]
 
 [tool.setuptools.packages.find]
@@ -93,6 +99,12 @@ flash-attn = [
 torchcodec = [
     { path = "scripts/deployment/dgpu/wheels/torchcodec-0.10.0a0-cp310-cp310-linux_aarch64.whl", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
 ]
+tensorrt-cu12-libs = [
+    { index = "nvidia-pypi", marker = "platform_machine == 'x86_64'" },
+]
+tensorrt-cu13-libs = [
+    { index = "nvidia-pypi", marker = "platform_machine == 'aarch64'" },
+]
 
 [tool.uv.extra-build-dependencies]
 flash-attn = ["torch==2.7.1", "numpy==1.26.4", "triton==3.3.1"]
@@ -102,6 +114,7 @@ pythonpath = [".", "tests"]
 addopts = "--import-mode=importlib"
 markers = [
     "gpu: tests that require a GPU",
+    "edge_device: tests that run on edge device runners (Orin, Thor, DGX Spark)",
     "multigpu: tests that require multiple GPUs and use all visible GPUs",
 ]
 # Include fixture setup/teardown in JUnit <testcase time="..."> so duration
