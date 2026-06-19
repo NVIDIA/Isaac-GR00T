@@ -11,7 +11,7 @@ dependencies = [
     "draccus",
     "matplotlib",
     "ipython",
-    "msgpack==1.1.0",
+    "msgpack==1.2.1",
     "msgpack-numpy==0.4.8",
     "zmq",
     "lerobot @ git+https://github.com/huggingface/lerobot.git@c75455a6de5c818fa1bb69fb2d92423e86c70475",
