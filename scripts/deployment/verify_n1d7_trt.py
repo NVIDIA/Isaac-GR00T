@@ -51,7 +51,7 @@ class VerifyConfig:
     """Directory with TRT engines."""
 
     mode: VerifyMode = VerifyMode.action_head
-    """TRT setup mode: 'vit_llm_only' uses ViT+LLM TRT with PyTorch action head."""
+    """TRT setup mode. 'dit_only' loads only the DiT engine; 'vit_llm_only' keeps the action head in PyTorch."""
 
     embodiment_tag: EmbodimentTag = EmbodimentTag.LIBERO_PANDA
     """Embodiment tag to use."""
@@ -85,7 +85,7 @@ def main(args: VerifyConfig | None = None):
         args = tyro.cli(VerifyConfig)
 
     print("=" * 60)
-    print("N1.7 TRT Action Head Verification")
+    print("N1.7 TRT Verification")
     print("=" * 60)
 
     resolve_batch_size(args.engine_dir, args.batch_size, source="verify_n1d7_trt")

@@ -160,7 +160,7 @@ dump.rdb
 # Docker
 # Note: docker/.dockerignore is tracked — it controls the Docker build context
 
-# SysID / robotics experiment data
+/examples/GR00TWholeBodyControl/media/
 sysid_data/
 isaac_data/
 offline_open_loop_eval_plots/
