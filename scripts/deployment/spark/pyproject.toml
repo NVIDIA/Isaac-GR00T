@@ -16,7 +16,7 @@ dependencies = [
     "huggingface-hub[cli]",
     "jsonlines==4.0.0",
     "lmdb==1.7.5",
-    "msgpack==1.1.0",
+    "msgpack==1.2.1",
     "msgpack-numpy==0.4.8",
     "opencv-python-headless>=4.5,<4.13",
     "pandas==2.2.3",
