@@ -65,6 +65,7 @@ logger = logging.getLogger(__name__)
 _deploy_dir = os.path.dirname(os.path.abspath(__file__))
 if _deploy_dir not in sys.path:
     sys.path.insert(0, _deploy_dir)
+from _trt_contract import assert_engine_matches_policy  # noqa: E402
 from trt_torch import Engine  # noqa: E402
 
 
@@ -588,6 +589,8 @@ def setup_tensorrt_engines(policy, trt_engine_path, mode="n17_full_pipeline"):
               'vit_llm_only' (ViT TRT + LLM TRT, Action Head in PyTorch),
               'action_head' (Action Head TRT only), or 'dit_only'
     """
+    assert_engine_matches_policy(policy, trt_engine_path, source=f"setup_tensorrt_engines({mode})")
+
     if mode == "n17_full_pipeline":
         _setup_n17_full_pipeline(policy, trt_engine_path)
     elif mode == "vit_llm_only":

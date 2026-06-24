@@ -29,6 +29,7 @@ import tyro
 # Make sibling imports work
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from _trt_contract import resolve_batch_size
 from export_onnx_n1d7 import prepare_observation
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.embodiment_tags import EmbodimentTag
@@ -86,6 +87,8 @@ def main(args: VerifyConfig | None = None):
     print("=" * 60)
     print("N1.7 TRT Action Head Verification")
     print("=" * 60)
+
+    resolve_batch_size(args.engine_dir, args.batch_size, source="verify_n1d7_trt")
 
     # Step 1: Load policy and get PyTorch reference output
     print("\n[1] Loading policy...")

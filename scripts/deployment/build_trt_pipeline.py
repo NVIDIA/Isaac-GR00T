@@ -50,6 +50,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import shutil
 import sys
 import time
 import traceback
@@ -320,6 +321,20 @@ def _run_build(
         build_main(build_cfg, trt_severity=trt_severity)
 
 
+def _copy_export_metadata(onnx_dir: str, engine_dir: str) -> None:
+    """Copy ``export_metadata.json`` next to the built engines.
+
+    The runtime (``setup_tensorrt_engines`` / ``verify_n1d7_trt`` /
+    ``benchmark_inference``) reads back ``action_horizon`` / ``batch_size`` from
+    this file to validate against the loaded policy and the requested
+    ``--batch-size``, so the engine bundle must carry its own copy to be
+    self-describing. A missing source file is a no-op (older export layouts).
+    """
+    src = os.path.join(onnx_dir, "export_metadata.json")
+    if os.path.exists(src):
+        shutil.copy2(src, os.path.join(engine_dir, "export_metadata.json"))
+
+
 def _run_verify(cfg: PipelineConfig, engine_dir: str, embodiment_tag, log_fp) -> float:
     from verify_n1d7_trt import VerifyConfig, main as verify_main
 
@@ -457,6 +472,7 @@ def main(cfg: PipelineConfig | None = None) -> None:
                     _print_header(i, total, "Building TensorRT engines...")
                     t0 = time.time()
                     _run_build(cfg, onnx_dir, engine_dir, log_fp)
+                    _copy_export_metadata(onnx_dir, engine_dir)
                     elapsed = time.time() - t0
                     n = _count_files(engine_dir, ".engine")
                     _print_result(

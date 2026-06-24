@@ -12,6 +12,7 @@ GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"
 SHARD_SIZE="${SHARD_SIZE:-1024}"
 NUM_SHARDS_PER_EPOCH="${NUM_SHARDS_PER_EPOCH:-100000}"
 EPISODE_SAMPLING_RATE="${EPISODE_SAMPLING_RATE:-0.1}"
+DS_WEIGHTS_ALPHA="${DS_WEIGHTS_ALPHA:-}"
 
 BASE_MODEL_PATH=""
 DATASET_PATH=""
@@ -21,6 +22,10 @@ OUTPUT_DIR=""
 EXPERIMENT_NAME=""
 WANDB_PROJECT=""
 STATE_DROPOUT_PROB=""
+COLOR_JITTER_PARAMS="${COLOR_JITTER_PARAMS:-brightness 0.3 contrast 0.4 saturation 0.5 hue 0.08}"
+USE_PERCENTILES=""
+SHORTEST_IMAGE_EDGE=""
+CROP_FRACTION=""
 EXTRA_ARGS=()
 
 usage() {
@@ -32,6 +37,11 @@ Usage: bash examples/finetune.sh \
   --output-dir <path> \
   [--modality-config-path <path>] \
   [--state-dropout-prob <value>] \
+  [--color-jitter-params "brightness 0.3 contrast 0.4 saturation 0.5 hue 0.08"] \
+  [--use-percentiles <true|false>] \
+  [--shortest-image-edge <pixels>] \
+  [--crop-fraction <fraction>] \
+  [--ds-weights-alpha <value>] \
   [--save-only-model] \
   [--resume-from-checkpoint] \
   [-- <extra launch_finetune.py args>...]
@@ -70,6 +80,26 @@ while [ "$#" -gt 0 ]; do
             ;;
         --state-dropout-prob)
             STATE_DROPOUT_PROB="$2"
+            shift 2
+            ;;
+        --color-jitter-params)
+            COLOR_JITTER_PARAMS="$2"
+            shift 2
+            ;;
+        --use-percentiles)
+            USE_PERCENTILES="$2"
+            shift 2
+            ;;
+        --shortest-image-edge)
+            SHORTEST_IMAGE_EDGE="$2"
+            shift 2
+            ;;
+        --crop-fraction)
+            CROP_FRACTION="$2"
+            shift 2
+            ;;
+        --ds-weights-alpha)
+            DS_WEIGHTS_ALPHA="$2"
             shift 2
             ;;
         --save-only-model)
@@ -125,7 +155,6 @@ LAUNCH_CMD=(
     --learning_rate 1e-4
     "${WANDB_FLAG[@]}"
     --global_batch_size "$GLOBAL_BATCH_SIZE"
-    --color_jitter_params brightness 0.3 contrast 0.4 saturation 0.5 hue 0.08
     --dataloader_num_workers "$DATALOADER_NUM_WORKERS"
     --shard_size "$SHARD_SIZE"
     --num_shards_per_epoch "$NUM_SHARDS_PER_EPOCH"
@@ -144,6 +173,34 @@ fi
 
 if [ -n "$STATE_DROPOUT_PROB" ]; then
     LAUNCH_CMD+=(--state_dropout_prob "$STATE_DROPOUT_PROB")
+fi
+if [ -n "$COLOR_JITTER_PARAMS" ]; then
+    read -r -a COLOR_JITTER_ARGS <<< "$COLOR_JITTER_PARAMS"
+    LAUNCH_CMD+=(--color_jitter_params "${COLOR_JITTER_ARGS[@]}")
+fi
+if [ -n "$USE_PERCENTILES" ]; then
+    USE_PERCENTILES_NORMALIZED="$(printf '%s' "$USE_PERCENTILES" | tr '[:upper:]' '[:lower:]')"
+    case "$USE_PERCENTILES_NORMALIZED" in
+        1|true|yes|on)
+            LAUNCH_CMD+=(--use-percentiles)
+            ;;
+        0|false|no|off)
+            LAUNCH_CMD+=(--no-use-percentiles)
+            ;;
+        *)
+            echo "Invalid --use-percentiles value: $USE_PERCENTILES" >&2
+            exit 1
+            ;;
+    esac
+fi
+if [ -n "$SHORTEST_IMAGE_EDGE" ]; then
+    LAUNCH_CMD+=(--shortest-image-edge "$SHORTEST_IMAGE_EDGE")
+fi
+if [ -n "$CROP_FRACTION" ]; then
+    LAUNCH_CMD+=(--crop-fraction "$CROP_FRACTION")
+fi
+if [ -n "$DS_WEIGHTS_ALPHA" ]; then
+    LAUNCH_CMD+=(--ds_weights_alpha "$DS_WEIGHTS_ALPHA")
 fi
 if [ -n "${SAVE_ONLY_MODEL:-}" ]; then
     LAUNCH_CMD+=(--save_only_model)

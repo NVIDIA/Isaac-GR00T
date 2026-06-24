@@ -58,6 +58,15 @@ def _rec_to_dtype(x: Any, dtype: torch.dtype) -> Any:
         return x
 
 
+def _sim_language_batch_to_sequence(value: Any) -> Any:
+    """Normalize sim language batches while preserving validation semantics."""
+    if isinstance(value, np.ndarray):
+        return value.reshape(-1).tolist()
+    if isinstance(value, str):
+        return [value]
+    return value
+
+
 class Gr00tPolicy(BasePolicy):
     """Core policy class for Gr00t model inference.
 
@@ -612,12 +621,14 @@ class Gr00tSimPolicyWrapper(PolicyWrapper):
             )
 
             # In Gr00t sim format, language is a tuple of strings (B,)
-            batched_language: tuple[str] | list[str] = observation[language_key]  # (B,)
+            batched_language = _sim_language_batch_to_sequence(observation[language_key])
 
             # Verify outer structure is a tuple (batch dimension)
             assert isinstance(batched_language, (tuple, list)), (
-                f"Language key '{language_key}' must be a tuple or list. Got {type(batched_language)}"
+                f"Language key '{language_key}' must be a tuple, list, or numpy array. "
+                f"Got {type(observation[language_key])}"
             )
+            assert batched_language, f"Language key '{language_key}' must not be empty"
 
             # Verify each batch item is a string
             assert isinstance(batched_language[0], str), (
@@ -667,6 +678,7 @@ class Gr00tSimPolicyWrapper(PolicyWrapper):
 
                 # Transform to nested format
                 if modality == "language":
+                    arr = _sim_language_batch_to_sequence(arr)
                     # Convert from tuple[str] or list[str] (B,) to list[list[str]] (B, 1)
                     # Each element becomes a list with one string for temporal dimension
                     new_obs[modality][key] = [[str(item)] for item in arr]

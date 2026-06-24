@@ -72,6 +72,7 @@ class VideoRecordingWrapper(gym.Wrapper):
         self.step_count = 0
 
         self.is_success = False
+        self.is_episode_finished = False
 
         # Caption buffer height is cached on the first overlay frame of each
         # episode so that every frame in the encoded stream has the same total
@@ -348,7 +349,12 @@ class VideoRecordingWrapper(gym.Wrapper):
             #     new_filestem += f"_{case_semantic}_clf-rate{int(contact_language_following_rate)}"
 
             new_file_path = self.video_dir / f"{new_filestem}.mp4"
-            if previous_step_count >= self.max_episode_steps or self.is_success:
+            should_keep_video = (
+                self.is_episode_finished
+                or previous_step_count >= self.max_episode_steps
+                or self.is_success
+            )
+            if should_keep_video:
                 os.rename(self.file_path, new_file_path)
             else:
                 print(
@@ -357,6 +363,7 @@ class VideoRecordingWrapper(gym.Wrapper):
                 os.remove(self.file_path)
 
         self.is_success = False
+        self.is_episode_finished = False
         # "intermediate_signals" contain the metrics for 5DC tasks to indicate language following
         self.intermediate_signals = {}
 
@@ -367,6 +374,7 @@ class VideoRecordingWrapper(gym.Wrapper):
     def step(self, action):
         result = super().step(action)
         self.step_count += 1
+        self.is_episode_finished = bool(result[2] or result[3])
         if self.file_path is not None and ((self.step_count % self.steps_per_render) == 0):
             # frame = self.env.render()
             obs = result[0]

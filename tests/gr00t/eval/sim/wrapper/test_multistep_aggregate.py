@@ -22,6 +22,7 @@ first ``step()``) with both the bad input and the allowed set named.
 
 from __future__ import annotations
 
+from gr00t.eval._horizon_contract import PolicyHorizonSpec
 import numpy as np
 import pytest
 
@@ -104,11 +105,17 @@ def _build_dummy_env_kwargs(mod):
         observation_space = gym.spaces.Dict()
 
     env = _StubEnv()
+    # Horizon parameters now come from a policy-resolved contract; a
+    # vision-only, single-step contract is the minimal stand-in.
+    contract = PolicyHorizonSpec(
+        n_action_steps=1,
+        action_horizon=1,
+        video_delta_indices=(0,),
+        state_delta_indices=None,
+    )
     return dict(
         env=env,
-        video_delta_indices=np.array([0]),
-        state_delta_indices=None,
-        n_action_steps=1,
+        contract=contract,
         max_episode_steps=10,
     )
 
@@ -140,3 +147,51 @@ def test_multistep_wrapper_init_accepts_each_allowed_method(method):
 
     wrapper = mod.MultiStepWrapper(reward_agg_method=method, **kwargs)
     assert wrapper.reward_agg_method == method
+
+
+# ---------------------------------------------------------------------------
+# MultiStepWrapper.step() reports inner env-steps via info["n_env_steps"]
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("done_after, expected", [(None, 5), (2, 2)])
+def test_step_reports_inner_env_step_count(done_after, expected):
+    """``step()`` reports the inner env-steps actually taken in
+    ``info["n_env_steps"]``: the full chunk, or fewer when ``done`` fires
+    mid-chunk."""
+    mod = _import_module()
+    try:
+        import gymnasium as gym  # type: ignore[import-not-found]
+    except Exception as e:
+        pytest.skip(f"gymnasium not importable: {e}")
+
+    class _StubEnv(gym.Env):
+        action_space = gym.spaces.Box(-1.0, 1.0, (1,), np.float32)
+        observation_space = gym.spaces.Dict()
+        _t = 0
+
+        def reset(self, *, seed=None, options=None):
+            self._t = 0
+            return {}, {}
+
+        def step(self, action):
+            self._t += 1
+            return {}, 1.0, done_after is not None and self._t >= done_after, False, {}
+
+    # Horizon parameters now come from a policy-resolved contract (post-#25/#26/#34);
+    # a vision-only 5-step contract mirrors _build_dummy_env_kwargs above. n_env_steps
+    # is independent of the horizon shape, so a single-frame video window suffices.
+    contract = PolicyHorizonSpec(
+        n_action_steps=5,
+        action_horizon=5,
+        video_delta_indices=(0,),
+        state_delta_indices=None,
+    )
+    wrapper = mod.MultiStepWrapper(
+        env=_StubEnv(),
+        contract=contract,
+        max_episode_steps=100,
+    )
+    wrapper.reset()
+    _, _, _, _, info = wrapper.step({"action": np.zeros((5, 1), np.float32)})
+    assert info["n_env_steps"] == expected

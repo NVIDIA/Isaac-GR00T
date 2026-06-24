@@ -167,9 +167,26 @@ def main(args: Args):
     video_keys = modality_config["video"].modality_keys
     state_keys = modality_config["state"].modality_keys
     state_T = len(modality_config["state"].delta_indices)
+    # Action chunk size is dictated by the policy (server) side. open_loop_horizon
+    # is the only locally-authored horizon; it is a deliberate receding-horizon
+    # choice and MAY be < the chunk, but it must never exceed it, otherwise
+    # `pred_action_chunk[actions_from_chunk_completed]` indexes past the
+    # predicted chunk and IndexErrors mid-rollout. Source the chunk size from
+    # the policy and validate the contract up-front instead of crashing deep in
+    # the loop.
+    action_chunk_size = len(modality_config["action"].delta_indices)
+    if not (1 <= args.open_loop_horizon <= action_chunk_size):
+        raise ValueError(
+            f"open_loop_horizon={args.open_loop_horizon} must satisfy "
+            f"1 <= open_loop_horizon <= action_chunk_size={action_chunk_size} "
+            "(= len(policy.action.delta_indices)). A larger value would index "
+            "past the predicted action chunk and IndexError mid-rollout."
+        )
     print(
         f"Model config — video T={video_T} (delta={video_delta}), "
-        f"state T={state_T}, keys: video={video_keys}, state={state_keys}"
+        f"state T={state_T}, action chunk={action_chunk_size}, "
+        f"open_loop_horizon={args.open_loop_horizon}, "
+        f"keys: video={video_keys}, state={state_keys}"
     )
 
     df = pd.DataFrame(columns=["success", "duration", "video_filename"])

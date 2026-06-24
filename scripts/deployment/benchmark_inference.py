@@ -70,6 +70,7 @@ import tyro
 _DEPLOY_DIR = os.path.dirname(os.path.abspath(__file__))
 if _DEPLOY_DIR not in sys.path:
     sys.path.insert(0, _DEPLOY_DIR)
+from _trt_contract import resolve_batch_size  # noqa: E402
 
 
 def set_seed(seed: int = 42):
@@ -415,6 +416,9 @@ def main(args: BenchmarkConfig | None = None):
     action_horizon = policy.model.action_head.action_horizon
     print(f"Action Horizon: {action_horizon}")
     print(f"Denoising Steps: {denoising_steps}")
+
+    if args.trt_engine_path:
+        resolve_batch_size(args.trt_engine_path, args.batch_size, source="benchmark_inference")
 
     modality_config = policy.get_modality_config()
     dataset = LeRobotEpisodeLoader(

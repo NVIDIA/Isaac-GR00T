@@ -75,6 +75,15 @@ class DatasetFactory:
                 all_datasets.append(dataset)
                 all_weights.append(weight)
 
+        alpha = self.config.data.ds_weights_alpha
+        if alpha is not None and len(all_datasets) > 1:
+            ds_lengths = np.array([len(dataset) for dataset in all_datasets], dtype=np.float64)
+            all_weights = (np.power(ds_lengths, alpha) / np.power(ds_lengths[0], alpha)).tolist()
+            print(
+                f"Applied ds_weights_alpha={alpha} across {len(all_datasets)} datasets; "
+                "this overrides per-dataset mix_ratio sampling weights."
+            )
+
         return (
             ShardedMixtureDataset(
                 datasets=all_datasets,

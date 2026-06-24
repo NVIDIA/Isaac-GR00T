@@ -25,6 +25,7 @@ import time
 
 from gr00t.data.types import ModalityConfig
 from gr00t.policy.server_client import MsgSerializer, PolicyClient, PolicyServer
+import msgpack
 import numpy as np
 import pytest
 import zmq
@@ -198,11 +199,48 @@ class TestMsgSerializer:
         result = MsgSerializer.from_bytes(MsgSerializer.to_bytes(arr))
         np.testing.assert_array_equal(result, arr)
 
+    def test_encode_numpy_payload_is_legacy_msgpack_numpy_compatible(self):
+        import msgpack_numpy as mnp
+
+        arr = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result = mnp.unpackb(MsgSerializer.to_bytes(arr), raw=False)
+        np.testing.assert_array_equal(result, arr)
+
+    def test_decode_npy_numpy_payload(self):
+        import io
+
+        arr = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        payload = io.BytesIO()
+        np.save(payload, arr, allow_pickle=False)
+
+        result = MsgSerializer.from_bytes(
+            msgpack.packb({"__ndarray_class__": True, "as_npy": payload.getvalue()})
+        )
+
+        np.testing.assert_array_equal(result, arr)
+
     def test_roundtrip_modality_config(self):
         config = ModalityConfig(delta_indices=[0, 1], modality_keys=["x", "y"])
         result = MsgSerializer.from_bytes(MsgSerializer.to_bytes(config))
         assert isinstance(result, ModalityConfig)
         assert result.modality_keys == ["x", "y"]
+
+    def test_encode_modality_config_uses_legacy_marker(self):
+        config = ModalityConfig(delta_indices=[0, 1], modality_keys=["x", "y"])
+        payload = msgpack.unpackb(MsgSerializer.to_bytes(config), raw=False)
+        assert payload["__ModalityConfig__"] is True
+        assert "__ModalityConfig_class__" not in payload
+        assert payload["as_json"]["modality_keys"] == ["x", "y"]
+
+    def test_decode_modality_config_class_marker(self):
+        config = ModalityConfig(delta_indices=[0, 1], modality_keys=["x", "y"])
+        payload = {
+            "__ModalityConfig_class__": True,
+            "as_json": '{"delta_indices": [0, 1], "modality_keys": ["x", "y"]}',
+        }
+        result = MsgSerializer.from_bytes(msgpack.packb(payload))
+        assert isinstance(result, ModalityConfig)
+        assert result.modality_keys == config.modality_keys
 
     def test_encode_rejects_object_dtype_ndarray(self):
         # Object-dtype ndarrays would be pickled by msgpack_numpy. The

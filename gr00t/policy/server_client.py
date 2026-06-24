@@ -15,6 +15,8 @@
 
 from dataclasses import dataclass
 import functools
+import io
+import json
 from typing import Any, Callable
 
 import msgpack
@@ -60,16 +62,27 @@ class MsgSerializer:
         # ``{nd: True, kind: 'O', data: pickle.dumps(arr)}`` envelope, which
         # silently re-enables the arbitrary-code surface that the previous
         # ``np.save(..., allow_pickle=False)`` path explicitly forbade.
-        if isinstance(obj, np.ndarray) and obj.dtype.kind == "O":
-            raise TypeError(
-                f"Refusing to encode object-dtype ndarray (shape={obj.shape}); "
-                f"msgpack_numpy would invoke pickle. Convert to a concrete "
-                f"numeric dtype before sending."
-            )
+        if isinstance(obj, np.ndarray):
+            if obj.dtype.kind == "O":
+                raise TypeError(
+                    f"Refusing to encode object-dtype ndarray (shape={obj.shape}); "
+                    f"msgpack_numpy would invoke pickle. Convert to a concrete "
+                    f"numeric dtype before sending."
+                )
         return mnp.encode(obj, chain=chain)
 
     @staticmethod
     def _safe_decode(obj, chain=None):
+        if isinstance(obj, dict):
+            marker = obj.get("__ndarray_class__", obj.get(b"__ndarray_class__"))
+            if marker:
+                payload = obj.get("as_npy", obj.get(b"as_npy"))
+                if payload is None:
+                    raise ValueError(
+                        "Malformed ndarray payload: marker present but 'as_npy' missing"
+                    )
+                return np.load(io.BytesIO(payload), allow_pickle=False)
+
         # Refuse object-dtype ndarray payloads before mnp.decode would call
         # ``pickle.loads`` on attacker-controlled bytes. Check both bytes- and
         # str-encoded keys, and accept any truthy ``nd`` value (not just
@@ -101,14 +114,25 @@ class MsgSerializer:
             return obj
         # If the ModalityConfig marker is present but 'as_json' is missing,
         # raise instead of returning a half-broken dict.
-        if "__ModalityConfig__" in obj or b"__ModalityConfig__" in obj:
+        has_modality_marker = (
+            "__ModalityConfig__" in obj
+            or b"__ModalityConfig__" in obj
+            or "__ModalityConfig_class__" in obj
+            or b"__ModalityConfig_class__" in obj
+        )
+        if has_modality_marker:
             key = next((k for k in ("as_json", b"as_json") if k in obj), None)
             if key is None:
                 raise ValueError(
                     f"Malformed ModalityConfig payload: marker present but "
                     f"'as_json' missing. keys={sorted(repr(k) for k in obj.keys())}"
                 )
-            return ModalityConfig(**obj[key])
+            payload = obj[key]
+            if isinstance(payload, bytes):
+                payload = payload.decode()
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            return ModalityConfig(**payload)
         return obj
 
 

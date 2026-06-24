@@ -532,7 +532,7 @@ def hf_hub_download_cmd(repo_id: str, filename: str, local_dir: str) -> list[str
 # Compute-only data-center GPUs (A100, H100, H200, B200, V100, etc.) do not.
 _RT_CORE_GPU_PATTERNS = (
     r"\brtx\b",  # RTX 20xx/30xx/40xx/50xx, Quadro RTX, RTX Ax000
-    r"\bl40\b",  # L40 / L40S
+    r"\bl40s?\b",  # L40 / L40S
     r"\bl4\b",  # L4
 )
 

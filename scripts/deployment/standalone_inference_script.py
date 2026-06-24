@@ -26,6 +26,7 @@ import time
 from typing import Any, Literal
 import warnings
 
+from _trt_contract import assert_exec_horizon_within_model
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
@@ -706,6 +707,13 @@ def main(args: ArgsConfig):
     # Get the supported modalities for the policy
     modality = policy.get_modality_config()
     logging.info(f"Current modality config: \n{modality}")
+
+    model_action_horizon = len(modality["action"].delta_indices)
+    assert_exec_horizon_within_model(
+        exec_horizon=args.action_horizon,
+        model_action_horizon=model_action_horizon,
+        source="standalone_inference_script",
+    )
 
     # Dataset creation
     logging.info("\n" + "=" * 80)
