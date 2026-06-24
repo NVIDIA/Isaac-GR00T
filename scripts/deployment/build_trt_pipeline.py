@@ -86,7 +86,7 @@ VALID_STEPS = tuple(Step)
 _MODE_MAP = {
     "full_pipeline": ("full_pipeline", "n17_full_pipeline", "n17_full_pipeline"),
     "action_head": ("full_pipeline", "action_head", "dit_only"),
-    "dit_only": ("single", "action_head", "dit_only"),
+    "dit_only": ("single", "dit_only", "dit_only"),
 }
 
 

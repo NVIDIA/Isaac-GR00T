@@ -85,6 +85,14 @@ the same set of engines.
 
 Lightweight ops remain in PyTorch: `embed_tokens`, `masked_scatter`, `get_rope_index`, VLLN.
 
+### TRT Export Modes
+
+| Export mode | TRT components | PyTorch components | Typical use |
+|-------------|----------------|--------------------|-------------|
+| `dit_only` | DiT only | Backbone, state encoder, action encoder, action decoder | Legacy path and Orin |
+| `action_head` | State encoder, action encoder, DiT, action decoder | Backbone | Isolate action-head TRT accuracy/performance |
+| `full_pipeline` | Backbone and action head | Lightweight glue ops listed above | Recommended fast path on dGPU, Thor, and Spark |
+
 <details>
 <summary>DiT-only mode (legacy from N1.6)</summary>
 
@@ -107,6 +115,8 @@ uv run python scripts/deployment/build_trt_pipeline.py \
 > **Note:** Engine build takes ~2-5 minutes depending on GPU. Engines are GPU-architecture-specific and must be rebuilt for different GPUs.
 
 > **Batch size:** The `--batch-size` value is baked as a **static** dimension into the ONNX and TRT models. Engines built with one batch size cannot be used with a different batch size at runtime. If you need a different batch size, re-run the full pipeline (`--steps export,build,verify`) with the new `--batch-size` value.
+
+> **ONNX exporter:** The N1.7 TRT export path uses PyTorch's legacy ONNX exporter explicitly (`dynamo=False`) for all components. Keep this explicit in custom export code as well: the dynamo exporter can specialize dynamic sequence dimensions such as `vl_seq_len`, which breaks TensorRT runtime flexibility for different token lengths.
 
 You can also run a subset of steps:
 
@@ -482,13 +492,13 @@ and `torch.compile` need on Orin.
 
 > **Orin storage tip:** If your eMMC root is low on space, redirect the HuggingFace cache to an NVMe SSD with `export HF_HOME=/path/to/ssd/.cache/huggingface` before downloading models.
 
-> **Orin TRT limitations:** TRT 10.3 on Orin does not support the backbone (LLM) engine — the build step will report a failure for `llm_bf16.engine` and that is expected. The remaining 6 engines build successfully. Use `--export-mode action_head` for verification and `--inference-mode tensorrt` (DiT-only TRT, backbone runs in PyTorch) for inference:
+> **Orin TRT limitations:** TRT 10.3 on Orin does not support the backbone (LLM) engine. Use `--export-mode dit_only` for the unified pipeline and `--inference-mode tensorrt` (DiT-only TRT, backbone runs in PyTorch) for inference:
 > ```bash
 > python scripts/deployment/build_trt_pipeline.py \
 >   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
 >   --dataset-path demo_data/libero_demo \
->   --export-mode action_head \
->   --steps verify
+>   --embodiment-tag LIBERO_PANDA \
+>   --export-mode dit_only
 >
 > python scripts/deployment/standalone_inference_script.py \
 >   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
@@ -496,7 +506,7 @@ and `torch.compile` need on Orin.
 >   --embodiment-tag LIBERO_PANDA \
 >   --traj-ids 0 \
 >   --inference-mode tensorrt \
->   --trt-engine-path ./gr00t_n1d7_engines
+>   --trt-engine-path ./gr00t_trt_deployment/engines
 > ```
 
 ---

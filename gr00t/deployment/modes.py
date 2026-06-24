@@ -69,6 +69,7 @@ class ExportMode(_StrEnum):
 class VerifyMode(_StrEnum):
     """Allowed values for ``verify_n1d7_trt`` ``--mode``."""
 
+    dit_only = enum.auto()
     action_head = enum.auto()
     n17_full_pipeline = enum.auto()
     vit_llm_only = enum.auto()
