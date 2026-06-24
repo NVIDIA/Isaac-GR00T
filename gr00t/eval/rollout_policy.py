@@ -24,6 +24,7 @@ from typing import Any
 import uuid
 
 from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.eval._horizon_contract import PolicyHorizonSpec
 from gr00t.eval.sim.env_utils import get_embodiment_tag_from_env_name
 from gr00t.eval.sim.wrapper.multistep_wrapper import MultiStepWrapper
 from gr00t.policy import BasePolicy
@@ -67,7 +68,6 @@ class VideoConfig:
     fps: int = 20
     codec: str = "h264"
     overlay_text: bool = True
-    n_action_steps: int = 8
     record_video_keys: tuple[str, ...] | None = None
 
 
@@ -76,15 +76,13 @@ class MultiStepConfig:
     """Configuration for multi-step environment settings.
 
     Attributes:
-        video_delta_indices: Indices of video observations to stack
-        state_delta_indices: Indices of state observations to stack
-        n_action_steps: Number of action steps to execute
-        max_episode_steps: Maximum number of steps per episode
+        contract: policy-resolved :class:`PolicyHorizonSpec` carrying
+            ``n_action_steps`` and the video / state delta-indices.
+        max_episode_steps: Maximum number of steps per episode.
+        terminate_on_success: End the episode once the task is reported solved.
     """
 
-    video_delta_indices: np.ndarray = field(default_factory=lambda: np.array([0]))
-    state_delta_indices: np.ndarray = field(default_factory=lambda: np.array([0]))
-    n_action_steps: int = 16
+    contract: PolicyHorizonSpec
     max_episode_steps: int = 720
     terminate_on_success: bool = False
 
@@ -94,12 +92,13 @@ class WrapperConfigs:
     """Container for various environment wrapper configurations.
 
     Attributes:
-        video: Configuration for video recording
-        multistep: Configuration for multi-step processing
+        multistep: Configuration for multi-step processing (required; carries
+            the policy-resolved horizon contract).
+        video: Configuration for video recording.
     """
 
+    multistep: MultiStepConfig
     video: VideoConfig = field(default_factory=VideoConfig)
-    multistep: MultiStepConfig = field(default_factory=MultiStepConfig)
 
 
 def get_simpler_env_fn(
@@ -199,9 +198,7 @@ def create_eval_env(
 
     env = MultiStepWrapper(
         env,
-        video_delta_indices=wrapper_configs.multistep.video_delta_indices,
-        state_delta_indices=wrapper_configs.multistep.state_delta_indices,
-        n_action_steps=wrapper_configs.multistep.n_action_steps,
+        contract=wrapper_configs.multistep.contract,
         max_episode_steps=wrapper_configs.multistep.max_episode_steps,
         terminate_on_success=wrapper_configs.multistep.terminate_on_success,
     )
@@ -236,6 +233,32 @@ class _RobustAsyncVectorEnv(gym.vector.AsyncVectorEnv):
         return infos
 
 
+def _macro_step_env_steps(env_infos: dict, env_idx: int) -> int:
+    """Inner env-steps advanced by one macro-step for ``env_idx``.
+
+    ``MultiStepWrapper`` records the number of inner ``super().step()`` calls in
+    ``info["n_env_steps"]``. The vector env relocates that info depending on the
+    gymnasium version:
+
+    * gymnasium 0.29.1 (sim venvs) uses inline autoreset: a terminating step's
+      info is moved into ``final_info`` while the top-level info describes the
+      freshly reset env, which has **no** ``n_env_steps``.
+    * gymnasium >=1.0 keeps the terminating step's info at the top level.
+
+    ``final_info`` is therefore consulted first; otherwise the terminal
+    macro-step is silently counted as 0 env-steps and ``episode_length``
+    collapses to 0, tripping the zero-length-episode invariant downstream.
+    """
+    final_info = env_infos.get("final_info")
+    if final_info is not None and final_info[env_idx] is not None:
+        step_info = final_info[env_idx]
+        if "n_env_steps" in step_info:
+            return int(step_info["n_env_steps"])
+    if "n_env_steps" in env_infos:
+        return int(env_infos["n_env_steps"][env_idx])
+    return 0
+
+
 def run_rollout_gymnasium_policy(
     env_name: str,
     policy: BasePolicy,
@@ -257,7 +280,9 @@ def run_rollout_gymnasium_policy(
             with :func:`gr00t.utils.determinism.seed_everything` upstream to
             also constrain policy-side RNGs.
     Returns:
-        Collection results from running the episodes
+        ``(env_name, episode_successes, episode_infos)``. ``episode_lengths``
+        in ``episode_infos`` is in **env-steps** (inner ``super().step()``
+        calls), the same unit as ``MultiStepWrapper.max_episode_steps``.
     """
     start_time = time.time()
     n_episodes = max(n_episodes, n_envs)
@@ -343,7 +368,7 @@ def run_rollout_gymnasium_policy(
                     raise ValueError(f"Unknown success dtype: {type(env_success)}")
                 current_successes[env_idx] |= bool(env_success)
             current_rewards[env_idx] += rewards[env_idx]
-            current_lengths[env_idx] += 1
+            current_lengths[env_idx] += _macro_step_env_steps(env_infos, env_idx)
 
             # If episode ended, store results
             if terminations[env_idx] or truncations[env_idx]:
@@ -389,8 +414,7 @@ def run_rollout_gymnasium_policy(
         f"Expected at least {n_episodes} episodes, got {len(episode_successes)}"
     )
 
-    # `current_lengths[env_idx] += 1` runs before each termination check
-    # above, so any captured episode must have stepped at least once.
+    # Every captured episode ran >= 1 env-step, so episode_length >= 1.
     assert all(length >= 1 for length in episode_lengths), (
         f"Internal invariant violated: rollout produced zero-length episode(s) "
         f"in {episode_lengths!r}."
@@ -480,18 +504,6 @@ def run_gr00t_sim_policy(
             video_dir = f"/tmp/sim_eval_videos_{model_slug}_ac{n_action_steps}_{uuid.uuid4()}"
         else:
             video_dir = f"/tmp/sim_eval_videos_{env_name}_ac{n_action_steps}_{uuid.uuid4()}"
-    wrapper_configs = WrapperConfigs(
-        video=VideoConfig(
-            video_dir=video_dir,
-            max_episode_steps=max_episode_steps,
-        ),
-        multistep=MultiStepConfig(
-            n_action_steps=n_action_steps,
-            max_episode_steps=max_episode_steps,
-            terminate_on_success=True,
-        ),
-    )
-
     policy = create_gr00t_sim_policy(
         model_path,
         embodiment_tag,
@@ -499,6 +511,27 @@ def run_gr00t_sim_policy(
         policy_client_port,
         trt_engine_path=trt_engine_path,
         trt_mode=trt_mode,
+    )
+
+    # Resolve the horizon contract from the policy *before* building the
+    # wrapper config. The video / state delta-indices are sourced from the
+    # policy's modality config (no policy-independent defaults), and
+    # ``n_action_steps`` is the receding-horizon execution length validated
+    # against the policy's action horizon. A mismatch now raises here at
+    # construction instead of surfacing as an IndexError / cryptic
+    # check_observation assert deep inside the rollout loop.
+    contract = PolicyHorizonSpec.from_policy(policy, n_action_steps=n_action_steps)
+
+    wrapper_configs = WrapperConfigs(
+        multistep=MultiStepConfig(
+            contract=contract,
+            max_episode_steps=max_episode_steps,
+            terminate_on_success=True,
+        ),
+        video=VideoConfig(
+            video_dir=video_dir,
+            max_episode_steps=max_episode_steps,
+        ),
     )
 
     results = run_rollout_gymnasium_policy(
