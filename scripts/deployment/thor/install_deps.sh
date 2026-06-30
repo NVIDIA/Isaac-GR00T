@@ -1,5 +1,5 @@
 #!/bin/bash
-# install_deps.sh — One-time install of GR00T deps on Jetson AGX Thor (aarch64, Python 3.12)
+# install_deps.sh — One-time install of GR00T deps on Jetson AGX Thor (aarch64, Python 3.10+)
 # Used by both bare metal and scripts/deployment/thor/Dockerfile.
 # After install, use `source scripts/activate_thor.sh` in each new shell.
 set -euo pipefail
@@ -28,9 +28,12 @@ if [ "$ARCH" != "aarch64" ]; then
     exit 1
 fi
 
+python3 -c 'import sys; assert (3, 10) <= sys.version_info[:2] < (3, 15), (
+    f"Python 3.10–3.14 required, got {sys.version_info.major}.{sys.version_info.minor}"
+)'
 PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 if [ "$PYTHON_VERSION" != "3.12" ]; then
-    echo "WARNING: Expected Python 3.12 for Thor, detected Python $PYTHON_VERSION"
+    echo "NOTE: Thor CI targets Python 3.12; detected Python $PYTHON_VERSION"
 fi
 
 # The Thor-specific pyproject.toml and uv.lock are consumed in place from

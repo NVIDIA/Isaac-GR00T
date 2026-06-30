@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# DEPRECATED: GR00T N1.7 now pins PyTorch 2.12 + Triton 3.7 (CUDA 13 native).
+# Do not run this on current installs unless you are on a legacy PyTorch 2.7 stack.
+#
 # Patch Triton 3.3.1 to recognize CUDA major version 13+.
 # PyTorch 2.7 pins Triton to 3.3.1, which does not handle CUDA 13.x,
 # causing a RuntimeError in ptx_get_version(). This script:

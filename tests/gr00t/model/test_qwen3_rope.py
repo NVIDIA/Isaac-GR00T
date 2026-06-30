@@ -75,6 +75,14 @@ def _text_config(rope_scaling: dict | None = None, head_dim: int = 8) -> Qwen3VL
     )
 
 
+def _text_rope_theta(cfg: Qwen3VLTextConfig) -> float:
+    """Read RoPE theta across Transformers 4.x and 5.x config layouts."""
+    rope_parameters = getattr(cfg, "rope_parameters", None)
+    if rope_parameters is not None:
+        return float(rope_parameters["rope_theta"])
+    return float(cfg.rope_theta)
+
+
 def _vision_head_dim_half(cfg: Qwen3VLVisionConfig) -> int:
     return (cfg.hidden_size // cfg.num_heads) // 2
 
@@ -232,7 +240,7 @@ class TestTextRotaryInvFreq:
         assert fired, "corrupt text inv_freq must be repaired, not silently skipped"
         assert rotary.inv_freq.dtype == torch.float32
         assert torch.isfinite(rotary.inv_freq).all()
-        assert torch.equal(rotary.inv_freq, _oracle_inv_freq(cfg.head_dim, cfg.rope_theta))
+        assert torch.equal(rotary.inv_freq, _oracle_inv_freq(cfg.head_dim, _text_rope_theta(cfg)))
         assert scaling == pytest.approx(1.0)
 
     def test_repaired_after_meta_construction(self):
@@ -245,7 +253,7 @@ class TestTextRotaryInvFreq:
 
         assert inv_freq.device.type == "cpu"
         assert torch.isfinite(inv_freq).all()
-        assert torch.equal(inv_freq, _oracle_inv_freq(cfg.head_dim, cfg.rope_theta))
+        assert torch.equal(inv_freq, _oracle_inv_freq(cfg.head_dim, _text_rope_theta(cfg)))
 
 
 class TestBackboneRotaryReset:
@@ -267,7 +275,7 @@ class TestBackboneRotaryReset:
 
         assert torch.equal(vision_rotary.inv_freq, _oracle_inv_freq(dim, _VISION_THETA))
         assert torch.equal(
-            text_rotary.inv_freq, _oracle_inv_freq(txt_cfg.head_dim, txt_cfg.rope_theta)
+            text_rotary.inv_freq, _oracle_inv_freq(txt_cfg.head_dim, _text_rope_theta(txt_cfg))
         )
         # original_inv_freq (used by dynamic-RoPE updates) must track inv_freq.
         assert torch.equal(text_rotary.original_inv_freq, text_rotary.inv_freq)
@@ -317,7 +325,7 @@ class TestTextRotaryCosSinOracle:
         )[:, None, :]  # (3, bs=1, seq)
         cos, sin = rotary.forward(torch.zeros(1, seq, 1), position_ids)
 
-        inv_freq = _oracle_inv_freq(head_dim, cfg.rope_theta)
+        inv_freq = _oracle_inv_freq(head_dim, _text_rope_theta(cfg))
         exp_cos, exp_sin = _oracle_text_cos_sin(inv_freq, position_ids[:, 0, :], mrope_section)
 
         assert cos.shape == (1, seq, head_dim)
@@ -348,7 +356,7 @@ class TestTextRopeTypeBranches:
         _corrupt(rotary)
 
         inv_freq, scaling = recompute_text_rotary_inv_freq(rotary, cfg, torch.device("cpu"))
-        expected = _oracle_inv_freq(cfg.head_dim, cfg.rope_theta) / freq_divisor
+        expected = _oracle_inv_freq(cfg.head_dim, _text_rope_theta(cfg)) / freq_divisor
 
         assert torch.equal(inv_freq, expected)
         assert scaling == pytest.approx(1.0)
@@ -364,7 +372,7 @@ class TestVisionRotaryCosSin:
         rotary = backbone.model.visual.rotary_pos_emb
 
         seqlen = 7
-        freqs = rotary.forward(seqlen)
+        freqs = rotary.forward(torch.arange(seqlen, dtype=torch.float32))
         emb = torch.cat([freqs, freqs], dim=-1)
         cos, sin = emb.cos(), emb.sin()
 

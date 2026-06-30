@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import nullcontext
 import logging
 
 import torch
@@ -20,6 +21,25 @@ from transformers.feature_extraction_utils import BatchFeature
 
 
 logger = logging.getLogger(__name__)
+
+
+def _escape_meta_device_context():
+    """Return a context manager that neutralizes an active meta-device context.
+
+    transformers >= 5.10 builds the outer model under ``torch.device("meta")``
+    during ``from_pretrained`` and raises if a nested ``from_pretrained`` (our
+    VLM backbone load) runs inside that context. Nesting ``torch.device("cpu")``
+    overrides the meta context for the duration of the backbone load; the
+    weights are subsequently replaced by the outer checkpoint load.
+    """
+    try:
+        from transformers.modeling_utils import get_torch_context_manager_or_global_device
+
+        if get_torch_context_manager_or_global_device() == torch.device("meta"):
+            return torch.device("cpu")
+    except ImportError:
+        pass
+    return nullcontext()
 
 
 try:
@@ -148,15 +168,17 @@ class Qwen3Backbone(torch.nn.Module):
         if load_bf16:
             extra_kwargs["torch_dtype"] = torch.bfloat16
 
-        self.model = Qwen3VLForConditionalGeneration.from_pretrained(
-            model_name,
-            **extra_kwargs,
-            **transformers_loading_kwargs,
-        ).eval()
+        with _escape_meta_device_context():
+            self.model = Qwen3VLForConditionalGeneration.from_pretrained(
+                model_name,
+                **extra_kwargs,
+                **transformers_loading_kwargs,
+            ).eval()
+        inner = self.model.model
 
         # needed since we don't use these layers. Also saves compute
-        while len(self.model.language_model.layers) > select_layer:
-            self.model.language_model.layers.pop(-1)
+        while len(inner.language_model.layers) > select_layer:
+            inner.language_model.layers.pop(-1)
 
         self.select_layer = select_layer
         self.set_trainable_parameters(tune_llm, tune_visual, tune_top_llm_layers)
@@ -177,12 +199,12 @@ class Qwen3Backbone(torch.nn.Module):
         for p in self.parameters():
             p.requires_grad = True
         if not tune_llm:
-            self.model.language_model.requires_grad_(False)
+            self.model.model.language_model.requires_grad_(False)
         if not tune_visual:
-            self.model.visual.requires_grad_(False)
+            self.model.model.visual.requires_grad_(False)
 
         if tune_top_llm_layers > 0:
-            for layer in self.model.language_model.layers[-tune_top_llm_layers:]:
+            for layer in self.model.model.language_model.layers[-tune_top_llm_layers:]:
                 for param in layer.parameters():
                     param.requires_grad = True
 
@@ -202,10 +224,10 @@ class Qwen3Backbone(torch.nn.Module):
         need to call model.eval() for the frozen modules.
         """
         if self.training:
-            if self.model.language_model and not self.tune_llm:
-                self.model.language_model.eval()
-            if self.model.visual and not self.tune_visual:
-                self.model.visual.eval()
+            if self.model.model.language_model and not self.tune_llm:
+                self.model.model.language_model.eval()
+            if self.model.model.visual and not self.tune_visual:
+                self.model.model.visual.eval()
 
     def _reset_rotary_inv_freq(self) -> None:
         """Re-derive Qwen3-VL's non-persistent RoPE ``inv_freq`` buffers once at load.
@@ -278,7 +300,13 @@ class Qwen3Backbone(torch.nn.Module):
     def forward(self, vl_input: BatchFeature) -> BatchFeature:
         self.set_frozen_modules_to_eval_mode()
         # 0. Set frozen module to eval
-        keys_to_use = ["input_ids", "attention_mask", "pixel_values", "image_grid_thw"]
+        keys_to_use = [
+            "input_ids",
+            "attention_mask",
+            "pixel_values",
+            "image_grid_thw",
+            "mm_token_type_ids",
+        ]
         vl_input = {k: vl_input[k] for k in keys_to_use}
         outputs = self.model(**vl_input, output_hidden_states=True)
         outputs = outputs.hidden_states[-1]

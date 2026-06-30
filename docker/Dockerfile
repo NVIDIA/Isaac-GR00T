@@ -1,10 +1,8 @@
 # syntax=docker/dockerfile:1
 # GR00T Docker image (x86_64 + aarch64)
 #
-# Single Dockerfile for both architectures. On aarch64 (GB200, Grace Hopper),
-# flash-attn and torchcodec are installed from wheels under
-# scripts/deployment/dgpu/wheels/ via pyproject.toml path sources. If those
-# wheels are missing, the Docker build bootstraps them from source first.
+# Single Dockerfile for both architectures (CUDA 13.0 and Python 3.12).
+# On aarch64, flash-attn and torchcodec resolve from CUDA 13 SBSA indexes.
 #
 # Build:
 #   docker build -f docker/Dockerfile -t gr00t .
@@ -12,7 +10,7 @@
 # Run:
 #   docker run -it --rm --gpus all --ipc=host gr00t
 
-FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
+FROM nvidia/cuda:13.0.0-devel-ubuntu22.04
 
 SHELL ["/bin/bash", "-c"]
 
@@ -65,9 +63,9 @@ apt_install_retry() {
             git-lfs \
             curl \
             wget \
-            python3.10 \
-            python3.10-venv \
-            python3.10-dev \
+            python3.12 \
+            python3.12-venv \
+            python3.12-dev \
             python3-pip \
             python-is-python3 \
             software-properties-common \
@@ -115,39 +113,20 @@ INNEREOF
 WORKDIR /tmp/gr00t-venv-build
 
 # Install Python dependencies from lockfile
-# The wheels/ dir must be present before `uv sync` because pyproject.toml
-# references them as path sources for aarch64 flash-attn and torchcodec.
 COPY pyproject.toml uv.lock ./
-COPY scripts/deployment/dgpu/bootstrap_wheels.sh ./scripts/deployment/dgpu/bootstrap_wheels.sh
-COPY scripts/deployment/dgpu/wheels/ ./scripts/deployment/dgpu/wheels/
 
 RUN <<INNEREOF
 set -euo pipefail
 
-uv_lock_retry() {
-    for attempt in 1 2 3 4 5; do
-        if UV_PREVIEW=1 UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv lock; then
-            return 0
-        fi
-        sleep $((attempt * 10))
-    done
-    return 1
-}
-
 uv_sync_retry() {
     for attempt in 1 2 3 4 5; do
-        if UV_PREVIEW=1 UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv sync --frozen --no-install-project --extra dev --no-cache; then
+        if UV_PREVIEW=1 UV_HTTP_TIMEOUT=300 UV_CONCURRENT_DOWNLOADS=4 uv sync --frozen --prerelease=allow --no-install-project --extra dev --no-cache; then
             return 0
         fi
         sleep $((attempt * 10))
     done
     return 1
 }
-
-if [ "$(uname -m)" = "aarch64" ]; then
-    bash scripts/deployment/dgpu/bootstrap_wheels.sh
-    uv_lock_retry
-fi
 
 uv_sync_retry
 sha256sum uv.lock | awk '{print $1}' > "${GR00T_GLOBAL_VENV}/.gr00t-uv-lock.sha256"
@@ -189,9 +168,5 @@ JSONEOF
 ENV MUJOCO_GL="egl" \
     PYOPENGL_PLATFORM="egl" \
     __EGL_VENDOR_LIBRARY_FILENAMES="/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
-
-# torchcodec and flash-attn for aarch64 are installed from build-context wheels
-# by `uv sync` above via pyproject.toml path sources. Missing wheels are built
-# from source before sync, then committed back to the repo.
 
 CMD ["/bin/bash"]

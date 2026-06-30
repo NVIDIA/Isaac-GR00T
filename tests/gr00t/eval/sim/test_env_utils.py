@@ -178,6 +178,11 @@ class TestRegisteredPrefixClosure:
         assert sim_dir.is_dir(), f"sim source dir not found: {sim_dir}"
         prefixes: set[str] = set()
         for py in sim_dir.rglob("*.py"):
+            # GPU integration tests create uv-managed simulator environments
+            # inside gr00t/eval/sim. They are dependencies, not project source,
+            # and may contain unrelated Gym registrations.
+            if ".venv" in py.relative_to(sim_dir).parts:
+                continue
             tree = ast.parse(py.read_text(), filename=str(py))
             for node in ast.walk(tree):
                 # register(id="<prefix>/...") / register(id=f"<prefix>/...")

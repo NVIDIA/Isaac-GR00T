@@ -24,7 +24,21 @@ from transformers import PretrainedConfig
 from . import register_model_config
 
 
-@dataclass
+def _default_diffusion_model_cfg() -> dict:
+    return {
+        "positional_embeddings": None,
+        "num_layers": 16,
+        "num_attention_heads": 32,
+        "attention_head_dim": 48,
+        "norm_type": "ada_norm",
+        "dropout": 0.2,
+        "final_dropout": True,
+        "output_dim": 1024,
+        "interleave_self_attention": True,
+    }
+
+
+@dataclass(kw_only=True)
 class Gr00tN1d7Config(PretrainedConfig):
     """Unified configuration for Gr00tN1d7 model with backbone and action head.
 
@@ -88,19 +102,7 @@ class Gr00tN1d7Config(PretrainedConfig):
     use_alternate_vl_dit: bool = True  # True for AlternateVLDiT, False for DiT
     attend_text_every_n_blocks: int = 2
 
-    diffusion_model_cfg: dict = field(
-        default_factory=lambda: {
-            "positional_embeddings": None,
-            "num_layers": 16,
-            "num_attention_heads": 32,
-            "attention_head_dim": 48,
-            "norm_type": "ada_norm",
-            "dropout": 0.2,
-            "final_dropout": True,
-            "output_dim": 1024,
-            "interleave_self_attention": True,
-        }
-    )
+    diffusion_model_cfg: dict = field(default_factory=_default_diffusion_model_cfg)
 
     # Flow matching parameters
     num_inference_timesteps: int = 4
@@ -123,15 +125,21 @@ class Gr00tN1d7Config(PretrainedConfig):
     max_num_embodiments: int = 32
 
     def __init__(self, **kwargs):
+        kwargs.setdefault("diffusion_model_cfg", _default_diffusion_model_cfg())
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-        # Ensures that all dataclass defaults (including those using default_factory)
-        # are explicitly assigned to the instance, even if dataclasses initialization or subclassing
-        # (PretrainedConfig) interferes with normal default injection.
-        for f in self.__dataclass_fields__.values():
-            if not hasattr(self, f.name):
+        # transformers 5.x PretrainedConfig makes hasattr() true for dataclass
+        # field names even when default_factory fields were never materialized.
+        from dataclasses import fields
+
+        for f in fields(type(self)):
+            if f.name in kwargs:
+                continue
+            try:
+                getattr(self, f.name)
+            except AttributeError:
                 if f.default is not MISSING:
                     setattr(self, f.name, f.default)
                 elif getattr(f, "default_factory", MISSING) is not MISSING:

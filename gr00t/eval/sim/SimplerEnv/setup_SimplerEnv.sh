@@ -6,6 +6,13 @@ PROJECT_REPO="$SCRIPT_DIR/../../../.."
 SIMPLER_REPO="$PROJECT_REPO/external_dependencies/SimplerEnv"
 UV_ENV="$SCRIPT_DIR/simpler_uv"
 
+# Some transitive sim deps (e.g. egl_probe) ship a CMakeLists.txt that calls
+# cmake_minimum_required(VERSION <3.5). CMake >= 4.0 removed compatibility with
+# those, failing the build with "Compatibility with CMake < 3.5 has been
+# removed". CMake reads this env var natively (>= 3.31) and treats it as the
+# minimum policy version, letting the legacy build configure anyway.
+export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
+
 git submodule update --init --recursive $SIMPLER_REPO
 
 # Numpy pin: cluster uses 1.26.4; SimplerEnv README mentions 1.24.4 for pinocchio IK.
@@ -34,10 +41,14 @@ uv pip install \
 uv pip install -e "$SIMPLER_REPO/ManiSkill2_real2sim"
 uv pip install -e "$SIMPLER_REPO"
 
-# Make your OSS project importable
-uv pip install --editable "$PROJECT_REPO" --no-deps
+# Make your OSS project importable.
+# --python-version 3.12: gr00t's pyproject pins requires-python >=3.12,<3.15,
+# but this sim venv must be 3.10 (sapien/maniskill ship cp310 wheels only).
+# Resolving against 3.12 satisfies the metadata check while still installing
+# into the active 3.10 interpreter (pure-python package, no compiled bits).
+uv pip install --editable "$PROJECT_REPO" --no-deps --python-version 3.12
 
-uv pip install tianshou==0.5.1 pydantic av zmq torchvision==0.22.0 transformers==4.57.3 tyro setuptools==80.9.0
+uv pip install tianshou==0.5.1 pydantic av zmq msgpack==1.1.0 msgpack-numpy==0.4.8 torchvision==0.22.0 transformers==4.57.3 tyro setuptools==80.9.0
 
 # Sanity check
 python - <<'PY'

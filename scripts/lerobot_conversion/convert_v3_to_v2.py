@@ -20,9 +20,7 @@ Usage examples
 
 - Convert a lerobot v3.0 dataset that already exists locally (The v3.0 path will be overwritten by the v2.1 path and a folder with the suffix _v30 will be created containing the original v3.0 dataset)
 
-- This needs lerobot version atleast after commit f55c6e89f.
-
-- Tested on lerobot version 0.4.0 (commit: f25ac02)
+- Requires LeRobot v0.5.1 or newer (tested with tag v0.5.1).
 """
 
 from __future__ import annotations
@@ -47,6 +45,7 @@ import tqdm
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[3]))
 try:
+    from lerobot.datasets.io_utils import load_info, load_tasks, write_info
     from lerobot.datasets.utils import (
         DEFAULT_CHUNK_SIZE,
         DEFAULT_DATA_PATH,
@@ -55,11 +54,8 @@ try:
         LEGACY_EPISODES_PATH,
         LEGACY_EPISODES_STATS_PATH,
         LEGACY_TASKS_PATH,
-        load_info,
-        load_tasks,
         serialize_dict,
         unflatten_dict,
-        write_info,
     )
     from lerobot.utils.constants import HF_LEROBOT_HOME
     from lerobot.utils.utils import init_logging

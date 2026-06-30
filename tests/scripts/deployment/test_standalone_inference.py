@@ -216,6 +216,7 @@ def test_standalone_inference_pytorch(loaded_variant: LoadedVariant) -> None:
     )
 
 
+@pytest.mark.gpu
 @pytest.mark.edge_device
 @pytest.mark.timeout(1800)
 def test_device_standalone_inference_script_pytorch() -> None:

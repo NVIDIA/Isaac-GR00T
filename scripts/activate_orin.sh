@@ -2,14 +2,14 @@
 # activate_orin.sh — Source this in each new shell to configure the Orin environment.
 # Usage: source scripts/activate_orin.sh
 #
-# Sets TRITON_PTXAS_PATH and LD_LIBRARY_PATH needed for inference on Jetson Orin.
+# Sets TRITON_PTXAS_PATH and LD_LIBRARY_PATH needed for inference on Jetson Orin (JP 7.2+, CUDA 13).
 # Docker users don't need this — the Dockerfile sets these via ENV directives.
 
 # torch.compile needs ptxas from the CUDA toolkit
-if [ -f /usr/local/cuda-12.6/bin/ptxas ]; then
-    export TRITON_PTXAS_PATH=/usr/local/cuda-12.6/bin/ptxas
-    export CUDA_HOME=/usr/local/cuda-12.6
-    export CUDA_PATH=/usr/local/cuda-12.6
+if [ -f /usr/local/cuda-13.0/bin/ptxas ]; then
+    export TRITON_PTXAS_PATH=/usr/local/cuda-13.0/bin/ptxas
+    export CUDA_HOME=/usr/local/cuda-13.0
+    export CUDA_PATH=/usr/local/cuda-13.0
 elif [ -f /usr/local/cuda/bin/ptxas ]; then
     export TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
     export CUDA_HOME=/usr/local/cuda
@@ -19,10 +19,10 @@ else
     echo "  Install CUDA toolkit or set TRITON_PTXAS_PATH manually."
 fi
 
-# Ensure CUDA 12.6 runtime is loaded (JetPack 6.2 ships both 12.2 and 12.6;
-# torch 2.10.0 from jp6/cu126 needs 12.6).
-if [ -d /usr/local/cuda-12.6/lib64 ]; then
-    export LD_LIBRARY_PATH="/usr/local/cuda-12.6/lib64:${LD_LIBRARY_PATH:-}"
+if [ -d /usr/local/cuda-13.0/lib64 ]; then
+    export LD_LIBRARY_PATH="/usr/local/cuda-13.0/lib64:${LD_LIBRARY_PATH:-}"
+elif [ -d "${CUDA_HOME:-}/lib64" ]; then
+    export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH:-}"
 fi
 
 # Triton and torchcodec need PyTorch's shared libraries on the runtime linker path.

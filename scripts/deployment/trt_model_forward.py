@@ -50,6 +50,7 @@ Architecture (action_head mode):
 """
 
 from functools import partial
+import inspect
 import logging
 import os
 import sys
@@ -198,9 +199,21 @@ def _qwen3_vit_and_scatter(self, vl_input):
 
     # Compute 3D position IDs (stays in PyTorch — complex Python logic)
     attention_mask = vl_input["attention_mask"]
-    position_ids, rope_deltas = inner_model.get_rope_index(
-        input_ids, grid_thw, video_grid_thw=None, attention_mask=attention_mask
-    )
+    # transformers 5.x changed get_rope_index's signature: it now requires
+    # `mm_token_type_ids` (per-token modality: 0=text, 1=image, 2=video) as the
+    # second positional arg. Pass by keyword and fall back to deriving it from
+    # the image token id when the processor didn't supply it.
+    rope_kwargs = {
+        "image_grid_thw": grid_thw,
+        "video_grid_thw": None,
+        "attention_mask": attention_mask,
+    }
+    if "mm_token_type_ids" in inspect.signature(inner_model.get_rope_index).parameters:
+        mm_token_type_ids = vl_input.get("mm_token_type_ids")
+        if mm_token_type_ids is None:
+            mm_token_type_ids = (input_ids == self._image_token_id).to(torch.int32)
+        rope_kwargs["mm_token_type_ids"] = mm_token_type_ids
+    position_ids, rope_deltas = inner_model.get_rope_index(input_ids, **rope_kwargs)
     inner_model.rope_deltas = rope_deltas
 
     image_mask_out = input_ids == self._image_token_id
@@ -242,7 +255,13 @@ def qwen3_backbone_tensorrt_forward(self, vl_input):
     """
     self.set_frozen_modules_to_eval_mode()
 
-    keys_to_use = ["input_ids", "attention_mask", "pixel_values", "image_grid_thw"]
+    keys_to_use = [
+        "input_ids",
+        "attention_mask",
+        "pixel_values",
+        "image_grid_thw",
+        "mm_token_type_ids",
+    ]
     vl_input = {k: vl_input[k] for k in keys_to_use}
 
     prepared = _qwen3_vit_and_scatter(self, vl_input)
@@ -278,7 +297,13 @@ def qwen3_backbone_llm_trt_forward(self, vl_input):
     """
     self.set_frozen_modules_to_eval_mode()
 
-    keys_to_use = ["input_ids", "attention_mask", "pixel_values", "image_grid_thw"]
+    keys_to_use = [
+        "input_ids",
+        "attention_mask",
+        "pixel_values",
+        "image_grid_thw",
+        "mm_token_type_ids",
+    ]
     vl_input = {k: vl_input[k] for k in keys_to_use}
 
     # Run PyTorch ViT + scatter + rope (original backbone logic up to LLM)
@@ -307,9 +332,19 @@ def qwen3_backbone_llm_trt_forward(self, vl_input):
 
     # Compute position IDs
     attention_mask = vl_input["attention_mask"]
-    position_ids, rope_deltas = inner_model.get_rope_index(
-        input_ids, grid_thw, video_grid_thw=None, attention_mask=attention_mask
-    )
+    # transformers 5.x: get_rope_index requires mm_token_type_ids (see
+    # _qwen3_vit_and_scatter for details). Pass by keyword with a fallback.
+    rope_kwargs = {
+        "image_grid_thw": grid_thw,
+        "video_grid_thw": None,
+        "attention_mask": attention_mask,
+    }
+    if "mm_token_type_ids" in inspect.signature(inner_model.get_rope_index).parameters:
+        mm_token_type_ids = vl_input.get("mm_token_type_ids")
+        if mm_token_type_ids is None:
+            mm_token_type_ids = (input_ids == qwen_model.config.image_token_id).to(torch.int32)
+        rope_kwargs["mm_token_type_ids"] = mm_token_type_ids
+    position_ids, rope_deltas = inner_model.get_rope_index(input_ids, **rope_kwargs)
     inner_model.rope_deltas = rope_deltas
 
     image_mask_out = input_ids == qwen_model.config.image_token_id
@@ -380,7 +415,13 @@ def qwen3_backbone_full_trt_forward(self, vl_input):
     """
     self.set_frozen_modules_to_eval_mode()
 
-    keys_to_use = ["input_ids", "attention_mask", "pixel_values", "image_grid_thw"]
+    keys_to_use = [
+        "input_ids",
+        "attention_mask",
+        "pixel_values",
+        "image_grid_thw",
+        "mm_token_type_ids",
+    ]
     vl_input = {k: vl_input[k] for k in keys_to_use}
 
     prepared = _qwen3_vit_and_scatter(self, vl_input)

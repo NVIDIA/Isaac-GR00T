@@ -58,7 +58,9 @@ from build_trt_pipeline import (  # noqa: E402
     _run_verify,
 )
 import pytest  # noqa: E402
-import tensorrt as trt  # noqa: E402
+
+
+trt = pytest.importorskip("tensorrt", reason="tensorrt is not installed")  # noqa: E402
 from test_support.runtime import (  # noqa: E402
     get_root,
     resolve_libero_demo_dataset_path,

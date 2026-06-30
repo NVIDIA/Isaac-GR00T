@@ -15,6 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import asdict, is_dataclass
 import json
 import logging
 import os
@@ -119,6 +120,19 @@ def warn_configs(config: Config):
         )
 
 
+def _config_dict_for_omegaconf(config: Config) -> dict:
+    """Serialize Config to plain dicts for OmegaConf (avoids tyro Union / HF forward refs)."""
+    payload = {}
+    for key, value in config.__dict__.items():
+        if key == "model" and hasattr(value, "to_dict"):
+            payload[key] = value.to_dict()
+        elif is_dataclass(value) and not isinstance(value, type):
+            payload[key] = asdict(value)
+        else:
+            payload[key] = value
+    return payload
+
+
 def _init_distributed_process_group() -> int:
     """Init the NCCL process group with ``device_id=cuda:LOCAL_RANK`` so NCCL
     binds the communicator eagerly (the PyTorch >=2.4 recommended pattern).
@@ -143,7 +157,7 @@ def save_run_config_artifacts(
     """Write ``config.yaml`` / ``conf.yaml`` / ``wandb_config.json``."""
     save_cfg_dir.mkdir(parents=True, exist_ok=True)
     config.save(save_cfg_dir / "config.yaml")
-    omegaconf_config = OmegaConf.create(config.__dict__)
+    omegaconf_config = OmegaConf.create(_config_dict_for_omegaconf(config))
     omegaconf_config["max_steps"] = config.training.max_steps
     omegaconf_config["save_steps"] = config.training.save_steps
     OmegaConf.save(omegaconf_config, save_cfg_dir / "conf.yaml", resolve=True)
