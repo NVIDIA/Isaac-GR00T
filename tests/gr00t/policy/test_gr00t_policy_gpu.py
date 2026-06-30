@@ -26,7 +26,6 @@ Covers modules with 0% or low coverage that cannot be tested on CPU:
   - gr00t_n1d7.py (model forward)
   - qwen3_backbone.py (VLM backbone)
   - dit.py / alternate_vl_dit.py (transformer)
-  - flowmatching_modules.py (diffusion scheduler)
   - embodiment_conditioned_mlp.py (action head)
 
 Requires GPU and HF_TOKEN (for gated metadata download), but not model weights.

@@ -13,13 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""pytest hooks to make CI logs easier to read."""
+"""Shared pytest configuration."""
 
 from __future__ import annotations
 
 import contextlib
 import os
-import time
 
 import pytest
 
@@ -54,9 +53,6 @@ def _pin_xdist_worker_to_gpu() -> None:
 
 
 _pin_xdist_worker_to_gpu()
-
-
-_test_start_times: dict[str, float] = {}
 
 
 def _configure_shared_caches() -> None:
@@ -119,13 +115,3 @@ def load_hf_model_weights():
                 os.environ["GROOT_SKIP_HF_MODEL_WEIGHTS"] = previous
 
     return _enabled
-
-
-def pytest_runtest_logstart(nodeid: str, location: tuple) -> None:
-    _test_start_times[nodeid] = time.perf_counter()
-    print(f"\n\n{'=' * 80}\n[TEST START] {nodeid}\n", flush=True)
-
-
-def pytest_runtest_logfinish(nodeid: str, location: tuple) -> None:
-    elapsed = time.perf_counter() - _test_start_times.pop(nodeid, time.perf_counter())
-    print(f"\n[TEST END]   {nodeid}  ({elapsed:.1f}s)\n{'=' * 80}\n\n", flush=True)

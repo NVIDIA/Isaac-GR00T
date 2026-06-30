@@ -136,7 +136,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 #### dGPU (x86_64) — Default
 
-Install FFmpeg (required by `torchcodec`, the default video backend):
+Install FFmpeg (required by `torchcodec`, the only supported video backend):
 ```sh
 sudo apt-get update && sudo apt-get install -y ffmpeg
 ```
@@ -167,7 +167,7 @@ Note: GPU dependencies (flash-attn, TensorRT) may require manual installation wi
 
 > **NVIDIA driver:** PyTorch 2.12 + CUDA 13.0 wheels require a recent driver (580+ on Linux). See the [PyTorch 2.12 release notes](https://github.com/pytorch/pytorch/releases/tag/v2.12.0).
 
-> **aarch64 video backend:** On Jetson and GB200, install platform deps via the matching `scripts/deployment/*/install_deps.sh` so `torchcodec` resolves from the Jetson AI Lab cu130 index.
+> **Video backend:** GR00T uses [`torchcodec`](https://github.com/pytorch/torchcodec) as its sole video decoding backend; `decord` and `pyav` are no longer supported. TorchCodec requires FFmpeg and supports H.264 on all platforms; AV1 decoding is not guaranteed (convert AV1 datasets to H.264 with `examples/SimplerEnv/convert_av1_to_h264.py`). On Jetson and GB200, install platform dependencies through the matching `scripts/deployment/*/install_deps.sh` so TorchCodec resolves from the CUDA 13 SBSA index.
 
 <details>
 <summary><strong>DGX Spark</strong> (tested with DGX Spark GB10)</summary>
@@ -231,7 +231,7 @@ See the [Orin setup guide](scripts/deployment/README.md#jetson-orin-setup) for D
 > destroy the platform-specific environment.
 
 
-For a containerized setup that avoids system-level dependency conflicts, see our [Docker Setup Guide](docker/README.md).
+For a containerized setup that avoids system-level dependency conflicts, see our [Docker Setup Guide](docker/README.md). The recommended container workflow is to start the image first, then clone or pull the repo inside the running container so your checkout uses the image's prebuilt dependency environment.
 
 ---
 
@@ -301,6 +301,8 @@ See the full [Data Preparation Guide](getting_started/data_preparation.md) for s
 
 ## Inference
 
+> **Prefer an interactive walkthrough?** The [`getting_started/GR00T_inference.ipynb`](getting_started/GR00T_inference.ipynb) notebook steps through loading the model and predicting actions from observations on a sample dataset.
+
 ### Zero-Shot Inference (Base Model)
 
 The included `demo_data/droid_sample` dataset works with the base model out of the box — no finetuning or checkpoint download needed:
@@ -316,8 +318,6 @@ uv run python scripts/deployment/standalone_inference_script.py \
 ```
 
 This runs open-loop inference on 2 DROID episodes, comparing predicted actions against ground truth. The base model downloads automatically from HuggingFace on first run (~6 GB).
-
-The standalone inference script defaults to the `ffmpeg` video backend so this demo works on systems with newer FFmpeg releases. If you explicitly use `--video-backend torchcodec`, make sure your installed `torchcodec` wheel is compatible with your system FFmpeg version.
 
 ### Finetuned Inference
 

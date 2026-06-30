@@ -66,11 +66,6 @@ def warn_configs(config: Config):
             config.training.accumulated_batch_size,
         )
 
-    if config.data.video_backend != "torchcodec":
-        warnings.warn(
-            "video_backend is not torchcodec. Only torchcodec will be supported in the future."
-        )
-
     if config.training.per_gpu_batch_size is not None:
         warnings.warn(
             "per_gpu_batch_size will be deprecated in the future, please use global_batch_size instead. For now, this will override global_batch_size."

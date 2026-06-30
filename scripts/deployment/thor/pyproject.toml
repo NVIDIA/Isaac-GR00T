@@ -11,7 +11,6 @@ version = "0.1.0"
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "albumentations==2.0.8",
-    "av==17.1.0",
     "diffusers==0.38.0",
     "dm-tree==0.1.10",
     "huggingface-hub==1.19.0",
@@ -47,7 +46,7 @@ dependencies = [
     "flash-attn==2.8.3.post1",
     "onnx==1.21.0",
     "onnxscript==0.7.0",
-    "tensorrt>=10.14.1.48.post1",
+    "tensorrt-cu13==10.16.1.11",
 ]
 
 [project.optional-dependencies]
@@ -75,6 +74,7 @@ torch = [{ index = "pytorch-cu130" }]
 torchvision = [{ index = "pytorch-cu130" }]
 torchcodec = [{ index = "pytorch-cu130" }]
 triton = [{ index = "pytorch-cu130" }]
+tensorrt-cu13-libs = [{ index = "nvidia-pypi" }]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"

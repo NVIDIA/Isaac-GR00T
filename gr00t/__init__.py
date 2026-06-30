@@ -114,11 +114,27 @@ def _materialize_meta_model(model, *, device, dtype):
 
 
 def _zero_no_weight_model_parameters(model) -> None:
-    """Replace no-init tensor contents with deterministic finite values."""
+    """Zero no-init params/persistent buffers so tests see finite values.
+
+    Non-persistent buffers are intentionally skipped: they are analytic derived
+    state (e.g. RoPE ``inv_freq``) the module recomputes in ``__init__``, not
+    checkpoint data. Zeroing them makes RoPE degenerate to no rotation.
+    """
     try:
         import torch
     except Exception:
         return
+
+    # Identify non-persistent buffers (registered with persistent=False); these
+    # are not part of state_dict and must keep their analytic values.
+    non_persistent_ids = set()
+    modules = getattr(model, "modules", None)
+    if callable(modules):
+        for module in modules():
+            for buf_name in getattr(module, "_non_persistent_buffers_set", ()) or ():
+                buf = getattr(module, "_buffers", {}).get(buf_name)
+                if buf is not None:
+                    non_persistent_ids.add(id(buf))
 
     parameters = getattr(model, "parameters", None)
     buffers = getattr(model, "buffers", None)
@@ -130,6 +146,8 @@ def _zero_no_weight_model_parameters(model) -> None:
 
     with torch.no_grad():
         for tensor in tensors:
+            if id(tensor) in non_persistent_ids:
+                continue
             if getattr(tensor, "device", None) is not None and tensor.device.type == "meta":
                 continue
             try:

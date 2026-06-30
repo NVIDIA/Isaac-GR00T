@@ -50,6 +50,77 @@ except ImportError:
     _QWEN3VL_AVAILABLE = False
 
 
+def _real_inference_device(module: torch.nn.Module) -> torch.device:
+    """Best-effort real (non-meta) device backing a module, defaulting to CPU.
+
+    RoPE buffers must be rebuilt on the device holding the loaded weights, never
+    on the ``meta`` device that may be the active default during nested load.
+    """
+    for tensor in module.parameters():
+        if tensor.device.type != "meta":
+            return tensor.device
+    for tensor in module.buffers():
+        if tensor.device.type != "meta":
+            return tensor.device
+    return torch.device("cpu")
+
+
+def recompute_vision_rotary_inv_freq(
+    rotary: torch.nn.Module, head_dim_half: int, device: torch.device
+) -> torch.Tensor:
+    """Re-derive Qwen3-VL's vision RoPE ``inv_freq`` via the module's own class.
+
+    Reusing ``type(rotary)(...)`` keeps the analytic formula owned by Transformers;
+    the real-device context makes it correct even under a ``meta`` default device.
+    """
+    with torch.device(device):
+        fresh = type(rotary)(head_dim_half)
+    return fresh.inv_freq.detach().to(device=device, dtype=torch.float32)
+
+
+def recompute_text_rotary_inv_freq(
+    rotary: torch.nn.Module, config, device: torch.device
+) -> tuple[torch.Tensor, float]:
+    """Re-derive Qwen3-VL's text RoPE ``inv_freq`` via the module's own class.
+
+    Delegates to the module's constructor so the configured ``rope_init_fn``
+    (default / scaled / dynamic) stays the single source of truth; returns the
+    FP32 ``inv_freq`` and its ``attention_scaling``.
+    """
+    with torch.device(device):
+        fresh = type(rotary)(config=config, device=device)
+    inv_freq = fresh.inv_freq.detach().to(device=device, dtype=torch.float32)
+    attention_scaling = float(getattr(fresh, "attention_scaling", 1.0))
+    return inv_freq, attention_scaling
+
+
+def _assign_inv_freq(
+    rotary: torch.nn.Module, name: str, value: torch.Tensor, *, persistent: bool
+) -> bool:
+    """Write ``value`` onto ``rotary.<name>`` if it differs; return whether it changed.
+
+    Returns ``True`` when the buffer/attribute was (re)written, ``False`` when the
+    existing value already matched (idempotent no-op). This boolean lets tests
+    assert that a corrupted buffer is actually repaired rather than silently
+    skipped.
+    """
+    current = getattr(rotary, name, None)
+    if (
+        isinstance(current, torch.Tensor)
+        and current.device.type != "meta"
+        and current.device == value.device
+        and current.shape == value.shape
+        and current.dtype == value.dtype
+        and torch.equal(current, value)
+    ):
+        return False
+    if name in rotary._buffers:
+        rotary.register_buffer(name, value, persistent=persistent)
+    else:
+        setattr(rotary, name, value)
+    return True
+
+
 class Qwen3Backbone(torch.nn.Module):
     def __init__(
         self,
@@ -118,6 +189,10 @@ class Qwen3Backbone(torch.nn.Module):
                     p.data = p.data.to(torch.float32)
                     logger.debug(f"Casting trainable parameter {n} to fp32")
 
+        # Repair Qwen3-VL's non-persistent RoPE buffers once, after weights are
+        # loaded and trainable dtypes are finalized. See _reset_rotary_inv_freq.
+        self._reset_rotary_inv_freq()
+
     def set_trainable_parameters(self, tune_llm: bool, tune_visual: bool, tune_top_llm_layers: int):
         self.tune_llm = tune_llm
         self.tune_visual = tune_visual
@@ -153,6 +228,71 @@ class Qwen3Backbone(torch.nn.Module):
                 self.model.model.language_model.eval()
             if self.model.model.visual and not self.tune_visual:
                 self.model.model.visual.eval()
+
+    def _reset_rotary_inv_freq(self) -> None:
+        """Re-derive Qwen3-VL's non-persistent RoPE ``inv_freq`` buffers once at load.
+
+        These ``persistent=False`` buffers are not restored from a checkpoint and
+        can be left uninitialized under the nested ``no_init_weights`` load, so we
+        rebuild the analytic FP32 frequencies here (load time only, no per-forward
+        cost). See the MR description for the FA2-vs-SDPA divergence this fixed.
+        """
+        config = getattr(self.model, "config", None)
+        vision_changed = self._reset_vision_rotary_inv_freq(config)
+        text_changed = self._reset_language_rotary_inv_freq()
+        logger.debug(
+            "Qwen3-VL RoPE inv_freq reset (vision_rewritten=%s, text_rewritten=%s).",
+            vision_changed,
+            text_changed,
+        )
+
+    def _reset_vision_rotary_inv_freq(self, config) -> bool:
+        visual = getattr(self.model, "visual", None)
+        rotary = getattr(visual, "rotary_pos_emb", None)
+        if rotary is None or not hasattr(rotary, "inv_freq"):
+            logger.warning(
+                "Qwen3-VL visual rotary embedding not found; skipping vision RoPE "
+                "inv_freq reset. The transformers Qwen3-VL layout may have changed."
+            )
+            return False
+
+        vision_config = getattr(config, "vision_config", None)
+        if vision_config is None or not all(
+            hasattr(vision_config, attr) for attr in ("hidden_size", "num_heads")
+        ):
+            logger.warning(
+                "Qwen3-VL vision_config missing hidden_size/num_heads; skipping "
+                "vision RoPE inv_freq reset."
+            )
+            return False
+
+        head_dim = vision_config.hidden_size // vision_config.num_heads
+        device = _real_inference_device(visual)
+        inv_freq = recompute_vision_rotary_inv_freq(rotary, head_dim // 2, device)
+        return _assign_inv_freq(rotary, "inv_freq", inv_freq, persistent=False)
+
+    def _reset_language_rotary_inv_freq(self) -> bool:
+        language_model = getattr(self.model, "language_model", None)
+        rotary = getattr(language_model, "rotary_emb", None)
+        text_config = getattr(rotary, "config", None) or getattr(language_model, "config", None)
+        if rotary is None or not hasattr(rotary, "inv_freq") or text_config is None:
+            logger.warning(
+                "Qwen3-VL language rotary embedding/config not found; skipping text "
+                "RoPE inv_freq reset. The transformers Qwen3-VL layout may have changed."
+            )
+            return False
+
+        device = _real_inference_device(language_model)
+        inv_freq, _attention_scaling = recompute_text_rotary_inv_freq(rotary, text_config, device)
+        changed = _assign_inv_freq(rotary, "inv_freq", inv_freq, persistent=False)
+        # ``original_inv_freq`` is a plain attribute (not a buffer) that dynamic
+        # RoPE updates restore from; keep it consistent with inv_freq.
+        if hasattr(rotary, "original_inv_freq"):
+            changed = (
+                _assign_inv_freq(rotary, "original_inv_freq", inv_freq.clone(), persistent=False)
+                or changed
+            )
+        return changed
 
     def prepare_input(self, batch: dict) -> BatchFeature:
         return BatchFeature(data=batch)

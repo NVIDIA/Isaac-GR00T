@@ -169,3 +169,48 @@ class TestGr00tPolicyGetAction:
         action, info = policy.get_action(obs)
         assert isinstance(action, dict)
         assert isinstance(info, dict)
+
+
+class _NumpyLanguageSimPolicy:
+    def __init__(self):
+        self.modality_configs = {
+            "video": ModalityConfig(delta_indices=[0], modality_keys=["camera"]),
+            "state": ModalityConfig(
+                delta_indices=[0],
+                modality_keys=["state"],
+            ),
+            "action": ModalityConfig(delta_indices=[0], modality_keys=["action"]),
+            "language": ModalityConfig(
+                delta_indices=[0],
+                modality_keys=["annotation.human.action.task_description"],
+            ),
+        }
+        self.last_observation = None
+
+    def get_modality_config(self):
+        return self.modality_configs
+
+    def get_action(self, observation, options=None):
+        self.last_observation = observation
+        return {"action": np.zeros((1, 1, 2), dtype=np.float32)}, {}
+
+    def reset(self, options=None):
+        return {}
+
+
+def test_sim_policy_wrapper_accepts_numpy_language_batches():
+    from gr00t.policy.gr00t_policy import Gr00tSimPolicyWrapper
+
+    policy = _NumpyLanguageSimPolicy()
+    wrapper = Gr00tSimPolicyWrapper(policy)
+    observation = {
+        "video.camera": np.zeros((1, 1, 256, 256, 3), dtype=np.uint8),
+        "state.state": np.zeros((1, 1, 3), dtype=np.float32),
+        "annotation.human.action.task_description": np.array(["follow the instruction"]),
+    }
+
+    action, info = wrapper.get_action(observation)
+
+    assert policy.last_observation["language"][LANGUAGE_KEY] == [["follow the instruction"]]
+    assert "action.action" in action
+    assert info == {}

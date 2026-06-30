@@ -35,6 +35,8 @@ Environment variables (optional, per-embodiment):
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+import subprocess
 import sys
 
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
@@ -115,6 +117,10 @@ SIMPLERENV_BRIDGE = InferenceVariant(
 
 VARIANTS = [LIBERO, DROID, SIMPLERENV_FRACTAL, SIMPLERENV_BRIDGE]
 
+DEVICE_BASE_MODEL_REPO = "nvidia/GR00T-N1.7-3B"
+DEVICE_DROID_DATASET_NAME = "droid_sample"
+DEVICE_DROID_EMBODIMENT_TAG = "OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
+
 
 def _model_path(variant: InferenceVariant) -> str:
     return str(
@@ -134,6 +140,14 @@ def _dataset_path(variant: InferenceVariant) -> str:
             path_override_env=variant.dataset_env_var,
             repo_root=ROOT,
         )
+    )
+
+
+def _assert_real_demo_file(dataset_path) -> None:
+    demo_check_file = dataset_path / "data" / "chunk-000" / "episode_000000.parquet"
+    assert demo_check_file.is_file(), f"Demo dataset parquet not found: {demo_check_file}"
+    assert b"git-lfs" not in demo_check_file.read_bytes()[:50], (
+        f"Demo data file is a Git LFS pointer, not real data: {demo_check_file}"
     )
 
 
@@ -170,8 +184,6 @@ def loaded_variant(request, load_hf_model_weights):
     loader = LeRobotEpisodeLoader(
         dataset_path=dataset_path,
         modality_configs=modality,
-        video_backend="torchcodec",
-        video_backend_kwargs=None,
     )
 
     yield LoadedVariant(
@@ -205,6 +217,63 @@ def test_standalone_inference_pytorch(loaded_variant: LoadedVariant) -> None:
 
 
 @pytest.mark.gpu
+@pytest.mark.edge_device
+@pytest.mark.timeout(1800)
+def test_device_standalone_inference_script_pytorch() -> None:
+    """Mirror the original device.test job with the base 3B model and DROID demo data."""
+    assert torch.cuda.is_available(), "CUDA not available"
+
+    model_path = resolve_model_checkpoint_path(
+        hf_repo_id=DEVICE_BASE_MODEL_REPO,
+        path_override_env="INFERENCE_TEST_DEVICE_MODEL_PATH",
+        repo_root=ROOT,
+    )
+    dataset_path = resolve_demo_dataset(
+        dataset_name=DEVICE_DROID_DATASET_NAME,
+        path_override_env="INFERENCE_TEST_DEVICE_DATASET_PATH",
+        global_env_var="DROID_DEMO_DATASET_PATH",
+        repo_root=ROOT,
+    )
+    _assert_real_demo_file(dataset_path)
+
+    env = os.environ.copy()
+    env["GROOT_SKIP_HF_MODEL_WEIGHTS"] = "0"
+
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "deployment" / "standalone_inference_script.py"),
+        "--model-path",
+        str(model_path),
+        "--dataset-path",
+        str(dataset_path),
+        "--embodiment-tag",
+        DEVICE_DROID_EMBODIMENT_TAG,
+        "--traj-ids",
+        "0",
+        "--action-horizon",
+        "8",
+        "--inference-mode",
+        "pytorch",
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=str(ROOT),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=1800,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        "Device standalone inference script failed.\n"
+        f"Command: {' '.join(cmd)}\n"
+        f"Output tail:\n{result.stdout[-12000:]}"
+    )
+
+
+@pytest.mark.gpu
+@pytest.mark.edge_device
 @pytest.mark.timeout(600)
 def test_standalone_inference_invalid_traj_id(loaded_variant: LoadedVariant) -> None:
     """Out-of-range traj_id should raise an index error, not UnboundLocalError."""
@@ -216,6 +285,7 @@ def test_standalone_inference_invalid_traj_id(loaded_variant: LoadedVariant) -> 
 
 
 @pytest.mark.gpu
+@pytest.mark.edge_device
 @pytest.mark.timeout(600)
 def test_open_loop_eval_with_checkpoint(loaded_variant: LoadedVariant) -> None:
     """Run evaluate_single_trajectory from open_loop_eval directly."""

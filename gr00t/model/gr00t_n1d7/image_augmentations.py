@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 from typing import Sequence
 import warnings
 
@@ -28,6 +29,40 @@ def _albumentations_p(p: float, always_apply: bool | None) -> float:
     if always_apply:
         return 1.0
     return p
+
+
+def _adapt_replay_shortest_edge(replay: dict, image_shape: tuple[int, ...]) -> dict:
+    """Adapt Albumentations 2.x shortest-edge replay to same-aspect input sizes.
+
+    Albumentations 2 serializes the absolute ``scale`` selected by
+    ``SmallestMaxSize``. Replaying that value on a smaller frame applies the
+    first frame's scale instead of recomputing the configured shortest edge,
+    even when both frames have the same aspect ratio. Adjust only the first
+    shortest-edge resize; subsequent replayed crop and color parameters remain
+    shared across views.
+    """
+    adapted = copy.deepcopy(replay)
+    height, width = image_shape[:2]
+
+    for transform in adapted.get("transforms", []):
+        class_name = transform.get("__class_fullname__", "").rsplit(".", 1)[-1]
+        params = transform.get("params")
+        max_size = transform.get("max_size")
+        if class_name != "SmallestMaxSize" or not params or not isinstance(max_size, int):
+            continue
+
+        replay_shape = params.get("shape")
+        if not replay_shape or "scale" not in params:
+            break
+
+        replay_height, replay_width = replay_shape[:2]
+        same_aspect = height * replay_width == width * replay_height
+        if same_aspect:
+            params["shape"] = image_shape
+            params["scale"] = max_size / min(height, width)
+        break
+
+    return adapted
 
 
 def apply_with_replay(transform, images, masks=None, replay=None):
@@ -79,10 +114,11 @@ def apply_with_replay(transform, images, masks=None, replay=None):
                 current_replay = augmented_image["replay"]
             else:
                 # Subsequent images - use replay for consistent transforms
+                replay_for_image = _adapt_replay_shortest_edge(current_replay, img_array.shape)
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=UserWarning)
                     augmented_image = transform.replay(
-                        image=img_array, saved_augmentations=current_replay
+                        image=img_array, saved_augmentations=replay_for_image
                     )
         else:
             # Regular Compose transform - no replay functionality
@@ -388,11 +424,12 @@ def build_image_transformations_albumentations(
     extra_augmentation_config: dict | None = None,
 ):
     """
-    Build albumentations-based image transformations equivalent to the torchvision version.
+    Build albumentations-based image transformations for the N1.7 fine-tuning recipe.
 
     Args:
-        image_target_size: Target size for resizing (list of [height, width])
-        image_crop_size: Size for cropping (list of [height, width])
+        image_target_size: Target size fallback when shortest_image_edge is unset
+            (list of [height, width])
+        image_crop_size: Crop size fallback when crop_fraction is unset (list of [height, width])
         random_rotation_angle: Maximum rotation angle in degrees (0 for no rotation)
         color_jitter_params: Dictionary with color jitter parameters (brightness, contrast, saturation, hue)
         shortest_image_edge: Shortest edge size for resizing
@@ -411,21 +448,25 @@ def build_image_transformations_albumentations(
     """
 
     if crop_fraction is None:
+        if image_crop_size is None or image_target_size is None:
+            raise ValueError(
+                "image_crop_size and image_target_size are required when crop_fraction is None"
+            )
         fraction_to_use = image_crop_size[0] / image_target_size[0]
     else:
         fraction_to_use = crop_fraction
 
     if shortest_image_edge is None:
+        if image_target_size is None:
+            raise ValueError("image_target_size is required when shortest_image_edge is None")
         max_size = image_target_size[0]
     else:
         max_size = shortest_image_edge
 
     extra_augmentation_config = extra_augmentation_config or {}
 
-    # Training transforms (using ReplayCompose for consistent augmentation across views)
-    # Use SmallestMaxSize to preserve aspect ratios, with INTER_AREA for antialiasing
+    # Training transforms (using ReplayCompose for consistent augmentation across views).
     train_transform_list = [
-        LetterBoxPad(),
         A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
         FractionalRandomCrop(crop_fraction=fraction_to_use),
         A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
@@ -482,11 +523,9 @@ def build_image_transformations_albumentations(
     # Attach mask transforms to the main transform for use in apply_with_replay
     train_transform.mask_transforms = mask_transforms if mask_transforms else None
 
-    # Evaluation transforms (deterministic, no extra augmentations)
-    # Use SmallestMaxSize to preserve aspect ratios, with INTER_AREA for antialiasing
+    # Evaluation transforms (deterministic, no extra augmentations).
     eval_transform = A.Compose(
         [
-            LetterBoxPad(),
             A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
             FractionalCenterCrop(crop_fraction=fraction_to_use),
             A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
@@ -556,7 +595,11 @@ class LetterBoxTransform:
 
 
 def build_image_transformations(
-    image_target_size, image_crop_size, random_rotation_angle, color_jitter_params
+    image_target_size,
+    image_crop_size,
+    random_rotation_angle,
+    color_jitter_params,
+    letter_box_transform: bool = False,
 ):
     """
     Build torchvision-based image transformations.
@@ -570,14 +613,16 @@ def build_image_transformations(
     Returns:
         tuple: (train_transform, eval_transform) - torchvision transforms
     """
-    transform_list = [
-        transforms.ToImage(),
-        LetterBoxTransform(),
-        # transforms.ToDtype(torch.get_default_dtype(), scale=True),
-        transforms.Resize(size=image_target_size),
-        transforms.RandomCrop(size=image_crop_size),
-        transforms.Resize(size=image_target_size),
-    ]
+    transform_list = [transforms.ToImage()]
+    if letter_box_transform:
+        transform_list.append(LetterBoxTransform())
+    transform_list.extend(
+        [
+            transforms.Resize(size=image_target_size),
+            transforms.RandomCrop(size=image_crop_size),
+            transforms.Resize(size=image_target_size),
+        ]
+    )
     if random_rotation_angle is not None and random_rotation_angle != 0:
         transform_list.append(
             transforms.RandomRotation(degrees=[-random_rotation_angle, random_rotation_angle])
@@ -585,14 +630,15 @@ def build_image_transformations(
     if color_jitter_params is not None:
         transform_list.append(transforms.ColorJitter(**color_jitter_params))
     train_image_transform = transforms.Compose(transform_list)
-    eval_image_transform = transforms.Compose(
+    eval_transform_list = [transforms.ToImage()]
+    if letter_box_transform:
+        eval_transform_list.append(LetterBoxTransform())
+    eval_transform_list.extend(
         [
-            transforms.ToImage(),
-            # transforms.ToDtype(torch.get_default_dtype(), scale=True),
-            LetterBoxTransform(),
             transforms.Resize(size=image_target_size),
             transforms.CenterCrop(size=image_crop_size),
             transforms.Resize(size=image_target_size),
         ]
     )
+    eval_image_transform = transforms.Compose(eval_transform_list)
     return train_image_transform, eval_image_transform

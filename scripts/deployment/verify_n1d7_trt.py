@@ -20,7 +20,6 @@
 from dataclasses import dataclass
 import os
 import sys
-from typing import Literal
 
 import torch
 from torch.nn.functional import cosine_similarity
@@ -30,9 +29,11 @@ import tyro
 # Make sibling imports work
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from _trt_contract import resolve_batch_size
 from export_onnx_n1d7 import prepare_observation
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.deployment.modes import VerifyMode
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 
 
@@ -49,8 +50,8 @@ class VerifyConfig:
     engine_dir: str = "./gr00t_n1d7_engines"
     """Directory with TRT engines."""
 
-    mode: Literal["action_head", "n17_full_pipeline", "vit_llm_only"] = "action_head"
-    """TRT setup mode: 'vit_llm_only' uses ViT+LLM TRT with PyTorch action head."""
+    mode: VerifyMode = VerifyMode.action_head
+    """TRT setup mode. 'dit_only' loads only the DiT engine; 'vit_llm_only' keeps the action head in PyTorch."""
 
     embodiment_tag: EmbodimentTag = EmbodimentTag.LIBERO_PANDA
     """Embodiment tag to use."""
@@ -84,8 +85,10 @@ def main(args: VerifyConfig | None = None):
         args = tyro.cli(VerifyConfig)
 
     print("=" * 60)
-    print("N1.7 TRT Action Head Verification")
+    print("N1.7 TRT Verification")
     print("=" * 60)
+
+    resolve_batch_size(args.engine_dir, args.batch_size, source="verify_n1d7_trt")
 
     # Step 1: Load policy and get PyTorch reference output
     print("\n[1] Loading policy...")
@@ -99,8 +102,6 @@ def main(args: VerifyConfig | None = None):
     dataset = LeRobotEpisodeLoader(
         dataset_path=args.dataset_path,
         modality_configs=policy.get_modality_config(),
-        video_backend="torchcodec",
-        video_backend_kwargs=None,
     )
 
     # --- Capture ViT input/output and backbone output from PyTorch ---

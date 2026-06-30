@@ -36,12 +36,12 @@ Provided checkpoints:
 | Task | N1.6 success rate | N1.7 success rate |
 | --- | ---: | ---: |
 | `google_robot_pick_coke_can` | 95/100 (95.0%) | 100/100 (100.0%) |
-| `google_robot_pick_object` | 87/100 (87.0%) | 96/100 (96.0%) |
-| `google_robot_move_near` | 81/100 (81.0%) | 96/100 (96.0%) |
-| `google_robot_open_drawer` | 0/100 (0.0%) | 36/100 (36.0%) |
-| `google_robot_close_drawer` | 44/100 (44.0%) | 63/100 (63.0%) |
-| `google_robot_place_in_closed_drawer` | 5/100 (5.0%) | 21/100 (21.0%) |
-| **Average** | **52.0%** | **68.7%** |
+| `google_robot_pick_object` | 87/100 (87.0%) | 94/100 (94.0%) |
+| `google_robot_move_near` | 81/100 (81.0%) | 100/100 (100.0%) |
+| `google_robot_open_drawer` | 0/100 (0.0%) | 65/100 (65.0%) |
+| `google_robot_close_drawer` | 44/100 (44.0%) | 69/100 (69.0%) |
+| `google_robot_place_in_closed_drawer` | 5/100 (5.0%) | 7/100 (7.0%) |
+| **Average** | **52.0%** | **72.5%** |
 
 # Fine-tune Simpler Env bridge dataset (WidowX robot)
 
@@ -74,7 +74,7 @@ uv run hf download \
 
 # Copy the patches and run the finetune script
 cp -r examples/SimplerEnv/fractal_modality.json examples/SimplerEnv/fractal20220817_data_lerobot/meta/modality.json
-uv run python examples/SimplerEnv/convert_av1_to_h264.py examples/SimplerEnv/fractal20220817_data_lerobot --jobs 16  # (Optional) if AV1 doesn't work on your machine
+uv run python examples/SimplerEnv/convert_av1_to_h264.py --root examples/SimplerEnv/fractal20220817_data_lerobot --jobs 16
 ```
 
 ```bash

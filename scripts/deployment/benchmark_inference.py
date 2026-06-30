@@ -53,13 +53,13 @@ import gc
 import os
 import sys
 import time
-from typing import Literal
 
 import gr00t
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.types import MessageType, VLAStepData
+from gr00t.deployment.modes import BenchmarkMode
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 import numpy as np
 import torch
@@ -70,6 +70,7 @@ import tyro
 _DEPLOY_DIR = os.path.dirname(os.path.abspath(__file__))
 if _DEPLOY_DIR not in sys.path:
     sys.path.insert(0, _DEPLOY_DIR)
+from _trt_contract import resolve_batch_size  # noqa: E402
 
 
 def set_seed(seed: int = 42):
@@ -360,7 +361,7 @@ class BenchmarkConfig:
     seed: int = 42
     """Random seed for reproducibility."""
 
-    trt_mode: Literal["dit_only", "n17_full_pipeline", "vit_llm_only"] = "dit_only"
+    trt_mode: BenchmarkMode = BenchmarkMode.dit_only
     """TRT mode: 'dit_only' (DiT engine only), 'n17_full_pipeline' (all 6 engines), or 'vit_llm_only' (ViT+LLM TRT, action head in PyTorch — use on Spark/sm121)."""
 
     skip_compile: bool = False
@@ -416,11 +417,13 @@ def main(args: BenchmarkConfig | None = None):
     print(f"Action Horizon: {action_horizon}")
     print(f"Denoising Steps: {denoising_steps}")
 
+    if args.trt_engine_path:
+        resolve_batch_size(args.trt_engine_path, args.batch_size, source="benchmark_inference")
+
     modality_config = policy.get_modality_config()
     dataset = LeRobotEpisodeLoader(
         dataset_path=args.dataset_path,
         modality_configs=modality_config,
-        video_backend="torchcodec",
     )
 
     episode_data = dataset[0]

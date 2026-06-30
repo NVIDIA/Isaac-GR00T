@@ -16,135 +16,30 @@
 from collections.abc import Sequence
 import os
 from pathlib import Path
+import subprocess
 import uuid
 
-import av
 import cv2
-from gr00t.utils.video_utils import get_accumulate_timestamp_idxs
 import gymnasium as gym
 import numpy as np
 
 
-class VideoRecorder:
-    def __init__(
-        self,
-        fps,
-        codec,
-        input_pix_fmt,
-        # options for codec
-        **kwargs,
-    ):
-        """
-        input_pix_fmt: rgb24, bgr24 see https://github.com/PyAV-Org/PyAV/blob/bc4eedd5fc474e0f25b22102b2771fe5a42bb1c7/av/video/frame.pyx#L352
-        """
-
-        self.fps = fps
-        self.codec = codec
-        self.input_pix_fmt = input_pix_fmt
-        self.kwargs = kwargs
-        # runtime set
-        self._reset_state()
-
-    def _reset_state(self):
-        self.container = None
-        self.stream = None
-        self.shape = None
-        self.dtype = None
-        self.start_time = None
-        self.next_global_idx = 0
-
-    @classmethod
-    def create_h264(
-        cls,
-        fps,
-        codec="h264",
-        input_pix_fmt="rgb24",
-        output_pix_fmt="yuv420p",
-        crf=18,
-        profile="high",
-        **kwargs,
-    ):
-        obj = cls(
-            fps=fps,
-            codec=codec,
-            input_pix_fmt=input_pix_fmt,
-            pix_fmt=output_pix_fmt,
-            options={"crf": str(crf), "profile:v": "high"},
-            **kwargs,
-        )
-        return obj
-
-    def __del__(self):
-        self.stop()
-
-    def is_ready(self):
-        return self.stream is not None
-
-    def start(self, file_path, start_time=None):
-        if self.is_ready():
-            # if still recording, stop first and start anew.
-            self.stop()
-
-        self.container = av.open(file_path, mode="w")
-        self.stream = self.container.add_stream(self.codec, rate=self.fps)
-        codec_context = self.stream.codec_context
-        for k, v in self.kwargs.items():
-            setattr(codec_context, k, v)
-        self.start_time = start_time
-
-    def write_frame(self, img: np.ndarray, frame_time=None):
-        if not self.is_ready():
-            raise RuntimeError("Must run start() before writing!")
-
-        n_repeats = 1
-        if self.start_time is not None:
-            local_idxs, global_idxs, self.next_global_idx = get_accumulate_timestamp_idxs(
-                # only one timestamp
-                timestamps=[frame_time],
-                start_time=self.start_time,
-                dt=1 / self.fps,
-                next_global_idx=self.next_global_idx,
-            )
-            # number of appearance means repeats
-            n_repeats = len(local_idxs)
-
-        if self.shape is None:
-            self.shape = img.shape
-            self.dtype = img.dtype
-            h, w, c = img.shape
-            self.stream.width = w
-            self.stream.height = h
-        assert img.shape == self.shape
-        assert img.dtype == self.dtype
-
-        frame = av.VideoFrame.from_ndarray(img, format=self.input_pix_fmt)
-        for i in range(n_repeats):
-            for packet in self.stream.encode(frame):
-                self.container.mux(packet)
-
-    def stop(self):
-        if not self.is_ready():
-            return
-
-        try:
-            # Flush stream
-            for packet in self.stream.encode():
-                self.container.mux(packet)
-        finally:
-            # Always close the file and reset state, even if flushing fails
-            self.container.close()
-            self._reset_state()
+_H264_CODECS = {"h264", "libx264"}
+_H264_CRF = "18"
+_H264_PROFILE = "high"
+_H264_PIXEL_FORMAT = "yuv420p"
 
 
 class VideoRecordingWrapper(gym.Wrapper):
     def __init__(
         self,
         env,
-        video_recorder: VideoRecorder,
         mode="rgb_array",
         video_dir: Path | None = None,
         steps_per_render=1,
         max_episode_steps=720,
+        fps=20,
+        codec="h264",
         overlay_text=True,
         record_video_keys: Sequence[str] | None = None,
         **kwargs,
@@ -165,7 +60,11 @@ class VideoRecordingWrapper(gym.Wrapper):
         self.steps_per_render = steps_per_render
         self.max_episode_steps = max_episode_steps
         self.video_dir = video_dir
-        self.video_recorder = video_recorder
+        self.video_fps = fps
+        self.video_codec = codec
+        self.video_process = None
+        self.video_shape = None
+        self.video_dtype = None
         self.file_path = None
         self.overlay_text = overlay_text
         self.record_video_keys = tuple(record_video_keys) if record_video_keys is not None else None
@@ -173,11 +72,106 @@ class VideoRecordingWrapper(gym.Wrapper):
         self.step_count = 0
 
         self.is_success = False
+        self.is_episode_finished = False
 
         # Caption buffer height is cached on the first overlay frame of each
         # episode so that every frame in the encoded stream has the same total
         # height; the H.264 encoder rejects mid-stream shape changes.
         self.caption_height = None
+
+    def __del__(self):
+        try:
+            self._close_video_writer()
+        except Exception:
+            pass
+
+    def _open_video_writer(self):
+        if self.file_path is None:
+            raise RuntimeError("Cannot write video before a file path is set")
+        if self.video_shape is None:
+            raise RuntimeError("Cannot open video writer before frame shape is known")
+
+        height, width = self.video_shape[:2]
+        codec = "libx264" if self.video_codec in _H264_CODECS else self.video_codec
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "rawvideo",
+            "-vcodec",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-s",
+            f"{width}x{height}",
+            "-r",
+            str(self.video_fps),
+            "-i",
+            "-",
+            "-an",
+            "-vcodec",
+            codec,
+        ]
+        if self.video_codec in _H264_CODECS:
+            cmd.extend(
+                [
+                    "-crf",
+                    _H264_CRF,
+                    "-profile:v",
+                    _H264_PROFILE,
+                    "-pix_fmt",
+                    _H264_PIXEL_FORMAT,
+                ]
+            )
+        cmd.append(str(self.file_path))
+
+        try:
+            self.video_process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "ffmpeg is required for rollout video recording. Install ffmpeg or disable "
+                "video recording by leaving video_dir unset."
+            ) from exc
+
+    def _write_video_frame(self, frame: np.ndarray):
+        if self.video_process is None:
+            self.video_shape = frame.shape
+            self.video_dtype = frame.dtype
+            self._open_video_writer()
+
+        assert frame.shape == self.video_shape
+        assert frame.dtype == self.video_dtype
+
+        assert self.video_process is not None
+        assert self.video_process.stdin is not None
+        self.video_process.stdin.write(np.ascontiguousarray(frame).tobytes())
+
+    def _close_video_writer(self):
+        process = self.video_process
+        try:
+            if process is not None:
+                if process.stdin is not None:
+                    try:
+                        process.stdin.close()
+                    except BrokenPipeError:
+                        pass
+                stderr = b""
+                if process.stderr is not None:
+                    stderr = process.stderr.read()
+                return_code = process.wait()
+                if return_code != 0:
+                    message = stderr.decode("utf-8", errors="replace").strip()
+                    raise RuntimeError(f"ffmpeg video recording failed: {message}")
+        finally:
+            self.video_process = None
+            self.video_shape = None
+            self.video_dtype = None
 
     def _get_video_frames(self, obs: dict) -> list[np.ndarray]:
         if self.record_video_keys is None:
@@ -226,8 +220,8 @@ class VideoRecordingWrapper(gym.Wrapper):
         previous_step_count = self.step_count
         self.frames = list()
         self.step_count = 1
-        self.video_recorder.stop()
-        # New episode == new video file == new VideoRecorder shape lock, so
+        self._close_video_writer()
+        # New episode == new video file == new frame shape lock, so
         # drop the cached caption height too.
         self.caption_height = None
 
@@ -355,7 +349,12 @@ class VideoRecordingWrapper(gym.Wrapper):
             #     new_filestem += f"_{case_semantic}_clf-rate{int(contact_language_following_rate)}"
 
             new_file_path = self.video_dir / f"{new_filestem}.mp4"
-            if previous_step_count >= self.max_episode_steps or self.is_success:
+            should_keep_video = (
+                self.is_episode_finished
+                or previous_step_count >= self.max_episode_steps
+                or self.is_success
+            )
+            if should_keep_video:
                 os.rename(self.file_path, new_file_path)
             else:
                 print(
@@ -364,6 +363,7 @@ class VideoRecordingWrapper(gym.Wrapper):
                 os.remove(self.file_path)
 
         self.is_success = False
+        self.is_episode_finished = False
         # "intermediate_signals" contain the metrics for 5DC tasks to indicate language following
         self.intermediate_signals = {}
 
@@ -374,10 +374,8 @@ class VideoRecordingWrapper(gym.Wrapper):
     def step(self, action):
         result = super().step(action)
         self.step_count += 1
+        self.is_episode_finished = bool(result[2] or result[3])
         if self.file_path is not None and ((self.step_count % self.steps_per_render) == 0):
-            if not self.video_recorder.is_ready():
-                self.video_recorder.start(self.file_path)
-
             # frame = self.env.render()
             obs = result[0]
             video_frames = self._get_video_frames(obs)
@@ -439,7 +437,7 @@ class VideoRecordingWrapper(gym.Wrapper):
 
                 # Caption height must stay constant for the whole episode so
                 # that the encoded frame shape never changes (the H.264 stream
-                # rejects late shape changes and the VideoRecorder asserts it).
+                # rejects late shape changes and the wrapper asserts it).
                 # First overlay frame fixes the height; later frames whose
                 # natural caption would be taller (e.g. the success suffix
                 # changes from "(0)" to "(1)" and the dynamic scaler picks a
@@ -453,7 +451,7 @@ class VideoRecordingWrapper(gym.Wrapper):
                     # buffer at the cached size: frame-shape stability outranks
                     # text completeness here. cv2.putText below will silently
                     # clip the few overflowing pixels, which is preferable to
-                    # tripping the VideoRecorder shape-lock assert.
+                    # tripping the wrapper shape-lock assert.
                     while caption_height > self.caption_height and font_scale > 0.05:
                         font_scale *= 0.9
                         text_size, baseline = cv2.getTextSize(
@@ -478,7 +476,7 @@ class VideoRecordingWrapper(gym.Wrapper):
                 )
                 frame = np.concatenate([frame, caption], axis=0)
 
-            self.video_recorder.write_frame(frame)
+            self._write_video_frame(frame)
 
         info = result[-1]
         self.is_success |= info["success"]
@@ -524,6 +522,5 @@ class VideoRecordingWrapper(gym.Wrapper):
         return result
 
     def render(self, mode="rgb_array", **kwargs):
-        if self.video_recorder.is_ready():
-            self.video_recorder.stop()
+        self._close_video_writer()
         return self.file_path

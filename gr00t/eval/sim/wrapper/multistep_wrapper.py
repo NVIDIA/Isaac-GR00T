@@ -14,11 +14,27 @@
 # limitations under the License.
 
 from collections import defaultdict, deque
+from enum import Enum
 import warnings
 
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+
+
+class AggregateMethod(str, Enum):
+    """Supported strategies for reducing a sequence of per-step values.
+
+    Subclassing ``str`` keeps the members interchangeable with their
+    string values, so existing callers (and configs) that pass e.g.
+    ``"max"`` keep working while the code itself references the typed
+    members instead of magic strings.
+    """
+
+    MAX = "max"
+    MIN = "min"
+    MEAN = "mean"
+    SUM = "sum"
 
 
 def stack_repeated(x, n, loc):
@@ -118,38 +134,55 @@ def compress_dict_list(ds, recursive=False):
     return result
 
 
-def aggregate(data, method="max"):
-    if method == "max":
+def aggregate(data, method: AggregateMethod = AggregateMethod.MAX):
+    try:
+        method = AggregateMethod(method)
+    except ValueError:
+        raise ValueError(
+            f"Unsupported aggregate method {method!r}; "
+            f"expected one of {[m.value for m in AggregateMethod]}."
+        )
+    if method is AggregateMethod.MAX:
         # equivalent to any
         return np.max(data)
-    elif method == "min":
+    elif method is AggregateMethod.MIN:
         # equivalent to all
         return np.min(data)
-    elif method == "mean":
+    elif method is AggregateMethod.MEAN:
         return np.mean(data)
-    elif method == "sum":
+    elif method is AggregateMethod.SUM:
         return np.sum(data)
-    else:
-        raise NotImplementedError()
 
 
 class MultiStepWrapper(gym.Wrapper):
     def __init__(
         self,
         env,
-        video_delta_indices,
-        state_delta_indices,
-        n_action_steps,
+        contract,
         max_episode_steps=None,
-        reward_agg_method="max",
+        reward_agg_method: AggregateMethod = AggregateMethod.MAX,
         terminate_on_success=False,
     ):
         """
-        video_delta_indices: np.ndarray[int], please check `assert_delta_indices` to see the requirements
-        state_delta_indices: np.ndarray[int] | None, please check `assert_delta_indices` to see the requirements
-          if None, it means the model is vision-only
+        contract: policy-resolved
+          :class:`gr00t.eval._horizon_contract.PolicyHorizonSpec` carrying
+          ``n_action_steps`` and the video / state ``delta_indices``.
+          ``state_delta_indices`` is ``None`` for a vision-only policy. See
+          ``assert_delta_indices`` for the per-array requirements.
         """
+        try:
+            reward_agg_method = AggregateMethod(reward_agg_method)
+        except ValueError:
+            raise ValueError(
+                f"Unsupported reward_agg_method {reward_agg_method!r}; "
+                f"expected one of {[m.value for m in AggregateMethod]}."
+            )
         super().__init__(env)
+        self.contract = contract
+        video_delta_indices = contract.video_delta_indices_array
+        state_delta_indices = contract.state_delta_indices_array
+        n_action_steps = contract.n_action_steps
+
         # Assign action space
         self._action_space = repeated_space(env.action_space, n_action_steps)
 
@@ -268,6 +301,7 @@ class MultiStepWrapper(gym.Wrapper):
         states = []
         rewards = []
         dones = []
+        n_env_steps = 0
         for step in range(self.n_action_steps):
             act = {}
             for key, value in action.items():
@@ -276,6 +310,7 @@ class MultiStepWrapper(gym.Wrapper):
                 # termination
                 break
             observation, reward, done, truncated, info = super().step(act)
+            n_env_steps += 1
             # TODO: assign meaningful values
             env_state = {"states": [], "model": []}
             states.append(env_state["states"])
@@ -293,7 +328,7 @@ class MultiStepWrapper(gym.Wrapper):
 
         observation = self._get_obs(self.video_delta_indices, self.state_delta_indices)
         reward = aggregate(self.reward, self.reward_agg_method)
-        done = aggregate(self.done, "max")
+        done = aggregate(self.done, AggregateMethod.MAX)
         info = dict_take_last_n(self.info, self.n_action_steps)
         states = np.array(states)
         rewards = np.array(rewards)
@@ -303,6 +338,9 @@ class MultiStepWrapper(gym.Wrapper):
         info["model"] = env_state["model"]
         info["actions"] = action
         info["dones"] = dones
+        # Inner env-steps taken this macro-step (< n_action_steps if `done` fires
+        # mid-chunk); run_rollout_gymnasium_policy sums it for episode_length.
+        info["n_env_steps"] = n_env_steps
         if "intermediate_signals" in info:
             # "intermediate_signals" contain the metrics for 5DC tasks to indicate language following
             # Here we turn a list of dicts into a dict of lists

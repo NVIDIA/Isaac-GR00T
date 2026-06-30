@@ -12,7 +12,6 @@ dependencies = [
     "albumentations==2.0.8",
     "huggingface-hub==1.19.0",
     "opencv-python-headless==4.13.0.92",
-    "av==17.1.0",
     "diffusers==0.38.0",
     "dm-tree==0.1.10",
     "lmdb==2.2.1",
@@ -50,6 +49,8 @@ dependencies = [
     "flash-attn==2.8.3.post1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "onnx==1.21.0",
     "onnxscript==0.7.0",
+    "tensorrt-cu13==10.16.1.11; sys_platform == 'linux'",
+    "tensorrt-cu13-libs==10.16.1.11; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]
@@ -57,10 +58,14 @@ dev = [
     "boto3",
     "ruff==0.15.17",
     "ipython",
+    "pip-licenses",
     "pytest==9.0.3",
+    "pytest-cov",
     "pytest-timeout",
+    "pytest-xdist",
     "build",
     "pre-commit",
+
 ]
 
 [tool.setuptools.packages.find]
@@ -88,6 +93,9 @@ triton = [
 torchcodec = [
     { index = "jetson-sbsa-cu130", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
 ]
+tensorrt-cu13-libs = [
+    { index = "nvidia-pypi", marker = "sys_platform == 'linux'" },
+]
 
 [tool.uv.extra-build-dependencies]
 flash-attn = ["torch==2.12.0", "numpy==2.2.6", "triton==3.7.0"]
@@ -97,6 +105,7 @@ pythonpath = [".", "tests"]
 addopts = "--import-mode=importlib"
 markers = [
     "gpu: tests that require a GPU",
+    "edge_device: tests that run on edge device runners (Orin, Thor, DGX Spark)",
     "multigpu: tests that require multiple GPUs and use all visible GPUs",
 ]
 # Include fixture setup/teardown in JUnit <testcase time="..."> so duration

@@ -33,7 +33,8 @@ Usage:
     # Download finetuned model first (HF doesn't support nested repo paths)
     uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
 
-    # DiT only (default)
+    # DiT only (default). N1.7 TRT export uses the legacy ONNX exporter
+    # explicitly (`dynamo=False`) so dynamic axes remain TensorRT-friendly.
     python export_onnx_n1d7.py \\
         --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \\
         --dataset-path demo_data/libero_demo \\
@@ -58,7 +59,7 @@ from typing import Any, Literal, Optional
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
-from gr00t.deployment.modes import VideoBackend
+from gr00t.deployment.modes import ExportMode
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 import numpy as np
 import torch
@@ -71,24 +72,6 @@ import tyro
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
-
-def _is_spark_sm121() -> bool:
-    if not torch.cuda.is_available():
-        return False
-
-    major, minor = torch.cuda.get_device_capability()
-    return (major, minor) == (12, 1)
-
-
-def _should_use_dynamo_exporter() -> bool:
-    override = os.environ.get("GR00T_ONNX_EXPORTER_MODE")
-    if override == "legacy":
-        return False
-    if override == "default":
-        return True
-
-    return not _is_spark_sm121()
 
 
 def _consolidate_external_data(onnx_path: str) -> None:
@@ -596,6 +579,7 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True, batch_si
             opset_version=19,
             do_constant_folding=True,
             export_params=True,
+            dynamo=False,
         )
 
     logger.info("  ViT exported successfully!")
@@ -889,6 +873,7 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True, batch_si
             do_constant_folding=True,
             dynamic_axes=llm_dynamic_axes,
             export_params=True,
+            dynamo=False,
         )
 
     logger.info("  LLM exported successfully!")
@@ -994,6 +979,7 @@ def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=Tr
             },
             opset_version=19,
             do_constant_folding=True,
+            dynamo=False,
         )
 
     logger.info("  VL Self-Attention exported successfully!")
@@ -1051,6 +1037,7 @@ def export_state_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=1
             output_names=["output"],
             opset_version=19,
             do_constant_folding=True,
+            dynamo=False,
         )
 
     logger.info("  State Encoder exported successfully!")
@@ -1102,6 +1089,7 @@ def export_action_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=
             output_names=["output"],
             opset_version=19,
             do_constant_folding=True,
+            dynamo=False,
         )
 
     logger.info("  Action Encoder exported successfully!")
@@ -1168,13 +1156,9 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    # Export to ONNX
-    logger.info(f"Exporting to {output_path}...")
-    use_dynamo_exporter = _should_use_dynamo_exporter()
-    logger.info(
-        "Using %s ONNX exporter",
-        "dynamo" if use_dynamo_exporter else "legacy",
-    )
+    # Export to ONNX. Keep the legacy exporter explicit: the dynamo exporter
+    # specializes vl_seq_len here, which breaks the dynamic TensorRT profile.
+    logger.info(f"Exporting to {output_path} with legacy ONNX exporter...")
 
     # Create a wrapper to handle keyword arguments
     # torch.onnx.export uses positional args: `dit.forward(arg1, arg2...)`
@@ -1281,6 +1265,7 @@ def export_action_decoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=
             output_names=["output"],
             opset_version=19,
             do_constant_folding=True,
+            dynamo=False,
         )
 
     logger.info("  Action Decoder exported successfully!")
@@ -1320,8 +1305,6 @@ def main(args):
     dataset = LeRobotEpisodeLoader(
         dataset_path=args.dataset_path,
         modality_configs=policy.get_modality_config(),
-        video_backend=args.video_backend,
-        video_backend_kwargs=None,
     )
     logger.info(f"  Dataset loaded ({len(dataset)} trajectories)")
 
@@ -1531,14 +1514,18 @@ class ExportConfig:
     output_dir: str = "./gr00t_n1d7_onnx"
     """Output directory for ONNX models."""
 
-    export_mode: Literal["dit_only", "action_head", "full_pipeline"] = "dit_only"
+    export_mode: ExportMode = ExportMode.dit_only
     """Export mode: 'dit_only', 'action_head' (4 components), or 'full_pipeline' (ViT + action head)."""
 
-    video_backend: VideoBackend = "torchcodec"
-    """Video backend to use."""
+    precision: Literal["bf16"] = "bf16"
+    """Export precision for the generated ONNX graph.
 
-    precision: Literal["bf16", "fp8"] = "bf16"
-    """Export precision: 'bf16' (default) or 'fp8' (TODO for N1.7)."""
+    Currently fixed to 'bf16': every Step 4 exporter passes a hardcoded
+    `use_bf16=` argument and does not read this field beyond writing it
+    into export_metadata.json. Re-introducing 'fp16'/'fp32'/'fp8' here
+    requires plumbing this field into each exporter first; until then
+    the Literal is narrowed so the CLI cannot accept a value the export
+    will ignore."""
 
     batch_size: int = 1
     """Batch size baked into the exported ONNX models (default: 1)."""

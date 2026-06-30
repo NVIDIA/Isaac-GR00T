@@ -45,7 +45,12 @@ import torch.multiprocessing as mp
 
 
 WORLD_SIZE = 3
-WORKER_TIMEOUT_S = 30  # generous; non-hang paths complete in well under 1s
+# Generous headroom so this stays robust under parallel CI (pytest-xdist -n auto):
+# each test spawns WORLD_SIZE torch-importing subprocesses, which contend for
+# cores when every xdist worker is busy. Non-hang paths complete in well under
+# 1s and a real barrier hang would block far longer, so a larger budget still
+# reliably catches the regression this guards.
+WORKER_TIMEOUT_S = 120
 
 
 def _setup_pg(rank: int, world_size: int, init_file: str) -> None:

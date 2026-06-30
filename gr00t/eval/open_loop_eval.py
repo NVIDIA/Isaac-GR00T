@@ -326,8 +326,6 @@ def main(args: ArgsConfig):
     dataset = LeRobotEpisodeLoader(
         dataset_path=args.dataset_path,
         modality_configs=modality,
-        video_backend="torchcodec",
-        video_backend_kwargs=None,
     )
 
     logging.info(f"Dataset length: {len(dataset)}")

@@ -80,6 +80,27 @@ class FinetuneConfig:
 
     If None, applying the default color jitter augmentation from the pretrained model.
     """
+
+    use_percentiles: bool = True
+    """
+    If True, use q01/q99 percentile statistics for state/action min-max normalization.
+    If False, use full min/max statistics.
+    """
+
+    shortest_image_edge: int | None = None
+    """
+    Resize images so the shortest edge has this size before fractional cropping.
+    If set, crop_fraction must also be set and legacy image_crop_size/image_target_size
+    preprocessing is disabled.
+    """
+
+    crop_fraction: float | None = None
+    """
+    Fraction of the resized image retained by the random/center crop.
+    If set, shortest_image_edge must also be set and legacy image_crop_size/image_target_size
+    preprocessing is disabled.
+    """
+
     extra_augmentation_config: str | None = None
     """
     JSON string for extra image augmentations (mask-based and others).
@@ -147,6 +168,10 @@ class FinetuneConfig:
 
     warmup_ratio: float = 0.05
     """Proportion of total training steps used for learning rate warm-up."""
+
+    ds_weights_alpha: float | None = None
+    """Power-law exponent for dataset soup weighting. When set, each dataset's
+    sampling weight is len(dataset)^alpha and per-dataset mix_ratio values are ignored."""
 
     shard_size: int = 2**10
     """Size of the shard to use for the dataset during preloading."""

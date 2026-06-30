@@ -50,12 +50,13 @@ import json
 import logging
 import os
 from pathlib import Path
+import shutil
 import sys
 import time
 import traceback
 from typing import IO, Literal, Optional
 
-from gr00t.deployment.modes import VideoBackend
+from gr00t.deployment.modes import ExportMode
 import tyro
 
 
@@ -85,7 +86,7 @@ VALID_STEPS = tuple(Step)
 _MODE_MAP = {
     "full_pipeline": ("full_pipeline", "n17_full_pipeline", "n17_full_pipeline"),
     "action_head": ("full_pipeline", "action_head", "dit_only"),
-    "dit_only": ("single", "action_head", "dit_only"),
+    "dit_only": ("single", "dit_only", "dit_only"),
 }
 
 
@@ -222,8 +223,15 @@ class PipelineConfig:
     output_dir: str = "./gr00t_trt_deployment"
     """Root output directory. ONNX files go to <output_dir>/onnx/, engines to <output_dir>/engines/."""
 
-    precision: Literal["bf16", "fp16", "fp32"] = "bf16"
-    """Precision for ONNX export and TRT engine build."""
+    precision: Literal["bf16"] = "bf16"
+    """Precision baked into the exported ONNX and the built TRT engine.
+
+    Only 'bf16' is honored end-to-end: the ONNX export hardcodes a
+    mixed-dtype graph (ViT FP32, every other component BF16) and the
+    builder treats this as the single supported configuration. Adding
+    'fp16'/'fp32'/'fp8' here without first wiring them through
+    export_onnx_n1d7.py would silently produce a bf16 artifact under a
+    different name."""
 
     batch_size: int = 1
     """Batch size baked into the exported ONNX/TRT models (default: 1).
@@ -239,11 +247,8 @@ class PipelineConfig:
     """
 
     # -- Export options ------------------------------------------------------
-    export_mode: Literal["dit_only", "action_head", "full_pipeline"] = "full_pipeline"
+    export_mode: ExportMode = ExportMode.full_pipeline
     """Export mode: 'dit_only', 'action_head', or 'full_pipeline' (recommended)."""
-
-    video_backend: VideoBackend = "torchcodec"
-    """Video backend for dataset loading."""
 
     # -- Build options ------------------------------------------------------
     workspace: int = 8192
@@ -281,7 +286,6 @@ def _run_export(cfg: PipelineConfig, onnx_dir: str, embodiment_tag, log_fp) -> N
         embodiment_tag=embodiment_tag,
         output_dir=onnx_dir,
         export_mode=cfg.export_mode,
-        video_backend=cfg.video_backend,
         precision=cfg.precision,
         batch_size=cfg.batch_size,
     )
@@ -315,6 +319,20 @@ def _run_build(
         )
     with _redirect_to_log(log_fp):
         build_main(build_cfg, trt_severity=trt_severity)
+
+
+def _copy_export_metadata(onnx_dir: str, engine_dir: str) -> None:
+    """Copy ``export_metadata.json`` next to the built engines.
+
+    The runtime (``setup_tensorrt_engines`` / ``verify_n1d7_trt`` /
+    ``benchmark_inference``) reads back ``action_horizon`` / ``batch_size`` from
+    this file to validate against the loaded policy and the requested
+    ``--batch-size``, so the engine bundle must carry its own copy to be
+    self-describing. A missing source file is a no-op (older export layouts).
+    """
+    src = os.path.join(onnx_dir, "export_metadata.json")
+    if os.path.exists(src):
+        shutil.copy2(src, os.path.join(engine_dir, "export_metadata.json"))
 
 
 def _run_verify(cfg: PipelineConfig, engine_dir: str, embodiment_tag, log_fp) -> float:
@@ -454,6 +472,7 @@ def main(cfg: PipelineConfig | None = None) -> None:
                     _print_header(i, total, "Building TensorRT engines...")
                     t0 = time.time()
                     _run_build(cfg, onnx_dir, engine_dir, log_fp)
+                    _copy_export_metadata(onnx_dir, engine_dir)
                     elapsed = time.time() - t0
                     n = _count_files(engine_dir, ".engine")
                     _print_result(

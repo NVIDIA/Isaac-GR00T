@@ -27,15 +27,20 @@ from HuggingFace Hub using ``hf_hub_download`` (avoids full repo enumeration).
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
 
 import cv2
+from gr00t.configs.data.embodiment_configs import MODALITY_CONFIGS
+from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
+from gr00t.data.types import ModalityConfig
 from gr00t.utils import video_utils
 import huggingface_hub
+import numpy as np
 import pytest
-from test_support.runtime import TEST_CACHE_PATH, get_root
+from test_support.runtime import TEST_CACHE_PATH, get_root, resolve_demo_dataset
 
 
 REPO_ROOT = get_root()
@@ -163,8 +168,93 @@ DATASET_CATALOG: tuple[DatasetCatalogEntry, ...] = (
 )
 
 
+SO100_MODALITY_CONFIG = {
+    "video": ModalityConfig(delta_indices=[0], modality_keys=["front", "wrist"]),
+    "state": ModalityConfig(delta_indices=[0], modality_keys=["single_arm", "gripper"]),
+    "action": ModalityConfig(
+        delta_indices=list(range(16)), modality_keys=["single_arm", "gripper"]
+    ),
+    "language": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=["annotation.human.task_description"],
+    ),
+}
+
+
+SO101_MASK_MODALITY_CONFIG = {
+    **SO100_MODALITY_CONFIG,
+    "mask": ModalityConfig(delta_indices=[0], modality_keys=["front", "wrist"]),
+}
+
+
+@dataclass(frozen=True)
+class ReadmeDemoDatasetEntry:
+    """Concrete README training dataset that ships under demo_data/."""
+
+    name: str
+    dataset_name: str
+    modality_configs: dict[str, ModalityConfig]
+    env_var: str | None = None
+
+    @property
+    def video_keys(self) -> list[str]:
+        return self.modality_configs["video"].modality_keys
+
+    @property
+    def mask_keys(self) -> list[str]:
+        mask_config = self.modality_configs.get("mask")
+        return [] if mask_config is None else mask_config.modality_keys
+
+
+README_DEMO_DATASET_CATALOG: tuple[ReadmeDemoDatasetEntry, ...] = (
+    ReadmeDemoDatasetEntry(
+        name="readme_droid_sample",
+        dataset_name="droid_sample",
+        modality_configs=MODALITY_CONFIGS["oxe_droid_relative_eef_relative_joint"],
+        env_var="DROID_DEMO_DATASET_PATH",
+    ),
+    ReadmeDemoDatasetEntry(
+        name="readme_libero_demo",
+        dataset_name="libero_demo",
+        modality_configs=MODALITY_CONFIGS["libero_sim"],
+        env_var="LIBERO_DEMO_DATASET_PATH",
+    ),
+    ReadmeDemoDatasetEntry(
+        name="readme_simplerenv_bridge_sample",
+        dataset_name="simplerenv_bridge_sample",
+        modality_configs=MODALITY_CONFIGS["simpler_env_widowx"],
+    ),
+    ReadmeDemoDatasetEntry(
+        name="readme_simplerenv_fractal_sample",
+        dataset_name="simplerenv_fractal_sample",
+        modality_configs=MODALITY_CONFIGS["simpler_env_google"],
+    ),
+    ReadmeDemoDatasetEntry(
+        name="readme_cube_to_bowl_5",
+        dataset_name="cube_to_bowl_5",
+        modality_configs=SO100_MODALITY_CONFIG,
+    ),
+    ReadmeDemoDatasetEntry(
+        name="readme_cube_to_bowl_5_with_mask",
+        dataset_name="cube_to_bowl_5_with_mask",
+        modality_configs=SO101_MASK_MODALITY_CONFIG,
+    ),
+)
+
+
+@pytest.fixture(scope="module")
+def video_decoder_cls():
+    try:
+        return video_utils._get_video_decoder_cls()
+    except ImportError as exc:
+        pytest.skip(str(exc))
+
+
+@pytest.mark.edge_device
 @pytest.mark.parametrize("entry", DATASET_CATALOG, ids=lambda e: e.name)
-def test_dataset_backend_policy_on_sample_video(entry: DatasetCatalogEntry) -> None:
+def test_dataset_backend_policy_on_sample_video(
+    entry: DatasetCatalogEntry, video_decoder_cls
+) -> None:
     """Verify that torchcodec decodes non-identical frames for each dataset video."""
     video_paths = entry.list_videos()
     assert len(video_paths) > 0, (
@@ -174,8 +264,10 @@ def test_dataset_backend_policy_on_sample_video(entry: DatasetCatalogEntry) -> N
     for video_path in video_paths:
         video_path_str = str(video_path)
 
-        info = video_utils._get_video_info_ffmpeg(video_path_str)
-        nb_frames = int(info["nb_frames"])
+        decoder = video_decoder_cls(video_path_str)
+        nb_frames = len(decoder)
+        fps = float(decoder.metadata.average_fps or 1.0)
+
         if nb_frames < 10:
             raise ValueError(f"Video has too few frames: {video_path_str}")
 
@@ -184,8 +276,7 @@ def test_dataset_backend_policy_on_sample_video(entry: DatasetCatalogEntry) -> N
         frames = video_utils.get_frames_by_indices(
             video_path=video_path_str,
             indices=list(range(nb_frames)),
-            video_backend="torchcodec",
-            video_backend_kwargs={},
+            decoder_kwargs={},
         )
         assert len(frames) == nb_frames
         all_identical = all((frames[i] == frames[0]).all() for i in range(1, nb_frames))
@@ -196,7 +287,6 @@ def test_dataset_backend_policy_on_sample_video(entry: DatasetCatalogEntry) -> N
             shutil.copy(video_path, debug_dir / video_path.name)
 
             h, w = frames[0].shape[:2]
-            fps = float(info.get("fps", 1.0)) or 1.0
             out = cv2.VideoWriter(
                 str(debug_dir / f"decoded_{video_path.stem}.mp4"),
                 cv2.VideoWriter_fourcc(*"mp4v"),
@@ -211,3 +301,57 @@ def test_dataset_backend_policy_on_sample_video(entry: DatasetCatalogEntry) -> N
                 f"All {nb_frames} decoded frames are identical in {video_path_str}. "
                 f"Original video and decoded frames saved to {debug_dir}"
             )
+
+
+@pytest.mark.edge_device
+@pytest.mark.parametrize("entry", README_DEMO_DATASET_CATALOG, ids=lambda e: e.name)
+def test_readme_demo_training_dataset_loads_frames_with_torchcodec(
+    entry: ReadmeDemoDatasetEntry,
+    video_decoder_cls,
+) -> None:
+    """Load concrete README demo training datasets through the real episode loader."""
+    assert video_decoder_cls is not None
+
+    dataset_path = resolve_demo_dataset(
+        dataset_name=entry.dataset_name,
+        path_override_env=entry.env_var,
+        repo_root=REPO_ROOT,
+    )
+    loader = LeRobotEpisodeLoader(
+        dataset_path=dataset_path,
+        modality_configs=copy.deepcopy(entry.modality_configs),
+        decoder_kwargs={},
+    )
+    assert len(loader) > 0, f"{entry.name} has no episodes: {dataset_path}"
+
+    episode = loader[0]
+    assert len(episode) > 0, f"{entry.name} episode 0 loaded no rows: {dataset_path}"
+
+    for video_key in entry.video_keys:
+        column = f"video.{video_key}"
+        assert column in episode.columns, (
+            f"{entry.name} did not load expected video column {column}. "
+            f"Available columns: {list(episode.columns)}"
+        )
+        frame = episode[column].iloc[0]
+        assert isinstance(frame, np.ndarray), (
+            f"{entry.name} {column} loaded {type(frame).__name__}, expected np.ndarray"
+        )
+        assert frame.ndim == 3 and frame.shape[-1] == 3, (
+            f"{entry.name} {column} loaded frame with unexpected shape {frame.shape}"
+        )
+        assert frame.dtype == np.uint8, (
+            f"{entry.name} {column} loaded frame with unexpected dtype {frame.dtype}"
+        )
+
+    for mask_key in entry.mask_keys:
+        column = f"mask.{mask_key}"
+        assert column in episode.columns, (
+            f"{entry.name} did not load expected mask column {column}. "
+            f"Available columns: {list(episode.columns)}"
+        )
+        mask = episode[column].iloc[0]
+        assert isinstance(mask, np.ndarray), (
+            f"{entry.name} {column} loaded {type(mask).__name__}, expected np.ndarray"
+        )
+        assert mask.ndim >= 2, f"{entry.name} {column} loaded mask shape {mask.shape}"
