@@ -132,6 +132,7 @@ class Gr00tN1d6Processor(BaseProcessor):
         use_relative_action: bool = False,
         embodiment_id_mapping: dict[str, int] | None = None,
         transformers_loading_kwargs: dict = {"trust_remote_code": True},
+        letter_box_transform: bool = False,
     ):
         self.modality_configs = parse_modality_configs(modality_configs)
 
@@ -151,6 +152,7 @@ class Gr00tN1d6Processor(BaseProcessor):
         self.apply_sincos_state_encoding = apply_sincos_state_encoding
         self.use_relative_action = use_relative_action
         self.extra_augmentation_config = extra_augmentation_config
+        self.letter_box_transform = letter_box_transform
 
         # Save VLM settings
         self.formalize_language = formalize_language
@@ -189,11 +191,16 @@ class Gr00tN1d6Processor(BaseProcessor):
                     shortest_image_edge,
                     crop_fraction,
                     extra_augmentation_config=self.extra_augmentation_config,
+                    letter_box_transform=self.letter_box_transform,
                 )
             )
         else:
             self.train_image_transform, self.eval_image_transform = build_image_transformations(
-                image_target_size, image_crop_size, random_rotation_angle, color_jitter_params
+                image_target_size,
+                image_crop_size,
+                random_rotation_angle,
+                color_jitter_params,
+                letter_box_transform=self.letter_box_transform,
             )
         self._collator = self.data_collator_class(
             model_name=model_name,
@@ -464,6 +471,7 @@ class Gr00tN1d6Processor(BaseProcessor):
                 "color_jitter_params": self.color_jitter_params,
                 "shortest_image_edge": self.shortest_image_edge,
                 "crop_fraction": self.crop_fraction,
+                "letter_box_transform": self.letter_box_transform,
                 # VLM settings
                 "model_name": self.model_name,
                 "model_type": self.model_type,
@@ -529,6 +537,7 @@ class Gr00tN1d6Processor(BaseProcessor):
                 "color_jitter_params",
                 "use_relative_action",
                 "extra_augmentation_config",
+                "letter_box_transform",
             ]
             for key in override_keys:
                 if key in kwargs:
