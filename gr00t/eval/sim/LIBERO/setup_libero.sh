@@ -25,6 +25,9 @@ uv venv $LIBERO_UV_ENV/.venv --python 3.10
 source $LIBERO_UV_ENV/.venv/bin/activate
 # uv pip install gymnasium==1.2.0 # -> 2.9.1 -> 
 uv pip install --requirements $LIBERO_REPO/requirements.txt
+# robosuite 1.4 calls the MuJoCo 2.x mj_fullM(model, dst, qM) binding.
+# MuJoCo 3.10 changed it to mj_fullM(model, data, dst), breaking env creation.
+uv pip install mujoco==2.3.7
 uv pip install -e $LIBERO_REPO --config-settings editable_mode=compat
 uv pip install --editable $PROJECT_REPO --no-deps --python-version 3.12
 uv pip install torch==2.5.1 torchvision==0.20.1 pydantic av tianshou==0.5.1 tyro pandas dm_tree einops==0.8.1 albumentations==1.4.18 zmq
