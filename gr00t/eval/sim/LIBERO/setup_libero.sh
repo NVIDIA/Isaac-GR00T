@@ -22,7 +22,10 @@ uv pip install -e $LIBERO_REPO --config-settings editable_mode=compat
 uv pip install --editable $PROJECT_REPO --no-deps
 uv pip install torch==2.5.1 torchvision==0.20.1 pydantic av tianshou==0.5.1 tyro pandas dm_tree einops==0.8.1 albumentations==1.4.18 zmq
 uv pip install transformers==4.51.3 msgpack==1.1.0 msgpack-numpy==0.4.8 gymnasium==0.29.1
-uv pip install numpy==1.26.4
+# Pin mujoco: robosuite 1.4.0 (pulled by LIBERO's requirements) calls
+# mj_fullM(model, dst, M), whose signature changed in mujoco 3.10.0 to
+# mj_fullM(model, data, dst). Leaving mujoco unpinned breaks env creation.
+uv pip install numpy==1.26.4 mujoco==3.3.1
 
 uv pip install --editable "$PROJECT_REPO" --no-deps
 

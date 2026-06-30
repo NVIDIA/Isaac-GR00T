@@ -120,6 +120,7 @@ class Gr00tN1d6Pipeline(ModelPipeline):
 
     def _create_dataset(self, save_cfg_dir: Path):
         """Create appropriate dataset based on task and mode."""
+        letter_box_transform = self.model_config.letter_box_transform
 
         if self.config.training.start_from_checkpoint is not None:
             processor = AutoProcessor.from_pretrained(
@@ -139,6 +140,7 @@ class Gr00tN1d6Pipeline(ModelPipeline):
                 extra_augmentation_config=self.model_config.extra_augmentation_config,
                 shortest_image_edge=self.model_config.shortest_image_edge,
                 crop_fraction=self.model_config.crop_fraction,
+                letter_box_transform=letter_box_transform,
                 transformers_loading_kwargs=self.transformers_loading_kwargs,
                 use_alternate_vl_dit=self.model_config.use_alternate_vl_dit,
                 use_relative_action=self.model_config.use_relative_action,
@@ -164,6 +166,7 @@ class Gr00tN1d6Pipeline(ModelPipeline):
                 extra_augmentation_config=self.model_config.extra_augmentation_config,
                 shortest_image_edge=self.model_config.shortest_image_edge,
                 crop_fraction=self.model_config.crop_fraction,
+                letter_box_transform=letter_box_transform,
                 use_relative_action=self.model_config.use_relative_action,
                 transformers_loading_kwargs=self.transformers_loading_kwargs,
             )

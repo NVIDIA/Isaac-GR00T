@@ -45,6 +45,7 @@ class Gr00tN1d6Config(PretrainedConfig):
     random_rotation_angle: int | None = None
     color_jitter_params: dict[str, float] | None = None
     use_albumentations_transforms: bool = True
+    letter_box_transform: bool = False
     # Extra augmentation config (mask-based and others).
     extra_augmentation_config: dict | None = None
     formalize_language: bool = True
