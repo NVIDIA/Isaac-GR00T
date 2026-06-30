@@ -317,34 +317,21 @@ class LetterBoxPad(A.DualTransform):
     def __init__(self, p: float = 1.0, always_apply: bool | None = None):
         super().__init__(p=p, always_apply=always_apply)
 
-    def apply(
-        self,
-        img: np.ndarray,
-        pad_top: int = 0,
-        pad_bottom: int = 0,
-        pad_left: int = 0,
-        pad_right: int = 0,
-        **params,
-    ) -> np.ndarray:
-        if pad_top == 0 and pad_bottom == 0 and pad_left == 0 and pad_right == 0:
-            return img
-        return cv2.copyMakeBorder(
-            img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0
-        )
-
-    def get_params_dependent_on_data(self, params, data) -> dict[str, int]:
-        h, w = params["shape"][:2]
+    def apply(self, img: np.ndarray, **params) -> np.ndarray:
+        # Derive padding from the current image so A.ReplayCompose works with mixed-size views.
+        h, w = img.shape[:2]
         if h == w:
-            return {"pad_top": 0, "pad_bottom": 0, "pad_left": 0, "pad_right": 0}
+            return img
         max_dim = max(h, w)
         pad_h = max_dim - h
         pad_w = max_dim - w
-        return {
-            "pad_top": pad_h // 2,
-            "pad_bottom": pad_h - pad_h // 2,
-            "pad_left": pad_w // 2,
-            "pad_right": pad_w - pad_w // 2,
-        }
+        pad_top = pad_h // 2
+        pad_bottom = pad_h - pad_top
+        pad_left = pad_w // 2
+        pad_right = pad_w - pad_left
+        return cv2.copyMakeBorder(
+            img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0
+        )
 
     def get_transform_init_args_names(self) -> tuple[str, ...]:
         return ()
