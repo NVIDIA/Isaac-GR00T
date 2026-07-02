@@ -66,10 +66,9 @@ Please refer to [eval_so100.py](../../gr00t/eval/real_robot/SO100/eval_so100.py)
 
 ```bash
 cd gr00t/eval/real_robot/SO100
-uv venv
-source .venv/bin/activate
-uv pip install -e . --verbose
+uv sync
 uv pip install --no-deps -e ../../../../
+source .venv/bin/activate
 ```
 
 2. Start policy server from the repository root in a separate terminal:
@@ -81,7 +80,8 @@ uv run python gr00t/eval/run_gr00t_server.py \
 
 3. Run the eval script as the client from the `gr00t/eval/real_robot/SO100` environment created above:
 ```bash
-uv run python eval_so100.py \
+cd gr00t/eval/real_robot/SO100
+uv run --no-sync python eval_so100.py \
   --robot.type=so101_follower --robot.port=/dev/ttyACM2 \
   --robot.id=orange_follower \
   --robot.cameras="{ wrist: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: 6, width: 640, height: 480, fps: 30}}" \
