@@ -68,7 +68,6 @@ Please refer to [eval_so100.py](../../gr00t/eval/real_robot/SO100/eval_so100.py)
 cd gr00t/eval/real_robot/SO100
 uv sync
 uv pip install --no-deps -e ../../../../
-source .venv/bin/activate
 ```
 
 2. Start policy server from the repository root in a separate terminal:
