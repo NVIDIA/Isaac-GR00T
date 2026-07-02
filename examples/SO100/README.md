@@ -1,17 +1,21 @@
-# Finetuning SO100 Model
+# Finetuning Models for the SO100/SO101 Robot
 
-This guide shows how to finetune dataset collected from [SO100](https://huggingface.co/docs/lerobot/en/so101) robot, and evaluate the model on the real robot.
+This guide shows how to finetune dataset collected from [SO101](https://huggingface.co/docs/lerobot/en/so101) robot, and evaluate the model on the real robot.
 
 
 ## Dataset
 
-To collect the dataset via teleoperation, please refer to the official documentation in lerobot: https://huggingface.co/docs/lerobot/il_robots?teleoperate_so101=Command
+To collect the dataset via teleoperation, calibrate the robot, and determine camera indicies, please refer to the official documentation in lerobot: https://huggingface.co/docs/lerobot/il_robots
+
+If you do not have a dataset, you can use this one as a basic test of the workflow.
 
 **Dataset Path:** [izuluaga/finish_sandwich](https://huggingface.co/datasets/izuluaga/finish_sandwich)
 
 Visualize it with this [link](https://huggingface.co/spaces/lerobot/visualize_dataset?path=%2Fizuluaga%2Ffinish_sandwich%2Fepisode_0)
 
-## Handling the dataset
+## Converting the Dataset
+
+1. From this `examples/SO100` directory, run the following command to convert the dataset to the LeRobot v2 format necessary for finetuning.
 
 ```bash
 uv run --project scripts/lerobot_conversion \
@@ -20,14 +24,14 @@ uv run --project scripts/lerobot_conversion \
   --root examples/SO100/finish_sandwich_lerobot
 ```
 
-Then move the `modality.json` file to the root of the dataset.
+2. Copy the `modality.json` file for the SO100 to the root of the dataset.
 ```bash
 cp examples/SO100/modality.json examples/SO100/finish_sandwich_lerobot/izuluaga/finish_sandwich/meta/modality.json
 ```
 
-## Finetuning
+## Finetuning the Model
 
-Run the shared finetune launcher directly, using absolute joint positions (feel free to experiment with relative positions):
+1. Run the shared finetune launcher directly, using absolute joint positions (feel free to experiment with relative positions):
 ```bash
 CUDA_VISIBLE_DEVICES=0 NUM_GPUS=1 uv run bash examples/finetune.sh \
   --base-model-path nvidia/GR00T-N1.7-3B \
@@ -39,7 +43,8 @@ CUDA_VISIBLE_DEVICES=0 NUM_GPUS=1 uv run bash examples/finetune.sh \
 
 ## Open-Loop Evaluation
 
-Evaluate the finetuned model with the following command:
+1. Evaluate the finetuned model with the following command:
+
 ```bash
 uv run python gr00t/eval/open_loop_eval.py \
   --dataset-path examples/SO100/finish_sandwich_lerobot/izuluaga/finish_sandwich/ \
@@ -62,16 +67,16 @@ To read these numbers and decide whether your fine-tune is working, see [Interpr
 
 Please refer to [eval_so100.py](../../gr00t/eval/real_robot/SO100/eval_so100.py) for how to write SO100 deployment code using Policy API.
 
-1. set up client side deps
+1. From the `examples/SO100` directory, set up client side dependencies:
 
 ```bash
-cd gr00t/eval/real_robot/SO100
 uv sync
 uv pip install --no-deps -e ../../../../
 ```
 
 2. Start policy server from the repository root in a separate terminal:
 ```bash
+cd ~/Isaac-GR00T
 uv run python gr00t/eval/run_gr00t_server.py \
   --model-path /tmp/so100_finetune/checkpoint-10000 \
   --embodiment-tag NEW_EMBODIMENT 
@@ -79,7 +84,7 @@ uv run python gr00t/eval/run_gr00t_server.py \
 
 3. In a second terminal, run the eval script as the client from the `gr00t/eval/real_robot/SO100` environment created above:
 ```bash
-cd gr00t/eval/real_robot/SO100
+# Update these to match the address and indicies assigned by your OS
 ROBOT_PORT=/dev/ttyACM2
 WRIST_CAM_IDX=2
 FRONT_CAM_IDX=6
