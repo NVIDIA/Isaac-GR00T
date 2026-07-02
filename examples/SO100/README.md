@@ -81,9 +81,12 @@ uv run python gr00t/eval/run_gr00t_server.py \
 3. Run the eval script as the client from the `gr00t/eval/real_robot/SO100` environment created above:
 ```bash
 cd gr00t/eval/real_robot/SO100
+ROBOT_PORT=/dev/ttyACM2
+WRIST_CAM_IDX=2
+FRONT_CAM_IDX=6
 uv run --no-sync python eval_so100.py \
-  --robot.type=so101_follower --robot.port=/dev/ttyACM2 \
+  --robot.type=so101_follower --robot.port=$ROBOT_PORT \
   --robot.id=orange_follower \
-  --robot.cameras="{ wrist: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: 6, width: 640, height: 480, fps: 30}}" \
+  --robot.cameras="{ wrist: {type: opencv, index_or_path: $WRIST_CAM_IDX, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: $FRONT_CAM_IDX, width: 640, height: 480, fps: 30}}" \
   --policy-host=localhost --policy-port=5555 --lang-instruction="finish the ham cheese olives sandwich"
 ```
