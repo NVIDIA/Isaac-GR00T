@@ -31,7 +31,7 @@ cp examples/SO100/modality.json examples/SO100/finish_sandwich_lerobot/izuluaga/
 
 ## Finetuning the Model
 
-1. Run the shared finetune launcher directly, using absolute joint positions (feel free to experiment with relative positions):
+1. Run the shared finetune launcher directly, this will use relative actions by default for all axes except the gripper.
 ```bash
 CUDA_VISIBLE_DEVICES=0 NUM_GPUS=1 uv run bash examples/finetune.sh \
   --base-model-path nvidia/GR00T-N1.7-3B \
@@ -74,7 +74,7 @@ uv sync
 uv pip install --no-deps -e ../../../../
 ```
 
-2. Start policy server from the repository root in a separate terminal:
+2. Start the policy server from a separate terminal.
 ```bash
 cd ~/Isaac-GR00T
 uv run python gr00t/eval/run_gr00t_server.py \
@@ -86,11 +86,33 @@ uv run python gr00t/eval/run_gr00t_server.py \
 ```bash
 # Update these to match the address and indicies assigned by your OS
 ROBOT_PORT=/dev/ttyACM2
+ROBOT_ID=orange_follower
 WRIST_CAM_IDX=2
 FRONT_CAM_IDX=6
+# Task specific prompt
+PROMPT="finish the ham cheese olives sandwich"
+
 uv run --no-sync python eval_so100.py \
-  --robot.type=so101_follower --robot.port=$ROBOT_PORT \
-  --robot.id=orange_follower \
-  --robot.cameras="{ wrist: {type: opencv, index_or_path: $WRIST_CAM_IDX, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: $FRONT_CAM_IDX, width: 640, height: 480, fps: 30}}" \
-  --policy-host=localhost --policy-port=5555 --lang-instruction="finish the ham cheese olives sandwich"
+  --robot.type=so101_follower \
+  --robot.port=$ROBOT_PORT \
+  --robot.id=$ROBOT_ID \
+  --robot.cameras="{
+    wrist: {
+      type: opencv,
+      index_or_path: $WRIST_CAM_IDX,
+      width: 640,
+      height: 480,
+      fps: 30
+    },
+    front: {
+      type: opencv,
+      index_or_path: $FRONT_CAM_IDX,
+      width: 640,
+      height: 480,
+      fps: 30
+    }
+  }" \
+  --policy-host=localhost \
+  --policy-port=5555 \
+  --lang-instruction=$PROMPT
 ```
