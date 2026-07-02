@@ -78,7 +78,7 @@ uv run python gr00t/eval/run_gr00t_server.py \
   --embodiment-tag NEW_EMBODIMENT 
 ```
 
-3. Run the eval script as the client from the `gr00t/eval/real_robot/SO100` environment created above:
+3. In a second terminal, run the eval script as the client from the `gr00t/eval/real_robot/SO100` environment created above:
 ```bash
 cd gr00t/eval/real_robot/SO100
 ROBOT_PORT=/dev/ttyACM2
