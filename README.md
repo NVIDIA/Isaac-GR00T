@@ -14,6 +14,10 @@
   </p>
 </div>
 
+## Intel XPU Support
+
+GR00T N1.7 inference has been validated on Intel XPU (Intel GPUs) and runs **without any code changes** to this repository. Install a PyTorch build with Intel XPU support and select the `xpu` device at runtime.
+
 ## Table of Contents
 
 - [NVIDIA Isaac GR00T](#nvidia-isaac-gr00t)
