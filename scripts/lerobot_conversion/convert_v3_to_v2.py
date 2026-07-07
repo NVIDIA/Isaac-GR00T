@@ -18,7 +18,11 @@
 Usage examples
 --------------
 
-- Convert a lerobot v3.0 dataset that already exists locally (The v3.0 path will be overwritten by the v2.1 path and a folder with the suffix _v30 will be created containing the original v3.0 dataset)
+- Convert a lerobot v3.0 dataset that already exists locally. The converted v2.1
+  dataset is written to `--output` (default: a sibling directory with a `_v2.1`
+  suffix) and the source dataset is left untouched. Pass `--in-place` to replace
+  the source instead; the original v3.0 dataset is then kept in a sibling
+  directory with a `_backup_v3.0` suffix.
 
 - This needs lerobot version atleast after commit f55c6e89f.
 
@@ -483,12 +487,64 @@ def copy_ancillary_directories(root: Path, new_root: Path) -> None:
             shutil.copytree(source, new_root / subdir, dirs_exist_ok=True)
 
 
+def resolve_output_roots(
+    root: Path,
+    output: str | Path | None,
+    in_place: bool,
+) -> tuple[Path, Path | None]:
+    """Resolve and validate the destination directories for a conversion.
+
+    Returns the directory the converted v2.1 dataset is written to and, when
+    ``in_place`` is requested, the directory the original v3.0 dataset is kept in.
+    Raises instead of silently overwriting existing data.
+    """
+
+    if output is not None and in_place:
+        raise ValueError("--output and --in-place are mutually exclusive.")
+
+    new_root = root.parent / f"{root.name}_{V21}" if output is None else Path(output)
+
+    root_resolved = root.resolve()
+    new_root_resolved = new_root.resolve()
+    if new_root_resolved == root_resolved or root_resolved in new_root_resolved.parents:
+        raise ValueError(
+            f"Output directory '{new_root}' would overwrite the source dataset at '{root}'. "
+            "Pass a different --output, or use --in-place to replace the source explicitly."
+        )
+    if new_root.exists():
+        raise FileExistsError(
+            f"Output directory already exists: {new_root}. Remove it or pass a different --output."
+        )
+
+    backup_root = None
+    if in_place:
+        backup_root = root.parent / f"{root.name}_backup_{V30}"
+        if backup_root.exists():
+            raise FileExistsError(
+                f"Backup directory already exists: {backup_root}. "
+                "Remove it before converting in place again."
+            )
+
+    return new_root, backup_root
+
+
 def convert_dataset(
     repo_id: str,
     root: str | Path | None = None,
+    output: str | Path | None = None,
+    in_place: bool = False,
     force_conversion: bool = False,
 ) -> None:
     root = HF_LEROBOT_HOME / repo_id if root is None else Path(root) / repo_id
+
+    new_root, backup_root = resolve_output_roots(root, output, in_place)
+    if in_place:
+        logging.warning(
+            "--in-place enabled: %s will be replaced by the converted v2.1 dataset; "
+            "the original v3.0 dataset will be kept at %s",
+            root,
+            backup_root,
+        )
 
     if root.exists() and force_conversion:
         logging.info("--force-conversion enabled: removing existing snapshot at %s", root)
@@ -506,14 +562,6 @@ def convert_dataset(
     video_keys = [key for key, ft in info["features"].items() if ft.get("dtype") == "video"]
     chunks_size = info.get("chunks_size", DEFAULT_CHUNK_SIZE)
 
-    backup_root = root.parent / f"{root.name}_{V30}"
-    new_root = root.parent / f"{root.name}_{V21}"
-
-    if backup_root.is_dir():
-        shutil.rmtree(backup_root)
-    if new_root.is_dir():
-        shutil.rmtree(new_root)
-
     new_root.mkdir(parents=True, exist_ok=True)
 
     convert_info(root, new_root, episode_records, video_keys)
@@ -524,8 +572,20 @@ def convert_dataset(
     convert_episodes_metadata(new_root, episode_records)
     copy_ancillary_directories(root, new_root)
 
-    shutil.move(str(root), str(backup_root))
-    shutil.move(str(new_root), str(root))
+    if in_place:
+        shutil.move(str(root), str(backup_root))
+        shutil.move(str(new_root), str(root))
+        logging.info(
+            "Replaced %s with the converted v2.1 dataset; the original v3.0 dataset is kept at %s",
+            root,
+            backup_root,
+        )
+    else:
+        logging.info(
+            "Converted v2.1 dataset written to %s; the source dataset at %s was left untouched",
+            new_root,
+            root,
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -541,6 +601,21 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Local directory under which the dataset should be stored.",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Directory the converted v2.1 dataset is written to. Defaults to a sibling "
+        "of the source dataset with a `_v2.1` suffix. The source dataset is never "
+        "modified unless --in-place is passed.",
+    )
+    parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="Replace the source dataset with the converted v2.1 dataset. The original "
+        "v3.0 dataset is kept in a sibling directory with a `_backup_v3.0` suffix. "
+        "Mutually exclusive with --output.",
     )
     parser.add_argument(
         "--force-conversion",
