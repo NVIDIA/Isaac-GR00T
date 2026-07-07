@@ -51,6 +51,13 @@ MAPPED_CAMERA_NAMES = [
     "video.res256_image_side_1",
     "video.res256_image_wrist_0",
 ]
+VIDEO_OBSERVATION_KEYS = [f"video.{camera_name}" for camera_name in CAMERA_NAMES]
+ROBOCASA_PANDA_VIDEO_OBSERVATION_KEYS = MAPPED_CAMERA_NAMES
+ROBOCASA_PANDA_HIGH_RES_VIDEO_OBSERVATION_KEYS = [
+    mapped_name.replace("256", "512") for mapped_name in MAPPED_CAMERA_NAMES
+]
+LANGUAGE_OBSERVATION_KEY = "annotation.human.task_description"
+ROBOCASA_PANDA_LANGUAGE_OBSERVATION_KEY = "annotation.human.action.task_description"
 CAMERA_RESOLUTION = 512
 FINAL_IMAGE_RESOLUTION = (256, 256)
 DEFAULT_SPLIT = "target"
@@ -172,14 +179,18 @@ class GrootRoboCasa365Env(Env):
             observation_space[key] = spaces.Box(
                 low=-1, high=1, shape=(len(value),), dtype=np.float32
             )
-        for mapped_name in MAPPED_CAMERA_NAMES:
-            observation_space[mapped_name] = spaces.Box(
+        for video_key in VIDEO_OBSERVATION_KEYS + ROBOCASA_PANDA_VIDEO_OBSERVATION_KEYS:
+            observation_space[video_key] = spaces.Box(
                 low=0, high=255, shape=(*FINAL_IMAGE_RESOLUTION, 3), dtype=np.uint8
             )
-            observation_space[mapped_name.replace("256", "512")] = spaces.Box(
+        for video_key in ROBOCASA_PANDA_HIGH_RES_VIDEO_OBSERVATION_KEYS:
+            observation_space[video_key] = spaces.Box(
                 low=0, high=255, shape=(CAMERA_RESOLUTION, CAMERA_RESOLUTION, 3), dtype=np.uint8
             )
-        observation_space["annotation.human.action.task_description"] = spaces.Text(
+        observation_space[LANGUAGE_OBSERVATION_KEY] = spaces.Text(
+            max_length=256, charset=ALLOWED_LANGUAGE_CHARSET
+        )
+        observation_space[ROBOCASA_PANDA_LANGUAGE_OBSERVATION_KEY] = spaces.Text(
             max_length=256, charset=ALLOWED_LANGUAGE_CHARSET
         )
         self.observation_space = observation_space
@@ -223,9 +234,11 @@ class GrootRoboCasa365Env(Env):
         obs: dict[str, Any] = _map_obs(basic_obs)
         for mapped_name, camera_name in zip(MAPPED_CAMERA_NAMES, CAMERA_NAMES):
             image = self._process_img(basic_obs[f"{camera_name}_image"])
+            obs[f"video.{camera_name}"] = image
             obs[mapped_name] = image
             obs[mapped_name.replace("256", "512")] = np.copy(basic_obs[f"{camera_name}_image"])
-        obs["annotation.human.action.task_description"] = basic_obs["language"]
+        obs[LANGUAGE_OBSERVATION_KEY] = basic_obs["language"]
+        obs[ROBOCASA_PANDA_LANGUAGE_OBSERVATION_KEY] = basic_obs["language"]
         return obs
 
     def reset(self, seed: int | None = None, options: dict[str, Any] | None = None):

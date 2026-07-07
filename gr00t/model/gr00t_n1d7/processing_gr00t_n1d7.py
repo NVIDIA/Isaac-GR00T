@@ -129,6 +129,33 @@ def build_processor(model_name: str, transformers_loading_kwargs: dict) -> Qwen3
     return Qwen3VLProcessor.from_pretrained(model_name, **transformers_loading_kwargs)
 
 
+def validate_action_horizons(modality_configs, max_action_horizon: int) -> None:
+    """Fail at processor construction if any configured embodiment's action horizon
+    (the number of action ``delta_indices``) exceeds ``max_action_horizon``.
+
+    ``max_action_horizon`` is set from the model's ``action_horizon``; without this
+    check a horizon/model mismatch (e.g. a 50-step embodiment on a 40-step model)
+    surfaces only deep in the first forward, after the model and dataset are built.
+    """
+    offenders: dict[str, int] = {}
+    for tag, config in modality_configs.items():
+        action = config.get("action") if isinstance(config, dict) else None
+        delta_indices = getattr(action, "delta_indices", None)
+        if delta_indices is None:
+            continue
+        horizon = len(delta_indices)
+        if horizon > max_action_horizon:
+            offenders[tag] = horizon
+    if offenders:
+        required = max(offenders.values())
+        details = ", ".join(f"{tag}={horizon}" for tag, horizon in sorted(offenders.items()))
+        raise ValueError(
+            f"Embodiment action horizon exceeds max_action_horizon ({max_action_horizon}): "
+            f"{details}. Increase model config action_horizon to >= {required} (or reduce the "
+            "embodiment action delta_indices)."
+        )
+
+
 class Gr00tN1d7DataCollator:
     def __init__(
         self,
@@ -252,6 +279,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         self.max_state_dim = max_state_dim
         self.max_action_dim = max_action_dim
         self.max_action_horizon = max_action_horizon
+        validate_action_horizons(self.modality_configs, self.max_action_horizon)
 
         # Save image processing settings
         self.image_crop_size = image_crop_size
@@ -284,6 +312,7 @@ class Gr00tN1d7Processor(BaseProcessor):
                     shortest_image_edge,
                     crop_fraction,
                     extra_augmentation_config=self.extra_augmentation_config,
+                    letter_box_transform=self.letter_box_transform,
                 )
             )
         else:

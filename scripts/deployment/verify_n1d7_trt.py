@@ -47,7 +47,7 @@ class VerifyConfig:
     dataset_path: str = "demo_data/libero_demo"
     """Path to dataset."""
 
-    engine_dir: str = "./gr00t_n1d7_engines"
+    engine_dir: str = "./gr00t_trt_deployment/engines"
     """Directory with TRT engines."""
 
     mode: VerifyMode = VerifyMode.action_head

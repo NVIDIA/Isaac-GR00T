@@ -38,13 +38,13 @@ Usage:
     python export_onnx_n1d7.py \\
         --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \\
         --dataset-path demo_data/libero_demo \\
-        --output-dir ./gr00t_n1d7_onnx
+        --output-dir ./gr00t_trt_deployment/onnx
 
     # Action head (4 components)
     python export_onnx_n1d7.py \\
         --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \\
         --dataset-path demo_data/libero_demo \\
-        --output-dir ./gr00t_n1d7_onnx \\
+        --output-dir ./gr00t_trt_deployment/onnx \\
         --export-mode action_head
 """
 
@@ -54,12 +54,15 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
+from _trt_contract import EXPORT_METADATA_SCHEMA_VERSION
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.utils import parse_observation_gr00t
 from gr00t.deployment.modes import ExportMode
+from gr00t.model.modules.qwen3_backbone import _assign_inv_freq, recompute_vision_rotary_inv_freq
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 import numpy as np
 import torch
@@ -478,6 +481,54 @@ class Qwen3VisionForExport(torch.nn.Module):
 # ============================================================
 
 
+def _restore_vision_rotary_inv_freq_fp32(vision, vision_config):
+    """Re-derive the ViT RoPE ``inv_freq`` in fp32 right before baking it into the engine.
+
+    ``Gr00tPolicy`` loads the whole model in bf16 (``gr00t_policy.py``), which rounds
+    this non-persistent buffer even though the ViT itself is exported in fp32 for TRT
+    accuracy (max|delta| ~1.8e-4 for head_dim=64 -- a pure bf16 round-trip error).
+    Re-deriving the analytic fp32 value here keeps the baked rotary cos/sin at full
+    fp32 precision and lets the analytic-oracle guard verify a clean buffer instead of
+    the bf16-degraded one. Fails closed when the rotary submodule/layout is missing.
+    """
+    rotary = getattr(vision, "rotary_pos_emb", None)
+    if rotary is None or not hasattr(rotary, "inv_freq"):
+        raise RuntimeError(
+            "ViT export: vision rotary_pos_emb/inv_freq not found; cannot rebuild the "
+            "rotary buffers before baking them into the engine (transformers Qwen3-VL "
+            "layout drift). Refusing to export unverified rotary."
+        )
+    head_dim = vision_config.hidden_size // vision_config.num_heads
+    fp32_inv_freq = recompute_vision_rotary_inv_freq(rotary, head_dim // 2, rotary.inv_freq.device)
+    _assign_inv_freq(rotary, "inv_freq", fp32_inv_freq, persistent=False)
+
+
+def _assert_vision_rotary_matches_analytic(vision, vision_config, *, atol=1e-5, rtol=1e-4):
+    """Abort export if the loaded ViT RoPE ``inv_freq`` drifts from the analytic oracle.
+
+    The baked rotary cos/sin derive from this non-persistent buffer; the post-export
+    cosine checks are backend-vs-backend and cannot catch a common-mode error in it.
+    """
+    rotary = getattr(vision, "rotary_pos_emb", None)
+    if rotary is None or not hasattr(rotary, "inv_freq"):
+        raise RuntimeError(
+            "ViT export: vision rotary_pos_emb/inv_freq not found; cannot verify the "
+            "rotary buffers before baking them into the engine (transformers Qwen3-VL "
+            "layout drift). Refusing to export unverified rotary."
+        )
+    head_dim = vision_config.hidden_size // vision_config.num_heads
+    baked = rotary.inv_freq.detach().float()
+    analytic = recompute_vision_rotary_inv_freq(rotary, head_dim // 2, baked.device)
+    if not torch.allclose(baked, analytic, atol=atol, rtol=rtol):
+        max_err = (baked - analytic).abs().max().item()
+        raise RuntimeError(
+            "ViT export: loaded vision RoPE inv_freq diverges from the analytic oracle "
+            f"(max|delta|={max_err:.3e}); the baked rotary cos/sin would be silently wrong "
+            "and the backend-vs-backend cosine checks cannot catch it. Ensure "
+            "Qwen3Backbone._reset_rotary_inv_freq ran at load before exporting."
+        )
+
+
 def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True, batch_size=1):
     """Export Qwen3-VL Vision Model to ONNX.
 
@@ -496,6 +547,13 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True, batch_si
     backbone = policy.model.backbone
     qwen_model = backbone.model
     vision = qwen_model.model.visual
+
+    # Gr00tPolicy loads the model in bf16, which rounds the non-persistent RoPE
+    # inv_freq. The ViT is exported in fp32 for TRT accuracy, so re-derive the analytic
+    # fp32 inv_freq before baking cos/sin, then verify the (now fp32) buffer against the
+    # independent analytic oracle.
+    _restore_vision_rotary_inv_freq_fp32(vision, qwen_model.config.vision_config)
+    _assert_vision_rotary_matches_analytic(vision, qwen_model.config.vision_config)
 
     dtype = torch.bfloat16 if use_bf16 else torch.float32
     vision = vision.to(dtype).eval().cuda()
@@ -851,25 +909,6 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True, batch_si
 # ============================================================
 
 
-def parse_observation_gr00t(
-    obs: dict[str, Any], modality_configs: dict[str, Any]
-) -> dict[str, Any]:
-    new_obs = {}
-    for modality in ["video", "state", "language"]:
-        new_obs[modality] = {}
-        for key in modality_configs[modality].modality_keys:
-            if modality == "language":
-                parsed_key = key
-            else:
-                parsed_key = f"{modality}.{key}"
-            arr = obs[parsed_key]
-            if isinstance(arr, str):
-                new_obs[modality][key] = [[arr]]
-            else:
-                new_obs[modality][key] = arr[None, :]
-    return new_obs
-
-
 def prepare_observation(policy, dataset, traj_idx=0):
     """Prepare a single observation for inference."""
     logger.info(f"\nPreparing observation from trajectory {traj_idx}...")
@@ -1001,6 +1040,11 @@ def export_state_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=1
             output_names=["output"],
             opset_version=19,
             do_constant_folding=True,
+            # torch 2.9 flipped torch.onnx.export's dynamo default to True, but the
+            # dynamo graph for the state/action encoder + action decoder fuses into a
+            # Myelin ForeignNode (Unsqueeze...add) that TRT 10.15's NVRTC backend can't
+            # compile at bs=2 on Blackwell. Pin the legacy exporter for these three
+            # (ViT/LLM/VL-SA stay on dynamo — legacy can't export Qwen3VL memory_format).
             dynamo=False,
         )
 
@@ -1341,6 +1385,7 @@ def main(args):
     num_vis_tokens = llm_capture.deepstack_visual_embeds[0].shape[0] if num_deepstack > 0 else 0
 
     export_metadata = {
+        "schema_version": EXPORT_METADATA_SCHEMA_VERSION,
         "model_version": "n1d7",
         "sa_seq_len": int(sa_seq_len),
         "vl_seq_len": int(vl_seq_len),
@@ -1362,6 +1407,13 @@ def main(args):
         "precision": args.precision,
         "batch_size": args.batch_size,
     }
+    # The ViT engine bakes pos/rotary buffers for this grid_thw and takes only
+    # pixel_values as input; record the grid so the runtime can reject a
+    # mismatched image config instead of silently using wrong embeddings.
+    if vit_capture is not None and vit_capture.captured:
+        export_metadata["vit_grid_thw"] = [
+            [int(x) for x in row] for row in vit_capture.grid_thw.tolist()
+        ]
     os.makedirs(args.output_dir, exist_ok=True)
     metadata_path = os.path.join(args.output_dir, "export_metadata.json")
     with open(metadata_path, "w") as f:
@@ -1475,7 +1527,7 @@ class ExportConfig:
     embodiment_tag: Optional[EmbodimentTag] = None
     """Embodiment tag. If not provided, auto-detected from model's processor_config.json."""
 
-    output_dir: str = "./gr00t_n1d7_onnx"
+    output_dir: str = "./gr00t_trt_deployment/onnx"
     """Output directory for ONNX models."""
 
     export_mode: ExportMode = ExportMode.dit_only

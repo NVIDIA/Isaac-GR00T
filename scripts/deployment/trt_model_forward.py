@@ -49,11 +49,13 @@ Architecture (action_head mode):
                [ Action Encoder (TRT) → DiT (TRT) → Action Decoder (TRT) ]
 """
 
+from contextlib import contextmanager
 from functools import partial
 import logging
 import os
 import sys
 
+from gr00t.deployment.modes import InferenceMode
 import torch
 from transformers.feature_extraction_utils import BatchFeature
 
@@ -65,7 +67,11 @@ logger = logging.getLogger(__name__)
 _deploy_dir = os.path.dirname(os.path.abspath(__file__))
 if _deploy_dir not in sys.path:
     sys.path.insert(0, _deploy_dir)
-from _trt_contract import assert_engine_matches_policy  # noqa: E402
+from _trt_contract import (  # noqa: E402
+    assert_engine_bundle_present,
+    assert_engine_matches_policy,
+    assert_grid_thw_matches,
+)
 from trt_torch import Engine  # noqa: E402
 
 
@@ -158,6 +164,12 @@ def _qwen3_vit_and_scatter(self, vl_input):
     pixel_values = vl_input["pixel_values"]
     grid_thw = vl_input["image_grid_thw"]
     engine_dtype = torch.bfloat16
+
+    # The ViT engine baked pos/rotary buffers for the export-time grid; a
+    # different runtime grid would silently corrupt vision features.
+    assert_grid_thw_matches(
+        getattr(self, "_vit_baked_grid_thw", None), grid_thw, source="ViT TRT forward"
+    )
 
     # --- ViT TRT Engine ---
     # Detect ViT engine dtype (FP32 for accuracy or BF16 for speed)
@@ -579,31 +591,87 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
 # ============================================================
 
 
-def setup_tensorrt_engines(policy, trt_engine_path, mode="n17_full_pipeline"):
+# Engines each mode swaps in with no PyTorch fallback: their absence must fail
+# fast with a build hint rather than a bare FileNotFoundError from Engine.load.
+_ACTION_HEAD_ENGINES = (
+    "state_encoder.engine",
+    "action_encoder.engine",
+    "dit_bf16.engine",
+    "action_decoder.engine",
+)
+_MANDATORY_ENGINES = {
+    InferenceMode.n17_full_pipeline: _ACTION_HEAD_ENGINES,
+    InferenceMode.action_head: _ACTION_HEAD_ENGINES,
+}
+
+
+def setup_tensorrt_engines(policy, trt_engine_path, mode=InferenceMode.n17_full_pipeline):
     """Load TRT engines, delete PyTorch modules, and monkey-patch forward methods.
 
     Args:
         policy: Gr00tPolicy instance
         trt_engine_path: Path to directory containing TRT engine files
-        mode: 'n17_full_pipeline' (ViT TRT + LLM TRT + Action Head TRT),
-              'vit_llm_only' (ViT TRT + LLM TRT, Action Head in PyTorch),
-              'action_head' (Action Head TRT only), or 'dit_only'
+        mode: an :class:`~gr00t.deployment.modes.InferenceMode` (or its string
+            value) selecting which engine subset to swap in. Invalid values raise.
     """
-    assert_engine_matches_policy(policy, trt_engine_path, source=f"setup_tensorrt_engines({mode})")
-
-    if mode == "n17_full_pipeline":
-        _setup_n17_full_pipeline(policy, trt_engine_path)
-    elif mode == "vit_llm_only":
-        _setup_vit_llm_only(policy, trt_engine_path)
-    elif mode == "action_head":
-        _setup_action_head(policy, trt_engine_path)
-    elif mode == "dit_only":
-        _setup_dit_only(policy, trt_engine_path)
-    else:
-        raise ValueError(
-            f"Unknown mode: {mode}. Expected 'n17_full_pipeline', 'vit_llm_only', "
-            f"'action_head', or 'dit_only'."
+    mode = InferenceMode(mode)
+    required = _MANDATORY_ENGINES.get(mode)
+    if required is not None:
+        assert_engine_bundle_present(
+            trt_engine_path,
+            required,
+            mode=mode.value,
+            source=f"setup_tensorrt_engines({mode})",
         )
+    _meta = assert_engine_matches_policy(
+        policy, trt_engine_path, source=f"setup_tensorrt_engines({mode})"
+    )
+
+    # Stash the ViT engine's baked grid_thw so the runtime ViT path can reject a
+    # mismatched image config. None for older bundles (no recorded grid).
+    policy.model.backbone._vit_baked_grid_thw = _meta.get("vit_grid_thw") if _meta else None
+
+    _INFERENCE_MODE_DISPATCH[mode](policy, trt_engine_path)
+
+
+def close_tensorrt_engines(policy):
+    """Release every TRT ``Engine`` attached to ``policy`` (best-effort).
+
+    setup_tensorrt_engines stashes engines as plain attributes on the backbone
+    and action head (which subset depends on the mode), so walk the model's
+    submodules and close each. Needed because the sim-eval entrypoint hard-exits
+    via os._exit, which skips ``Engine.__del__`` and would otherwise leak GPU
+    memory into the next eval shard.
+    """
+    # The sim wrapper exposes the inner Gr00tPolicy as ``.policy``; a remote
+    # PolicyClient has no model and no engines to close.
+    model = getattr(getattr(policy, "policy", policy), "model", None)
+    if model is None:
+        return
+    closed = set()
+    for module in model.modules():
+        # Snapshot the attribute values: close() runs C++ destructors, so avoid
+        # iterating a live __dict__ view.
+        for value in list(vars(module).values()):
+            if isinstance(value, Engine) and id(value) not in closed:
+                closed.add(id(value))
+                try:
+                    value.close()
+                except Exception as e:
+                    print(f"Failed to close TRT engine: {e}")
+
+
+@contextmanager
+def closing_tensorrt_engines(policy):
+    """``with`` form of :func:`close_tensorrt_engines`, scoped to ``policy``.
+
+    Closes only the engines attached to ``policy`` on block exit (including the
+    exception path), so it never touches engines owned by another live policy.
+    """
+    try:
+        yield policy
+    finally:
+        close_tensorrt_engines(policy)
 
 
 def _setup_n17_full_pipeline(policy, trt_engine_path):
@@ -835,9 +903,19 @@ def _setup_dit_only(policy, trt_engine_path):
     # We need a simpler forward that only replaces the DiT call
     @torch.no_grad()
     def dit_only_get_action_with_features(
-        backbone_features, state_features, embodiment_id, backbone_output
+        backbone_features,
+        state_features,
+        embodiment_id,
+        backbone_output,
+        action_input=None,
+        options=None,
     ):
-        """get_action_with_features with DiT replaced by TRT."""
+        """get_action_with_features with DiT replaced by TRT.
+
+        ``action_input``/``options`` are accepted (and unused) so the patched
+        method matches the ``Gr00tN1d7.get_action_with_features`` contract that
+        ``get_action`` calls with these keywords; the DiT-only path needs neither.
+        """
         vl_embs = backbone_features
         batch_size = vl_embs.shape[0]
         device = vl_embs.device
@@ -909,3 +987,14 @@ def _setup_dit_only(policy, trt_engine_path):
 
     action_head.get_action_with_features = dit_only_get_action_with_features
     print("DiT-only TRT engine loaded and forward method patched.")
+
+
+# Maps each InferenceMode to its engine-swap routine. setup_tensorrt_engines
+# dispatches through this; a deployment test asserts the keys equal InferenceMode
+# exactly, so a new mode can't be added without a matching setup branch.
+_INFERENCE_MODE_DISPATCH = {
+    InferenceMode.n17_full_pipeline: _setup_n17_full_pipeline,
+    InferenceMode.vit_llm_only: _setup_vit_llm_only,
+    InferenceMode.action_head: _setup_action_head,
+    InferenceMode.dit_only: _setup_dit_only,
+}

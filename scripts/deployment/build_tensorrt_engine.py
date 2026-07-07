@@ -29,19 +29,19 @@ Usage:
     # Full pipeline:
     python scripts/deployment/build_tensorrt_engine.py \
         --mode full_pipeline \
-        --onnx-dir ./gr00t_n1d7_onnx \
-        --engine-dir ./gr00t_n1d7_engines \
+        --onnx-dir ./gr00t_trt_deployment/onnx \
+        --engine-dir ./gr00t_trt_deployment/engines \
         --precision bf16
 """
 
 from dataclasses import dataclass
-import json
 import logging
 import os
 import time
 from typing import Literal
 
-from gr00t.deployment.modes import BuildEngineMode
+from _trt_contract import load_export_metadata, validate_export_metadata
+from gr00t.deployment.modes import FULL_PIPELINE_COMPONENTS, BuildEngineMode
 import onnx
 import tensorrt as trt
 import tyro
@@ -387,7 +387,13 @@ def build_engine(
 
 
 def build_full_pipeline(
-    onnx_dir, engine_dir, precision="bf16", workspace_mb=8192, trt_severity=None
+    onnx_dir,
+    engine_dir,
+    precision="bf16",
+    workspace_mb=8192,
+    trt_severity=None,
+    only: frozenset[str] | None = None,
+    allow_default_hints: bool = False,
 ):
     """Build all TRT engines for the full pipeline.
 
@@ -399,57 +405,84 @@ def build_full_pipeline(
         engine_dir: Directory to save TRT engines
         precision: Precision mode
         workspace_mb: Workspace size in MB
+        only: Restrict the build to this subset of component names (from
+            ``FULL_PIPELINE_COMPONENTS``). ``None`` builds the full 7. A partial
+            export (e.g. ``action_head``, which keeps ViT/LLM in PyTorch) must
+            pass its produced subset so the completeness check requires exactly
+            those, not the full pipeline.
     """
     os.makedirs(engine_dir, exist_ok=True)
 
-    # Load sequence length hints from export metadata if available,
-    # otherwise fall back to hardcoded defaults for GR1 single-view.
-    metadata_path = os.path.join(onnx_dir, "export_metadata.json")
-    if os.path.exists(metadata_path):
-        with open(metadata_path) as f:
-            metadata = json.load(f)
+    # Sequence/patch hints for the TRT shape profiles come from export_metadata.json
+    # (single source of truth). A missing, stale, or incomplete bundle is rejected so
+    # the build can't silently bake wrong shapes; --allow-default-hints opts into the
+    # hardcoded GR1 single-view fallbacks.
+    metadata = load_export_metadata(onnx_dir)
+    try:
+        if metadata is None:
+            raise ValueError(f"no export_metadata.json found in {onnx_dir}")
+        validate_export_metadata(metadata, source="build_full_pipeline", engine_path=onnx_dir)
+    except ValueError as e:
+        if not allow_default_hints:
+            raise ValueError(
+                f"{e}. Re-export with the current exporter, or pass --allow-default-hints "
+                "to build with hardcoded GR1 single-view shape hints (the engine may get "
+                "wrong sequence/patch shapes)."
+            ) from e
+        logger.warning("%s; using default shape hints (--allow-default-hints).", e)
+        metadata = None
+
+    if metadata is not None:
+        # The engine must be built at the precision it was exported for; a drift here
+        # produces a valid-but-wrong engine. Per-component precision is still taken from
+        # each ONNX filename below — this guards the pipeline-wide default.
+        if metadata["precision"] != precision:
+            raise ValueError(
+                f"build_full_pipeline: --precision={precision} but export_metadata.json in "
+                f"{onnx_dir} records precision={metadata['precision']!r}. Build at the "
+                f"exported precision (--precision {metadata['precision']}) or re-export."
+            )
         seq_hints = {
             "sa_seq_len": metadata["sa_seq_len"],
             "vl_seq_len": metadata["vl_seq_len"],
             "sequence_length": metadata["llm_seq_len"],
             "seq_len": metadata["llm_seq_len"],  # N1.7 LLM dynamic dim name
-            "num_patches": metadata.get("num_patches", 256),
-            "num_merged_patches": metadata.get("num_merged_patches", 64),
-            "num_vis_tokens": metadata.get("num_vis_tokens", 64),  # N1.7 deepstack
+            "num_patches": metadata["num_patches"],
+            "num_merged_patches": metadata["num_merged_patches"],
+            "num_vis_tokens": metadata["num_vis_tokens"],  # N1.7 deepstack
         }
-        logger.info(f"Loaded shape hints from {metadata_path}: {seq_hints}")
+        logger.info(f"Loaded shape hints from export_metadata.json in {onnx_dir}: {seq_hints}")
     else:
         seq_hints = {
             "sa_seq_len": 51,  # 1 state + action_horizon
             "vl_seq_len": 280,  # typical backbone output seq_len
             "sequence_length": 280,  # LLM seq_len
         }
-        logger.warning(
-            f"No export_metadata.json found in {onnx_dir}, using default hints: {seq_hints}"
-        )
+        logger.warning(f"Using default shape hints (no usable metadata): {seq_hints}")
 
-    # Components: (name, onnx_file, engine_file)
-    components = [
-        # FP32 ViT preferred for accuracy; falls back to BF16 if only bf16 was
-        # exported. Engine filename is precision-neutral (vit.engine) because
-        # the input ONNX may be either FP32 or BF16; baking a precision tag
-        # into the engine name was misleading whenever the FP32 ONNX path was
-        # taken. The actual engine precision is recorded in
-        # export_metadata.json and inspectable via TRT tooling.
-        (
-            "ViT",
-            "vit_fp32.onnx"
-            if os.path.exists(os.path.join(onnx_dir, "vit_fp32.onnx"))
-            else "vit_bf16.onnx",
-            "vit.engine",
-        ),
-        ("LLM", "llm_bf16.onnx", "llm_bf16.engine"),
-        ("VL Self-Attention", "vl_self_attention.onnx", "vl_self_attention.engine"),
-        ("State Encoder", "state_encoder.onnx", "state_encoder.engine"),
-        ("Action Encoder", "action_encoder.onnx", "action_encoder.engine"),
-        ("DiT", "dit_bf16.onnx", "dit_bf16.engine"),
-        ("Action Decoder", "action_decoder.onnx", "action_decoder.engine"),
-    ]
+    # Build order, ONNX candidates, and engine filenames come from the shared
+    # component table (single source of truth). ``only`` restricts to the subset
+    # a partial export produced. FP32 ViT is preferred for accuracy and falls
+    # back to BF16; the engine filename stays precision-neutral (vit.engine)
+    # because the input ONNX may be either FP32 or BF16 — the real precision is
+    # recorded in export_metadata.json and inspectable via TRT tooling.
+    if only is not None:
+        valid_names = {c.name for c in FULL_PIPELINE_COMPONENTS}
+        unknown = set(only) - valid_names
+        if unknown:
+            raise ValueError(
+                f"Unknown pipeline component(s) {sorted(unknown)}; "
+                f"valid components: {sorted(valid_names)}"
+            )
+    components: list[tuple[str, str, str]] = []
+    for component in FULL_PIPELINE_COMPONENTS:
+        if only is not None and component.name not in only:
+            continue
+        onnx_file = next(
+            (c for c in component.onnx_candidates if os.path.exists(os.path.join(onnx_dir, c))),
+            component.onnx_candidates[0],
+        )
+        components.append((component.name, onnx_file, component.engine))
 
     results: list[tuple[str, str, str]] = []
     skipped: list[tuple[str, str]] = []  # (name, onnx_path) for components with no ONNX input
@@ -550,10 +583,10 @@ class BuildConfig:
     engine: str | None = None
     """Path to save TensorRT engine (single mode)."""
 
-    onnx_dir: str = "./gr00t_n1d7_onnx"
+    onnx_dir: str = "./gr00t_trt_deployment/onnx"
     """Directory with ONNX models (full_pipeline mode)."""
 
-    engine_dir: str = "./gr00t_n1d7_engines"
+    engine_dir: str = "./gr00t_trt_deployment/engines"
     """Directory to save engines (full_pipeline mode)."""
 
     precision: Literal["fp32", "fp16", "bf16", "fp8"] = "bf16"
@@ -561,6 +594,11 @@ class BuildConfig:
 
     workspace: int = 8192
     """Workspace size in MB (default: 8192)."""
+
+    allow_default_hints: bool = False
+    """full_pipeline: build with hardcoded GR1 single-view shape hints when
+    export_metadata.json is missing/stale/incomplete, instead of failing. The
+    engine may get wrong sequence/patch shapes — use only for legacy bundles."""
 
 
 def main(args: BuildConfig | None = None, trt_severity=None):
@@ -574,6 +612,7 @@ def main(args: BuildConfig | None = None, trt_severity=None):
             precision=args.precision,
             workspace_mb=args.workspace,
             trt_severity=trt_severity,
+            allow_default_hints=args.allow_default_hints,
         )
     else:
         if not args.onnx or not args.engine:

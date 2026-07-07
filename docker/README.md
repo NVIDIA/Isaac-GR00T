@@ -18,7 +18,7 @@ From the repository root:
 bash docker/build.sh
 ```
 
-This builds from `nvidia/cuda:12.8.0-devel-ubuntu22.04` and installs all dependencies into `/opt/gr00t-venv`. The image does not include a working source checkout; for normal use, start the image and then clone or pull the repo you want to run inside the container.
+This builds from `nvidia/cuda:12.8.0-devel-ubuntu24.04` and installs all dependencies into `/opt/gr00t-venv`. The image does not include a working source checkout; for normal use, start the image and then clone or pull the repo you want to run inside the container.
 
 ## Running the Container
 

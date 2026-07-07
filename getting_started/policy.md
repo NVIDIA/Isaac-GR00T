@@ -79,11 +79,15 @@ For example, `--embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` and `--emb
 
 Which episode indices to evaluate. Check your dataset's `meta/episodes.jsonl` to see available episodes. For example, `--traj-ids 0 1 2` runs on the first 3 episodes.
 
-### `--action-horizon`
+### `--execution-horizon`
 
-Number of future action steps predicted per inference call. The model's maximum is 16 (from model config). Common values:
-- `16` — full horizon, used for open-loop evaluation
+How many steps of each predicted action chunk are **executed** before the script re-plans (calls the model again) — i.e. the receding/execution horizon, *not* how many the model predicts. It must be `≤` the model's configured `action_horizon` (the predicted chunk length); the base `nvidia/GR00T-N1.7-3B` checkpoint uses `action_horizon: 40`, so `≤ 40` for that checkpoint — finetuned checkpoints may differ. Common values:
+- `16` — default execution horizon for open-loop evaluation
 - `8` — shorter horizon, common for real-time deployment where actions are re-planned frequently
+
+Because the base checkpoint already predicts 40 steps, it satisfies Real-Time Chunking (RTC), which recommends a chunk size of `≥ 32` (see the [real-world deployment guide](real_world_deployment.md#real-time-chunking-rtc-details)).
+
+> The former name `--action-horizon` is deprecated (it collided with the model-config `action_horizon`, the predicted chunk length) but still accepted with a warning.
 
 This parameter is robot-agnostic — the same value works across different datasets and embodiments.
 
@@ -416,7 +420,7 @@ uv run python gr00t/eval/run_gr00t_server.py \
 - `--dataset-path`: Path to a LeRobot-compatible dataset directory
 - `--embodiment-tag`: The embodiment tag for modality configuration
 - `--execution-horizon`: Number of steps to advance the dataset per `get_action()` call. Should match the number of executed action steps in the environment.
-- `--modality-config-path`: (Optional) Path to custom modality config JSON file. If not provided, uses the config from `embodiment-tag`
+- `--modality-config-path`: (Optional) Path to a custom modality config — either a Python module (`.py`, e.g. `examples/SO100/so100_config.py`) or a ModalityConfig JSON (`.json`). If not provided, uses the config from `embodiment-tag`
 - `--use-sim-policy-wrapper`: Apply `Gr00tSimPolicyWrapper` for GR00T simulation environments
 
 ##### Using ReplayPolicy from the Client
@@ -459,7 +463,7 @@ Here's a complete example of using ReplayPolicy to validate a simulation setup:
 uv run python gr00t/eval/run_gr00t_server.py \
     --dataset-path <your_dataset_path> \
     --embodiment-tag <YOUR_EMBODIMENT_TAG> \
-    --action-horizon 8 \
+    --execution-horizon 8 \
     --use-sim-policy-wrapper
 
 # Terminal 2: Run evaluation with the replay policy

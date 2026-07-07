@@ -15,6 +15,7 @@
 
 import logging
 
+from huggingface_hub.errors import GatedRepoError
 import torch
 from transformers.feature_extraction_utils import BatchFeature
 
@@ -28,6 +29,36 @@ try:
     _QWEN3VL_AVAILABLE = True
 except ImportError:
     _QWEN3VL_AVAILABLE = False
+
+
+_GATED_BACKBONE_HINT = (
+    "Cannot download the VLM backbone '{model_name}', which is a gated Hugging "
+    "Face repo. Every GR00T checkpoint (including the base nvidia/GR00T-N1.7-3B) "
+    "loads this backbone, so both zero-shot inference and finetuning require "
+    "access to it. Request access at https://huggingface.co/{model_name} and "
+    "authenticate with `hf auth login` (or set the HF_TOKEN environment variable) "
+    "before loading a GR00T model."
+)
+
+
+_GATED_MARKERS = ("gated repo", "is restricted", "access to model", "401 client error")
+
+
+def _is_gated_repo_error(exc: BaseException) -> bool:
+    """True if ``exc`` (or any exception it wraps) is a gated/forbidden HF download.
+
+    transformers may raise ``GatedRepoError`` directly or wrap it (as
+    ``__cause__``/``__context__``) inside an ``OSError`` whose own message omits
+    the gated markers, so we walk the chain.
+    """
+    cur: BaseException | None = exc
+    for _ in range(10):  # bounded walk guards against cyclic exception chains
+        if cur is None:
+            break
+        if isinstance(cur, GatedRepoError) or any(m in str(cur).lower() for m in _GATED_MARKERS):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
 
 
 def _real_inference_device(module: torch.nn.Module) -> torch.device:
@@ -148,11 +179,16 @@ class Qwen3Backbone(torch.nn.Module):
         if load_bf16:
             extra_kwargs["torch_dtype"] = torch.bfloat16
 
-        self.model = Qwen3VLForConditionalGeneration.from_pretrained(
-            model_name,
-            **extra_kwargs,
-            **transformers_loading_kwargs,
-        ).eval()
+        try:
+            self.model = Qwen3VLForConditionalGeneration.from_pretrained(
+                model_name,
+                **extra_kwargs,
+                **transformers_loading_kwargs,
+            ).eval()
+        except Exception as exc:
+            if _is_gated_repo_error(exc):
+                raise RuntimeError(_GATED_BACKBONE_HINT.format(model_name=model_name)) from exc
+            raise
 
         # needed since we don't use these layers. Also saves compute
         while len(self.model.language_model.layers) > select_layer:
@@ -170,6 +206,45 @@ class Qwen3Backbone(torch.nn.Module):
         # Repair Qwen3-VL's non-persistent RoPE buffers once, after weights are
         # loaded and trainable dtypes are finalized. See _reset_rotary_inv_freq.
         self._reset_rotary_inv_freq()
+
+        # Restore the fast vision patch-embed kernel on torch>=2.9. See method docstring.
+        self._apply_vision_patch_embed_channels_last()
+
+    def _apply_vision_patch_embed_channels_last(self) -> None:
+        """Force the Qwen3-VL vision patch-embed ``Conv3d`` to ``channels_last_3d``.
+
+        On torch>=2.9 (cuDNN 9.10.x) the contiguous bf16 patch-embed ``Conv3d``
+        dispatches to a pathologically slow kernel on sm_80; ``channels_last_3d``
+        selects the fast one and is numerically equivalent (harmless elsewhere).
+        """
+        visual = getattr(self.model, "visual", None)
+        if visual is None:
+            return
+
+        def _to_channels_last_3d(_module, inputs):
+            # Skip while tracing: the legacy TorchScript ONNX exporter cannot lower a
+            # memory_format on .contiguous() ("onnx memory_format support is not
+            # implemented"). This is a runtime-only perf hint, so the plain contiguous
+            # graph is numerically equivalent for export.
+            if not inputs or torch.jit.is_tracing():
+                return inputs
+            x = inputs[0]
+            if isinstance(x, torch.Tensor) and x.dim() == 5:
+                return (x.contiguous(memory_format=torch.channels_last_3d), *inputs[1:])
+            return inputs
+
+        patched = 0
+        for module in visual.modules():
+            if isinstance(module, torch.nn.Conv3d):
+                module.to(memory_format=torch.channels_last_3d)
+                module.register_forward_pre_hook(_to_channels_last_3d)
+                patched += 1
+        if patched:
+            logger.debug(
+                "Applied channels_last_3d to %d vision patch-embed Conv3d module(s) "
+                "(torch>=2.9 cuDNN Conv3d perf workaround).",
+                patched,
+            )
 
     def set_trainable_parameters(self, tune_llm: bool, tune_visual: bool, tune_top_llm_layers: int):
         self.tune_llm = tune_llm
@@ -213,7 +288,9 @@ class Qwen3Backbone(torch.nn.Module):
         These ``persistent=False`` buffers are not restored from a checkpoint and
         can be left uninitialized under the nested ``no_init_weights`` load, so we
         rebuild the analytic FP32 frequencies here (load time only, no per-forward
-        cost). See the MR description for the FA2-vs-SDPA divergence this fixed.
+        cost). Fails closed (raises) when the layout/config needed to rebuild is
+        missing, so a drifted transformers version cannot silently serve
+        uninitialized buffers.
         """
         config = getattr(self.model, "config", None)
         vision_changed = self._reset_vision_rotary_inv_freq(config)
@@ -228,21 +305,22 @@ class Qwen3Backbone(torch.nn.Module):
         visual = getattr(self.model, "visual", None)
         rotary = getattr(visual, "rotary_pos_emb", None)
         if rotary is None or not hasattr(rotary, "inv_freq"):
-            logger.warning(
-                "Qwen3-VL visual rotary embedding not found; skipping vision RoPE "
-                "inv_freq reset. The transformers Qwen3-VL layout may have changed."
+            raise RuntimeError(
+                "Qwen3-VL visual rotary_pos_emb/inv_freq not found; cannot rebuild the "
+                "non-persistent vision RoPE inv_freq. Continuing would leave it "
+                "uninitialized and silently corrupt inference, so we fail the load. The "
+                "transformers Qwen3-VL layout may have changed; pin a compatible version."
             )
-            return False
 
         vision_config = getattr(config, "vision_config", None)
         if vision_config is None or not all(
             hasattr(vision_config, attr) for attr in ("hidden_size", "num_heads")
         ):
-            logger.warning(
-                "Qwen3-VL vision_config missing hidden_size/num_heads; skipping "
-                "vision RoPE inv_freq reset."
+            raise RuntimeError(
+                "Qwen3-VL vision_config missing hidden_size/num_heads; cannot rebuild the "
+                "non-persistent vision RoPE inv_freq (continuing would leave it "
+                "uninitialized and silently corrupt inference)."
             )
-            return False
 
         head_dim = vision_config.hidden_size // vision_config.num_heads
         device = _real_inference_device(visual)
@@ -254,11 +332,12 @@ class Qwen3Backbone(torch.nn.Module):
         rotary = getattr(language_model, "rotary_emb", None)
         text_config = getattr(rotary, "config", None) or getattr(language_model, "config", None)
         if rotary is None or not hasattr(rotary, "inv_freq") or text_config is None:
-            logger.warning(
-                "Qwen3-VL language rotary embedding/config not found; skipping text "
-                "RoPE inv_freq reset. The transformers Qwen3-VL layout may have changed."
+            raise RuntimeError(
+                "Qwen3-VL language rotary_emb/inv_freq/config not found; cannot rebuild the "
+                "non-persistent text RoPE inv_freq. Continuing would leave it uninitialized "
+                "and silently corrupt inference, so we fail the load. The transformers "
+                "Qwen3-VL layout may have changed; pin a compatible version."
             )
-            return False
 
         device = _real_inference_device(language_model)
         inv_freq, _attention_scaling = recompute_text_rotary_inv_freq(rotary, text_config, device)

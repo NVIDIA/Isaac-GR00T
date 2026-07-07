@@ -10,15 +10,15 @@ No, the current data loader is CPU-based. However, it has been heavily optimized
 
 Yes, the data loading pipeline is unified across both training stages.
 
-### What is the role of the Policy Remote Server in the deployment diagram?
+### What is the role of the Policy Remote Server in the server-client deployment?
 
-The Policy Remote Server decouples inference from the physical robot. This allows users to run the policy on a high-compute cluster (e.g., H100s) for faster inference while the robot operates in a separate environment. It separates dependencies and enables scaling beyond the robot's onboard compute.
+The Policy Remote Server decouples inference from the physical robot. This allows users to run the policy on a high-compute cluster (e.g., H100s) for faster inference while the robot operates in a separate environment. It separates dependencies and enables scaling beyond the robot's onboard compute. See [Server-Client Inference](README.md#server-client-inference-for-deployment) for the architecture and setup.
 
 ## Workflow & Architecture
 
 ### Why retain only specific LLM layers (e.g., 16 layers) during fine-tuning?
 
-This configuration was empirically tuned for the backbone (e.g., Eagle/Cosmos-Reason). Research suggests early layers capture grammatical structure, while middle-to-late layers are highly expressive. However, the very last layers are often over-optimized for next-token prediction; pruning or freezing them can sometimes yield better representations for vision-language-action alignment.
+This configuration was empirically tuned for the backbone (e.g., Eagle, or [Cosmos-Reason](https://huggingface.co/nvidia/Cosmos-Reason2-2B) — the reasoning VLM used as N1.7's backbone). Research suggests early layers capture grammatical structure, while middle-to-late layers are highly expressive. However, the very last layers are often over-optimized for next-token prediction; pruning or freezing them can sometimes yield better representations for vision-language-action alignment.
 
 ### How do you verify if the language model is successfully aligned with the action space?
 
@@ -45,7 +45,7 @@ Yes. Even if cross-embodiment generalization is not your goal, including diverse
 
 ### Does GR00T N1.7 support synthetic data generation via Cosmos?
 
-While research models (like DreamGen) show promise, a robust, product-ready pipeline for generating synthetic training data via Cosmos is currently in development and not yet part of the standard release.
+While research models (like [DreamGen](https://research.nvidia.com/labs/gear/dreamgen/), a pipeline that generates synthetic robot trajectories from video world models) show promise, a robust, product-ready pipeline for generating synthetic training data via [NVIDIA Cosmos](https://www.nvidia.com/en-us/ai/cosmos/) world foundation models is currently in development and not yet part of the standard release.
 
 ## Model Capabilities
 
@@ -55,7 +55,7 @@ VLMs can struggle with drastic appearance changes (e.g., hard shadows or signifi
 
 ### Can GR00T models perform reasoning or Visual Question Answering (VQA)?
 
-The GR00T N1.x series is optimized specifically for action generation, not open-ended reasoning or VQA. Capabilities requiring complex semantic reasoning are targeted for future N2 releases.
+The GR00T N1.x series is optimized specifically for action generation, not open-ended reasoning or VQA. Capabilities requiring complex semantic reasoning are targeted for future N2 (the next generation of GR00T, not yet released) releases.
 
 ### Can the model learn "retry" behaviors?
 

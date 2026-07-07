@@ -21,7 +21,7 @@ fake modality config, with no gym / torch / model import.
 
 from dataclasses import dataclass
 
-from gr00t.eval._horizon_contract import PolicyHorizonSpec
+from gr00t.eval._horizon_contract import PolicyHorizonSpec, migrate_deprecated_action_horizon_argv
 import numpy as np
 import pytest
 
@@ -144,3 +144,20 @@ def test_numpy_delta_indices_accepted():
     assert c.action_horizon == 16
     assert c.video_delta_indices == (-15, 0)
     assert all(isinstance(v, int) for v in c.video_delta_indices)
+
+
+@pytest.mark.parametrize(
+    "argv, expected, rewritten",
+    [
+        (["prog", "--action-horizon", "8"], ["prog", "--execution-horizon", "8"], True),
+        (["prog", "--action_horizon", "8"], ["prog", "--execution-horizon", "8"], True),
+        (["prog", "--action-horizon=8"], ["prog", "--execution-horizon=8"], True),
+        (["prog", "--action_horizon=8"], ["prog", "--execution-horizon=8"], True),
+        (["prog", "--execution-horizon", "8"], ["prog", "--execution-horizon", "8"], False),
+        (["prog", "--steps", "200"], ["prog", "--steps", "200"], False),
+    ],
+)
+def test_migrate_deprecated_action_horizon_argv(argv, expected, rewritten):
+    got = migrate_deprecated_action_horizon_argv(argv)
+    assert argv == expected
+    assert got is rewritten

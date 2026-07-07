@@ -60,7 +60,8 @@ so100_config = {
             ),
         ],
     ),
-    # Language: task instruction from annotation field in the dataset
+    # Language: task-instruction annotation. The key is dataset-specific and must
+    # match meta/modality.json (see data_preparation.md#annotation-column-naming).
     "language": ModalityConfig(
         delta_indices=[0],
         modality_keys=["annotation.human.task_description"],
@@ -77,8 +78,8 @@ register_modality_config(so100_config, embodiment_tag=EmbodimentTag.NEW_EMBODIME
 > ⚠️ **aarch64 users (Spark / Thor / Orin):** After running `install_deps.sh`, always
 > activate the venv with `source .venv/bin/activate && source scripts/activate_<platform>.sh`
 > (e.g. `activate_spark.sh`, `activate_thor.sh`, or `activate_orin.sh`)
-> and invoke training with **plain `python`**, not `uv run python`. The latter will
-> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
+> and run the example commands in this guide with **plain `python`** / `torchrun`, not `uv run python` / `uv run torchrun`. The latter will
+> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.12) and
 > destroy the platform-specific environment.
 
 We'll use `gr00t/experiment/launch_finetune.py` as the entry point. Ensure that the uv environment is enabled before launching. You can do this by running the command `uv run bash <example_script_name>`.
@@ -134,7 +135,7 @@ uv run python gr00t/eval/open_loop_eval.py \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path /tmp/so100/checkpoint-2000 \
     --traj-ids 0 \
-    --action-horizon 16 \
+    --execution-horizon 16 \
     --steps 400 \
     --modality-keys single_arm gripper
 ```
@@ -147,7 +148,7 @@ uv run python gr00t/eval/open_loop_eval.py \
 | `--embodiment-tag` | `new_embodiment` | Robot embodiment tag (case-insensitive) |
 | `--model-path` | `None` | Path to checkpoint. If omitted, connects to a running server via `--host`/`--port` |
 | `--traj-ids` | `[0]` | Episode indices to evaluate (space-separated, e.g., `0 1 2`) |
-| `--action-horizon` | `16` | Action steps predicted per inference call |
+| `--execution-horizon` | `16` | Steps of each predicted chunk to execute per inference (old `--action-horizon` deprecated) |
 | `--steps` | `200` | Max steps per trajectory (capped by actual trajectory length) |
 | `--denoising-steps` | `4` | Diffusion denoising iterations |
 | `--save-plot-path` | `None` | Directory to save GT-vs-predicted comparison plots |

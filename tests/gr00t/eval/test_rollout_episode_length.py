@@ -62,6 +62,14 @@ def test_missing_n_env_steps_returns_zero():
     assert _macro_step_env_steps({"final_info": np.array([None], dtype=object)}, 0) == 0
 
 
+@pytest.mark.parametrize("env_idx, expected", [(0, 4), (1, 0)])
+def test_none_top_level_element_counts_as_zero(env_idx, expected):
+    """A present n_env_steps key with a None entry counts as 0 env-steps,
+    while a sibling env's real count is still read."""
+    env_infos = {"n_env_steps": np.array([4, None], dtype=object)}
+    assert _macro_step_env_steps(env_infos, env_idx) == expected
+
+
 @pytest.mark.parametrize("env_idx", [0, 1])
 def test_per_env_indexing_multi_env(env_idx):
     """In a multi-env batch, one env may terminate (final_info) while another

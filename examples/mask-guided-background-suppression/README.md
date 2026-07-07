@@ -2,7 +2,7 @@
 
 Mask-guided augmentations leverage per-frame segmentation masks to apply targeted image transformations during training. This enables **domain randomization** on specific regions (e.g., replacing backgrounds with noise, tinting foreground objects) without affecting the rest of the image.
 
-This feature is controlled via the `--extra_augmentation_config` argument, which accepts a JSON string specifying which mask regions to augment and how.
+This feature is controlled via the `--extra-augmentation-config` argument (the finetune CLI uses tyro, so the flag is hyphenated), which accepts a JSON string specifying which mask regions to augment and how.
 
 ---
 
@@ -39,7 +39,7 @@ Applies a **random color tint** to pixels in specified mask regions. Useful for 
 
 ## Configuration Format
 
-The `--extra_augmentation_config` argument takes a JSON string with two optional keys:
+The `--extra-augmentation-config` argument takes a JSON string with two optional keys:
 
 ```json
 {

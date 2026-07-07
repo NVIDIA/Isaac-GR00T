@@ -8,7 +8,7 @@ For more information, see the [official repository](https://github.com/simpler-e
 
 # Benchmark results
 
-These values come from the default SimplerEnv runs recorded in `ci/metrics/METRICS.md`.
+These values come from the default SimplerEnv evaluation runs (the per-task success rates are listed below).
 
 ## Bridge (WidowX robot)
 
@@ -45,7 +45,7 @@ Provided checkpoints:
 
 # Fine-tune Simpler Env bridge dataset (WidowX robot)
 
-To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments. Please remember to set `WANDB_API_KEY` since `--use-wandb` is turned on by default. If you don't have a WANDB account, please remove this argument:
+To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments. Please remember to set `WANDB_API_KEY` since W&B logging is on by default (`USE_WANDB=1` in `examples/finetune.sh`). If you don't have a WANDB account, prepend `USE_WANDB=0` to the launch command to disable it:
 
 ```bash
 uv run hf download \
@@ -88,11 +88,9 @@ NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=1024 SAVE_STEPS=1000 uv run bash ex
 
 # Evaluate checkpoint
 
-First, setup the evaluation simulation environment. This only needs to run once for each simulation benchmark. After it's done, we only need to launch server and client.
+First, complete the [one-time simulation environment setup](../../README.md#one-time-simulation-environment-setup), then run this benchmark's setup script (only needed once per benchmark):
 
 ```bash
-sudo apt update
-sudo apt install libegl1-mesa-dev libglu1-mesa
 bash gr00t/eval/sim/SimplerEnv/setup_SimplerEnv.sh
 ```
 

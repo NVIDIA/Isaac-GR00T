@@ -15,11 +15,14 @@
 
 from __future__ import annotations
 
+import ast
 import logging
 import os
 import pathlib
 import subprocess
 
+from gr00t.data.state_action.droid_frame import DROID_EEF_ROTATION_CORRECT
+import numpy as np
 import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
 from test_support.runtime import (
@@ -43,6 +46,30 @@ README = REPO_ROOT / "examples/DROID/README.md"
 MODEL_CHECKPOINT = pathlib.Path(f"/tmp/droid_finetune/checkpoint-{TRAINING_STEPS}")
 
 DEFAULT_SERVER_STARTUP_SECONDS = 900.0
+
+
+def _vendored_array_literal(source: str, name: str) -> np.ndarray:
+    """Extract a ``name = np.array(<literal>, ...)`` assignment from source text.
+
+    Parses the AST instead of importing the module: ``main_gr00t.py`` requires
+    the droid robot stack (cv2, the droid repo, ...) that is not installed in CI.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
+        ):
+            call = node.value
+            if isinstance(call, ast.Call) and call.args:
+                return np.asarray(ast.literal_eval(call.args[0]), dtype=np.float64)
+    raise AssertionError(f"{name} np.array assignment not found in source")
+
+
+def test_droid_eef_rotation_correct_mirror_in_sync() -> None:
+    """The slim DROID example vendors DROID_EEF_ROTATION_CORRECT because it runs
+    without the gr00t package; enforce that the mirror matches the canonical."""
+    example_src = (REPO_ROOT / "examples/DROID/main_gr00t.py").read_text()
+    vendored = _vendored_array_literal(example_src, "DROID_EEF_ROTATION_CORRECT")
+    np.testing.assert_array_equal(vendored, DROID_EEF_ROTATION_CORRECT)
 
 
 @pytest.mark.gpu

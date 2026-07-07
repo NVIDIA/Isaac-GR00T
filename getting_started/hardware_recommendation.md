@@ -26,10 +26,12 @@ The table below summarizes end-to-end inference frequency across tested platform
 
 > *Orin uses DiT-only TensorRT (TRT 10.3 does not support the backbone engine). All other platforms use the full TensorRT pipeline.
 
+> **Which frequency is this?** The rates above are the **model inference (replanning) rate** — how often the policy produces a new action *chunk*. This is not the same as the robot's **action-execution rate** or **camera-capture rate** (both ~30 FPS in the [real-world deployment guide](real_world_deployment.md#robot-platform)). Because each inference returns a multi-step action chunk, a ~10 Hz inference rate can sustain ~30 FPS execution via action chunking + asynchronous inference — you do **not** need 30 Hz inference to execute at 30 FPS.
+
 ### Key Insights
 
-- **30+ Hz** (H100, RTX Pro 6000 with TensorRT): suitable for high-frequency closed-loop control where sub-30 ms latency matters.
-- **10+ Hz** (Thor, Spark with TRT; most dGPUs with torch.compile): sufficient for typical manipulation tasks running at a 10 Hz control rate.
+- **30+ Hz — high-frequency** (H100, RTX Pro 6000 with TensorRT): headroom for reactive, low-latency closed-loop control where sub-30 ms per-step latency matters.
+- **10+ Hz — recommended minimum** (Thor, Spark with TRT; most dGPUs with torch.compile): sufficient inference rate for typical manipulation tasks (paired with action chunking to reach ~30 FPS execution).
 - **< 5 Hz** (Orin): only suitable for slow, non-reactive tasks. Orin's TRT 10.3 cannot accelerate the backbone — gains are limited to DiT-only mode.
 - **TensorRT Full Pipeline** provides 1.5--3.3x speedup over PyTorch Eager depending on platform. Biggest gains are on datacenter GPUs where backbone acceleration is significant.
 - **torch.compile** is a good zero-effort middle ground (no engine build step), achieving 1.1--1.9x speedup across all platforms.
@@ -61,7 +63,7 @@ The table below summarizes end-to-end inference frequency across tested platform
 
 | Requirement | Version |
 |-------------|---------|
-| Python | 3.10 |
+| Python | 3.12 (dGPU, Thor, Spark) / 3.10 (Orin) |
 | CUDA | 12.6+ (dGPU, Orin) / 13.0 (Thor, Spark) |
 | PyTorch | 2.7+ |
 | OS | Ubuntu 22.04+ (dGPU), JetPack 6.2 (Orin), Ubuntu 24.04 (Thor, Spark) |

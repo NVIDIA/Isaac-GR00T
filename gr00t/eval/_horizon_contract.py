@@ -24,9 +24,36 @@ this module — see ``examples/DROID/main_gr00t.py``.)
 from __future__ import annotations
 
 from dataclasses import dataclass
+import sys
 from typing import Any, Sequence
 
 import numpy as np
+
+
+_DEPRECATED_HORIZON_FLAGS = ("--action-horizon", "--action_horizon")
+
+
+def migrate_deprecated_action_horizon_argv(argv: list[str] | None = None) -> bool:
+    """Rewrite the deprecated ``--action-horizon`` CLI flag to ``--execution-horizon``.
+
+    ``--action-horizon`` used to name the open-loop *execution* stride on the
+    eval / inference scripts, colliding with the model-config ``action_horizon``
+    (the predicted chunk length). The flag is now ``--execution-horizon``; this
+    keeps old invocations working for one deprecation cycle. Mutates ``argv``
+    (default ``sys.argv``) in place and returns whether a rewrite happened, so
+    the caller can emit a deprecation warning.
+    """
+    argv = sys.argv if argv is None else argv
+    rewritten = False
+    for i, tok in enumerate(argv):
+        for old in _DEPRECATED_HORIZON_FLAGS:
+            if tok == old:
+                argv[i] = "--execution-horizon"
+                rewritten = True
+            elif tok.startswith(old + "="):
+                argv[i] = "--execution-horizon=" + tok[len(old) + 1 :]
+                rewritten = True
+    return rewritten
 
 
 def _as_int_tuple(x: Any) -> tuple[int, ...]:
@@ -170,4 +197,5 @@ class PolicyHorizonSpec:
 
 __all__: Sequence[str] = [
     "PolicyHorizonSpec",
+    "migrate_deprecated_action_horizon_argv",
 ]

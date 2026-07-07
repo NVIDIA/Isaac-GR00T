@@ -26,10 +26,13 @@ import time
 from typing import Any, Literal
 import warnings
 
-from _trt_contract import assert_exec_horizon_within_model
+from _trt_contract import assert_exec_horizon_within_model, resolve_batch_size
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.utils import parse_observation_gr00t
+from gr00t.deployment.modes import InferenceMode
+from gr00t.eval._horizon_contract import migrate_deprecated_action_horizon_argv
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 from gr00t.policy.policy import BasePolicy
 from matplotlib import pyplot as plt
@@ -53,7 +56,7 @@ python scripts/deployment/standalone_inference_script.py \
   --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
   --traj-ids 1 2 \
   --inference-mode pytorch \
-  --action-horizon 8
+  --execution-horizon 8
 
 # Finetuned model (e.g. LIBERO):
 python scripts/deployment/standalone_inference_script.py \
@@ -62,7 +65,7 @@ python scripts/deployment/standalone_inference_script.py \
   --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 \
   --inference-mode pytorch \
-  --action-horizon 8
+  --execution-horizon 8
 
 # TensorRT mode:
 python scripts/deployment/standalone_inference_script.py \
@@ -71,7 +74,7 @@ python scripts/deployment/standalone_inference_script.py \
   --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 \
   --inference-mode trt_full_pipeline \
-  --trt-engine-path ./gr00t_n1d7_engines
+  --trt-engine-path ./gr00t_trt_deployment/engines
 """
 
 ###############################################################################
@@ -229,7 +232,7 @@ def plot_trajectory_results(
     traj_id: int,
     state_keys: list[str],
     action_keys: list[str],
-    action_horizon: int,
+    execution_horizon: int,
     save_plot_path: str,
 ) -> None:
     """
@@ -242,7 +245,7 @@ def plot_trajectory_results(
         traj_id: Trajectory ID
         state_keys: List of state modality keys
         action_keys: List of action modality keys
-        action_horizon: Action horizon used for inference
+        execution_horizon: Number of predicted-chunk steps executed per inference
         save_plot_path: Path to save the plot
     """
     actual_steps = len(gt_action_across_time)
@@ -281,7 +284,7 @@ def plot_trajectory_results(
         ax.plot(pred_action_across_time[:, action_idx], label="pred action")
 
         # put a dot every ACTION_HORIZON
-        for j in range(0, actual_steps, action_horizon):
+        for j in range(0, actual_steps, execution_horizon):
             if j == 0:
                 ax.plot(
                     j,
@@ -302,26 +305,6 @@ def plot_trajectory_results(
     plt.savefig(save_plot_path)
 
     plt.close()  # Close the figure to free memory
-
-
-def parse_observation_gr00t(
-    obs: dict[str, Any], modality_configs: dict[str, Any]
-) -> dict[str, Any]:
-    new_obs = {}
-    for modality in ["video", "state", "language"]:
-        new_obs[modality] = {}
-        for key in modality_configs[modality].modality_keys:
-            if modality == "language":
-                parsed_key = key
-            else:
-                parsed_key = f"{modality}.{key}"
-            arr = obs[parsed_key]
-            # Add batch dimension
-            if isinstance(arr, str):
-                new_obs[modality][key] = [[arr]]
-            else:
-                new_obs[modality][key] = arr[None, :]
-    return new_obs
 
 
 def parse_action_gr00t(action: dict[str, Any]) -> dict[str, Any]:
@@ -375,7 +358,7 @@ def run_single_trajectory(
     traj_id: int,
     embodiment_tag: EmbodimentTag,
     steps=300,
-    action_horizon=16,
+    execution_horizon=16,
     skip_timing_steps=1,
 ):
     """
@@ -425,7 +408,7 @@ def run_single_trajectory(
     modality_configs.pop("action")
 
     # Inference loop with async prefetching
-    num_inference_steps = len(range(0, actual_steps, action_horizon))
+    num_inference_steps = len(range(0, actual_steps, execution_horizon))
     logging.info(f"\nRunning {num_inference_steps} inference steps...")
     logging.info(f"(Skipping first {skip_timing_steps} step(s) for timing statistics)")
     logging.info("Using async prefetching: preparing step i+1 while GPU processes step i")
@@ -435,7 +418,7 @@ def run_single_trajectory(
     executor = ThreadPoolExecutor(max_workers=1)
 
     # List of step counts to process
-    step_counts = list(range(0, actual_steps, action_horizon))
+    step_counts = list(range(0, actual_steps, execution_horizon))
 
     # Prefetch first observation
     future_obs = executor.submit(
@@ -481,7 +464,7 @@ def run_single_trajectory(
 
         # Action processing
         action_chunk = parse_action_gr00t(_action_chunk)
-        for j in range(action_horizon):
+        for j in range(execution_horizon):
             # NOTE: concat_pred_action = action[f"action.{modality_keys[0]}"][j]
             # the np.atleast_1d is to ensure the action is a 1D array, handle where single value is returned
             concat_pred_action = np.concatenate(
@@ -533,7 +516,7 @@ def evaluate_predictions(
     traj,
     traj_id,
     actual_steps,
-    action_horizon,
+    execution_horizon,
     save_plot_path=None,
 ):
     def extract_state_joints(traj: pd.DataFrame, columns: list[str]):
@@ -571,7 +554,7 @@ def evaluate_predictions(
         traj_id=traj_id,
         state_keys=state_keys,
         action_keys=action_keys,
-        action_horizon=action_horizon,
+        execution_horizon=execution_horizon,
         save_plot_path=save_plot_path or f"/tmp/stand_alone_inference/traj_{traj_id}.jpeg",
     )
 
@@ -597,8 +580,9 @@ class ArgsConfig:
     traj_ids: list[int] = field(default_factory=lambda: [0])
     """List of trajectory IDs to evaluate."""
 
-    action_horizon: int = 16
-    """Action horizon to evaluate."""
+    execution_horizon: int = 16
+    """How many steps of each predicted action chunk to execute before re-planning
+    (must be <= the model's predicted chunk length)."""
 
     dataset_path: str = "demo_data/droid_sample"
     """Path to the dataset."""
@@ -609,7 +593,7 @@ class ArgsConfig:
     inference_mode: Literal["pytorch", "tensorrt", "trt_full_pipeline"] = "pytorch"
     """Inference mode: 'pytorch' (default), 'tensorrt' (DiT-only TRT), or 'trt_full_pipeline' (all engines)."""
 
-    trt_engine_path: str = "./gr00t_n1d7_engines"
+    trt_engine_path: str = "./gr00t_trt_deployment/engines"
     """Path to TensorRT engine file or directory. For 'tensorrt': single .trt file. For 'trt_full_pipeline': engine directory."""
 
     denoising_steps: int = 4
@@ -638,7 +622,7 @@ def main(args: ArgsConfig):
     logging.info(f"Embodiment Tag: {args.embodiment_tag}")
     logging.info(f"Trajectories: {args.traj_ids}")
     logging.info(f"Steps per trajectory: {args.steps}")
-    logging.info(f"Action Horizon: {args.action_horizon}")
+    logging.info(f"Execution Horizon: {args.execution_horizon}")
     logging.info(f"Skip Timing Steps: {args.skip_timing_steps}")
     logging.info(f"Inference Mode: {args.inference_mode}")
     if args.inference_mode == "tensorrt":
@@ -681,19 +665,28 @@ def main(args: ArgsConfig):
         model_path=local_model_path,
         device="cuda" if torch.cuda.is_available() else "cpu",
     )
+    # Apply --denoising-steps: the action head reads num_inference_timesteps at
+    # sampling time (honored by the PyTorch and TensorRT denoising loops alike).
+    policy.model.action_head.num_inference_timesteps = args.denoising_steps
+    logging.info(f"Using {args.denoising_steps} denoising steps")
 
     # Apply inference mode
     if args.inference_mode == "trt_full_pipeline":
         logging.info(f"Loading full-pipeline TRT engines from: {args.trt_engine_path}")
         from trt_model_forward import setup_tensorrt_engines
 
-        setup_tensorrt_engines(policy, args.trt_engine_path, mode="n17_full_pipeline")
+        # This script runs one observation at a time (batch=1); fail fast if the
+        # engine was baked for a different static batch instead of hitting a cryptic
+        # "Invalid input shape" inside Engine.forward().
+        resolve_batch_size(args.trt_engine_path, 1, source="standalone_inference_script")
+        setup_tensorrt_engines(policy, args.trt_engine_path, mode=InferenceMode.n17_full_pipeline)
         logging.info("  TRT full-pipeline mode enabled")
     elif args.inference_mode == "tensorrt":
         logging.info(f"Replacing DiT with TensorRT engine: {args.trt_engine_path}")
         dit_engine_path = args.trt_engine_path
         if os.path.isdir(dit_engine_path):
             dit_engine_path = os.path.join(dit_engine_path, "dit_bf16.engine")
+        resolve_batch_size(dit_engine_path, 1, source="standalone_inference_script")
         replace_dit_with_tensorrt(policy, dit_engine_path)
         logging.info("  TensorRT DiT-only mode enabled")
     else:
@@ -710,7 +703,7 @@ def main(args: ArgsConfig):
 
     model_action_horizon = len(modality["action"].delta_indices)
     assert_exec_horizon_within_model(
-        exec_horizon=args.action_horizon,
+        exec_horizon=args.execution_horizon,
         model_action_horizon=model_action_horizon,
         source="standalone_inference_script",
     )
@@ -765,7 +758,7 @@ def main(args: ArgsConfig):
             traj_id,
             args.embodiment_tag,
             steps=args.steps,
-            action_horizon=args.action_horizon,
+            execution_horizon=args.execution_horizon,
             skip_timing_steps=args.skip_timing_steps,
         )
         pred_actions.append(pred_action_across_time)
@@ -778,7 +771,7 @@ def main(args: ArgsConfig):
                 traj,
                 traj_id,
                 actual_steps,
-                args.action_horizon,
+                args.execution_horizon,
                 save_plot_path=args.save_plot_path,
             )
 
@@ -862,6 +855,8 @@ def main(args: ArgsConfig):
 
 
 if __name__ == "__main__":
+    if migrate_deprecated_action_horizon_argv():
+        logging.warning("--action-horizon is deprecated; use --execution-horizon.")
     # Parse arguments using tyro
     config = tyro.cli(ArgsConfig)
     main(config)

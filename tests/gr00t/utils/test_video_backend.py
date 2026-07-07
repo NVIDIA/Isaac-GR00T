@@ -16,6 +16,7 @@
 """Tests for the torchcodec video backend."""
 
 import builtins
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -37,10 +38,11 @@ SAMPLE_VIDEO = (
 )
 
 
+@pytest.mark.serial
 class TestImportSafety:
     """Importing video utilities must not import or load torchcodec."""
 
-    def test_torchcodec_not_imported_at_module_level(self):
+    def test_torchcodec_not_imported_at_module_level(self, serialize_subprocess_spawns):
         code = textwrap.dedent("""\
             import sys
             sys.modules.pop("torchcodec", None)
@@ -50,10 +52,15 @@ class TestImportSafety:
             assert "torchcodec.decoders" not in sys.modules
             print("PASS")
         """)
+        # Pin the child's torch/OpenMP pool to one thread so it doesn't
+        # oversubscribe an xdist-saturated CI box (the 120s-timeout flake).
+        env = os.environ.copy()
+        env.setdefault("OMP_NUM_THREADS", "1")
         result = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
+            env=env,
             # Headroom for parallel CI (pytest-xdist -n auto): this child imports
             # gr00t (torch et al.), which is slow when every worker is busy.
             timeout=120,
@@ -145,5 +152,9 @@ class TestTorchcodecMissing:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", fail_torchcodec_import)
-        with pytest.raises(ImportError, match="torchcodec is required"):
+        # A native-load failure means torchcodec *is* installed, so the wrapped
+        # hint points at the FFmpeg-version mismatch (not "install torchcodec"),
+        # and the original error is preserved as the cause.
+        with pytest.raises(ImportError, match="native library could not be loaded") as exc_info:
             vu._get_video_decoder_cls()
+        assert isinstance(exc_info.value.__cause__, RuntimeError)

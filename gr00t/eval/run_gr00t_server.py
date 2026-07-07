@@ -31,6 +31,25 @@ import tyro
 DEFAULT_MODEL_SERVER_PORT = 5555
 
 
+def _load_json_modality_configs(config_path: Path) -> dict[str, ModalityConfig]:
+    """Load a JSON file whose values are ModalityConfig field dicts.
+
+    A dataset's ``meta/modality.json`` is a different (data-layout) schema and is
+    not accepted here — point such users at a .py config instead of letting the
+    ``ModalityConfig(**v)`` unpack raise a bare ``TypeError``.
+    """
+    with open(config_path, "r") as f:
+        raw = json.load(f)
+    try:
+        return {k: ModalityConfig(**v) for k, v in raw.items()}
+    except TypeError as exc:
+        raise ValueError(
+            f"{config_path} is not a ModalityConfig JSON: each value must hold ModalityConfig "
+            f"fields (delta_indices, modality_keys, ...). A dataset's meta/modality.json uses a "
+            f"different schema; pass a .py modality config (e.g. examples/SO100/so100_config.py) instead."
+        ) from exc
+
+
 @dataclass
 class ServerConfig:
     """Configuration for running the GR00T inference server."""
@@ -111,10 +130,7 @@ def main(config: ServerConfig):
                 importlib.import_module(config_path.stem)
                 print(f"Loaded modality config: {config_path}")
             elif config_path.suffix == ".json":
-                with open(config.modality_config_path, "r") as f:
-                    raw = json.load(f)
-                # ReplayPolicy expects ModalityConfig instances, not raw dicts.
-                modality_configs = {k: ModalityConfig(**v) for k, v in raw.items()}
+                modality_configs = _load_json_modality_configs(config_path)
             else:
                 raise ValueError(
                     f"Unsupported modality config format: {config_path.suffix}. Use .py or .json"

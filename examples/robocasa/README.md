@@ -49,7 +49,7 @@ Use the RoboCasa Panda Omron LeRobot datasets from Hugging Face, then launch the
 For a small local smoke-test dataset, download one task:
 
 ```bash
-huggingface-cli download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
+uv run hf download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
   --repo-type dataset \
   --include "single_panda_gripper.OpenDrawer/**" \
   --local-dir /root/.cache/g00t/datasets/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim
@@ -62,7 +62,7 @@ uv run python scripts/repair_lerobot_metadata.py "$DATASET_PATH" \
 For the full benchmark training set, download the `single_panda_gripper.*` task directories and pass an `os.pathsep`-separated list of dataset directories to `--dataset-path`:
 
 ```bash
-huggingface-cli download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
+uv run hf download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
   --repo-type dataset \
   --include "single_panda_gripper.*/**" \
   --local-dir /root/.cache/g00t/datasets/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim
@@ -85,11 +85,9 @@ RoboCasa Panda Omron is not present in the base model checkpoint; use a checkpoi
 
 # Evaluate checkpoint
 
-First, setup the evaluation simulation environment. This only needs to run once for each simulation benchmark. After it's done, we only need to launch server and client.
+First, complete the [one-time simulation environment setup](../../README.md#one-time-simulation-environment-setup), then run this benchmark's setup script (only needed once per benchmark):
 
 ```bash
-sudo apt update
-sudo apt install libegl1-mesa-dev libglu1-mesa
 bash gr00t/eval/sim/robocasa/setup_RoboCasa.sh
 ```
 

@@ -461,6 +461,16 @@ def main(
             raise FileNotFoundError(
                 f"Modality config path does not exist or is not a .py file: {modality_config_path}"
             )
+    # Custom tags (e.g. NEW_EMBODIMENT) are only in MODALITY_CONFIGS once a
+    # --modality-config-path registers them; fail here instead of a bare KeyError
+    # deep in generate_rel_stats (and before generate_stats writes a partial set).
+    if embodiment_tag.value not in MODALITY_CONFIGS:
+        raise ValueError(
+            f"No built-in modality config for embodiment tag '{embodiment_tag.name}' "
+            f"(value='{embodiment_tag.value}'). Available tags: {sorted(MODALITY_CONFIGS.keys())}. "
+            f"Pass --modality-config-path <your_config.py> (e.g. examples/SO100/so100_config.py) "
+            f"for custom embodiments."
+        )
     generate_stats(dataset_path)
     generate_rel_stats(dataset_path, embodiment_tag)
 

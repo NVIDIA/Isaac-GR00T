@@ -7,7 +7,7 @@
   <p style="font-size: 1.2em;">
     <a href="https://developer.nvidia.com/isaac/gr00t"><strong>Website</strong></a> |
     <a href="https://huggingface.co/collections/nvidia/gr00t-n17"><strong>Model</strong></a> |
-    <a href="https://huggingface.co/collections/nvidia/physical-ai"><strong>Dataset</strong></a> |
+    <a href="https://huggingface.co/collections/nvidia/physical-ai"><strong>Datasets (Physical AI)</strong></a> |
     <a href="https://arxiv.org/abs/2503.14734"><strong>Paper</strong></a> |
     <a href="https://developer.nvidia.com/isaac"><strong>NVIDIA Isaac</strong></a> |
     <a href="FAQ.md"><strong>FAQ</strong></a>
@@ -19,6 +19,7 @@
 - [NVIDIA Isaac GR00T](#nvidia-isaac-gr00t)
 - [What's New in GR00T N1.7](#whats-new-in-gr00t-n17)
 - [Installation](#installation)
+- [LeRobot Integration](#lerobot-integration)
 - [Model Checkpoints & Embodiment Tags](#model-checkpoints--embodiment-tags)
 - [Data Format](#data-format)
 - [Inference](#inference)
@@ -46,23 +47,21 @@
   </tr>
 </table>
 
-> We just released GR00T N1.7 Early Access, the latest version of GR00T N1 with a new VLM backbone (Cosmos-Reason2-2B / Qwen3-VL) and improved performance.
+> We just released GR00T N1.7 General Availability, the latest version of GR00T N1 with a new VLM backbone (Cosmos-Reason2-2B / Qwen3-VL) and improved performance.
 
-> **This is an Early Access (EA) release.** You are welcome to download the model, explore the codebase, and begin building on the stack, with the understanding that support and stability guarantees are limited until the GA release.
+> **This is a General Availability (GA) release.** You are welcome to download the model, explore the codebase, and build on the stack, with full support and stability guarantees.
 >
 > **What's available:**
 > - Pre-trained GR00T N1.7 model weights and reference code
 > - Fine-tuning and inference with custom robot data or demonstrations
 > - Experimentation, prototyping, and research use cases
->
-> **Available at GA:**
 > - Production deployment with commercial support
 > - Complete benchmarks and a fully validated, stable feature set
 > - Pull request contributions
 >
-> We welcome feedback - please feel free to raise issues in this repository.
+> We welcome feedback - please feel free to raise issues and pull requests in this repository.
 
-> To use older versions: [N1.6](https://github.com/NVIDIA/Isaac-GR00T/releases/tag/n1.6-release) | [N1.5](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release)
+> Previous releases: [N1.6](https://github.com/NVIDIA/Isaac-GR00T/tree/n1d6) | [N1.5](https://github.com/NVIDIA/Isaac-GR00T/tree/n1d5)
 
 NVIDIA Isaac GR00T N1.7 is an open vision-language-action (VLA) model for generalized humanoid robot skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
 
@@ -94,9 +93,35 @@ GR00T N1.7 builds on N1.6 with a new VLM backbone and code-level improvements.
 
 ### Key Changes from N1.6
 
+Compared with N1.6, N1.7 updates the model stack, training data interface,
+evaluation coverage, deployment flow, fine-tuning workflow, and runtime behavior.
+
 - **New VLM backbone:** Cosmos-Reason2-2B (Qwen3-VL architecture), replacing the Eagle backbone used in N1.6. Supports flexible resolution and encodes images in their native aspect ratio without padding.
-- Simplified data processing pipeline (`processing_gr00t_n1d7.py`).
-- Added full pipeline export to ONNX and TensorRT with improved frequency.
+- **Updated model interface:** N1.7 moves to the `gr00t_n1d7` model package, expands the state/action dimensions, and increases the model action horizon.
+- **More flexible dataset handling:** Fine-tuning can use multiple dataset paths with mixture weighting, making multi-dataset training easier to configure.
+- **Broader benchmark coverage:** N1.7 refreshes and expands documented results across RoboCasa, RoboCasa GR1 tabletop tasks, SimplerEnv, and real G1 evaluation.
+- **More complete deployment path:** N1.7 adds full-pipeline ONNX and TensorRT export support and improves deployment consistency across desktop GPUs and edge platforms.
+- **More predictable runtime behavior:** Policy serving, rollout recording, evaluation, and configuration validation have been hardened so errors are easier to diagnose.
+
+<details>
+<summary>Detailed changes from N1.6</summary>
+
+These are the main code, model, training, evaluation, and deployment changes
+that distinguish the current N1.7 main branch from the N1.6 / 1D6 code path.
+Use the [`n1d6` branch](https://github.com/NVIDIA/Isaac-GR00T/tree/n1d6) when you need
+the N1.6 model package and runtime behavior.
+
+- Model package changed from `gr00t_n1d6` to `gr00t_n1d7`, so codepaths and processor metadata move to the N1.7 namespace.
+- VLM backbone changed from vendored Eagle, `nvidia/Eagle-Block2A-2B-v2`, to `nvidia/Cosmos-Reason2-2B` via Qwen3-VL.
+- Transformers changed from `4.51.3` to `4.57.3` to support the newer Qwen3-VL stack.
+- Model defaults changed: `select_layer` `16` to `12`, `tune_top_llm_layers` `4` to `0`, and `load_bf16` `true` to `false`.
+- State and action dimensions expanded from `29` to `132`, and `action_horizon` expanded from `16` to `40`.
+- Action head remains flow-matching DiT, but changes from `32` to `16` diffusion layers and adds newer N1.7 behavior options.
+- Dataset input handling now supports multiple dataset paths and `ds_weights_alpha` for dataset mixtures.
+- The rollout CLI flag was renamed from `--action-horizon` to `--execution-horizon` to clarify how many predicted actions are executed per policy call.
+- Server/client transport has stronger object-dtype ndarray serialization and cleaner socket timeout behavior.
+
+</details>
 
 ---
 
@@ -108,13 +133,13 @@ GR00T N1.7 builds on N1.6 with a new VLM backbone and code-level improvements.
 
 **Fine-tuning:** 1 or more GPUs with 40 GB+ VRAM recommended. We recommend H100 or L40 nodes for optimal performance. Other hardware (e.g., A6000) works but may require longer training time. See the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md) for detailed specs.
 
-**CUDA / Python per platform:** dGPU on CUDA 12.8 with Python 3.10; Jetson Orin on CUDA 12.6 with Python 3.10; Jetson Thor and DGX Spark on CUDA 13.0 with Python 3.12. The per-platform install scripts and Dockerfiles live under `scripts/deployment/`; see the [Deployment & Inference Guide](scripts/deployment/README.md) for the full matrix.
+**CUDA / Python per platform:** dGPU on CUDA 12.8 with Python 3.12; Jetson Orin on CUDA 12.6 with Python 3.10; Jetson Thor and DGX Spark on CUDA 13.0 with Python 3.12. The per-platform install scripts and Dockerfiles live under `scripts/deployment/`; see the [Deployment & Inference Guide](scripts/deployment/README.md) for the full matrix.
 
 ### Clone the Repository
 
 GR00T relies on submodules for certain dependencies. Include them when cloning:
 
-**Note:** `git-lfs` is **required** to download parquet data files in `/demo_data`. Install it before cloning: `sudo apt install git-lfs && git lfs install`.
+**Note:** `git-lfs` is **required** to download parquet data files in `demo_data/`. Install it before cloning: `sudo apt install git-lfs && git lfs install`.
 ```sh
 git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T
 cd Isaac-GR00T
@@ -140,10 +165,11 @@ Install FFmpeg (required by `torchcodec`, the only supported video backend):
 ```sh
 sudo apt-get update && sudo apt-get install -y ffmpeg
 ```
+> **FFmpeg version:** `torchcodec==0.8.0` supports **FFmpeg 4-7 only**. On Ubuntu 25.10+/26.04 the `ffmpeg` package is version 8, which `torchcodec` cannot load (`RuntimeError: Could not load libtorchcodec ... We support versions 4, 5, 6 and 7`). On those distros install an FFmpeg&lt;8 runtime instead, e.g. `conda install -c conda-forge 'ffmpeg<8'`, and make sure its libraries are on `LD_LIBRARY_PATH`.
 
 Create the environment and install GR00T:
 ```sh
-uv sync --python 3.10
+uv sync --python 3.12
 ```
 GPU dependencies (flash-attn, TensorRT, etc.) are included in the default install.
 
@@ -152,15 +178,21 @@ Verify the installation:
 uv run python -c "import gr00t; print('GR00T installed successfully')"
 ```
 
-> **`flash-attn` message on every `uv run`:** You may see `Installing flash-attn...` each time you run `uv run`. This is a known `uv` behavior with URL-pinned wheel sources — `uv` re-validates the cached wheel against the source URL on each invocation. It is **not** rebuilding from source; the wheel is already cached locally and the operation takes 2-3 seconds. This only affects x86_64 platforms. 
+> **Hugging Face access (required):** GR00T's VLM backbone is [`nvidia/Cosmos-Reason2-2B`](https://huggingface.co/nvidia/Cosmos-Reason2-2B), a **gated** model that every GR00T checkpoint (including the base `nvidia/GR00T-N1.7-3B`) loads on first use. Before running inference or finetuning, request access on the model page and authenticate:
+> ```sh
+> uv run hf auth login   # or: export HF_TOKEN=<your_token>
+> ```
+> Without access, model loading fails with a `GatedRepoError` / `401 Client Error`.
+
+> **`flash-attn` message on every `uv run`:** You may see `Installing flash-attn...` each time you run `uv run`. This is a known `uv` behavior with URL-pinned wheel sources — `uv` re-validates the cached wheel against the source URL on each invocation. It is **not** rebuilding from source; the wheel is already cached locally and the operation takes 2-3 seconds. This affects platforms that use URL-pinned flash-attn wheels (x86_64 and aarch64). 
 > To suppress it, remove the `flash-attn` entries under `[tool.uv.sources]` in your local `pyproject.toml` after the initial install. But that will break `uv lock` and cause flash-attn to build from source on next lock regeneration.
 
 <details>
 <summary><strong>Alternative: pip install (without uv)</strong></summary>
 
-If you prefer pip/conda over uv, create a Python 3.10 virtualenv and install:
+If you prefer pip/conda over uv, create a Python 3.12 virtualenv and install:
 ```sh
-python3.10 -m venv .venv && source .venv/bin/activate
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 Note: GPU dependencies (flash-attn, TensorRT) may require manual installation with pip. The `uv` workflow handles these automatically.
@@ -168,14 +200,14 @@ Note: GPU dependencies (flash-attn, TensorRT) may require manual installation wi
 
 > **If fine-tuning fails with `CUDA_HOME is unset`:** Run `bash scripts/deployment/dgpu/install_deps.sh` once to configure CUDA paths, or manually `export CUDA_HOME=/usr/local/cuda`.
 
-> **CUDA 13.x Users (Thor, Spark, and other CUDA 13+ platforms):** PyTorch 2.7 pins Triton to 3.3.1, which does not recognize CUDA major version 13+. This causes a `RuntimeError` in Triton's `ptx_get_version()`. Run the patch script to fix:
+> **CUDA 13.x Users (Thor, Spark, and other CUDA 13+ platforms):** PyTorch 2.7 pins Triton to 3.3.1, which does not recognize CUDA major version 13+. This causes a `RuntimeError` in Triton's `ptx_get_version()`. Run `scripts/patch_triton_cuda13.sh` to fix:
 > ```sh
 > uv run bash scripts/patch_triton_cuda13.sh
 > ```
 
 > **GB300 (sm_103) Users:** Triton 3.3.1 (pinned by PyTorch 2.7) does not support the GB300 GPU architecture (sm_103). `torch.compile` will fail on GB300. Use PyTorch eager mode or TensorRT inference instead. Triton 3.5.1+ adds sm_103 support but is not yet compatible with the pinned PyTorch version.
 
-> **Video Backend:** GR00T uses [`torchcodec`](https://github.com/pytorch/torchcodec) as its sole video decoding backend. Backends such as `decord` and `pyav` are no longer supported. `torchcodec` requires FFmpeg and supports H.264 on all platforms; AV1 decoding is not guaranteed (convert AV1 datasets to H.264 with `examples/SimplerEnv/convert_av1_to_h264.py`). On aarch64 platforms (Thor, Orin), `torchcodec` is built from source during `install_deps.sh` because pre-built wheels are not available — if you encounter a `NotImplementedError`, ensure the build completed successfully.
+> **Video Backend:** GR00T uses [`torchcodec`](https://github.com/pytorch/torchcodec) as its sole video decoding backend. Backends such as `decord` and `pyav` are no longer supported. `torchcodec` 0.8.0 requires **FFmpeg 4-7** (FFmpeg 8 is not supported — see the FFmpeg version note above) and supports H.264 on all platforms; AV1 decoding is not guaranteed (convert AV1 datasets to H.264 with `examples/SimplerEnv/convert_av1_to_h264.py`). On aarch64 platforms (Thor, Orin), `torchcodec` is built from source during `install_deps.sh` because pre-built wheels are not available — if you encounter a `NotImplementedError`, ensure the build completed successfully.
 
 <details>
 <summary><strong>DGX Spark</strong> (tested with DGX Spark GB10)</summary>
@@ -188,13 +220,6 @@ source scripts/activate_spark.sh
 
 See the [Spark setup guide](scripts/deployment/README.md#dgx-spark-setup) for Docker and bare metal details.
 </details>
-
-> ⚠️ **aarch64 users (Spark):** After running `install_deps.sh`, always
-> activate the venv with `source .venv/bin/activate && source scripts/activate_spark.sh`
-> and invoke training with **plain `python`**, not `uv run python`. The latter will
-> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
-> destroy the platform-specific environment.
-
 
 <details>
 <summary><strong>Jetson AGX Thor</strong> (tested with JetPack 7.1)</summary>
@@ -214,13 +239,6 @@ source scripts/activate_thor.sh
 See the [Thor setup guide](scripts/deployment/README.md#jetson-thor-setup) for Docker and bare metal details.
 </details>
 
-> ⚠️ **aarch64 users (Thor):** After running `install_deps.sh`, always
-> activate the venv with `source .venv/bin/activate && source scripts/activate_thor.sh`
-> and invoke training with **plain `python`**, not `uv run python`. The latter will
-> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
-> destroy the platform-specific environment.
-
-
 <details>
 <summary><strong>Jetson Orin</strong> (tested with JetPack 6.2)</summary>
 
@@ -233,14 +251,23 @@ source scripts/activate_orin.sh
 See the [Orin setup guide](scripts/deployment/README.md#jetson-orin-setup) for Docker and bare metal details.
 </details>
 
-> ⚠️ **aarch64 users (Orin):** After running `install_deps.sh`, always
-> activate the venv with `source .venv/bin/activate && source scripts/activate_orin.sh`
-> and invoke training with **plain `python`**, not `uv run python`. The latter will
-> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
-> destroy the platform-specific environment.
+> ⚠️ **aarch64 users (Spark / Thor / Orin):** After running `install_deps.sh`, always
+> activate the venv with `source .venv/bin/activate && source scripts/activate_<platform>.sh`
+> (`activate_spark.sh`, `activate_thor.sh`, or `activate_orin.sh`) and run the example
+> commands in this guide with **plain `python`** / `torchrun`, not `uv run python` /
+> `uv run torchrun`. The latter will re-sync against the root `pyproject.toml` (which targets
+> x86_64 Python 3.12) and destroy the platform-specific environment. See the
+> [Deployment & Inference Guide](scripts/deployment/README.md#platform-specific-setup) for
+> per-platform Docker and bare-metal setup.
 
 
 For a containerized setup that avoids system-level dependency conflicts, see our [Docker Setup Guide](docker/README.md). The recommended container workflow is to start the image first, then clone or pull the repo inside the running container so your checkout uses the image's prebuilt dependency environment.
+
+---
+
+## LeRobot Integration
+
+GR00T N1.7 is also available through Hugging Face LeRobot via the `groot` policy type. Use the [LeRobot GR00T documentation](https://github.com/huggingface/lerobot/blob/main/docs/source/groot.mdx) for LeRobot-native training, evaluation, and rollout workflows. Use this repository for the reference GR00T implementation, model internals, deployment tooling, and benchmark-specific examples.
 
 ---
 
@@ -255,8 +282,6 @@ For a containerized setup that avoids system-level dependency conflicts, see our
 | [`nvidia/GR00T-N1.7-DROID`](https://huggingface.co/nvidia/GR00T-N1.7-DROID) | Finetuned | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | Finetuned on [DROID](https://droid-dataset.github.io/) dataset |
 | [`nvidia/GR00T-N1.7-SimplerEnv-Bridge`](https://huggingface.co/nvidia/GR00T-N1.7-SimplerEnv-Bridge) | Finetuned | `SIMPLER_ENV_WIDOWX` | Finetuned on SimplerEnv Bridge (WidowX) |
 | [`nvidia/GR00T-N1.7-SimplerEnv-Fractal`](https://huggingface.co/nvidia/GR00T-N1.7-SimplerEnv-Fractal) | Finetuned | `SIMPLER_ENV_GOOGLE` | Finetuned on SimplerEnv Fractal (Google Robot) |
-
-> Older versions: [N1.6 checkpoints](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.6-release) | [N1.5 checkpoints](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release)
 
 ### Embodiment Tags
 
@@ -323,10 +348,12 @@ uv run python scripts/deployment/standalone_inference_script.py \
     --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
     --traj-ids 1 2 \
     --inference-mode pytorch \
-    --action-horizon 8
+    --execution-horizon 8
 ```
 
 This runs open-loop inference on 2 DROID episodes, comparing predicted actions against ground truth. The base model downloads automatically from HuggingFace on first run (~6 GB).
+
+> **Note:** The base model loads the gated `nvidia/Cosmos-Reason2-2B` backbone, so this command requires Hugging Face access (see [Set Up the Environment](#set-up-the-environment)). Without it the run fails with a `GatedRepoError`.
 
 ### Finetuned Inference
 
@@ -339,7 +366,7 @@ uv run python scripts/deployment/standalone_inference_script.py \
     --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
     --traj-ids 1 2 \
     --inference-mode pytorch \
-    --action-horizon 8
+    --execution-horizon 8
 ```
 
 Some checkpoints (e.g., LIBERO) use a nested folder structure with model files under a subfolder. HuggingFace does not support nested repo paths in `--model-path`, so you must download first:
@@ -359,7 +386,7 @@ uv run python scripts/deployment/standalone_inference_script.py \
     --embodiment-tag LIBERO_PANDA \
     --traj-ids 0 1 2 \
     --inference-mode pytorch \
-    --action-horizon 8
+    --execution-horizon 8
 ```
 
 ### Server-Client Inference (for Deployment)
@@ -382,7 +409,7 @@ uv run python gr00t/eval/open_loop_eval.py \
     --host 127.0.0.1 \
     --port 5555 \
     --traj-ids 1 2 \
-    --action-horizon 8
+    --execution-horizon 8
 ```
 
 > **Tip:** If you get `ZMQError: Address already in use`, the default port 5555 is occupied. Use `--port <other_port>`.
@@ -478,7 +505,7 @@ uv run python gr00t/eval/open_loop_eval.py \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path <CHECKPOINT_PATH> \
     --traj-ids 0 \
-    --action-horizon 16
+    --execution-horizon 16
 ```
 
 This generates a visualization at `/tmp/open_loop_eval/traj_{traj_id}.jpeg` with ground truth vs. predicted actions and MSE metrics. Use `--save-plot-path <dir>` to save plots to a custom location.
@@ -516,11 +543,23 @@ We support evaluation on public benchmarks using a server-client architecture. T
 
 You can use [the verification script](scripts/eval/check_sim_eval_ready.py) to verify that all dependencies are properly configured.
 
+#### One-Time Simulation Environment Setup
+
+Each simulation benchmark needs a one-time environment setup before its first run. First install the shared system libraries:
+
+```bash
+sudo apt update
+sudo apt install libegl1-mesa-dev libglu1-mesa
+```
+
+Then run the benchmark's own `setup_*.sh` script, linked from each simulation benchmark's README (LIBERO, SimplerEnv, robocasa, and robocasa-gr1). This only needs to run once per benchmark; afterward you just launch the server and client. The real-hardware/custom-embodiment workflows (DROID, RoboLab, SO100) have no simulation setup script; follow their own READMEs instead.
+
 **Zero-shot** (evaluate with the base model, no finetuning):
 - [DROID](examples/DROID/README.md) — real-world DROID robot (also available as the finetuned `nvidia/GR00T-N1.7-DROID` checkpoint; `examples/DROID/README.md` covers both paths)
 
 **Finetuned** (evaluate with finetuned checkpoints):
 - [DROID](examples/DROID/README.md) — real-world DROID robot via `nvidia/GR00T-N1.7-DROID`
+- [RoboLab](examples/RoboLab/README.md) — RoboLab simulation tasks via `nvidia/GR00T-N1.7-DROID`
 - [LIBERO](examples/LIBERO/README.md) — LIBERO benchmark (Franka Panda)
 - [SimplerEnv](examples/SimplerEnv/README.md) — Google Robot (Fractal) and WidowX (Bridge)
 - [SO100](examples/SO100/README.md) — SO100 custom embodiment workflow
@@ -530,7 +569,7 @@ You can use [the verification script](scripts/eval/check_sim_eval_ready.py) to v
 
 Each sim benchmark registers its environments under a gym env_name with the format `{prefix}/{task_name}` (e.g., `libero_sim/LIVING_ROOM_SCENE2_put_soup_in_basket`). The evaluation framework uses the prefix to look up the corresponding `EmbodimentTag` via a mapping in [`gr00t/eval/sim/env_utils.py`](gr00t/eval/sim/env_utils.py).
 
-> **Important:** The env_name prefix and the `EmbodimentTag` value are often different. For example, `libero_sim` maps to `EmbodimentTag.LIBERO_PANDA` (`"libero_sim"`). Do not assume they match.
+> **Important:** The env_name prefix and the `EmbodimentTag` **name** are often different. For example, the prefix `libero_sim` maps to `EmbodimentTag.LIBERO_PANDA` (whose value happens to be `"libero_sim"`). Do not assume the prefix matches the tag name.
 
 To add a new benchmark:
 
@@ -547,13 +586,11 @@ To add a new benchmark:
 
 
 
----
-
 ## Running Tests
 
 Install the development dependencies before running the test suite:
 ```bash
-uv sync --python 3.10 --extra dev
+uv sync --python 3.12 --extra dev
 uv run python -m pytest
 ```
 
@@ -561,14 +598,9 @@ Use targeted test paths for faster local checks, and reserve GPU-marked tests fo
 
 ---
 
-# Contributions
+## Contributions
 
-During Early Access we are not accepting pull requests while the codebase stabilizes. If you encounter issues or have suggestions, please open an [Issue](https://github.com/NVIDIA/Isaac-GR00T/issues) in this repository.
-
-# Support
-
-Support during Early Access is best-effort. We will continue iterating toward a more stable General Availability (GA) release.
-
+We welcome issues and pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute and for support details now that GR00T N1.7 has reached General Availability (GA).
 
 ## License
 

@@ -24,6 +24,8 @@ import warnings
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.utils import parse_observation_gr00t
+from gr00t.eval._horizon_contract import PolicyHorizonSpec, migrate_deprecated_action_horizon_argv
 from gr00t.policy import BasePolicy
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 from gr00t.policy.server_client import PolicyClient
@@ -51,7 +53,7 @@ def plot_trajectory_results(
     traj_id: int,
     state_keys: list[str],
     action_keys: list[str],
-    action_horizon: int,
+    execution_horizon: int,
     save_plot_path: str,
 ) -> None:
     """
@@ -64,7 +66,7 @@ def plot_trajectory_results(
         traj_id: Trajectory ID
         state_keys: List of state modality keys
         action_keys: List of action modality keys
-        action_horizon: Action horizon used for inference
+        execution_horizon: Number of predicted-chunk steps executed per inference
         save_plot_path: Path to save the plot
     """
     actual_steps = len(gt_action_across_time)
@@ -103,7 +105,7 @@ def plot_trajectory_results(
         ax.plot(pred_action_across_time[:, action_idx], label="pred action")
 
         # put a dot every ACTION_HORIZON
-        for j in range(0, actual_steps, action_horizon):
+        for j in range(0, actual_steps, execution_horizon):
             if j == 0:
                 ax.plot(
                     j,
@@ -126,26 +128,6 @@ def plot_trajectory_results(
     plt.close()  # Close the figure to free memory
 
 
-def parse_observation_gr00t(
-    obs: dict[str, Any], modality_configs: dict[str, Any]
-) -> dict[str, Any]:
-    new_obs = {}
-    for modality in ["video", "state", "language"]:
-        new_obs[modality] = {}
-        for key in modality_configs[modality].modality_keys:
-            if modality == "language":
-                parsed_key = key
-            else:
-                parsed_key = f"{modality}.{key}"
-            arr = obs[parsed_key]
-            # Add batch dimension
-            if isinstance(arr, str):
-                new_obs[modality][key] = [[arr]]
-            else:
-                new_obs[modality][key] = arr[None, :]
-    return new_obs
-
-
 def parse_action_gr00t(action: dict[str, Any]) -> dict[str, Any]:
     # Unbatch and add prefix
     return {f"action.{key}": action[key][0] for key in action}
@@ -158,7 +140,7 @@ def evaluate_single_trajectory(
     embodiment_tag: EmbodimentTag,
     modality_keys: list[str] | None = None,
     steps=300,
-    action_horizon=16,
+    execution_horizon=16,
     save_plot_path=None,
 ):
     # Ensure steps doesn't exceed trajectory length
@@ -177,9 +159,16 @@ def evaluate_single_trajectory(
         loader.modality_configs["action"].modality_keys if modality_keys is None else modality_keys
     )
 
+    # Fail fast if the open-loop stride doesn't fit the model's predicted chunk
+    # (also rejects a non-contiguous action window, which the linear indexing
+    # below would silently mis-execute).
+    PolicyHorizonSpec.from_modality_config(
+        loader.modality_configs, n_action_steps=execution_horizon
+    )
+
     modality_configs = deepcopy(loader.modality_configs)
     modality_configs.pop("action")
-    for step_count in range(0, actual_steps, action_horizon):
+    for step_count in range(0, actual_steps, execution_horizon):
         data_point = extract_step_data(traj, step_count, modality_configs, embodiment_tag)
         logging.info(f"inferencing at step: {step_count}")
         obs = {}
@@ -192,7 +181,7 @@ def evaluate_single_trajectory(
         parsed_obs = parse_observation_gr00t(obs, loader.modality_configs)
         _action_chunk, _ = policy.get_action(parsed_obs)
         action_chunk = parse_action_gr00t(_action_chunk)
-        for j in range(action_horizon):
+        for j in range(execution_horizon):
             # NOTE: concat_pred_action = action[f"action.{modality_keys[0]}"][j]
             # the np.atleast_1d is to ensure the action is a 1D array, handle where single value is returned
             concat_pred_action = np.concatenate(
@@ -238,7 +227,7 @@ def evaluate_single_trajectory(
         traj_id=traj_id,
         state_keys=state_keys,
         action_keys=action_keys,
-        action_horizon=action_horizon,
+        execution_horizon=execution_horizon,
         save_plot_path=save_plot_path or f"/tmp/open_loop_eval/traj_{traj_id}.jpeg",
     )
 
@@ -261,8 +250,9 @@ class ArgsConfig:
     traj_ids: list[int] = field(default_factory=lambda: [0])
     """List of trajectory IDs to evaluate."""
 
-    action_horizon: int = 16
-    """Action horizon to evaluate."""
+    execution_horizon: int = 16
+    """How many steps of each predicted action chunk to execute before re-planning
+    (must be <= the model's predicted chunk length)."""
 
     dataset_path: str = "demo_data/cube_to_bowl_5/"
     """Path to the dataset."""
@@ -315,8 +305,19 @@ def main(args: ArgsConfig):
             model_path=local_model_path,
             device="cuda" if torch.cuda.is_available() else "cpu",
         )
+        # Apply --denoising-steps: the action head reads num_inference_timesteps
+        # at sampling time.
+        policy.model.action_head.num_inference_timesteps = args.denoising_steps
+        logging.info(f"Using {args.denoising_steps} denoising steps")
     else:
         policy = PolicyClient(host=args.host, port=args.port)
+        if args.denoising_steps != ArgsConfig.denoising_steps:
+            logging.warning(
+                "--denoising-steps=%d is ignored when running against a remote "
+                "policy server; set the denoising steps on the server "
+                "(run_gr00t_server.py) instead.",
+                args.denoising_steps,
+            )
 
     # Get the supported modalities for the policy
     modality = policy.get_modality_config()
@@ -347,7 +348,7 @@ def main(args: ArgsConfig):
             args.embodiment_tag,
             args.modality_keys,
             steps=args.steps,
-            action_horizon=args.action_horizon,
+            execution_horizon=args.execution_horizon,
             save_plot_path=args.save_plot_path,
         )
         logging.info(f"MSE for trajectory {traj_id}: {mse}, MAE: {mae}")
@@ -365,6 +366,8 @@ def main(args: ArgsConfig):
 
 
 if __name__ == "__main__":
+    if migrate_deprecated_action_horizon_argv():
+        logging.warning("--action-horizon is deprecated; use --execution-horizon.")
     # Parse arguments using tyro
     config = tyro.cli(ArgsConfig)
     main(config)

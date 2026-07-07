@@ -148,6 +148,10 @@ class PolicyServer:
     Can add custom endpoints by calling `register_endpoint`.
     """
 
+    # Bounded linger (ms) on close so a pending reply (e.g. the `kill` ack)
+    # flushes instead of being dropped, while still releasing the port promptly.
+    _CLOSE_LINGER_MS = 1000
+
     def __init__(
         self,
         policy: BasePolicy,
@@ -190,7 +194,7 @@ class PolicyServer:
         socket = getattr(self, "socket", None)
         if socket is not None:
             try:
-                socket.close(linger=0)
+                socket.close(linger=self._CLOSE_LINGER_MS)
             except Exception:
                 pass
         context = getattr(self, "context", None)

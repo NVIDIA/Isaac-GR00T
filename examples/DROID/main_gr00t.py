@@ -45,6 +45,9 @@ RESOLUTION = (180, 320)  # resize images to this resolution before sending to th
 
 # Egocentric frame correction: R_euler is post-multiplied by this matrix
 # to match the OXE DROID training pipeline (TFG convention).
+# audit: mirror of gr00t/data/state_action/droid_frame.py — this example runs on
+# a slim DROID install without the gr00t package, so it cannot import the
+# canonical source. Keep this matrix and compute_eef_9d in sync with it.
 DROID_EEF_ROTATION_CORRECT = np.array(
     [[0, 0, -1], [-1, 0, 0], [0, 1, 0]],
     dtype=np.float64,

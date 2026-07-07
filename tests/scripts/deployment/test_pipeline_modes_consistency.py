@@ -27,7 +27,13 @@ import os
 import sys
 from typing import get_type_hints
 
-from gr00t.deployment.modes import BenchmarkMode, BuildEngineMode, ExportMode, VerifyMode
+from gr00t.deployment.modes import (
+    BenchmarkMode,
+    BuildEngineMode,
+    ExportMode,
+    InferenceMode,
+    VerifyMode,
+)
 import pytest
 
 
@@ -75,4 +81,33 @@ def test_cli_mode_field_is_sot_enum(deploy_imports, module_name, cls_name, field
         f"{module_name}.{cls_name}.{field_name} is annotated {resolved!r}, not the SOT enum "
         f"{mode_enum.__name__}. Import the enum from gr00t.deployment.modes instead of "
         "re-declaring a Literal or ad-hoc enum."
+    )
+
+
+def test_rollout_trt_mode_is_inference_mode():
+    """The sim-eval ``--trt-mode`` feeds ``setup_tensorrt_engines``, so it must be
+    the shared ``InferenceMode`` SOT rather than a re-declared local enum."""
+    try:
+        from gr00t.eval import rollout_policy
+    except (ImportError, OSError) as e:  # gymnasium / torch / sim deps absent on CPU CI
+        pytest.skip(f"rollout_policy not importable in this env: {e}")
+
+    resolved = get_type_hints(rollout_policy.RolloutConfig)["trt_mode"]
+    assert resolved is InferenceMode, (
+        f"rollout_policy.RolloutConfig.trt_mode is annotated {resolved!r}, not InferenceMode. "
+        "Import it from gr00t.deployment.modes instead of re-declaring a local enum."
+    )
+
+
+def test_setup_tensorrt_engines_dispatch_matches_inference_mode(deploy_imports):
+    """``setup_tensorrt_engines`` must dispatch on exactly the ``InferenceMode``
+    members — neither an unhandled mode nor an orphaned setup branch."""
+    try:
+        mod = __import__("trt_model_forward")
+    except (ImportError, OSError) as e:  # torch / tensorrt absent on CPU CI
+        pytest.skip(f"trt_model_forward not importable in this env: {e}")
+
+    assert set(mod._INFERENCE_MODE_DISPATCH) == set(InferenceMode), (
+        "trt_model_forward._INFERENCE_MODE_DISPATCH and InferenceMode have drifted; "
+        "every mode needs a setup branch and vice-versa."
     )

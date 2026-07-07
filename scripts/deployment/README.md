@@ -58,7 +58,7 @@ uv run python scripts/deployment/standalone_inference_script.py \
   --embodiment-tag LIBERO_PANDA \
   --traj-ids 0 1 2 3 4 \
   --inference-mode pytorch \
-  --action-horizon 8
+  --execution-horizon 8
 ```
 
 ---
@@ -267,6 +267,39 @@ python gr00t/eval/rollout_policy.py \
 
 > Jetson and Spark platforms use different dependency stacks than dGPU. Thor and Spark use CUDA 13 with PyTorch 2.10.0 from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130). Orin uses CUDA 12.6 with PyTorch 2.10.0 from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126).
 
+> ⚠️ **aarch64 users (Spark / Thor / Orin):** After running `install_deps.sh`, always
+> activate the venv with `source .venv/bin/activate && source scripts/activate_<platform>.sh`
+> (`activate_spark.sh`, `activate_thor.sh`, or `activate_orin.sh`) and run the example
+> commands with **plain `python`** / `torchrun`, not `uv run python` / `uv run torchrun` —
+> the latter re-syncs against the root `pyproject.toml` (x86_64 Python 3.12) and destroys
+> the platform-specific environment. This applies to every platform below; see also the
+> [aarch64 note in the main README](../../README.md#set-up-the-environment).
+
+### Shared Docker Workflow
+
+The Docker steps below are identical across Thor, Spark, and Orin except the image tag
+(`gr00t-thor`, `gr00t-spark`, or `gr00t-orin`). Each platform section builds its image, then
+reuses these steps:
+
+1. **Download the model** once on the host — see [Download Model and Dataset](#download-model-and-dataset).
+2. **Start an interactive session** (replace `<profile>` with `thor`, `spark`, or `orin`):
+
+```bash
+docker run -it --rm --runtime nvidia --gpus all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  --network host \
+  -v "$(pwd)":/workspace/repo \
+  -v "${HF_HOME:-${HOME}/.cache/huggingface}":/root/.cache/huggingface \
+  -w /workspace/repo \
+  -e HF_TOKEN="${HF_TOKEN:-}" \
+  gr00t-<profile> \
+  bash
+```
+
+Then run the platform's TRT pipeline command inside the container (shown per platform below).
+
 ### Jetson Thor Setup
 
 Thor uses CUDA 13 and Python 3.12, which require a different dependency stack than x86 or Orin.
@@ -282,29 +315,7 @@ Build the Thor container from the repo root:
 cd docker && bash build.sh --profile=thor && cd ..
 ```
 
-Download the finetuned model (run once, on the host):
-
-```bash
-uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
-```
-
-Start an interactive Docker session (recommended for multi-step TRT work):
-
-```bash
-docker run -it --rm --runtime nvidia --gpus all \
-  --ipc=host \
-  --ulimit memlock=-1 \
-  --ulimit stack=67108864 \
-  --network host \
-  -v "$(pwd)":/workspace/repo \
-  -v "${HF_HOME:-${HOME}/.cache/huggingface}":/root/.cache/huggingface \
-  -w /workspace/repo \
-  -e HF_TOKEN="${HF_TOKEN:-}" \
-  gr00t-thor \
-  bash
-```
-
-Then inside the container, run the full TRT pipeline (export, build, verify, benchmark):
+Then follow the [Shared Docker Workflow](#shared-docker-workflow) (image `gr00t-thor`) to download the model and start the container. Inside the container, run the full TRT pipeline (export, build, verify, benchmark):
 
 ```bash
 python scripts/deployment/build_trt_pipeline.py \
@@ -332,12 +343,6 @@ Then run the TRT pipeline or PyTorch inference as shown in the [TensorRT Acceler
 The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
 and `torch.compile` need on Thor.
 </details>
-> ⚠️ **aarch64 users (Thor):** After running `install_deps.sh`, always
-> activate the venv with `source .venv/bin/activate && source scripts/activate_thor.sh`
-> and invoke training with **plain `python`**, not `uv run python`. The latter will
-> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
-> destroy the platform-specific environment.
-
 
 ---
 
@@ -356,29 +361,7 @@ Build the Spark container from the repo root:
 cd docker && bash build.sh --profile=spark && cd ..
 ```
 
-Download the finetuned model (run once, on the host):
-
-```bash
-uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
-```
-
-Start an interactive Docker session (recommended for multi-step TRT work):
-
-```bash
-docker run -it --rm --runtime nvidia --gpus all \
-  --ipc=host \
-  --ulimit memlock=-1 \
-  --ulimit stack=67108864 \
-  --network host \
-  -v "$(pwd)":/workspace/repo \
-  -v "${HF_HOME:-${HOME}/.cache/huggingface}":/root/.cache/huggingface \
-  -w /workspace/repo \
-  -e HF_TOKEN="${HF_TOKEN:-}" \
-  gr00t-spark \
-  bash
-```
-
-Then inside the container, run the full TRT pipeline (export, build, verify, benchmark):
+Then follow the [Shared Docker Workflow](#shared-docker-workflow) (image `gr00t-spark`) to download the model and start the container. Inside the container, run the full TRT pipeline (export, build, verify, benchmark):
 
 ```bash
 python scripts/deployment/build_trt_pipeline.py \
@@ -406,12 +389,6 @@ Then run the TRT pipeline or PyTorch inference as shown in the [TensorRT Acceler
 If you later rerun `uv sync`, rerun `bash scripts/deployment/spark/install_deps.sh` so the
 Spark-specific `flash-attn` build is restored and revalidated.
 </details>
-> ⚠️ **aarch64 users (Spark):** After running `install_deps.sh`, always
-> activate the venv with `source .venv/bin/activate && source scripts/activate_spark.sh`
-> and invoke training with **plain `python`**, not `uv run python`. The latter will
-> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
-> destroy the platform-specific environment.
-
 
 ---
 
@@ -432,29 +409,7 @@ Build the Orin container from the repo root:
 cd docker && bash build.sh --profile=orin && cd ..
 ```
 
-Download the finetuned model (run once, on the host):
-
-```bash
-uv run hf download nvidia/GR00T-N1.7-LIBERO --include "libero_10/config.json" "libero_10/embodiment_id.json" "libero_10/model-*.safetensors" "libero_10/model.safetensors.index.json" "libero_10/processor_config.json" "libero_10/statistics.json" --local-dir checkpoints/GR00T-N1.7-LIBERO
-```
-
-Start an interactive Docker session (recommended for multi-step TRT work):
-
-```bash
-docker run -it --rm --runtime nvidia --gpus all \
-  --ipc=host \
-  --ulimit memlock=-1 \
-  --ulimit stack=67108864 \
-  --network host \
-  -v "$(pwd)":/workspace/repo \
-  -v "${HF_HOME:-${HOME}/.cache/huggingface}":/root/.cache/huggingface \
-  -w /workspace/repo \
-  -e HF_TOKEN="${HF_TOKEN:-}" \
-  gr00t-orin \
-  bash
-```
-
-Then inside the container, run the TRT pipeline (DiT-only on Orin):
+Then follow the [Shared Docker Workflow](#shared-docker-workflow) (image `gr00t-orin`) to download the model and start the container. Inside the container, run the TRT pipeline (DiT-only on Orin):
 
 ```bash
 python scripts/deployment/build_trt_pipeline.py \
@@ -483,12 +438,6 @@ Then run the TRT pipeline (with `--export-mode dit_only`) or PyTorch inference a
 The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
 and `torch.compile` need on Orin.
 </details>
-> ⚠️ **aarch64 users (Orin):** After running `install_deps.sh`, always
-> activate the venv with `source .venv/bin/activate && source scripts/activate_orin.sh`
-> and invoke training with **plain `python`**, not `uv run python`. The latter will
-> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.10) and
-> destroy the platform-specific environment.
-
 
 > **Orin storage tip:** If your eMMC root is low on space, redirect the HuggingFace cache to an NVMe SSD with `export HF_HOME=/path/to/ssd/.cache/huggingface` before downloading models.
 
@@ -521,7 +470,7 @@ and `torch.compile` need on Orin.
 | `--dataset-path` | `demo_data/libero_demo` | Path to dataset (LeRobot format) |
 | `--embodiment-tag` | Auto-detected | Embodiment tag (auto-detected from processor_config.json if single embodiment) |
 | `--output-dir` | `./gr00t_trt_deployment` | Root output directory. ONNX → `<output-dir>/onnx/`, engines → `<output-dir>/engines/` |
-| `--precision` | `bf16` | Precision for ONNX export and TRT engine build (`bf16`, `fp16`, `fp32`) |
+| `--precision` | `bf16` | Precision for ONNX export and TRT engine build (`bf16` only) |
 | `--batch-size` | `1` | Batch size baked into exported ONNX/TRT models (static — see note below) |
 | `--export-mode` | `full_pipeline` | Export mode: `dit_only`, `action_head`, or `full_pipeline` |
 | `--workspace` | `8192` | TRT builder workspace size in MB |
@@ -537,12 +486,12 @@ and `torch.compile` need on Orin.
 |----------|---------|-------------|
 | `--model-path` | (required) | Path to model checkpoint |
 | `--dataset-path` | `demo_data/droid_sample` | Path to dataset (LeRobot format) |
-| `--embodiment-tag` | Auto-detected | Robot embodiment tag |
+| `--embodiment-tag` | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | Robot embodiment tag |
 | `--traj-ids` | `[0]` | Episode indices to evaluate (space-separated) |
 | `--steps` | `200` | Max steps per trajectory (capped by actual length) |
-| `--action-horizon` | `16` | Action prediction horizon |
+| `--execution-horizon` | `16` | Steps of each predicted chunk to execute per inference (old `--action-horizon` deprecated) |
 | `--inference-mode` | `pytorch` | `pytorch`, `tensorrt` (DiT-only TRT), or `trt_full_pipeline` (all engines) |
-| `--trt-engine-path` | `./gr00t_n1d7_engines` | Directory containing pre-built TRT engines |
+| `--trt-engine-path` | `./gr00t_trt_deployment/engines` | Directory containing pre-built TRT engines (matches `build_trt_pipeline.py` output) |
 | `--denoising-steps` | `4` | Diffusion denoising iterations |
 | `--save-plot-path` | `None` | Save per-trajectory GT-vs-predicted comparison plots |
 | `--skip-timing-steps` | `1` | Initial steps excluded from timing stats (warmup) |

@@ -212,7 +212,7 @@ def test_standalone_inference_pytorch(loaded_variant: LoadedVariant) -> None:
         traj_id=0,
         embodiment_tag=v.embodiment_tag,
         steps=20,
-        action_horizon=8,
+        execution_horizon=8,
     )
 
 
@@ -249,7 +249,7 @@ def test_device_standalone_inference_script_pytorch() -> None:
         DEVICE_DROID_EMBODIMENT_TAG,
         "--traj-ids",
         "0",
-        "--action-horizon",
+        "--execution-horizon",
         "8",
         "--inference-mode",
         "pytorch",
@@ -295,5 +295,5 @@ def test_open_loop_eval_with_checkpoint(loaded_variant: LoadedVariant) -> None:
         traj_id=0,
         embodiment_tag=v.embodiment_tag,
         steps=5,
-        action_horizon=8,
+        execution_horizon=8,
     )

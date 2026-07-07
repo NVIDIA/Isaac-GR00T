@@ -20,7 +20,7 @@ uv run --project scripts/lerobot_conversion \
   --root examples/SO100/finish_sandwich_lerobot
 ```
 
-Then move the `modality.json` file to the root of the dataset.
+Then copy the `modality.json` file into the dataset's `meta/` directory:
 ```bash
 cp examples/SO100/modality.json examples/SO100/finish_sandwich_lerobot/izuluaga/finish_sandwich/meta/modality.json
 ```
@@ -46,7 +46,7 @@ uv run python gr00t/eval/open_loop_eval.py \
   --embodiment-tag NEW_EMBODIMENT \
   --model-path /tmp/so100_finetune/checkpoint-10000 \
   --traj-ids 0 \
-  --action-horizon 16 \
+  --execution-horizon 16 \
   --steps 400
 ```
 

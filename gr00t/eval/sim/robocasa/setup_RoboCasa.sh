@@ -30,6 +30,30 @@ COMMON_DEPS=(
   msgpack-numpy==0.4.8
   tyro==1.0.13
 )
+# robocasa (squarefk fork) install_requires hard-pins numpy==1.23.3 and
+# numba==0.56.4 (-> llvmlite 0.39.1, supports py<3.11 only), neither of which
+# installs on py3.12. Install robocasa --no-deps and provide its runtime deps
+# here with py3.12-compatible versions instead. Keep mujoco==3.2.6: robocasa's
+# __init__ asserts that exact version, and 3.2.6 ships cp312 wheels and predates
+# the mujoco 3.10 mj_fullM signature break that robosuite still relies on.
+ROBOCASA_DEPS=(
+  numpy==1.26.4
+  numba
+  scipy
+  mujoco==3.2.6
+  pygame
+  Pillow
+  opencv-python
+  pyyaml
+  pynput
+  tqdm
+  termcolor
+  imageio
+  h5py
+  lxml
+  hidapi
+  tianshou
+)
 ROBOCASA365_DEPS=(
   numpy==2.2.5
   numba
@@ -69,6 +93,7 @@ case "$ROBOCASA_SETUP_VARIANT" in
     UV_ENV="$SCRIPT_DIR/robocasa_uv"
     SANITY_GYM_IMPORT="import robocasa.utils.gym_utils.gymnasium_groot"
     SANITY_ENV_ID="robocasa_panda_omron/OpenSingleDoor_PandaOmron_Env"
+    INSTALL_ROBOCASA_NO_DEPS=1
 
     if [ ! -e "$ROBOCASA_REPO/.git" ]; then
         if ! git -C "$PROJECT_REPO" submodule update --init "$ROBOCASA_PATH"; then
@@ -107,18 +132,18 @@ esac
 
 rm -rf "$UV_ENV"
 mkdir -p "$UV_ENV"
-uv venv "$UV_ENV/.venv" --python 3.10
+uv venv "$UV_ENV/.venv" --python 3.12
 source "$UV_ENV/.venv/bin/activate"
 uv pip install setuptools wheel
 
-uv pip install torch==2.5.1 torchvision==0.20.1
+uv pip install torch==2.9.0 torchvision==0.24.0
 # Linux-only: preinstall flash-attn to avoid compiling inside other wheels
 INSTALL_FLASH_ATTN=${INSTALL_FLASH_ATTN:-1}
 if [[ "$(uname -s)" == "Linux" && "$INSTALL_FLASH_ATTN" == "1" ]]; then
-  uv pip install --no-build-isolation flash-attn==2.7.4.post1 || echo "flash-attn install skipped/failed; continuing"
+  uv pip install --no-build-isolation flash-attn==2.8.3 || echo "flash-attn install skipped/failed; continuing"
 fi
 
-uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@master"
+uv pip install "git+https://github.com/ARISE-Initiative/robosuite.git@85abee228d1c43ab1939bce33028099945d453b4"
 if [ "$INSTALL_ROBOCASA_NO_DEPS" = "1" ]; then
     uv pip install -e "$ROBOCASA_REPO" --no-deps --config-settings editable_mode=compat
 else
@@ -128,10 +153,13 @@ fi
 uv pip install "${COMMON_DEPS[@]}"
 if [ "$ROBOCASA_SETUP_VARIANT" = "robocasa365" ]; then
     uv pip install "${ROBOCASA365_DEPS[@]}"
+else
+    uv pip install "${ROBOCASA_DEPS[@]}"
 fi
 
-# Make your project importable in this venv without re-resolving deps
-uv pip install --editable "$PROJECT_REPO" --no-deps
+# Expose gr00t from the repo root via a .pth: no dependency re-resolution, and
+# the island supplies gr00t's runtime deps itself (matches the old --no-deps).
+python -c "import sysconfig, pathlib; pathlib.Path(sysconfig.get_path('purelib'), 'gr00t.pth').write_text(pathlib.Path('$PROJECT_REPO').resolve().as_posix() + '\n')"
 
 # Assets for RoboCasa (kitchen)
 SKIP_DOWNLOAD_ASSETS=${SKIP_DOWNLOAD_ASSETS:-0}

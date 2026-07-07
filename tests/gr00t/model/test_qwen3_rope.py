@@ -32,7 +32,6 @@ agrees on a common-mode error in that shared assembly, an absolute oracle does
 not. No checkpoint download or GPU is required.
 """
 
-import logging
 import types
 
 import pytest
@@ -272,19 +271,33 @@ class TestBackboneRotaryReset:
         # original_inv_freq (used by dynamic-RoPE updates) must track inv_freq.
         assert torch.equal(text_rotary.original_inv_freq, text_rotary.inv_freq)
 
-    def test_reset_warns_when_layout_missing(self, caplog):
+    def test_reset_raises_when_vision_layout_missing(self):
+        # No visual/language rotary at all: the reset must fail the load, not leave
+        # the non-persistent inv_freq uninitialized and silently corrupt inference.
         backbone = Qwen3Backbone.__new__(Qwen3Backbone)
         torch.nn.Module.__init__(backbone)
         model = torch.nn.Module()
         model.config = types.SimpleNamespace()
         backbone.model = model
 
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(RuntimeError, match="vision RoPE inv_freq"):
             backbone._reset_rotary_inv_freq()
 
-        assert any("rotary" in record.message.lower() for record in caplog.records), (
-            "missing Qwen3-VL layout must warn loudly, not fail silently"
-        )
+    def test_reset_raises_when_text_layout_missing(self):
+        # Valid vision rotary but no language model: the vision branch succeeds and
+        # the text branch must still fail closed.
+        vis_cfg = _vision_config()
+        backbone = Qwen3Backbone.__new__(Qwen3Backbone)
+        torch.nn.Module.__init__(backbone)
+        visual = torch.nn.Module()
+        visual.rotary_pos_emb = Qwen3VLVisionRotaryEmbedding(_vision_head_dim_half(vis_cfg))
+        model = torch.nn.Module()
+        model.visual = visual
+        model.config = types.SimpleNamespace(vision_config=vis_cfg)
+        backbone.model = model
+
+        with pytest.raises(RuntimeError, match="text RoPE inv_freq"):
+            backbone._reset_rotary_inv_freq()
 
 
 class TestTextRotaryCosSinOracle:

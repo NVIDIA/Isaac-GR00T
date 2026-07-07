@@ -207,6 +207,20 @@ class EvalConfig:
 # =============================================================================
 
 
+def _select_action_steps(actions: List[Dict], action_horizon: int) -> List[Dict]:
+    """Return the first ``action_horizon`` steps of a policy action chunk.
+
+    Raises if the policy produced fewer steps than requested so a misconfigured
+    horizon fails loudly instead of silently executing fewer steps than asked.
+    """
+    if action_horizon > len(actions):
+        raise ValueError(
+            f"Configured action_horizon={action_horizon} exceeds the policy action "
+            f"chunk length {len(actions)}; the policy cannot supply that many steps."
+        )
+    return actions[:action_horizon]
+
+
 @draccus.wrap()
 def eval(cfg: EvalConfig):
     """
@@ -256,7 +270,7 @@ def eval(cfg: EvalConfig):
 
         actions = policy.get_action(obs)
 
-        for i, action_dict in enumerate(actions[: cfg.action_horizon]):
+        for i, action_dict in enumerate(_select_action_steps(actions, cfg.action_horizon)):
             tic = time.time()
             print(f"action[{i}]: {action_dict}")
             # action_dict = {

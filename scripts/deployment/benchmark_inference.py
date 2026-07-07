@@ -39,12 +39,12 @@ Usage:
     # With DiT-only TRT
     python scripts/deployment/benchmark_inference.py \
         --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-        --trt-engine-path ./gr00t_n1d7_onnx/dit_model_bf16.trt
+        --trt-engine-path ./gr00t_trt_deployment/engines/dit_bf16.engine
 
     # With full-pipeline TRT (6 engines)
     python scripts/deployment/benchmark_inference.py \
         --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
-        --trt-engine-path ./gr00t_n1d7_engines \
+        --trt-engine-path ./gr00t_trt_deployment/engines \
         --trt-mode n17_full_pipeline
 """
 
@@ -638,11 +638,11 @@ def main(args: BenchmarkConfig | None = None):
         print("To build engines for full pipeline, run:")
         print(
             "  python scripts/deployment/export_onnx_n1d7.py --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10"
-            " --dataset-path demo_data/libero_demo --output-dir ./gr00t_n1d7_onnx --export-mode full_pipeline"
+            " --dataset-path demo_data/libero_demo --output-dir ./gr00t_trt_deployment/onnx --export-mode full_pipeline"
         )
         print(
             "  python scripts/deployment/build_tensorrt_engine.py --mode full_pipeline"
-            " --onnx-dir ./gr00t_n1d7_onnx --engine-dir ./gr00t_n1d7_engines --precision bf16"
+            " --onnx-dir ./gr00t_trt_deployment/onnx --engine-dir ./gr00t_trt_deployment/engines --precision bf16"
         )
 
     # ========================================

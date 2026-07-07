@@ -52,6 +52,56 @@ logger = logging.getLogger(__name__)
 
 _METADATA_FILENAME = "export_metadata.json"
 
+# Bumped when export_metadata.json changes incompatibly (a key the build/runtime
+# readers depend on is renamed, removed, or repurposed). The exporter stamps
+# this; the build reader rejects a bundle whose version it does not recognize.
+EXPORT_METADATA_SCHEMA_VERSION = 1
+
+# Keys the build reader (build_tensorrt_engine.build_full_pipeline) needs to size
+# the TRT shape profiles, plus the values the runtime contract re-checks. A bundle
+# missing any of these cannot be built without guessing a sequence/patch shape.
+# ``schema_version`` is intentionally not here: the version gate in
+# validate_export_metadata handles its absence before the missing-keys check runs.
+REQUIRED_EXPORT_METADATA_KEYS = (
+    "sa_seq_len",
+    "vl_seq_len",
+    "llm_seq_len",
+    "num_patches",
+    "num_merged_patches",
+    "num_vis_tokens",
+    "action_horizon",
+    "batch_size",
+    "precision",
+)
+
+
+def validate_export_metadata(
+    metadata: dict[str, Any],
+    *,
+    source: str = "export metadata",
+    engine_path: str = "",
+) -> None:
+    """Raise unless ``metadata`` is a current-schema, build-ready bundle.
+
+    Checks ``schema_version`` equals :data:`EXPORT_METADATA_SCHEMA_VERSION` and
+    every :data:`REQUIRED_EXPORT_METADATA_KEYS` entry is present, so a stale
+    bundle or a renamed/dropped field fails here — naming the cause — instead of
+    silently defaulting to a wrong sequence/patch hint deep in the TRT build. The
+    message states the problem; the caller decides the remedy.
+    """
+    where = f" at {engine_path}" if engine_path else ""
+    version = metadata.get("schema_version")
+    if version != EXPORT_METADATA_SCHEMA_VERSION:
+        raise ValueError(
+            f"{source}: {_METADATA_FILENAME}{where} has schema_version={version!r}, but "
+            f"this build expects {EXPORT_METADATA_SCHEMA_VERSION}"
+        )
+    missing = [k for k in REQUIRED_EXPORT_METADATA_KEYS if k not in metadata]
+    if missing:
+        raise ValueError(
+            f"{source}: {_METADATA_FILENAME}{where} is missing required key(s) {missing}"
+        )
+
 
 def _candidate_metadata_paths(engine_path: str) -> list[str]:
     """Locations to look for ``export_metadata.json`` given an engine path.
@@ -158,6 +208,45 @@ def assert_engine_matches_policy(
     return metadata
 
 
+def assert_engine_bundle_present(
+    engine_path: str,
+    required_files,
+    *,
+    mode: str = "n17_full_pipeline",
+    source: str = "setup_tensorrt_engines",
+) -> None:
+    """Fail fast, with build instructions, when a TRT engine bundle is missing.
+
+    ``setup_tensorrt_engines`` swaps in several ``.engine`` files that have no
+    PyTorch fallback (the action head's state/action encoders, the DiT, and the
+    action decoder). If the ``--trt-engine-path`` directory does not exist, or
+    exists but is missing one of those files, the loader would otherwise die with
+    a bare ``FileNotFoundError`` deep inside ``Engine.load`` — giving the user no
+    hint that they simply have not built the engines yet. Raise an actionable
+    error here instead, naming the missing directory / files and the build step.
+    """
+    build_hint = (
+        "Build the engines first, e.g.:\n"
+        "  python scripts/deployment/build_trt_pipeline.py \\\n"
+        "      --model-path <model> --dataset-path <dataset> \\\n"
+        "      --embodiment-tag <TAG> --output-dir ./gr00t_trt_deployment\n"
+        "then pass --trt-engine-path ./gr00t_trt_deployment/engines "
+        "(see scripts/deployment/ for the full deployment guide)."
+    )
+    if not os.path.isdir(engine_path):
+        raise FileNotFoundError(
+            f"{source}: inference-mode '{mode}' needs a TensorRT engine "
+            f"directory, but none exists at {engine_path!r}.\n{build_hint}"
+        )
+    missing = [f for f in required_files if not os.path.exists(os.path.join(engine_path, f))]
+    if missing:
+        raise FileNotFoundError(
+            f"{source}: inference-mode '{mode}' requires these TensorRT engine "
+            f"file(s) in {engine_path!r}, which are missing: "
+            f"{', '.join(sorted(missing))}.\n{build_hint}"
+        )
+
+
 def resolve_batch_size(
     engine_path: str,
     requested: int | None = None,
@@ -195,6 +284,49 @@ def resolve_batch_size(
     return int(requested)
 
 
+def assert_grid_thw_matches(
+    baked_grid: Any,
+    runtime_grid_thw: Any,
+    *,
+    source: str = "ViT TRT forward",
+) -> None:
+    """Validate a runtime ``image_grid_thw`` against the ViT engine's baked grid.
+
+    The ViT export pre-computes position/rotary embeddings for the captured
+    ``grid_thw`` and freezes them as buffers; the engine's only input is
+    ``pixel_values``. Those buffers depend on each view's ``[t, h, w]``
+    *layout*, not on how many views are present: batching tiles the same
+    per-view grid, so the runtime view count scales with batch size while the
+    layouts stay fixed (and a real total-shape mismatch is already rejected by
+    the static ``pixel_values`` shape). So we require every runtime view's
+    layout to be one the engine baked; a view with an unbaked layout (e.g. H/W
+    swapped, different resolution or temporal span) would get the wrong
+    embeddings and is rejected, while a different view *count* (batch) is fine.
+
+    ``baked_grid`` is ``None`` for engine bundles built before ``vit_grid_thw``
+    was recorded; skip the check then (degrade like a missing metadata file).
+    """
+    if baked_grid is None:
+        return
+    rt = runtime_grid_thw
+    if hasattr(rt, "detach"):
+        rt = rt.detach().cpu()
+    if hasattr(rt, "tolist"):
+        rt = rt.tolist()
+    rt_rows = [tuple(int(x) for x in row) for row in rt]
+    baked_layouts = {tuple(int(x) for x in row) for row in baked_grid}
+    unbaked = sorted({row for row in rt_rows if row not in baked_layouts})
+    if unbaked:
+        raise ValueError(
+            f"{source}: ViT TRT engine baked position/rotary buffers for "
+            f"image_grid_thw layouts {sorted(baked_layouts)}, but this observation "
+            f"has view layout(s) {[list(r) for r in unbaked]} that were never baked. "
+            f"The engine ignores runtime grid_thw (pixel_values is its only input) "
+            f"and would silently produce wrong vision features. Re-export/rebuild "
+            f"the ViT engine for this image configuration, or run with a baked layout."
+        )
+
+
 def assert_exec_horizon_within_model(
     *,
     exec_horizon: int,
@@ -203,23 +335,28 @@ def assert_exec_horizon_within_model(
 ) -> None:
     """Validate an open-loop execution stride against the model's chunk size.
 
-    ``standalone_inference_script --action-horizon`` is the number of actions
+    ``standalone_inference_script --execution-horizon`` is the number of actions
     consumed per predicted chunk; it must not exceed the model's
     ``action_horizon`` (the predicted chunk length), otherwise indexing the
     chunk by ``range(exec_horizon)`` runs past the end.
     """
     if not (1 <= exec_horizon <= model_action_horizon):
         raise ValueError(
-            f"{source}: --action-horizon={exec_horizon} must satisfy "
-            f"1 <= action_horizon <= model action_horizon={model_action_horizon} "
+            f"{source}: --execution-horizon={exec_horizon} must satisfy "
+            f"1 <= execution_horizon <= model action_horizon={model_action_horizon} "
             "(= the predicted chunk length). A larger stride indexes past the "
             "predicted action chunk."
         )
 
 
 __all__ = [
+    "EXPORT_METADATA_SCHEMA_VERSION",
+    "REQUIRED_EXPORT_METADATA_KEYS",
+    "validate_export_metadata",
     "load_export_metadata",
     "assert_engine_matches_policy",
+    "assert_engine_bundle_present",
     "resolve_batch_size",
+    "assert_grid_thw_matches",
     "assert_exec_horizon_within_model",
 ]

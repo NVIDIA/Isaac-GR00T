@@ -63,20 +63,11 @@ def test_all_onnx_exports_use_legacy_exporter_explicitly() -> None:
 def test_dit_only_pipeline_uses_dit_only_verifier() -> None:
     """A single DiT engine cannot be verified through the four-engine action-head path."""
 
-    tree = ast.parse(BUILD_PIPELINE_SCRIPT.read_text())
-    mode_map = None
+    from gr00t.deployment.modes import PIPELINE_STAGE_MODES, ExportMode, VerifyMode
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        if any(
-            isinstance(target, ast.Name) and target.id == "_MODE_MAP" for target in node.targets
-        ):
-            mode_map = ast.literal_eval(node.value)
-            break
-
-    assert mode_map is not None, "_MODE_MAP not found in build_trt_pipeline.py"
-    assert mode_map["dit_only"][1] == "dit_only"
+    # build_trt_pipeline imports this table as _MODE_MAP from the SoT module.
+    _build, verify_mode, _bench = PIPELINE_STAGE_MODES[ExportMode.dit_only]
+    assert verify_mode == VerifyMode.dit_only
 
 
 def test_verify_mode_accepts_dit_only_mode() -> None:

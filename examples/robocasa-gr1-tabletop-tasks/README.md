@@ -58,11 +58,9 @@ The original N1.6 `gr1_unified` embodiment tag was retired with the N1.7 release
 
 # Evaluate checkpoint
 
-First, set up the evaluation simulation environment. This only needs to run once for each simulation benchmark. After it's done, we only need to launch server and client.
+First, complete the [one-time simulation environment setup](../../README.md#one-time-simulation-environment-setup), then run this benchmark's setup script (only needed once per benchmark):
 
 ```bash
-sudo apt update
-sudo apt install libegl1-mesa-dev libglu1-mesa
 bash gr00t/eval/sim/robocasa-gr1-tabletop-tasks/setup_RoboCasaGR1TabletopTasks.sh
 ```
 

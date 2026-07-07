@@ -25,6 +25,15 @@ _TORCHCODEC_INSTALL_HINT = (
     "or `uv pip install torchcodec`."
 )
 
+_TORCHCODEC_FFMPEG_HINT = (
+    "torchcodec is installed but its native library could not be loaded. This is "
+    "almost always an FFmpeg version mismatch: torchcodec 0.8.0 only ships loaders "
+    "for FFmpeg 4-7 and cannot run against FFmpeg 8 (the default on Ubuntu 25.10+ "
+    "and 26.04). Install an FFmpeg<8 runtime (e.g. `conda install -c conda-forge "
+    "'ffmpeg<8'` or a distro package) and ensure its shared libraries are on "
+    "LD_LIBRARY_PATH. Original error: {error}"
+)
+
 _DEFAULT_DECODER_KWARGS = {
     "device": "cpu",
     "dimension_order": "NHWC",
@@ -32,11 +41,23 @@ _DEFAULT_DECODER_KWARGS = {
 }
 
 
+def _decoder_import_error(exc: BaseException) -> ImportError:
+    """Map a torchcodec import/load failure to an actionable ImportError.
+
+    A plain ``ImportError`` means torchcodec is not installed. An ``OSError`` or
+    ``RuntimeError`` means torchcodec is present but its native library failed to
+    load, which is most commonly an FFmpeg major-version mismatch.
+    """
+    if isinstance(exc, ImportError):
+        return ImportError(_TORCHCODEC_INSTALL_HINT)
+    return ImportError(_TORCHCODEC_FFMPEG_HINT.format(error=exc))
+
+
 def _get_video_decoder_cls():
     try:
         from torchcodec.decoders import VideoDecoder
     except (ImportError, OSError, RuntimeError) as exc:
-        raise ImportError(_TORCHCODEC_INSTALL_HINT) from exc
+        raise _decoder_import_error(exc) from exc
     return VideoDecoder
 
 

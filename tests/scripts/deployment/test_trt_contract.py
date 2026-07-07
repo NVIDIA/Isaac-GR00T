@@ -80,6 +80,52 @@ def test_load_metadata_absent_returns_none(tmp_path):
     assert tc.load_export_metadata(str(tmp_path)) is None
 
 
+# --- validate_export_metadata ---------------------------------------------
+
+
+def _valid_metadata():
+    return {
+        "schema_version": tc.EXPORT_METADATA_SCHEMA_VERSION,
+        "sa_seq_len": 17,
+        "vl_seq_len": 280,
+        "llm_seq_len": 280,
+        "num_patches": 256,
+        "num_merged_patches": 64,
+        "num_vis_tokens": 64,
+        "action_horizon": 16,
+        "batch_size": 1,
+        "precision": "bf16",
+    }
+
+
+def test_validate_export_metadata_ok():
+    tc.validate_export_metadata(_valid_metadata())
+
+
+def test_validate_export_metadata_wrong_version_raises():
+    meta = _valid_metadata()
+    meta["schema_version"] = tc.EXPORT_METADATA_SCHEMA_VERSION + 1
+    with pytest.raises(ValueError, match="schema_version"):
+        tc.validate_export_metadata(meta)
+
+
+def test_validate_export_metadata_missing_version_raises():
+    meta = _valid_metadata()
+    del meta["schema_version"]
+    with pytest.raises(ValueError, match="schema_version"):
+        tc.validate_export_metadata(meta)
+
+
+@pytest.mark.parametrize(
+    "key", [k for k in tc.REQUIRED_EXPORT_METADATA_KEYS if k != "schema_version"]
+)
+def test_validate_export_metadata_missing_key_raises(key):
+    meta = _valid_metadata()
+    del meta[key]
+    with pytest.raises(ValueError, match="missing required key"):
+        tc.validate_export_metadata(meta)
+
+
 # --- assert_engine_matches_policy -----------------------------------------
 
 
@@ -125,6 +171,50 @@ def test_action_horizon_mismatch_message_without_sa_seq_len(tmp_path):
     assert "sa_seq_len=None" not in str(exc.value)
 
 
+# --- assert_engine_bundle_present -----------------------------------------
+
+
+_FULL_PIPELINE_REQUIRED = (
+    "state_encoder.engine",
+    "action_encoder.engine",
+    "dit_bf16.engine",
+    "action_decoder.engine",
+)
+
+
+def test_bundle_present_ok(tmp_path):
+    for name in _FULL_PIPELINE_REQUIRED:
+        (tmp_path / name).write_bytes(b"stub")
+    # All required engines present -> no raise.
+    tc.assert_engine_bundle_present(
+        str(tmp_path), _FULL_PIPELINE_REQUIRED, mode="n17_full_pipeline"
+    )
+
+
+def test_bundle_missing_dir_raises_with_build_hint(tmp_path):
+    missing_dir = tmp_path / "gr00t_trt_deployment" / "engines"
+    with pytest.raises(FileNotFoundError) as exc:
+        tc.assert_engine_bundle_present(
+            str(missing_dir), _FULL_PIPELINE_REQUIRED, mode="n17_full_pipeline"
+        )
+    msg = str(exc.value)
+    assert "n17_full_pipeline" in msg
+    assert "build_trt_pipeline.py" in msg  # actionable build hint, not a bare error
+
+
+def test_bundle_missing_one_file_names_it(tmp_path):
+    for name in _FULL_PIPELINE_REQUIRED:
+        if name != "dit_bf16.engine":
+            (tmp_path / name).write_bytes(b"stub")
+    with pytest.raises(FileNotFoundError) as exc:
+        tc.assert_engine_bundle_present(
+            str(tmp_path), _FULL_PIPELINE_REQUIRED, mode="n17_full_pipeline"
+        )
+    msg = str(exc.value)
+    assert "dit_bf16.engine" in msg
+    assert "state_encoder.engine" not in msg  # only the missing file is listed
+
+
 # --- resolve_batch_size ----------------------------------------------------
 
 
@@ -150,6 +240,57 @@ def test_resolve_batch_size_no_metadata_defaults_to_one(tmp_path):
     assert tc.resolve_batch_size(str(tmp_path), 8) == 8
 
 
+# --- assert_grid_thw_matches ----------------------------------------------
+
+
+def test_grid_thw_matches_ok():
+    tc.assert_grid_thw_matches([[1, 16, 16]], [[1, 16, 16]])
+
+
+def test_grid_thw_none_baked_skips():
+    # Older bundle without a recorded grid: degrade to a no-op, do not raise.
+    tc.assert_grid_thw_matches(None, [[1, 8, 8]])
+
+
+def test_grid_thw_different_layout_same_count_raises():
+    # Same patch count (16*16 == 8*32) but a different layout: the static
+    # pixel_values shape would NOT catch this; the grid check must.
+    with pytest.raises(ValueError, match="image_grid_thw"):
+        tc.assert_grid_thw_matches([[1, 16, 16]], [[1, 8, 32]])
+
+
+def test_grid_thw_more_views_same_layout_ok():
+    # Batch scaling tiles the same per-view grid: more views of an already-baked
+    # layout are fine (the static pixel_values shape enforces the count). This is
+    # the test_trt_full_pipeline[batch=2] path: baked 2 views, runtime 4 views.
+    tc.assert_grid_thw_matches([[1, 16, 16], [1, 16, 16]], [[1, 16, 16]] * 4)
+
+
+def test_grid_thw_extra_view_unbaked_layout_raises():
+    # An extra view whose layout was never baked still gets wrong embeddings.
+    with pytest.raises(ValueError, match="ViT TRT"):
+        tc.assert_grid_thw_matches([[1, 16, 16]], [[1, 16, 16], [1, 8, 32]])
+
+
+def test_grid_thw_accepts_tensor_like():
+    class _FakeTensor:
+        def __init__(self, data):
+            self._data = data
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def tolist(self):
+            return self._data
+
+    tc.assert_grid_thw_matches([[1, 16, 16]], _FakeTensor([[1, 16, 16]]))
+    with pytest.raises(ValueError):
+        tc.assert_grid_thw_matches([[1, 16, 16]], _FakeTensor([[2, 16, 16]]))
+
+
 # --- assert_exec_horizon_within_model -------------------------------------
 
 
@@ -161,5 +302,5 @@ def test_assert_exec_horizon_within_model(exec_h, model_h, ok):
     if ok:
         tc.assert_exec_horizon_within_model(exec_horizon=exec_h, model_action_horizon=model_h)
     else:
-        with pytest.raises(ValueError, match="action-horizon"):
+        with pytest.raises(ValueError, match="execution-horizon"):
             tc.assert_exec_horizon_within_model(exec_horizon=exec_h, model_action_horizon=model_h)

@@ -119,6 +119,64 @@ class TestAlbumentationsTransforms:
         ]
         assert "LetterBoxPad" not in transform_names
 
+    def test_letterbox_pad_can_be_enabled(self):
+        train_transform, eval_transform = build_image_transformations_albumentations(
+            image_target_size=None,
+            image_crop_size=None,
+            random_rotation_angle=None,
+            color_jitter_params=None,
+            shortest_image_edge=256,
+            crop_fraction=0.95,
+            letter_box_transform=True,
+        )
+        transform_names = [
+            type(transform).__name__
+            for transform in [*train_transform.transforms, *eval_transform.transforms]
+        ]
+        assert "LetterBoxPad" in transform_names
+        # LetterBoxPad must run before resizing so padding is computed on the original aspect.
+        assert type(train_transform.transforms[0]).__name__ == "LetterBoxPad"
+        assert type(eval_transform.transforms[0]).__name__ == "LetterBoxPad"
+
+    def test_letterbox_pad_makes_mixed_aspect_images_stackable(self):
+        _, eval_transform = build_image_transformations_albumentations(
+            image_target_size=None,
+            image_crop_size=None,
+            random_rotation_angle=None,
+            color_jitter_params=None,
+            shortest_image_edge=256,
+            crop_fraction=0.95,
+            letter_box_transform=True,
+        )
+
+        def apply(pil_img):
+            result = eval_transform(image=np.array(pil_img))
+            return torch.from_numpy(result["image"]).permute(2, 0, 1)
+
+        img_square = Image.fromarray(np.random.randint(0, 255, (480, 480, 3), dtype=np.uint8))
+        img_wide = Image.fromarray(np.random.randint(0, 255, (240, 640, 3), dtype=np.uint8))
+        out_sq = apply(img_square)
+        out_wide = apply(img_wide)
+        assert out_sq.shape == out_wide.shape, f"Shape mismatch: {out_sq.shape} vs {out_wide.shape}"
+        torch.stack([out_sq, out_wide])  # should not raise
+
+    def test_letterbox_pad_train_replay_handles_mixed_aspect_views(self):
+        # ReplayCompose replays the first view's params onto later views; padding must still be
+        # computed per-view so mixed-aspect views remain stackable on the train path.
+        train_transform, _ = build_image_transformations_albumentations(
+            image_target_size=None,
+            image_crop_size=None,
+            random_rotation_angle=None,
+            color_jitter_params=None,
+            shortest_image_edge=256,
+            crop_fraction=0.95,
+            letter_box_transform=True,
+        )
+        img_square = Image.fromarray(np.random.randint(0, 255, (480, 480, 3), dtype=np.uint8))
+        img_wide = Image.fromarray(np.random.randint(0, 255, (240, 640, 3), dtype=np.uint8))
+        transformed, _ = apply_with_replay(train_transform, [img_square, img_wide])
+        torch.stack(transformed)  # should not raise
+
     def test_uses_gear_groot_aspect_preserving_pipeline(self):
         train_names = [type(transform).__name__ for transform in self.train_transform.transforms]
         eval_names = [type(transform).__name__ for transform in self.eval_transform.transforms]

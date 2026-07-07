@@ -21,7 +21,7 @@ from gr00t.configs.base_config import Config
 from gr00t.data.collator import BasicDataCollator
 from gr00t.data.dataset.factory import DatasetFactory
 from gr00t.data.interfaces import BaseProcessor
-from gr00t.experiment.dist_utils import get_rank, run_or_wait_on_rank0
+from gr00t.utils.dist_utils import get_rank, run_or_wait_on_rank0
 import numpy as np
 import torch
 from transformers import PreTrainedModel

@@ -98,7 +98,7 @@ class GoogleFractalEnv(gym.Env):
         )
         observation, reward, done, truncated, info = self.env.step(action_vector)
         observation = self._process_observation(observation)
-        info["success"] = done
+        info["success"] = bool(info.get("success", False))
         return observation, reward, done, truncated, info
 
     def _process_observation(self, obs):
@@ -201,7 +201,7 @@ class WidowXBridgeEnv(gym.Env):
         )
         observation, reward, done, truncated, info = self.env.step(action_vector)
         observation = self._process_observation(observation)
-        info["success"] = done
+        info["success"] = bool(info.get("success", False))
         return observation, reward, done, truncated, info
 
     def _process_observation(self, obs):

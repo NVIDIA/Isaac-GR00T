@@ -31,20 +31,20 @@ fi
 # Fresh venv
 rm -rf "$UV_ENV"
 mkdir -p "$UV_ENV"
-uv venv "$UV_ENV/.venv" --python 3.10
+uv venv "$UV_ENV/.venv" --python 3.12
 source "$UV_ENV/.venv/bin/activate"
 
 # Make sure the venv has a build backend
 uv pip install setuptools wheel
 
 # Heavy deps first
-uv pip install torch==2.5.1 torchvision==0.20.1
+uv pip install torch==2.9.0 torchvision==0.24.0
 
 # Preinstall flash-attn to avoid builds inside other installs.
 # Guard it to Linux only (flash-attn not supported on macOS).
 INSTALL_FLASH_ATTN=${INSTALL_FLASH_ATTN:-1}
 if [[ "$(uname -s)" == "Linux" && "$INSTALL_FLASH_ATTN" == "1" ]]; then
-  uv pip install --no-build-isolation flash-attn==2.7.4.post1 || echo "flash-attn install skipped/failed; continuing"
+  uv pip install --no-build-isolation flash-attn==2.8.3 || echo "flash-attn install skipped/failed; continuing"
 else
   echo "Skipping flash-attn (non-Linux or INSTALL_FLASH_ATTN=0)"
 fi
@@ -59,8 +59,17 @@ uv pip install -e "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" --config-settings editable
 # Optional: your eval stack uses gymnasium
 uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.57.3 msgpack==1.1.0 msgpack-numpy==0.4.8 tyro
 
-# Make your project importable without re-resolving deps
-uv pip install --editable "$PROJECT_REPO" --no-deps
+# Pin mujoco: robosuite 1.5.1 calls mj_fullM(model, dst, M), whose signature
+# changed in mujoco 3.10.0 (2026-06-22) to mj_fullM(model, data, dst). mujoco is
+# pulled in unpinned by robosuite, so it floats to the latest release and crashes
+# env creation. Pin below the break (matches the RoboCasa island's mujoco==3.3.1).
+# Pin numpy to 1.26.4 too, matching the other islands for deterministic rebuilds
+# and to keep robosuite/mujoco on the numpy 1.x ABI they expect.
+uv pip install numpy==1.26.4 mujoco==3.3.1
+
+# Expose gr00t from the repo root via a .pth: no dependency re-resolution, and
+# the island supplies gr00t's runtime deps itself (matches the old --no-deps).
+python -c "import sysconfig, pathlib; pathlib.Path(sysconfig.get_path('purelib'), 'gr00t.pth').write_text(pathlib.Path('$PROJECT_REPO').resolve().as_posix() + '\n')"
 
 # Optional: lower robosuite simulation timestep to 0.005 for headless stability
 # python - <<'PY'

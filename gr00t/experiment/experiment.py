@@ -29,12 +29,12 @@ import wandb
 
 from gr00t.configs.base_config import Config
 from gr00t.configs.training.training_config import check_resume_compatibility
-from gr00t.experiment.dist_utils import run_on_rank0, run_or_wait_on_rank0
 
 # Use custom trainer that profiles data loading & forward times
 from gr00t.experiment.trainer import Gr00tTrainer, ProfCallback
 from gr00t.experiment.utils import BestMetricCheckpointCallback, CheckpointFormatCallback
 from gr00t.model import MODEL_REGISTRY
+from gr00t.utils.dist_utils import run_on_rank0, run_or_wait_on_rank0
 from gr00t.utils.initial_actions import INITIAL_ACTIONS_FILENAME, save_initial_actions
 
 
@@ -50,8 +50,28 @@ def setup_logging(debug: bool = False):
     logging.getLogger("datasets").setLevel(logging.WARNING)
 
 
+def _assert_num_gpus_matches_world_size(num_gpus: int) -> None:
+    """``num_gpus`` must equal the launcher's data-parallel world size.
+
+    ``num_gpus`` drives per-device batch size and the DeepSpeed gating, while
+    HF ``Trainer`` and dataset sharding use the real ``WORLD_SIZE`` from
+    torchrun. A mismatch silently rescales the effective batch (e.g. an 8-rank
+    launch with ``num_gpus=1`` trains at 8× the intended batch), so reconcile
+    at the launcher trust boundary.
+    """
+    world_size = os.environ.get("WORLD_SIZE")
+    if world_size is not None and int(world_size) != num_gpus:
+        raise ValueError(
+            f"config.training.num_gpus={num_gpus} does not match the launcher "
+            f"WORLD_SIZE={world_size}. num_gpus drives per-device batch size and "
+            f"DeepSpeed gating, while HF Trainer and dataset sharding use "
+            f"WORLD_SIZE; set num_gpus to {world_size}."
+        )
+
+
 def warn_configs(config: Config):
     # updates to batch size
+    _assert_num_gpus_matches_world_size(config.training.num_gpus)
     assert config.training.global_batch_size % config.training.num_gpus == 0, (
         "global_batch_size must be divisible by num_gpus"
     )
@@ -193,7 +213,7 @@ def run(config: Config):
         output_dir = Path(config.training.output_dir) / config.training.experiment_name
         experiment_name = config.training.experiment_name
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    run_on_rank0(output_dir.mkdir, parents=True, exist_ok=True, label="output_dir.mkdir")
 
     save_cfg_dir = output_dir / "experiment_cfg"
     processor_dir = output_dir / "processor"
@@ -258,6 +278,7 @@ def run(config: Config):
         lr_scheduler_type=config.training.lr_scheduler_type,
         weight_decay=config.training.weight_decay,
         warmup_ratio=config.training.warmup_ratio,
+        warmup_steps=config.training.warmup_steps,
         max_grad_norm=config.training.max_grad_norm,
         logging_steps=config.training.logging_steps,
         save_steps=config.training.save_steps,
@@ -327,7 +348,7 @@ def run(config: Config):
             logging.info(f"Trace saved to {output_path}")
 
         profile_dir = output_dir / "profiling"
-        profile_dir.mkdir(parents=True, exist_ok=True)
+        run_on_rank0(profile_dir.mkdir, parents=True, exist_ok=True, label="profile_dir.mkdir")
 
         with torch.profiler.profile(
             activities=[

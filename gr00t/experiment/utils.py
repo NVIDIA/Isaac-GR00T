@@ -23,6 +23,8 @@ from transformers import Trainer, TrainerCallback
 from transformers.trainer_callback import TrainerControl, TrainerState
 from transformers.training_args import TrainingArguments
 
+from gr00t.utils.dist_utils import run_on_rank0, run_or_wait_on_rank0
+
 
 logger = logging.getLogger(__name__)
 
@@ -175,37 +177,34 @@ class BestMetricCheckpointCallback(TrainerCallback):
             / f"checkpoint-{state.global_step}-best-{self.metric_name}_{metric_value}"
         )
 
-        if state.is_world_process_zero:
-            best_checkpoint_dir.mkdir(exist_ok=True)
-
-        # Wait for rank-0's mkdir to land before any rank enters save_model;
-        # otherwise on NFS a non-rank-0 rank can race past the mkdir and have
-        # save_model fail to find the directory.
-        if dist.is_available() and dist.is_initialized():
-            dist.barrier()
+        run_on_rank0(best_checkpoint_dir.mkdir, exist_ok=True, label="best_checkpoint.mkdir")
         # Collective on every rank: gathers params under ZeRO-3 / FSDP, then
         # writes from rank-0. Calling this only on rank-0 would deadlock the
         # rest of the process group inside the gather.
         self._trainer.save_model(str(best_checkpoint_dir))
 
-        if state.is_world_process_zero:
-            if self.exp_cfg_dir is not None and self.exp_cfg_dir.exists():
-                exp_cfg_dst = best_checkpoint_dir / self.exp_cfg_dir.name
+        with run_or_wait_on_rank0(label="best_checkpoint.copy") as is_rank0:
+            if is_rank0:
+                if self.exp_cfg_dir is not None and self.exp_cfg_dir.exists():
+                    exp_cfg_dst = best_checkpoint_dir / self.exp_cfg_dir.name
+                    logger.info(
+                        "Copying experiment config directory %s to %s",
+                        self.exp_cfg_dir,
+                        exp_cfg_dst,
+                    )
+                    shutil.copytree(self.exp_cfg_dir, exp_cfg_dst, dirs_exist_ok=True)
+
                 logger.info(
-                    "Copying experiment config directory %s to %s",
-                    self.exp_cfg_dir,
-                    exp_cfg_dst,
+                    "Best checkpoint saved to %s with metric %s = %s",
+                    best_checkpoint_dir,
+                    self.metric_name,
+                    metric_value,
                 )
-                shutil.copytree(self.exp_cfg_dir, exp_cfg_dst, dirs_exist_ok=True)
 
-            logger.info(
-                "Best checkpoint saved to %s with metric %s = %s",
-                best_checkpoint_dir,
-                self.metric_name,
-                metric_value,
-            )
+                if (
+                    self._best_checkpoint_dir is not None
+                    and Path(self._best_checkpoint_dir).exists()
+                ):
+                    shutil.rmtree(self._best_checkpoint_dir)
 
-            if self._best_checkpoint_dir is not None and Path(self._best_checkpoint_dir).exists():
-                shutil.rmtree(self._best_checkpoint_dir)
-
-            self._best_checkpoint_dir = str(best_checkpoint_dir)
+                self._best_checkpoint_dir = str(best_checkpoint_dir)

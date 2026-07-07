@@ -47,7 +47,7 @@ uv run python scripts/deployment/standalone_inference_script.py \
     --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
     --traj-ids 0 1 \
     --inference-mode pytorch \
-    --action-horizon 8
+    --execution-horizon 8
 ```
 
 > **Note:** Episode 0 may have an empty language instruction. If inference fails on episode 0, try `--traj-ids 1 2`.

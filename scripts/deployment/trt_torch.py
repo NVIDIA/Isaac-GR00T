@@ -120,21 +120,27 @@ class Engine(object):
         """Deserialize and load a TensorRT engine from file."""
         runtime = trt.Runtime(self.logger)
 
-        with open(file, "rb") as f:
-            self.handle = runtime.deserialize_cuda_engine(f.read())
-            assert self.handle is not None, (
-                f"Failed to deserialize the cuda engine from file: {file}"
-            )
+        try:
+            with open(file, "rb") as f:
+                self.handle = runtime.deserialize_cuda_engine(f.read())
+                assert self.handle is not None, (
+                    f"Failed to deserialize the cuda engine from file: {file}"
+                )
 
-        self.execution_context = self.handle.create_execution_context()
-        self.meta, self.in_meta, self.out_meta = [], [], []
-        for tensor_name in self.handle:
-            shape = self.handle.get_tensor_shape(tensor_name)
-            dtype = torch_type(self.handle.get_tensor_dtype(tensor_name))
-            if self.handle.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT:
-                self.in_meta.append([tensor_name, shape, dtype])
-            else:
-                self.out_meta.append([tensor_name, shape, dtype])
+            self.execution_context = self.handle.create_execution_context()
+            self.meta, self.in_meta, self.out_meta = [], [], []
+            for tensor_name in self.handle:
+                shape = self.handle.get_tensor_shape(tensor_name)
+                dtype = torch_type(self.handle.get_tensor_dtype(tensor_name))
+                if self.handle.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT:
+                    self.in_meta.append([tensor_name, shape, dtype])
+                else:
+                    self.out_meta.append([tensor_name, shape, dtype])
+        except BaseException:
+            # Roll back a half-loaded engine (e.g. create_execution_context
+            # failed after the handle was set) so it can't leak GPU memory.
+            self.close()
+            raise
 
     def __call__(self, *args, **inputs):
         return self.forward(*args, **inputs)

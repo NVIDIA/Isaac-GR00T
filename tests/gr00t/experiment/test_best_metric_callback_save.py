@@ -278,6 +278,7 @@ def _broadcast_worker(rank, world_size, init_method, save_flag, metric_value, re
         dist.destroy_process_group()
 
 
+@pytest.mark.serial
 @pytest.mark.parametrize(
     ("save_flag", "metric_value"),
     [
@@ -330,6 +331,7 @@ def _callback_collective_worker(
         dist.destroy_process_group()
 
 
+@pytest.mark.serial
 def test_collective_save_runs_on_every_rank_when_rank0_decides_to_save(tmp_path):
     """The whole point of the broadcast: non-rank-0 ranks must still call
     `trainer.save_model` so the gather collective completes. Without the
@@ -343,6 +345,7 @@ def test_collective_save_runs_on_every_rank_when_rank0_decides_to_save(tmp_path)
     )
 
 
+@pytest.mark.serial
 def test_no_collective_when_rank0_decides_to_skip(tmp_path):
     """Symmetry: when rank-0 sees no improvement, no rank should hit
     save_model. (Skipping the collective is fine because no rank entered it.)"""

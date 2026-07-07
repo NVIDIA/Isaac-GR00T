@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import contextlib
 import os
+from pathlib import Path
+import tempfile
 
+from filelock import FileLock
 import pytest
 
 
@@ -96,6 +99,21 @@ def pytest_configure(config) -> None:  # noqa: ARG001
     os.environ["GROOT_HF_LOCAL_FIRST"] = "1"
     os.environ.setdefault("GROOT_SKIP_HF_MODEL_WEIGHTS", "1")
     _configure_shared_caches()
+
+
+@pytest.fixture
+def serialize_subprocess_spawns():
+    """Let only one subprocess-spawning test run at a time, host-wide.
+
+    Under ``-n auto`` every core is already claimed by an xdist worker, so a
+    test that additionally spawns its own torch-importing processes
+    oversubscribes the box and can blow its wall-clock timeout. A host-wide
+    lock serializes such tests across workers; they finish in well under a
+    second when not starved, so the serialization is effectively free.
+    """
+    lock_path = Path(tempfile.gettempdir()) / "gr00t-test-subprocess-spawn.lock"
+    with FileLock(str(lock_path)):
+        yield
 
 
 @pytest.fixture(scope="session")

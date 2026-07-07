@@ -24,11 +24,11 @@ from transformers import AutoModel, AutoProcessor
 from gr00t.configs.base_config import Config
 from gr00t.configs.model.gr00t_n1d7 import Gr00tN1d7Config
 from gr00t.data.dataset.factory import DatasetFactory
-from gr00t.experiment.dist_utils import run_or_wait_on_rank0
 from gr00t.model.base.model_pipeline import ModelPipeline
 from gr00t.model.gr00t_n1d7.gr00t_n1d7 import Gr00tN1d7
 from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor
 from gr00t.model.registry import register_model
+from gr00t.utils.dist_utils import run_or_wait_on_rank0
 
 
 # Convert tensors to lists for JSON serialization

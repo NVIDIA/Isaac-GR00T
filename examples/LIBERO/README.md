@@ -23,7 +23,7 @@ All four suites were finetuned with the same hyper-parameters, including
 
 # Fine-tune LIBERO 10 (long)
 
-To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments. Please remember to set `WANDB_API_KEY` since `--use-wandb` is turned on by default. If you don't have a WANDB account, please remove this argument:
+To reproduce our finetune results, use the following commands to setup dataset and launch finetune experiments. Please remember to set `WANDB_API_KEY` since W&B logging is on by default (`USE_WANDB=1` in `examples/finetune.sh`). If you don't have a WANDB account, prepend `USE_WANDB=0` to the launch command to disable it:
 
 ```bash
 uv run hf download \
@@ -108,11 +108,9 @@ NUM_GPUS=8 MAX_STEPS=20000 GLOBAL_BATCH_SIZE=640 SAVE_STEPS=1000 uv run bash exa
 
 # Evaluate checkpoint
 
-First, setup the evaluation simulation environment. This only needs to run once for each simulation benchmark. After it's done, we only need to launch server and client.
+First, complete the [one-time simulation environment setup](../../README.md#one-time-simulation-environment-setup), then run this benchmark's setup script (only needed once per benchmark):
 
 ```bash
-sudo apt update
-sudo apt install libegl1-mesa-dev libglu1-mesa
 bash gr00t/eval/sim/LIBERO/setup_libero.sh
 ```
 

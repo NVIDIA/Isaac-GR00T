@@ -124,20 +124,18 @@ wheel_path_for() {
     printf "%s/%s-%s-${CP_TAG}-${CP_TAG}-linux_aarch64.whl" "$WHEEL_DIR" "$package_prefix" "$version"
 }
 
-FLASH_ATTN_VERSION="$(resolve_dependency_version "flash-attn")"
+# flash-attn now ships as official cu12torch2.9 cp312 release wheels for both
+# x86_64 and aarch64 (see [tool.uv.sources] in pyproject.toml), so the dGPU
+# bootstrap only owns the aarch64 torchcodec wheel (no PyPI aarch64 wheel).
 TORCHCODEC_VERSION="$(resolve_dependency_version "torchcodec")"
 TORCHCODEC_SOURCE_VERSION="$(printf "%s" "$TORCHCODEC_VERSION" | sed -E 's/a[0-9]+$//')"
 
-FLASH_ATTN_WHEEL="$(wheel_path_for "flash_attn" "$FLASH_ATTN_VERSION")"
 TORCHCODEC_WHEEL="$(wheel_path_for "torchcodec" "$TORCHCODEC_VERSION")"
-FLASH_ATTN_PATH="scripts/deployment/dgpu/wheels/$(basename "$FLASH_ATTN_WHEEL")"
 TORCHCODEC_PATH="scripts/deployment/dgpu/wheels/$(basename "$TORCHCODEC_WHEEL")"
 
 echo "Expected dGPU aarch64 wheels from dependency pins:"
-echo "  flash-attn==$FLASH_ATTN_VERSION -> $FLASH_ATTN_PATH"
 echo "  torchcodec==$TORCHCODEC_VERSION -> $TORCHCODEC_PATH"
 
-update_pyproject_path_source "flash-attn" "$FLASH_ATTN_PATH"
 update_pyproject_path_source "torchcodec" "$TORCHCODEC_PATH"
 
 if [ "${DGPU_WHEEL_BOOTSTRAP_VALIDATE_ONLY:-0}" = "1" ]; then
@@ -149,8 +147,8 @@ if [ "$(uname -m)" != "aarch64" ]; then
     exit 0
 fi
 
-if [ -f "$FLASH_ATTN_WHEEL" ] && [ -f "$TORCHCODEC_WHEEL" ]; then
-    echo "Matching dGPU aarch64 wheels already exist; skipping source builds."
+if [ -f "$TORCHCODEC_WHEEL" ]; then
+    echo "Matching dGPU aarch64 torchcodec wheel already exists; skipping source build."
     exit 0
 fi
 
@@ -177,10 +175,17 @@ uv_pip_install_retry() {
     return 1
 }
 
+# Build against the project's pinned torch / triton / numpy (derived from
+# pyproject.toml) so the generated wheel's ABI matches the runtime stack.
+# Hardcoded versions silently produce a wheel for the wrong torch after a bump.
+TORCH_VERSION="$(resolve_dependency_version "torch")"
+TRITON_VERSION="$(resolve_dependency_version "triton")"
+NUMPY_VERSION="$(resolve_dependency_version "numpy")"
+
 uv_pip_install_retry --python "$BUILD_PYTHON" \
     --index-url https://download.pytorch.org/whl/cu128 \
     --extra-index-url https://pypi.org/simple \
-    torch==2.7.1 triton==3.3.1 numpy==1.26.4
+    "torch==${TORCH_VERSION}" "triton==${TRITON_VERSION}" "numpy==${NUMPY_VERSION}"
 uv_pip_install_retry --python "$BUILD_PYTHON" pip setuptools wheel packaging ninja
 
 SITE_PKGS=$("$BUILD_PYTHON" - <<'PY'
@@ -199,34 +204,6 @@ export CPLUS_INCLUDE_PATH="${CUDA_HOME}/include:${CPLUS_INCLUDE_PATH:-}"
 export MAX_JOBS="${MAX_JOBS:-$(nproc)}"
 export NVCC_THREADS="${NVCC_THREADS:-1}"
 export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-$(nproc)}"
-
-build_flash_attn() {
-    if [ -f "$FLASH_ATTN_WHEEL" ]; then
-        echo "flash-attn wheel already exists: $FLASH_ATTN_WHEEL"
-        return
-    fi
-
-    echo "No dGPU aarch64 flash-attn wheel found; building from source..."
-    rm -rf /tmp/flash-attn
-    TMP_BUILD_DIRS+=(/tmp/flash-attn)
-    git clone --depth 1 --branch "v${FLASH_ATTN_VERSION}" \
-        https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attn
-    rm -rf /tmp/flash-attn/.git
-
-    FLASH_ATTENTION_FORCE_BUILD=TRUE "$BUILD_PYTHON" -m pip wheel \
-        --no-build-isolation \
-        --no-deps \
-        --wheel-dir "$WHEEL_DIR" \
-        /tmp/flash-attn
-
-    if [ ! -f "$FLASH_ATTN_WHEEL" ]; then
-        echo "ERROR: flash-attn source build did not produce expected wheel:" >&2
-        echo "  $FLASH_ATTN_WHEEL" >&2
-        echo "Available flash-attn wheels:" >&2
-        find "$WHEEL_DIR" -maxdepth 1 -name 'flash_attn-*.whl' -print >&2
-        exit 1
-    fi
-}
 
 build_torchcodec() {
     if [ -f "$TORCHCODEC_WHEEL" ]; then
@@ -257,8 +234,7 @@ build_torchcodec() {
 }
 
 cd "$REPO_ROOT"
-build_flash_attn
 build_torchcodec
 
 echo "dGPU aarch64 wheel bootstrap complete:"
-ls -lh "$FLASH_ATTN_WHEEL" "$TORCHCODEC_WHEEL"
+ls -lh "$TORCHCODEC_WHEEL"

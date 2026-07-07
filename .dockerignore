@@ -16,5 +16,4 @@ __pycache__/
 .ruff_cache/
 logs/
 dist/
-gr00t_n1d7_onnx/
-gr00t_n1d7_engines/
+gr00t_trt_deployment/

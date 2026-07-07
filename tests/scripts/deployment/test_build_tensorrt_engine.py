@@ -115,6 +115,7 @@ def test_build_full_pipeline_raises_when_any_engine_fails(tmp_path, build_full_p
             onnx_dir=str(onnx_dir),
             engine_dir=str(engine_dir),
             precision="bf16",
+            allow_default_hints=True,  # orchestration test; metadata contract covered separately
         )
 
 
@@ -132,6 +133,7 @@ def test_build_full_pipeline_returns_normally_when_all_engines_build(tmp_path, b
             onnx_dir=str(onnx_dir),
             engine_dir=str(engine_dir),
             precision="bf16",
+            allow_default_hints=True,  # orchestration test; metadata contract covered separately
         )
 
 
@@ -153,6 +155,7 @@ def test_build_full_pipeline_raises_when_all_onnx_inputs_missing(tmp_path, build
             onnx_dir=str(onnx_dir),
             engine_dir=str(engine_dir),
             precision="bf16",
+            allow_default_hints=True,  # orchestration test; metadata contract covered separately
         )
 
     assert not engine_dir.exists() or not list(engine_dir.iterdir())
@@ -180,6 +183,7 @@ def test_build_full_pipeline_raises_when_some_onnx_inputs_missing(tmp_path, buil
             onnx_dir=str(onnx_dir),
             engine_dir=str(engine_dir),
             precision="bf16",
+            allow_default_hints=True,  # orchestration test; metadata contract covered separately
         )
 
 
@@ -209,6 +213,7 @@ def test_build_full_pipeline_error_mentions_both_skips_and_failures(tmp_path, bu
                 onnx_dir=str(onnx_dir),
                 engine_dir=str(engine_dir),
                 precision="bf16",
+                allow_default_hints=True,  # orchestration test; metadata contract covered separately
             )
 
     message = str(exc_info.value)
@@ -351,6 +356,7 @@ def test_build_full_pipeline_passes_per_component_precision(tmp_path, build_full
             onnx_dir=str(onnx_dir),
             engine_dir=str(engine_dir),
             precision="bf16",
+            allow_default_hints=True,  # orchestration test; metadata contract covered separately
         )
 
     assert seen_precisions["vit_fp32.onnx"] == "fp32", (
@@ -405,6 +411,7 @@ def test_build_full_pipeline_falls_back_to_vit_bf16_when_fp32_missing(
             onnx_dir=str(onnx_dir),
             engine_dir=str(engine_dir),
             precision="bf16",
+            allow_default_hints=True,  # orchestration test; metadata contract covered separately
         )
 
     assert seen_precisions["vit_bf16.onnx"] == "bf16"
