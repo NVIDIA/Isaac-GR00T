@@ -59,13 +59,12 @@ uv pip install -e "$ROBOCASA_GR1_TABLETOP_TASKS_REPO" --config-settings editable
 # Optional: your eval stack uses gymnasium
 uv pip install gymnasium==0.29.1 pydantic av==15.0.0 zmq transformers==4.57.3 msgpack==1.1.0 msgpack-numpy==0.4.8 tyro
 
-# Pin mujoco: robosuite 1.5.1 calls mj_fullM(model, dst, M), whose signature
-# changed in mujoco 3.10.0 (2026-06-22) to mj_fullM(model, data, dst). mujoco is
-# pulled in unpinned by robosuite, so it floats to the latest release and crashes
-# env creation. Pin below the break (matches the RoboCasa island's mujoco==3.3.1).
+# Pin mujoco: robocasa-gr1-tabletop-tasks asserts mujoco==3.2.6 at import time,
+# and that version still predates the mujoco 3.10 mj_fullM signature break that
+# robosuite relies on.
 # Pin numpy to 1.26.4 too, matching the other islands for deterministic rebuilds
 # and to keep robosuite/mujoco on the numpy 1.x ABI they expect.
-uv pip install numpy==1.26.4 mujoco==3.3.1
+uv pip install numpy==1.26.4 mujoco==3.2.6
 
 # Expose gr00t from the repo root via a .pth: no dependency re-resolution, and
 # the island supplies gr00t's runtime deps itself (matches the old --no-deps).
