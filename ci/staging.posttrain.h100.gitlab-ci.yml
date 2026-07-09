@@ -1,0 +1,261 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+staging.posttrain.h100:
+  stage: staging
+  needs:
+    - image.minimal
+    - image.train
+  variables:
+    POST_TRAIN_VARIANT: "n2-minwam-sim"
+    POST_TRAIN_COMPUTE_TYPE: "h100"
+  image:
+    name: nvcr.io/nvidian/groot-ci-minimal:${CI_COMMIT_SHORT_SHA}
+    entrypoint: [""]
+  tags:
+    - cpu/amd64
+    - os/linux
+    - type/docker
+  before_script:
+    - export AWS_ACCESS_KEY_ID=$BUCKET_ACCESS_KEY_ID
+    - export AWS_SECRET_ACCESS_KEY=$BUCKET_SECRET_ACCESS_KEY
+    - export AWS_DEFAULT_REGION=$BUCKET_REGION
+    - export AWS_REGION=$BUCKET_REGION
+    - export AWS_ENDPOINT_URL=https://pdx.s8k.io
+    - export S3_ENDPOINT_URL=https://pdx.s8k.io
+    - export OSS_PACKAGE_DIR="${OSS_PACKAGE_DIR:-.}"
+    - export OSS_PACKAGE_ROOT="$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
+    - |
+      cd "$OSS_PACKAGE_ROOT"
+      uv pip install .
+    - |
+      cd /tmp
+      echo "Installing OSMO CLI..."
+      for attempt in $(seq 1 5); do
+        curl -fsSL https://urm.nvidia.com/artifactory/sw-osmo-generic-local/rc/cli/2026.1.23/osmo-client-installer-2026.1.23-linux-x86_64.sh -o osmo-installer.sh && break
+        if [ "$attempt" -eq 5 ]; then
+          exit 1
+        fi
+        sleep $((attempt * 10))
+      done
+      chmod +x osmo-installer.sh
+      ./osmo-installer.sh
+      osmo login --method token --token "$OSMO_TOKEN" "$OSMO_URL"
+      export OSMO_AWS_CREDENTIAL_NAME="${OSMO_AWS_CREDENTIAL_NAME:-gear-aws-cred-${CI_PIPELINE_ID}-${CI_JOB_ID}}"
+      osmo credential set data_creds --type DATA --payload access_key_id="$BUCKET_ACCESS_KEY_ID" access_key="$BUCKET_SECRET_ACCESS_KEY" endpoint="swift://pdx.s8k.io/AUTH_team-gear" region="$BUCKET_REGION" || true
+      osmo credential set "$OSMO_AWS_CREDENTIAL_NAME" --type GENERIC --payload aws_access_key_id="$BUCKET_ACCESS_KEY_ID" aws_secret_access_key="$BUCKET_SECRET_ACCESS_KEY" aws_endpoint_url="https://pdx.s8k.io" aws_default_region="$BUCKET_REGION"
+      for attempt in $(seq 1 12); do
+        if osmo credential list | grep -F "$OSMO_AWS_CREDENTIAL_NAME" >/dev/null; then
+          echo "OSMO credential $OSMO_AWS_CREDENTIAL_NAME is visible"
+          break
+        fi
+        if [ "$attempt" -eq 12 ]; then
+          echo "Timed out waiting for OSMO credential $OSMO_AWS_CREDENTIAL_NAME to become visible"
+          exit 1
+        fi
+        sleep 5
+      done
+  script:
+    - |
+      export OSS_PACKAGE_DIR="${OSS_PACKAGE_DIR:-.}"
+      export OSS_PACKAGE_ROOT="$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
+      cd "$OSS_PACKAGE_ROOT"
+      export OSMO_AWS_CREDENTIAL_NAME="${OSMO_AWS_CREDENTIAL_NAME:-gear-aws-cred-${CI_PIPELINE_ID}-${CI_JOB_ID}}"
+      export POST_TRAIN_VARIANT="${POST_TRAIN_VARIANT:-n2-minwam-sim}"
+      export POST_TRAIN_COMPUTE_TYPE="${POST_TRAIN_COMPUTE_TYPE:-h100}"
+      export POST_TRAIN_CPUS="${POST_TRAIN_CPUS:-32}"
+      export POST_TRAIN_MEMORY_GIB="${POST_TRAIN_MEMORY_GIB:-1024}"
+      export POST_TRAIN_STORAGE_GIB="${POST_TRAIN_STORAGE_GIB:-256}"
+      export MAX_STEPS="${POST_TRAIN_MAX_STEPS:-100}"
+      eval "$(uv run --active -m groot.infra.ci.main.golden_train print-env \
+        --run-type "$POST_TRAIN_VARIANT" \
+        --compute-type "$POST_TRAIN_COMPUTE_TYPE" | sed 's/^/export /')"
+      export COSMOS_MODEL_PATH="${COSMOS_MODEL_PATH:-/mnt/amlfs-02/shared/ckpts/cosmos25/cosmos_reason1/}"
+      export DIFFUSION_TRANSFORMER_PATH="${DIFFUSION_TRANSFORMER_PATH:-/mnt/amlfs-02/shared/ckpts/cosmos25/Cosmos-Predict2.5-2B-diffusers/transformer}"
+      export VAE_PATH="${VAE_PATH:-/mnt/amlfs-02/shared/ckpts/Wan2.1-I2V-14B-480P/Wan2.1_VAE.pth}"
+      export HF_HUB_OFFLINE=0
+      export HF_TOKEN="${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-${HUGGINGFACE_TOKEN:-}}}"
+      if [ -n "${GOLDEN_RUN_FINAL_MODEL_REPO_ID:-}" ] && [ -z "${HF_TOKEN:-}" ]; then
+        echo "HF_TOKEN, HUGGING_FACE_HUB_TOKEN, or HUGGINGFACE_TOKEN is required to publish the post-train checkpoint to Hugging Face"
+        exit 1
+      fi
+
+      echo "POST_TRAIN_VARIANT=${POST_TRAIN_VARIANT}" > "$CI_PROJECT_DIR/posttrain.env"
+      echo "POST_TRAIN_RUN_TYPE=${POST_TRAIN_RUN_TYPE:-$POST_TRAIN_VARIANT}" >> "$CI_PROJECT_DIR/posttrain.env"
+      echo "POST_TRAIN_COMPUTE_TYPE=${POST_TRAIN_COMPUTE_TYPE}" >> "$CI_PROJECT_DIR/posttrain.env"
+
+      USERNAME=$(echo "$BUCKET_ACCESS_KEY_ID" | cut -d':' -f1)
+      RUN_TYPE_SLUG=$(echo "$POST_TRAIN_VARIANT" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '-' | sed 's/^-//;s/-$//')
+      JOB_RUN_TYPE_SLUG=$(echo "$POST_TRAIN_VARIANT" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '_' | sed 's/^_//;s/_$//')
+      WORKFLOW_NAME=staging-posttrain-${RUN_TYPE_SLUG}-${POST_TRAIN_COMPUTE_TYPE}
+      POOL_NAME="${OSMO_POOL:-groot-h100-ci-02}"
+      if [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH:-main}" ] && [ "$POOL_NAME" = "groot-h100-ci-02" ]; then
+        POOL_NAME=groot-h100-02
+      fi
+      export OSMO_PRIORITY=${OSMO_PRIORITY:-low}
+      export NCCL_TIMEOUT=600
+
+      WORKDIR_ZIP=/tmp/oss-posttrain-workdir.zip
+      export WORKDIR_ZIP
+      python - <<'PY'
+      import os
+      from pathlib import Path
+      import zipfile
+
+      root = Path(os.environ["OSS_PACKAGE_ROOT"])
+      out = Path(os.environ["WORKDIR_ZIP"])
+      skip_dirs = {".codex", ".venv", "__pycache__", "ci", "tests"}
+      with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+          for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+              current = Path(dirpath)
+              dirnames[:] = [name for name in dirnames if name not in skip_dirs]
+              for filename in filenames:
+                  path = current / filename
+                  if "__pycache__" in path.parts:
+                      continue
+                  archive.write(path, path.relative_to(root))
+      PY
+      WORKDIR_URI=s3://GearWorkingdir/posttrain/${CI_PIPELINE_ID}/${CI_JOB_ID}/oss-workdir.zip
+      export WORKDIR_URI
+      ls -lh "$WORKDIR_ZIP"
+      uv run --active python - <<'PY'
+      import os
+      from pathlib import Path
+      import time
+      from urllib.parse import urlparse
+
+      import boto3
+      from botocore.config import Config
+
+      workdir_zip = Path(os.environ["WORKDIR_ZIP"])
+      uri = os.environ["WORKDIR_URI"]
+      parsed = urlparse(uri)
+      if parsed.scheme != "s3" or not parsed.netloc or not parsed.path:
+          raise ValueError(f"Invalid WORKDIR_URI: {uri}")
+      bucket = parsed.netloc
+      key = parsed.path.lstrip("/")
+      client = boto3.client(
+          "s3",
+          endpoint_url=os.environ["AWS_ENDPOINT_URL"],
+          aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+          aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+          region_name=os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION"),
+          config=Config(
+              connect_timeout=30,
+              read_timeout=120,
+              retries={"max_attempts": 3, "mode": "standard"},
+              s3={"addressing_style": "path"},
+          ),
+      )
+      for attempt in range(1, 4):
+          print(f"Uploading post-train workdir to {uri} (attempt {attempt}/3)", flush=True)
+          try:
+              client.upload_file(str(workdir_zip), bucket, key)
+              print(f"Uploaded post-train workdir to {uri}", flush=True)
+              break
+          except Exception as exc:
+              if attempt == 3:
+                  raise
+              print(f"Workdir upload failed: {exc}; retrying", flush=True)
+              time.sleep(attempt * 30)
+      PY
+
+      CLUSTER_ID=""
+      START_CLUSTER_STATUS=1
+      for attempt in $(seq 1 3); do
+        set +e
+        uv run --active -m groot.infra.job start-cluster \
+          --cluster-name "$WORKFLOW_NAME" \
+          --pool "$POOL_NAME" \
+          --gpu-type "$POST_TRAIN_COMPUTE_TYPE" \
+          --num-nodes "$NUM_NODES" \
+          --image "${GROOT_TRAIN_IMAGE:-nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}}" \
+          --priority "$OSMO_PRIORITY" \
+          --cpus "$POST_TRAIN_CPUS" \
+          --memory-gib "$POST_TRAIN_MEMORY_GIB" \
+          --storage-gib "$POST_TRAIN_STORAGE_GIB" \
+          --workdir /tmp/isaac-groot-n2 \
+          --workdir-path "$WORKDIR_URI" \
+          --set "aws_credential_name=$OSMO_AWS_CREDENTIAL_NAME" \
+          --wait-timeout "${POST_TRAIN_CLUSTER_WAIT_TIMEOUT:-3600}" \
+          2>&1 | tee /tmp/cluster_start.log
+        START_CLUSTER_STATUS=${PIPESTATUS[0]}
+        set -e
+        if [ "$START_CLUSTER_STATUS" -eq 0 ]; then
+          break
+        fi
+        if ! grep -q "Could not find the credential" /tmp/cluster_start.log || [ "$attempt" -eq 3 ]; then
+          break
+        fi
+        echo "OSMO did not find credential $OSMO_AWS_CREDENTIAL_NAME; resetting it before retry $((attempt + 1))"
+        osmo credential set "$OSMO_AWS_CREDENTIAL_NAME" --type GENERIC --payload aws_access_key_id="$BUCKET_ACCESS_KEY_ID" aws_secret_access_key="$BUCKET_SECRET_ACCESS_KEY" aws_endpoint_url="https://pdx.s8k.io" aws_default_region="$BUCKET_REGION"
+        sleep $((attempt * 20))
+      done
+      CLUSTER_ID=$(grep -oP "Cluster ID:\s+\K\S+" /tmp/cluster_start.log | head -1)
+      if [ "$START_CLUSTER_STATUS" -ne 0 ]; then
+        exit "$START_CLUSTER_STATUS"
+      fi
+      if [ -z "$CLUSTER_ID" ]; then
+        echo "Failed to parse cluster ID from output"
+        exit 1
+      fi
+      echo "$CLUSTER_ID" > "$CI_PROJECT_DIR/cluster_id.txt"
+      echo "Cluster ID: $CLUSTER_ID"
+
+      LOG_FILE=$CI_PROJECT_DIR/ray_training.log
+      FINAL_CHECKPOINT_FILE=$CI_PROJECT_DIR/final_checkpoint_path.txt
+      export JOB_NAME="posttrain_${JOB_RUN_TYPE_SLUG}_${POST_TRAIN_COMPUTE_TYPE}_${CI_COMMIT_SHORT_SHA}"
+      export USER_SLUG="$USERNAME"
+      export NUM_GPUS="$NUM_GPUS"
+      export BATCH_SIZE="$BATCH_SIZE"
+      export MAX_STEPS="$MAX_STEPS"
+      export CLUSTER_TYPE="$POST_TRAIN_COMPUTE_TYPE"
+      export OSS_WORKING_DIR="$OSS_PACKAGE_ROOT"
+      uv run --active python "$OSS_PACKAGE_ROOT/$GOLDEN_RUN_LAUNCHER" \
+        submit \
+        --cluster-id "$CLUSTER_ID" \
+        --tail-logs \
+        --log-file "$LOG_FILE" \
+        --checkpoint-artifact-file "$FINAL_CHECKPOINT_FILE"
+      if [ -s "$FINAL_CHECKPOINT_FILE" ]; then
+        echo "FINAL_CHECKPOINT_PATH=$(cat "$FINAL_CHECKPOINT_FILE")" >> "$CI_PROJECT_DIR/posttrain.env"
+      fi
+  after_script:
+    - |
+      if [ ! -s "$CI_PROJECT_DIR/cluster_id.txt" ] && [ -s /tmp/cluster_start.log ]; then
+        grep -oP "(?:Cluster ID:|Ray cluster|Workflow)\s+\K\S+" /tmp/cluster_start.log | head -1 > "$CI_PROJECT_DIR/cluster_id.txt" || true
+      fi
+      if ! command -v osmo >/dev/null 2>&1; then
+        exit 0
+      fi
+      osmo login --method token --token "$OSMO_TOKEN" "$OSMO_URL"
+      if [ -s "$CI_PROJECT_DIR/cluster_id.txt" ]; then
+        CLUSTER_ID=$(cat "$CI_PROJECT_DIR/cluster_id.txt")
+        echo "Cancelling post-train cluster $CLUSTER_ID"
+        osmo workflow cancel "$CLUSTER_ID" || true
+      fi
+      OSMO_AWS_CREDENTIAL_NAME="${OSMO_AWS_CREDENTIAL_NAME:-gear-aws-cred-${CI_PIPELINE_ID}-${CI_JOB_ID}}"
+      osmo credential delete "$OSMO_AWS_CREDENTIAL_NAME" || true
+  artifacts:
+    paths:
+      - cluster_id.txt
+      - ray_training.log
+      - final_checkpoint_path.txt
+    reports:
+      dotenv: posttrain.env
+    when: always
+    expire_in: 7 days
+  rules:
+    - if: '$POST_TRAIN_E2E_LEAF == "true" && $POST_TRAIN_COMPUTE_TYPE == "h100"'
+  timeout: 10h

@@ -1,0 +1,81 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# OSS CI images.
+
+include:
+  - local: ci/image.base.minimal.gitlab-ci.yml
+  - local: ci/image.minimal.gitlab-ci.yml
+  - local: ci/image.train.gitlab-ci.yml
+
+.image_build_retry:
+  retry:
+    max: 2
+    when:
+      - api_failure
+      - job_execution_timeout
+      - runner_system_failure
+      - script_failure
+      - stuck_or_timeout_failure
+
+.image:
+  extends: .image_build_retry
+  image: docker:27
+  tags:
+    - cpu/amd64
+    - os/linux
+    - type/docker
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
+    DOCKER_DRIVER: overlay2
+    GIT_DEPTH: 1
+    GIT_STRATEGY: fetch
+    GIT_SUBMODULE_STRATEGY: none
+    GIT_LFS_SKIP_SMUDGE: "1"
+  before_script:
+    - mkdir -p $HOME/.docker
+    - echo "$DOCKER_AUTH_CONFIG" > $HOME/.docker/config.json
+    - docker info
+    - docker buildx create --use --driver docker-container --name ci-builder
+
+.minimal:
+  image:
+    name: nvcr.io/nvidian/groot-ci-minimal:${CI_COMMIT_SHORT_SHA}
+    entrypoint: [""]
+  tags:
+    - cpu/amd64
+    - os/linux
+    - type/docker
+  before_script:
+    - cd "$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
+    - uv pip install .[dev]
+  retry:
+    max: 2
+    when: runner_system_failure
+
+.base_minimal:
+  image:
+    name: nvcr.io/nvidian/groot-ci-base-minimal:${CI_COMMIT_SHORT_SHA}
+    entrypoint: [""]
+  tags:
+    - cpu/amd64
+    - os/linux
+    - type/docker
+  before_script:
+    - export AWS_ACCESS_KEY_ID=$BUCKET_ACCESS_KEY_ID
+    - export AWS_SECRET_ACCESS_KEY=$BUCKET_SECRET_ACCESS_KEY
+    - export AWS_REGION=$BUCKET_REGION
+  retry:
+    max: 2
+    when: runner_system_failure

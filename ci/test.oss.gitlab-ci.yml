@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# OSS package integration tests.
+#
+# Runs OSS package workflows on OSMO clusters.
+
+test.oss:
+  extends: .minimal
+  stage: premerge
+  needs:
+    - image.minimal
+    - image.train
+  rules:
+    # premerge rules
+    - if: "$CI_COMMIT_MESSAGE =~ /OSS_TESTS=true/"
+    - if: '$OSS_TESTS == "true"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - oss/**/*
+        - groot/core/**/*
+        - groot/infra/**/*
+        - tests/oss_workflows/**/*
+        - docker/**/*
+        - pyproject.toml
+        - ci/scripts/osmo_runner_*.sh
+        - ci/test.oss.gitlab-ci.yml
+        - ci/image.minimal.gitlab-ci.yml
+        - ci/images/minimal.Dockerfile
+        - ci/image.train.gitlab-ci.yml
+        - ci/images/train.Dockerfile
+    # postmerge rules
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$POSTMERGE_TESTS == "true"'
+
+  script:
+    - |
+      if [ -z "${OSS_PACKAGE_DIR:-}" ]; then
+        if [ -d "$CI_PROJECT_DIR/oss" ]; then
+          export OSS_PACKAGE_DIR=oss
+        else
+          export OSS_PACKAGE_DIR=.
+        fi
+      fi
+    - export AWS_ACCESS_KEY_ID=$BUCKET_ACCESS_KEY_ID
+    - export AWS_SECRET_ACCESS_KEY=$BUCKET_SECRET_ACCESS_KEY
+    - export AWS_REGION=$BUCKET_REGION
+    - cd "$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
+    - uv venv --python 3.12 .venv || uv venv .venv
+    - source .venv/bin/activate
+    - uv pip install -e ".[dev]"
+    - |
+      if [ "${CI_COMMIT_BRANCH:-}" = "$CI_DEFAULT_BRANCH" ]; then
+        export OSMO_POOL=${OSMO_POOL:-groot-h100-02}
+      else
+        export OSMO_POOL=${OSMO_POOL:-groot-h100-ci-02}
+      fi
+    - export IMAGE=nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}
+    - export GROOT_COMMIT_BRANCH="${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_BRANCH}"
+    - |
+      # Evaluation runs via staging.evaluation_openloop.h100 with direct OSMO submit.
+      # Keep test.oss on post-train because the selected H100 pool validates gpu: 8.
+      export OSMO_WORKFLOW_INCLUDE_REGEX="${OSMO_WORKFLOW_INCLUDE_REGEX:-^oss_n2_minwam_sim_posttrain_workflow$}"
+    - bash ci/scripts/osmo_runner_execute.sh tests/oss_workflows
+
+  after_script:
+    - |
+      if [ -z "${OSS_PACKAGE_DIR:-}" ]; then
+        if [ -d "$CI_PROJECT_DIR/oss" ]; then
+          export OSS_PACKAGE_DIR=oss
+        else
+          export OSS_PACKAGE_DIR=.
+        fi
+      fi
+    - cd "$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
+    - bash ci/scripts/osmo_runner_cleanup.sh tests/oss_workflows
+
+  artifacts:
+    when: always
+    paths:
+      - $CI_PROJECT_DIR/log.json
+      - $CI_PROJECT_DIR/kpis.json
+
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - script_failure
+  allow_failure: false
+  timeout: 4h

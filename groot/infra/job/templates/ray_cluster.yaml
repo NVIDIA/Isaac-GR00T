@@ -1,0 +1,134 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+workflow:
+  name: {{ workflow_name }}
+  timeout:
+    exec_timeout: {{ exec_timeout | default("7d") }}
+    queue_timeout: {{ queue_timeout | default("1d") }}
+  resources:
+    default:
+      cpu: {{ cpus }}
+      gpu: {{ gpus }}
+      memory: {{ memory }}Gi
+      storage: {{ storage }}Gi
+  groups:
+  - name: ray
+    tasks:
+    {% for item in range(num_nodes) %}
+    {% if item == 0 %}
+    - name: "master"
+    {% else %}
+    - name: "worker_{{ item }}"
+    {% endif %}
+      image: {{ image }}
+      credentials:
+        {{ aws_credential_name | default("gear-aws-cred") }}:
+          AWS_ACCESS_KEY_ID: aws_access_key_id
+          AWS_SECRET_ACCESS_KEY: aws_secret_access_key
+          AWS_DEFAULT_REGION: aws_default_region
+          AWS_ENDPOINT_URL: aws_endpoint_url
+      command: ["bash"]
+      exitActions:
+        COMPLETE: 0-255,3001,3002,4000
+      {% if item == 0 %}
+      lead: true
+      args: ["/tmp/ray-entry.sh"]
+      files:
+      - path: /tmp/ray-entry.sh
+        contents: |
+          set -euo pipefail
+          {% if workdir_path %}
+          mkdir -p /tmp/groot-ray-workdir-download "{{ workdir }}"
+          osmo data download "{{ workdir_path }}" /tmp/groot-ray-workdir-download/
+          python -m zipfile -e "/tmp/groot-ray-workdir-download/$(basename "{{ workdir_path }}")" "{{ workdir }}"
+          {% else %}
+          mkdir -p "{{ workdir }}"
+          {% endif %}
+          cd "{{ workdir }}"
+
+          if command -v uv >/dev/null 2>&1 && [ -f pyproject.toml ]; then
+            uv venv --python 3.12 .venv || uv venv .venv
+            . .venv/bin/activate
+            uv pip install "ray[train,default,tune]==2.48.0"
+            uv pip install --index-url https://download.pytorch.org/whl/cu128 --extra-index-url https://pypi.python.org/simple "torch==2.7.1"
+            uv pip install ninja packaging
+            uv pip install --no-build-isolation-package flash-attn ".[training]"
+          elif ! command -v ray >/dev/null 2>&1; then
+            python -m pip install "ray[train,default,tune]==2.48.0"
+          fi
+          if [ -f pyproject.toml ] && ! python -c 'import groot' >/dev/null 2>&1; then
+            python -m pip install --no-deps .
+          fi
+
+          ray start --head \
+            --port={{ ray_port }} \
+            --dashboard-host=0.0.0.0 \
+            --dashboard-port={{ ray_dashboard_port }} \
+            --disable-usage-stats \
+            --include-dashboard=True
+
+          {% if user_command %}
+          ray job submit --runtime-env-json '{{ runtime_env_json }}' -- {{ user_command }}
+          {% else %}
+          sleep infinity
+          {% endif %}
+      {% else %}
+      args: ["/tmp/ray-worker-entry.sh"]
+      files:
+      - path: /tmp/ray-worker-entry.sh
+        contents: |
+          set -euo pipefail
+          {% if workdir_path %}
+          mkdir -p /tmp/groot-ray-workdir-download "{{ workdir }}"
+          osmo data download "{{ workdir_path }}" /tmp/groot-ray-workdir-download/
+          python -m zipfile -e "/tmp/groot-ray-workdir-download/$(basename "{{ workdir_path }}")" "{{ workdir }}"
+          {% else %}
+          mkdir -p "{{ workdir }}"
+          {% endif %}
+          cd "{{ workdir }}"
+
+          if command -v uv >/dev/null 2>&1 && [ -f pyproject.toml ]; then
+            uv venv --python 3.12 .venv || uv venv .venv
+            . .venv/bin/activate
+            uv pip install "ray[train,default,tune]==2.48.0"
+            uv pip install --index-url https://download.pytorch.org/whl/cu128 --extra-index-url https://pypi.python.org/simple "torch==2.7.1"
+            uv pip install ninja packaging
+            uv pip install --no-build-isolation-package flash-attn ".[training]"
+          elif ! command -v ray >/dev/null 2>&1; then
+            python -m pip install "ray[train,default,tune]==2.48.0"
+          fi
+          if [ -f pyproject.toml ] && ! python -c 'import groot' >/dev/null 2>&1; then
+            python -m pip install --no-deps .
+          fi
+
+          ray start --address={{host:master}}:{{ ray_port }} --block
+      {% endif %}
+    {% endfor %}
+default-values:
+  workflow_name: ray-cluster
+  image: rayproject/ray:2.48.0-py310
+  num_nodes: 1
+  cpus: 1
+  gpus: 0
+  memory: 32
+  storage: 32
+  workdir: /tmp/groot-ray-workdir
+  workdir_path: ""
+  user_command: ""
+  runtime_env_json: "{}"
+  aws_credential_name: gear-aws-cred
+  ray_port: 6376
+  ray_dashboard_port: 8265

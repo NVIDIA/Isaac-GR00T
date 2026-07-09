@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Cosmos Predict 2.5 text encoder
+- Cosmos Reason 1.1 7B model
+- use transformers library to load model and encode prompt
+"""
+
+import torch
+from torch import nn
+from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+
+
+class CosmosTextEncoder(nn.Module):
+
+    def __init__(self, text_encoder_pretrained_path: str):
+        super().__init__()
+        self.text_encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            text_encoder_pretrained_path,
+            torch_dtype=torch.bfloat16,
+            device_map=None,
+            low_cpu_mem_usage=True,
+            attn_implementation="sdpa",
+        )
+        self.tokenizer = AutoProcessor.from_pretrained(text_encoder_pretrained_path)
+        self.max_seq_len = 512
+        self.system_prompt = (
+            "You are a helpful assistant who will provide prompts to an image generator."
+        )
+
+    def prepare_input_ids(self, prompts: list[str]):
+        input_ids_batch = []
+        for prompt in prompts:
+            conversations = [
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": self.system_prompt,
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt,
+                        }
+                    ],
+                },
+            ]
+            input_ids = self.tokenizer.apply_chat_template(
+                conversations,
+                tokenize=True,
+                add_generation_prompt=False,
+                max_length=self.max_seq_len,
+                truncation=True,
+                padding="max_length",
+            )
+            input_ids = torch.LongTensor(input_ids)
+            input_ids_batch.append(input_ids[0])
+        input_ids_batch = torch.stack(input_ids_batch, dim=0)
+        return input_ids_batch
+
+    @torch.compiler.disable()
+    def forward(self, input_ids):
+        with torch.no_grad():
+            outputs = self.text_encoder(input_ids, output_hidden_states=True)
+        hidden_states = outputs.hidden_states
+        normalized_hidden_states = []
+        for layer_idx in range(1, len(hidden_states)):
+            normalized_state = (
+                hidden_states[layer_idx] - hidden_states[layer_idx].mean(dim=-1, keepdim=True)
+            ) / (hidden_states[layer_idx].std(dim=-1, keepdim=True) + 1e-8)
+            normalized_hidden_states.append(normalized_state)
+        prompt_embeds = torch.cat(normalized_hidden_states, dim=-1)
+        return prompt_embeds

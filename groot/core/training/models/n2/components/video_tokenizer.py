@@ -1,0 +1,165 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""VideoTokenizer: video-specific tokenization extracted from CosmosTransformer3DModel.
+
+Owns patchify, unpatchify, learnable positional embeddings, and view embeddings.
+These are the pretrained Cosmos modules that operate on (B, C, T, H, W) video tensors,
+converting them to/from (B, L, D) token sequences.
+
+Does NOT own RoPE — that lives on GrootN2 alongside action_rope/state_rope so
+the SequencePacker can concatenate all modalities' RoPE uniformly.
+"""
+
+import torch
+from torch import nn
+from torchvision import transforms
+
+from groot.core.training.models.n2.components.transformer_cosmos import (
+    CosmosLearnablePositionalEmbed,
+    CosmosPatchEmbed,
+    CosmosTransformerConfig,
+)
+
+
+class VideoTokenizer(nn.Module):
+    """Video-specific tokenization: patchify, unpatchify, learnable pos embed.
+
+    Extracted from CosmosTransformer3DModel. Holds the pretrained Cosmos weights
+    for patch_embed, proj_out, learnable_pos_embed, and view_embed.
+    Does NOT own RoPE — that lives on GrootN2 as video_rope.
+    """
+
+    def __init__(self, config: CosmosTransformerConfig):
+        super().__init__()
+        self.config = config
+        hidden_size = config.num_attention_heads * config.attention_head_dim
+
+        # 1. Patch embedding
+        patch_in_ch = config.in_channels + 1  # +1 for padding mask channel
+        patch_in_ch += config.view_embed_dim
+        self.patch_embed = CosmosPatchEmbed(patch_in_ch, hidden_size, config.patch_size, bias=False)
+
+        # 2. Learnable positional embeddings (14B only)
+        self.learnable_pos_embed = None
+        if config.extra_pos_embed_type == "learnable":
+            self.learnable_pos_embed = CosmosLearnablePositionalEmbed(
+                hidden_size, config.max_size, config.patch_size
+            )
+
+        # 3. View embeddings (multiview only)
+        self.view_embed = None
+        if config.view_embed_dim > 0:
+            self.view_embed = nn.Embedding(config.max_n_cameras, config.view_embed_dim)
+
+        # 4. Output projection (inverse of patchify)
+        self.proj_out = nn.Linear(
+            hidden_size,
+            config.patch_size[0]
+            * config.patch_size[1]
+            * config.patch_size[2]
+            * config.out_channels,
+            bias=False,
+        )
+
+    def patchify(
+        self,
+        video: torch.Tensor,
+        condition_mask: torch.Tensor | None = None,
+        padding_mask: torch.Tensor | None = None,
+        n_cameras: int = 1,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, dict]:
+        """Convert (B, C, T, H, W) video to (B, L, D) tokens.
+
+        Returns:
+            tokens: (B, L, D) patchified video tokens
+            extra_pos_emb: (B, L, D) learnable positional embedding, or None
+            shape_info: dict with spatial dims needed for unpatchify
+        """
+        B, C, T, H, W = video.shape
+        hidden_states = video
+
+        # 1. Concatenate condition_mask
+        if condition_mask is not None:
+            hidden_states = torch.cat([hidden_states, condition_mask], dim=1)
+
+        # 2. Concatenate padding_mask
+        if padding_mask is None:
+            padding_mask = hidden_states.new_zeros(1, 1, H, W)
+        pm = transforms.functional.resize(
+            padding_mask,
+            list(hidden_states.shape[-2:]),
+            interpolation=transforms.InterpolationMode.NEAREST,
+        )
+        hidden_states = torch.cat([hidden_states, pm.unsqueeze(2).repeat(B, 1, T, 1, 1)], dim=1)
+
+        # 3. View embeddings
+        if self.view_embed is not None and n_cameras > 1:
+            T_per_view = T // n_cameras
+            view_ids = torch.arange(n_cameras, device=hidden_states.device).repeat_interleave(
+                T_per_view
+            )
+            ve = self.view_embed(view_ids).to(hidden_states.dtype)
+            ve = ve.permute(1, 0).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)  # (1, D_ve, T, 1, 1)
+            ve = ve.expand(B, -1, -1, H, W)
+            hidden_states = torch.cat([hidden_states, ve], dim=1)
+
+        # 4. Learnable positional embedding
+        extra_pos_emb = (
+            self.learnable_pos_embed(hidden_states)
+            if self.learnable_pos_embed is not None
+            else None
+        )
+
+        # 6. Patchify
+        p_t, p_h, p_w = self.config.patch_size
+        post_T, post_H, post_W = T // p_t, H // p_h, W // p_w
+        tokens = self.patch_embed(hidden_states).flatten(1, 3)  # (B, L, D)
+
+        shape_info = {
+            "B": B,
+            "T": T,
+            "H": H,
+            "W": W,
+            "post_T": post_T,
+            "post_H": post_H,
+            "post_W": post_W,
+            "p_t": p_t,
+            "p_h": p_h,
+            "p_w": p_w,
+        }
+
+        return tokens, extra_pos_emb, shape_info
+
+    def unpatchify(self, tokens: torch.Tensor, shape_info: dict) -> torch.Tensor:
+        """Convert (B, L, D) tokens back to (B, C_out, T, H, W) video.
+
+        Applies proj_out then reshapes. The permutation order matches the diffusers
+        convention (not the intuitive inverse of patching).
+        """
+        p_t = shape_info["p_t"]
+        p_h = shape_info["p_h"]
+        p_w = shape_info["p_w"]
+        post_T = shape_info["post_T"]
+        post_H = shape_info["post_H"]
+        post_W = shape_info["post_W"]
+
+        tokens = self.proj_out(tokens)
+        tokens = tokens.unflatten(2, (p_h, p_w, p_t, -1))
+        tokens = tokens.unflatten(1, (post_T, post_H, post_W))
+        # NOTE: permutation order matches diffusers (not the intuitive inverse of patching)
+        tokens = tokens.permute(0, 7, 1, 6, 2, 4, 3, 5)
+        tokens = tokens.flatten(6, 7).flatten(4, 5).flatten(2, 3)
+
+        return tokens

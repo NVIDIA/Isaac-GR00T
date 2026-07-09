@@ -1,0 +1,140 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# Build OSS training CI Docker images.
+
+image.train.arm64:
+  extends: .image
+  tags:
+    - cpu/arm64
+  stage: premerge
+  script:
+    - |
+      ci/scripts/docker_buildx_push.sh \
+        --registry "nvcr.io/nvidian" \
+        --image-name "groot-ci-train" \
+        --dockerfile "ci/images/train.Dockerfile" \
+        --cache-slug "${CI_COMMIT_REF_SLUG}-arm64" \
+        --tag "nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}-arm64" \
+        --platform "linux/arm64" \
+        --build-arg "PYTORCH_IMAGE=nvcr.io/nvidia/pytorch:25.11-py3"
+  artifacts:
+    when: always
+    paths:
+      - $CI_PROJECT_DIR/log.json
+      - $CI_PROJECT_DIR/kpis.json
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - groot/core/**/*
+        - groot/infra/**/*
+        - oss/**/*
+        - tests/oss_workflows/**/*
+        - ci/test.oss.gitlab-ci.yml
+        - ci/image.minimal.gitlab-ci.yml
+        - ci/images/minimal.Dockerfile
+        - ci/image.train.gitlab-ci.yml
+        - ci/images/train.Dockerfile
+        - ci/scripts/docker_buildx_push.sh
+        - ci/scripts/osmo_runner_*.sh
+        - docker/**/*
+        - pyproject.toml
+        - uv.lock
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$POSTMERGE_TESTS == "true"'
+    - if: '$POST_TRAIN_E2E_LEAF == "true"'
+    - if: '$OPEN_LOOP_EVAL_E2E_LEAF == "true"'
+  timeout: 150m
+
+image.train.amd64:
+  extends: .image
+  stage: premerge
+  script:
+    - export REGISTRY="nvcr.io/nvidian"
+    - export IMAGE_NAME="groot-ci-train"
+    - |
+      ci/scripts/docker_buildx_push.sh \
+        --registry "${REGISTRY}" \
+        --image-name "${IMAGE_NAME}" \
+        --dockerfile ci/images/train.Dockerfile \
+        --cache-slug "${CI_COMMIT_REF_SLUG}-amd64" \
+        --tag "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}-amd64" \
+        --platform linux/amd64 \
+        --build-arg "PYTORCH_IMAGE=nvcr.io/nvidia/pytorch:25.04-py3"
+  artifacts:
+    when: always
+    paths:
+      - $CI_PROJECT_DIR/log.json
+      - $CI_PROJECT_DIR/kpis.json
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - groot/core/**/*
+        - groot/infra/**/*
+        - oss/**/*
+        - tests/oss_workflows/**/*
+        - ci/test.oss.gitlab-ci.yml
+        - ci/image.minimal.gitlab-ci.yml
+        - ci/images/minimal.Dockerfile
+        - ci/image.train.gitlab-ci.yml
+        - ci/images/train.Dockerfile
+        - ci/scripts/docker_buildx_push.sh
+        - ci/scripts/osmo_runner_*.sh
+        - docker/**/*
+        - pyproject.toml
+        - uv.lock
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$POSTMERGE_TESTS == "true"'
+    - if: '$POST_TRAIN_E2E_LEAF == "true"'
+    - if: '$OPEN_LOOP_EVAL_E2E_LEAF == "true"'
+  timeout: 60m
+
+image.train:
+  extends: .image
+  stage: premerge
+  needs:
+    - job: image.train.arm64
+    - job: image.train.amd64
+  script:
+    - |
+      docker buildx imagetools create \
+        -t "nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}" \
+        "nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}-arm64" \
+        "nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}-amd64"
+  artifacts:
+    when: always
+    paths:
+      - $CI_PROJECT_DIR/log.json
+      - $CI_PROJECT_DIR/kpis.json
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - groot/core/**/*
+        - groot/infra/**/*
+        - oss/**/*
+        - tests/oss_workflows/**/*
+        - ci/test.oss.gitlab-ci.yml
+        - ci/image.minimal.gitlab-ci.yml
+        - ci/images/minimal.Dockerfile
+        - ci/image.train.gitlab-ci.yml
+        - ci/images/train.Dockerfile
+        - ci/scripts/osmo_runner_*.sh
+        - docker/**/*
+        - pyproject.toml
+        - uv.lock
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$POSTMERGE_TESTS == "true"'
+    - if: '$POST_TRAIN_E2E_LEAF == "true"'
+    - if: '$OPEN_LOOP_EVAL_E2E_LEAF == "true"'
+  timeout: 30m

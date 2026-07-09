@@ -1,0 +1,116 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+*.onnx*
+*logs/*
+# Exclude entire .git tree. Previous `*.git/*` only matched immediate children
+# of .git/, not nested paths like .git/objects/pack/*.pack (~8.8 GB of every
+# workdir upload).
+.git/**
+# Top-level data/ dumps are local scratch (~1.4 GB); training reads datasets
+# from cluster Lustre, not from the uploaded workdir.
+data/**
+gear_working_dir/**
+.venv/**
+.venv/*
+*.venv/**
+**/.venv/**
+**/.venv/*
+groot/core/.venv/**
+groot/core/.venv/*
+src/groot/core/.venv/**
+src/groot/core/.venv/*
+groot/control/envs/**
+docs/deltacat_yam_dataset_inspection/artifacts*/**
+# Exclude everything under groot/ except configs/experiments (data YAMLs)
+# groot/control/*  (transitively needed by legacy conversion path via groot.vla.data.conversion.xdof.base)
+groot/dexmg/*
+# groot/rl/*  (transitively needed by groot.control)
+groot/vla/model/*
+groot/vla/eval/*
+# Needed by the LeRobot conversion path (groot/core/data/conversion/xdof/convert_and_upload_lerobot.py):
+# groot/vla/common/*
+# groot/vla/omni/data/*
+# groot/vla/utils/*
+# groot/vla/data/conversion/*
+# groot/vla/data/dataset/*
+# groot/vla/data/packds/*
+groot/vla/omni/model/*
+groot/vla/omni/inference/*
+groot/vla/omni/oss_eval/*
+groot/vla/omni/policy/*
+groot/vla/omni/scripts/*
+groot/vla/omni/tests/*
+groot/vla/omni/dependencies/*
+groot/vla/omni/experiment/*
+groot/vla/optim/*
+# src/ must ship so setuptools can install `groot` (layout is
+# `[tool.setuptools.packages.find] where = ["src"]`). gear fast_launch
+# materializes the symlinked src/groot/{core,vla,...} trees via
+# os.walk(followlinks=True), so the zip grows by ~30MB but every
+# `uv pip install -e .` on the pool succeeds.
+# src/*
+# Exclude external deps except gear_cli
+external_dependencies/openhomie/*
+external_dependencies/rl_locomotion/*
+external_dependencies/g1_deploy/**
+external_dependencies/sim2mujoco/*
+external_dependencies/mfm/**
+external_dependencies/mfm/*
+external_dependencies/isaacgym_python310/*
+external_dependencies/ws_lidar_slam_ros2/*
+external_dependencies/Sharpa/*
+# label-studio's deploy tree contains symlink farms and webapp assets that
+# slow the os.walk and bloat the zip; never needed on training pools.
+external_dependencies/label-studio/**
+# Local git worktrees (created via `git worktree add wt/<name>`) duplicate the
+# whole repo and would otherwise be walked + zipped.
+wt/**
+# Binary/build artifacts
+*.STL
+*.so
+*.so.*
+*.pyc
+*.deb
+*.hpp
+*.h
+*.c
+*.cpp
+*.o
+*.a
+*.dylib
+*.whl
+*.egg-info
+*.tar
+*.tar.gz
+*.zip
+*.pt
+*.safetensors
+*.trt
+*.mp4
+*.obj
+*.png
+# Misc
+docker/*
+tests/*
+build/*
+*/build/*
+outputs/*
+outputs/**
+out/**
+models/**
+logs_kinematic_diffusion/**
+custom/*
+wandb/*
+__pycache__/*

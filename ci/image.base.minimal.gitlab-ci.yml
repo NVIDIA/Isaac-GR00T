@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# Build the stable base minimal image for OSS CI.
+
+image.base.minimal:
+  extends: .image
+  stage: premerge
+  script:
+    - export REGISTRY="nvcr.io/nvidian"
+    - export IMAGE_NAME="groot-ci-base-minimal"
+    - |
+      ci/scripts/docker_buildx_push.sh \
+        --registry "${REGISTRY}" \
+        --image-name "${IMAGE_NAME}" \
+        --dockerfile ci/images/base.minimal.Dockerfile \
+        --cache-slug "${CI_COMMIT_REF_SLUG}" \
+        --tag "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}" \
+        --platform linux/amd64,linux/arm64
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$POST_TRAIN_E2E_LEAF == "true"'
+    - if: '$OPEN_LOOP_EVAL_E2E_LEAF == "true"'
+  timeout: 60m
