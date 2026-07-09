@@ -17,8 +17,13 @@ Visualize it with this [link](https://huggingface.co/spaces/lerobot/visualize_da
 uv run --project scripts/lerobot_conversion \
   python scripts/lerobot_conversion/convert_v3_to_v2.py \
   --repo-id izuluaga/finish_sandwich \
-  --root examples/SO100/finish_sandwich_lerobot
+  --root examples/SO100/finish_sandwich_lerobot \
+  --in-place
 ```
+
+> `--in-place` replaces the downloaded v3.0 dataset with the converted v2.1 one, so
+> the paths below stay the same. The original v3.0 dataset is kept in a sibling
+> `finish_sandwich_backup_v3.0` directory.
 
 Then copy the `modality.json` file into the dataset's `meta/` directory:
 ```bash
