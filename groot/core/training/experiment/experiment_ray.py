@@ -50,6 +50,11 @@ def train_func(cfg, dataset_build_artifacts=None):
 
     _ic.autotune_local_cache = False
     _ic.autotune_remote_cache = False
+    logging.info(
+        "TorchInductor env: TORCHINDUCTOR_FORCE_DISABLE_CACHES=%s TORCHINDUCTOR_CUDAGRAPH_TREES=%s",
+        os.environ.get("TORCHINDUCTOR_FORCE_DISABLE_CACHES", "<unset>"),
+        os.environ.get("TORCHINDUCTOR_CUDAGRAPH_TREES", "<unset>"),
+    )
     if not _env_flag("TORCHINDUCTOR_CUDAGRAPH_TREES", True):
         # PyTorch does not apply TORCHINDUCTOR_CUDAGRAPH_TREES as an env-driven
         # config override in this environment, so wire the probe knob directly.
@@ -169,12 +174,10 @@ class TorchTrainer:
                 )
                 os.makedirs(os.path.dirname(error_path), exist_ok=True)
                 with open(error_path, "w") as f:
-                    f.write(f"Error occurred during training:\n{str(e)}\n")
+                    f.write(f"Error occurred during training:\n{e!s}\n")
                     f.write("\nTraceback:\n")
                     f.write(traceback.format_exc())
-                logging.error(f"Error occurred during training:\n{str(e)}\n")
-                logging.error("\nTraceback:\n")
-                logging.error(traceback.format_exc())
+                logging.exception("Error occurred during training")
 
                 # Append a worker_retry status event so the dashboard
                 # timeline distinguishes same-run retries from a fresh
@@ -206,7 +209,7 @@ class TorchTrainer:
                     f"Training failed, error logged to {error_path}. Retrying with new workers..."
                 )
         if retries >= max_retries:
-            raise Exception("Training failed")
+            raise RuntimeError("Training failed")
 
     @staticmethod
     def _append_retry_event(
@@ -251,7 +254,6 @@ class TorchTrainer:
 
 @ray.remote
 class _TrainingWorker:
-
     def __init__(
         self,
         training_fn,
@@ -281,7 +283,7 @@ class _TrainingWorker:
             # Clear stale TorchInductor cache to avoid corrupted autotune entries
             import shutil
 
-            cache_dir = "/tmp/torchinductor_root/"
+            cache_dir = "/tmp/torchinductor_root/"  # noqa: S108
             if os.path.exists(cache_dir):
                 shutil.rmtree(cache_dir, ignore_errors=True)
                 logging.info(f"Cleared TorchInductor cache at {cache_dir}")
@@ -299,7 +301,7 @@ class _TrainingWorker:
         except Exception as e:
             if "ECC" in str(e) or "CUDA driver initialization failed" in str(e):
                 # Force stop Ray if we encounter GPU errors
-                logging.error(e)
+                logging.exception("GPU error during training")
                 subprocess.run(["ray", "stop", "--force"], check=False)
             elif "trainer_state.json" in str(e):
                 # Parse the path from the exception message
@@ -307,15 +309,17 @@ class _TrainingWorker:
                 path_match = re.search(r"'([^']*trainer_state\.json)'", error_msg)
                 if path_match:
                     path = path_match.group(1)
+                else:
+                    raise
 
                 ckpt_dir = os.path.dirname(path)
                 # delete the parent folder of trainer_state.json
                 subprocess.run(["rm", "-rf", ckpt_dir], check=False)
-                raise Exception(
+                raise RuntimeError(
                     f"Cannot find trainer_state.json in {ckpt_dir}, deleting it and re-running"
-                )
+                ) from e
             else:
-                raise e
+                raise
 
 
 def main():
@@ -339,7 +343,9 @@ def main():
     preserve_checkpoint_root = preserve_checkpoint_root_enabled()
     api_checkpoint_path = os.environ.get("GEAR_CHECKPOINT_PATH", "")
     api_msc_checkpoint_url = (
-        "" if preserve_checkpoint_root else experiment.dashboard_checkpoint_path_to_msc_url(api_checkpoint_path)
+        ""
+        if preserve_checkpoint_root
+        else experiment.dashboard_checkpoint_path_to_msc_url(api_checkpoint_path)
     )
     if config.training.msc_checkpoint_url and api_msc_checkpoint_url:
         logging.info(
@@ -349,7 +355,9 @@ def main():
         )
         config.training.msc_checkpoint_url = api_msc_checkpoint_url
 
-    api_lfs_checkpoint_path = "" if preserve_checkpoint_root else os.environ.get("GEAR_LFS_CHECKPOINT_PATH", "")
+    api_lfs_checkpoint_path = (
+        "" if preserve_checkpoint_root else os.environ.get("GEAR_LFS_CHECKPOINT_PATH", "")
+    )
     if api_lfs_checkpoint_path:
         logging.info(
             "Overriding training.output_dir on driver from %s to dashboard-allocated %s",
@@ -380,6 +388,18 @@ def main():
     #   forward-pass latency in the dry-run; without this propagation the
     #   sleep silently no-ops on the GPU (RAY_ADDRESS-attach) path.
     _DRY_RUN_PROPAGATED_VARS = ("_GROOT_DRY_RUN_STUB_MODEL", "IDENTITY_FORWARD_SLEEP_MS")
+    _TORCH_COMPILE_PROPAGATED_VARS = (
+        "GLOBAL_DISABLE_TTT_COMPILE",
+        "GROOT_N2_COMPILE_DIAGNOSTICS_INTERVAL",
+        "GROOT_N2_COMPILE_DIAGNOSTICS_STEPS",
+        "GROOT_TTT_COMPILE_TRANSFORMER_BLOCKS",
+        "GROOT_TTT_INNER_COMPILE_MODE",
+        "GROOT_TTT_TRANSFORMER_COMPILE_MODE",
+        "TORCHDYNAMO_VERBOSE",
+        "TORCHINDUCTOR_CUDAGRAPH_TREES",
+        "TORCHINDUCTOR_FORCE_DISABLE_CACHES",
+        "TORCH_LOGS",
+    )
     _DELTACAT_PROPAGATED_VARS = (
         "DELTACAT_BETA_SERVER_URL",
         "DELTACAT_SERVER_URL",
@@ -394,7 +414,11 @@ def main():
     )
     env_vars = {
         k: os.environ[k]
-        for k in (*_DRY_RUN_PROPAGATED_VARS, *_DELTACAT_PROPAGATED_VARS)
+        for k in (
+            *_DRY_RUN_PROPAGATED_VARS,
+            *_TORCH_COMPILE_PROPAGATED_VARS,
+            *_DELTACAT_PROPAGATED_VARS,
+        )
         if os.environ.get(k)
     }
     # A gear-submitted Ray job's runtime_env already propagates these env vars to
@@ -438,13 +462,12 @@ def main():
         raise ValueError(f"num_gpus must be >= 0, got {num_gpus}")
     cpu_only = num_gpus == 0
 
-    if not cpu_only:
+    if not cpu_only and available_gpus > 0 and num_gpus > available_gpus:
         # Cap num_gpus at the maximum available GPUs
-        if available_gpus > 0 and num_gpus > available_gpus:
-            logging.warning(
-                f"Requested {num_gpus} GPUs but only {available_gpus} available. Capping at {available_gpus}."
-            )
-            num_gpus = int(available_gpus)
+        logging.warning(
+            f"Requested {num_gpus} GPUs but only {available_gpus} available. Capping at {available_gpus}."
+        )
+        num_gpus = int(available_gpus)
 
     # Create placement group and wait indefinitely for resources (allows job queuing).
     if cpu_only:
@@ -483,8 +506,7 @@ def main():
             strategy=strategy,
         )
         logging.info(
-            f"Waiting for CPU-only placement group ({num_cpu_workers} worker(s), "
-            f"strategy={strategy}, no GPUs)..."
+            f"Waiting for CPU-only placement group ({num_cpu_workers} worker(s), strategy={strategy}, no GPUs)..."
         )
     else:
         placement_group = ray.util.placement_group(

@@ -24,8 +24,10 @@ from torch.nn.attention.flex_attention import (
     BlockMask,
     and_masks,
     create_block_mask,
-    flex_attention as torch_flex_attention,
     or_masks,
+)
+from torch.nn.attention.flex_attention import (
+    flex_attention as torch_flex_attention,
 )
 
 # Check kernel_options support BEFORE compiling (compiled wrapper may not preserve signature).
@@ -95,6 +97,10 @@ def flex_attention_op(
     kwargs = {"query": q, "key": k, "value": v, "block_mask": attn_mask}
     if _FLEX_KERNEL_OPTIONS:
         kwargs["kernel_options"] = _FLEX_KERNEL_OPTIONS
+    if torch.compiler.is_compiling():
+        # Avoid nesting compiled flex_attention inside a larger compiled region.
+        # The caller's compiled graph should own this boundary.
+        compile_attention = False
     attention_fn = compiled_flex_attention if compile_attention else torch_flex_attention
     out = attention_fn(**kwargs)
     out = out[:, :, :S] if pad > 0 else out
@@ -105,7 +111,8 @@ def flex_attention_op(
 
 
 def create_sparse_mask(split_lens, attn_modes, device):
-    """create sparse attention mask for flex attention for block causal attention
+    """Create sparse attention mask for flex attention for block causal attention.
+
     Inputs:
         split_lens: list[int] - sequence lengths of each split
         attn_modes: list[str] - attention modes for each split ("full", "noise", "zero")
@@ -132,28 +139,28 @@ def create_sparse_mask(split_lens, attn_modes, device):
         0000000000
     """
 
-    def causal_mask(b, h, q_idx, kv_idx):
+    def causal_mask(_b, _h, q_idx, kv_idx):
         return q_idx >= kv_idx
 
-    def full_and_noise_mask(b, h, q_idx, kv_idx):
+    def full_and_noise_mask(_b, _h, q_idx, kv_idx):
         return (full_and_noise_seq_id[q_idx] == full_and_noise_seq_id[kv_idx]) & (
             full_and_noise_seq_id[q_idx] >= 0
         )
 
-    def remove_noise_mask(b, h, q_idx, kv_idx):
+    def remove_noise_mask(_b, _h, q_idx, kv_idx):
         return ~((noise_seq_id[kv_idx] >= 0) & (noise_seq_id[q_idx] != noise_seq_id[kv_idx]))
 
-    def sample_mask(b, h, q_idx, kv_idx):
+    def sample_mask(_b, _h, q_idx, kv_idx):
         return document_id[q_idx] == document_id[kv_idx]
 
-    def padding_mask(b, h, q_idx, kv_idx):
+    def padding_mask(_b, _h, q_idx, kv_idx):
         return zero_id[q_idx] & zero_id[kv_idx]
 
     full_and_noise_tmp = []
     noise_tmp = []
     zero_tmp = []  # NEW
 
-    for i, (length, mode) in enumerate(zip(split_lens, attn_modes)):
+    for i, (length, mode) in enumerate(zip(split_lens, attn_modes, strict=False)):
         # original logic for full/noise groupings
         value = i if mode in ["full", "noise"] else -1
         full_and_noise_tmp.extend([value] * length)
@@ -186,7 +193,7 @@ def create_sparse_mask(split_lens, attn_modes, device):
 
 
 def print_mask(mask_mod, len_q, len_kv):
-    """utility function to visualize the mask"""
+    """Utility function to visualize the mask."""
 
     def _fn(q, len_kv):
         mask = [
@@ -198,7 +205,7 @@ def print_mask(mask_mod, len_q, len_kv):
 
     for q in range(len_q):
         row = _fn(q, len_kv)
-        print(f"{''.join(map(str, row))}")
+        print(f"{''.join(map(str, row))}")  # noqa: T201
 
 
 # @functools.lru_cache(maxsize=32)
@@ -261,7 +268,7 @@ def create_sparse_mask_tensor(
     noise_tmp = []
     pad_ok_tmp = []
 
-    for i, (length, mode) in enumerate(zip(split_lens, attn_modes)):
+    for i, (length, mode) in enumerate(zip(split_lens, attn_modes, strict=False)):
         full_and_noise_tmp.extend([i if mode in ["full", "noise"] else -1] * int(length))
         noise_tmp.extend([i if mode == "noise" else -1] * int(length))
         pad_ok_tmp.extend([mode != "zero"] * int(length))
@@ -329,7 +336,7 @@ def eager_masked_attention_bshd(
     Bv, S_v, Hv, Dv = v.shape
     assert B == Bk == Bv
     assert H == Hk == Hv
-    assert D == Dk
+    assert Dk == D
     assert S_k == S_v
     assert Dv == D, "this implementation assumes v has same last dim as q/k"
     assert attn_mask.shape == (S_q, S_k)

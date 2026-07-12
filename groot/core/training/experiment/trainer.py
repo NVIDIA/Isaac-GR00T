@@ -47,8 +47,8 @@ from typing import Any
 from accelerate.utils import DistributedType
 import structlog
 import torch
+from torch import nn
 import torch.distributed as dist
-import torch.nn as nn
 from torch.optim.lr_scheduler import LambdaLR
 from transformers.trainer import (
     TRAINER_STATE_NAME,
@@ -372,7 +372,7 @@ class _PrefetchIterator:
 
 def _batch_accuracy(
     preds: torch.Tensor, labels: torch.Tensor, action_offset: int | None = None
-) -> torch.Tensor:  # noqa: D401
+) -> torch.Tensor:
     """Compute token-level accuracy, ignoring ``-100`` label positions.
 
     Args:
@@ -495,7 +495,7 @@ class GR00TTrainer(Trainer):
         self,
         *args: Any,
         **kwargs: Any,
-    ) -> None:  # noqa: D401 – simple description above
+    ) -> None:
         """Initialize the trainer.
 
         Args:
@@ -972,9 +972,7 @@ class GR00TTrainer(Trainer):
                     {
                         "name": str(key),
                         "type": type(value).__name__,
-                        "value": "nan"
-                        if math.isnan(scalar)
-                        else ("inf" if scalar > 0 else "-inf"),
+                        "value": "nan" if math.isnan(scalar) else ("inf" if scalar > 0 else "-inf"),
                     }
                 )
 
@@ -1107,8 +1105,7 @@ class GR00TTrainer(Trainer):
             )
             log_every_accumulations = logging_steps * max(gradient_accumulation_steps, 1)
             should_flush_aux_losses = (
-                step > self._last_aux_loss_log_step
-                and step % log_every_accumulations == 0
+                step > self._last_aux_loss_log_step and step % log_every_accumulations == 0
             )
 
         local_means: dict[str, torch.Tensor] = {}
@@ -1141,7 +1138,9 @@ class GR00TTrainer(Trainer):
         )
         self._distributed_mean_(packed)
 
-        metrics = {f"train_global/{name}": packed[idx].item() for idx, name in enumerate(metric_names)}
+        metrics = {
+            f"train_global/{name}": packed[idx].item() for idx, name in enumerate(metric_names)
+        }
 
         if should_flush_aux_losses:
             self._aux_loss_metric_totals.clear()
@@ -1157,8 +1156,7 @@ class GR00TTrainer(Trainer):
             self.log(metrics)
 
     def _straggler_section(self, name: str, profile_cuda: bool = False):
-        """
-        Context manager for straggler detection sections.
+        """Context manager for straggler detection sections.
 
         If straggler detection is disabled or not initialized, returns a no-op context manager.
 
@@ -1217,8 +1215,7 @@ class GR00TTrainer(Trainer):
         return super().create_scheduler(num_training_steps, optimizer)
 
     def create_optimizer(self):
-        """
-        Setup the optimizer.
+        """Setup the optimizer.
 
         We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
         Trainer's init through `optimizers`, or subclass and override this method in a subclass.
@@ -1229,8 +1226,7 @@ class GR00TTrainer(Trainer):
             return super().create_optimizer()
 
     def create_optimizer_muon(self):
-        """
-        Setup the optimizer using the Muon example pattern.
+        """Setup the optimizer using the Muon example pattern.
 
         Creates specific parameter groups for different types of parameters:
         - hidden_matrix_params: matrix parameters from model blocks (ndim >= 2, not embedding)
@@ -1805,7 +1801,7 @@ class GR00TTrainer(Trainer):
     # Dataloader bypass for UnifiedDistributedBuffer
     # ------------------------------------------------------------------
 
-    def get_train_dataloader(self):  # noqa: D401
+    def get_train_dataloader(self):
         """Return an iterable that fetches entire batches from ``UnifiedDistributedBuffer``.
 
         If the underlying ``train_dataset`` is an instance of
@@ -1821,7 +1817,6 @@ class GR00TTrainer(Trainer):
         This cuts down per-sample overhead and lowers the time spent in the
         data-loading phase when multi-process workers are not an option.
         """
-
         # Fall back to default behaviour if not using the custom buffer.
         # During resume, don't skip the data
         self.args.ignore_data_skip = True
@@ -2129,6 +2124,7 @@ class GR00TTrainer(Trainer):
                 if self.args.use_truncated_bptt:
                     loss = self.training_step_truncated_bptt(model, inputs, num_items_in_batch)
                 else:
+                    self._maybe_mark_ttt_cudagraph_step_begin(model)
                     loss = super().training_step(model, inputs, num_items_in_batch)
 
         self._maybe_dump_nonfinite_loss_diagnostics(
@@ -2150,6 +2146,54 @@ class GR00TTrainer(Trainer):
 
         return loss
 
+    @staticmethod
+    def _model_stack_contains_ttt(model: Any) -> bool:
+        stack = [model]
+        seen: set[int] = set()
+        while stack:
+            current = stack.pop()
+            if current is None:
+                continue
+            current_id = id(current)
+            if current_id in seen:
+                continue
+            seen.add(current_id)
+
+            names = [type(current).__name__]
+            config = getattr(current, "config", None)
+            if config is not None:
+                names.append(type(config).__name__)
+            if any("ttt" in name.lower() for name in names):
+                return True
+
+            for attr in ("module", "_orig_mod", "model", "base_model"):
+                child = getattr(current, attr, None)
+                if child is not None and child is not current:
+                    stack.append(child)
+        return False
+
+    def _maybe_mark_ttt_cudagraph_step_begin(self, model: Any) -> None:
+        ttt_reduce_overhead = (
+            os.environ.get("GROOT_TTT_INNER_COMPILE_MODE", "").lower() == "reduce-overhead"
+            or os.environ.get("GROOT_TTT_TRANSFORMER_COMPILE_MODE", "").lower() == "reduce-overhead"
+        )
+        model_reduce_overhead = (
+            getattr(self.args, "torch_compile", False)
+            and getattr(self.args, "torch_compile_mode", None) == "reduce-overhead"
+        )
+        if not (model_reduce_overhead or ttt_reduce_overhead):
+            return
+        if not (
+            self._model_stack_contains_ttt(model)
+            or self._model_stack_contains_ttt(getattr(self, "model", None))
+        ):
+            return
+
+        compiler = getattr(torch, "compiler", None)
+        mark_step_begin = getattr(compiler, "cudagraph_mark_step_begin", None)
+        if mark_step_begin is not None:
+            mark_step_begin()
+
     def get_batch_samples(self, epoch_iterator, num_batches, device):
         """Override get_batch_samples to log data loading stall and per-batch datapoint ids.
 
@@ -2160,9 +2204,7 @@ class GR00TTrainer(Trainer):
         """
         structlog.contextvars.bind_contextvars(global_step=self.state.global_step)
         t0 = time.perf_counter()
-        batch_samples, num_items = super().get_batch_samples(
-            epoch_iterator, num_batches, device
-        )
+        batch_samples, num_items = super().get_batch_samples(epoch_iterator, num_batches, device)
         stall_ms = round((time.perf_counter() - t0) * 1000, 2)
 
         # get_datapoint_ids walks every batch in batch_samples in one pass, so
@@ -2230,6 +2272,34 @@ class GR00TTrainer(Trainer):
     # Loss / accuracy computation override
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _normalize_ttt_trajectory_scalar_metadata(inputs: Any) -> None:
+        """Normalize TTT trajectory metadata before compiled model forward.
+
+        ``GrootN2TTT.forward`` flattens trajectory batches and historically
+        reduced these values with ``.item()`` inside forward. Under model-level
+        torch.compile that creates scalar graph breaks, so keep the exact same
+        reductions in the uncompiled trainer path.
+        """
+        batch = inputs
+        if (
+            isinstance(batch, Mapping)
+            and "inputs" in batch
+            and isinstance(batch["inputs"], Mapping)
+        ):
+            batch = batch["inputs"]
+        if not isinstance(batch, Mapping) or "is_real_timestep" not in batch:
+            return
+
+        for key in ("num_cond_frames", "num_total_frames"):
+            value = batch.get(key)
+            if isinstance(value, torch.Tensor):
+                batch[key] = int(value.max().item())
+
+        has_real_action = batch.get("has_real_action")
+        if isinstance(has_real_action, torch.Tensor):
+            batch["has_real_action"] = bool(has_real_action.any().item())
+
     def compute_loss(
         self,
         model,
@@ -2244,6 +2314,7 @@ class GR00TTrainer(Trainer):
         by calling it with ``return_outputs=True``.  After obtaining the loss
         *and* model outputs, we calculate accuracy and push it to the logger.
         """
+        self._normalize_ttt_trajectory_scalar_metadata(inputs)
 
         with self.timer.with_label("model_forward"):
             with self._straggler_section("model_forward", profile_cuda=self.straggler_profile_cuda):
@@ -2351,8 +2422,7 @@ class GR00TTrainer(Trainer):
     def training_step_truncated_bptt(
         self, model: nn.Module, inputs: dict[str, torch.Tensor | Any], num_items_in_batch=None
     ) -> torch.Tensor:
-        """
-        Perform a training step on a batch of inputs using truncated back propagation through time.
+        """Perform a training step on a batch of inputs using truncated back propagation through time.
 
         Args:
             model (`nn.Module`):
@@ -2370,7 +2440,14 @@ class GR00TTrainer(Trainer):
         if hasattr(self.optimizer, "train") and callable(self.optimizer.train):
             self.optimizer.train()
 
-        keys_T_second = ["action", "action_mask", "embodiment_id", "state", "task_index", "is_real_timestep"]
+        keys_T_second = [
+            "action",
+            "action_mask",
+            "embodiment_id",
+            "state",
+            "task_index",
+            "is_real_timestep",
+        ]
 
         def _sync_seq_len(inputs):
             """Sync shapes across ranks and adjust seq len dimension accordingly"""
@@ -2460,6 +2537,7 @@ class GR00TTrainer(Trainer):
             chunk_inputs["denoise_timestep"] = denoise_timestep
             chunk_inputs["total_seqlen"] = total_seqlen
             chunk_inputs["last_mini_batch_params_dict"] = last_mini_batch_params_dict
+            self._maybe_mark_ttt_cudagraph_step_begin(model)
             with self.compute_loss_context_manager():
                 loss, outputs = self.compute_loss(
                     model, chunk_inputs, num_items_in_batch=num_items_in_batch, return_outputs=True
@@ -2495,7 +2573,8 @@ class GR00TTrainer(Trainer):
                 outputs["L_token"] if chunk_idx == 0 else total_seqlen + outputs["L_token"]
             )
             last_mini_batch_params_dict = [
-                {k: v.detach() for k, v in layer.items()} for layer in outputs["state_output"]
+                {k: v.detach().clone() for k, v in layer.items()}
+                for layer in outputs["state_output"]
             ]
             del outputs
 

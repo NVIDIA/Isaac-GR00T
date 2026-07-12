@@ -52,7 +52,7 @@ from groot.core.policy.gr00t_policy import Gr00tFlatPolicyWrapper, Gr00tPolicy
 from groot.core.policy.server_client import PolicyServer
 
 DEFAULT_MODEL_SERVER_PORT = 5555
-N2_MODEL_TYPES = {"GrootN2", "GrootN2TTT", "GrootN2RL"}
+N2_MODEL_TYPES = {"GrootN2", "GrootN2RL", "GrootN2TTT"}
 # "gr00t" covers the migrated N1 series (GrootN1d6 / GrootN1d7) and any other
 # non-N2 core model — they load through the generic Gr00tPolicy branch below.
 # "groot_n2" is GrootN2. N1.5 (legacy VLA), gr00t_ttt, dream0 and TensorRT are

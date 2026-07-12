@@ -66,6 +66,7 @@ def _find_lustre_alternative(dep_path: str) -> str | None:
         break
     return None
 
+
 # Config keys that reference model dep paths
 _CONFIG_PATH_KEYS = [
     "diffusion_model_pretrained_path",  # in diffusion_model_cfg
@@ -103,13 +104,13 @@ def _extract_dep_paths(config: dict) -> list[str]:
     """Extract all model dependency paths from a config dict (recursive search)."""
     paths = []
 
-    def _search(obj: dict | list, key: str | None = None):
+    def _search(obj: dict | list):
         if isinstance(obj, dict):
             for k, v in obj.items():
                 if k in _CONFIG_PATH_KEYS and isinstance(v, str) and v:
                     paths.append(v)
                 else:
-                    _search(v, k)
+                    _search(v)
         elif isinstance(obj, list):
             for item in obj:
                 _search(item)
@@ -170,7 +171,7 @@ def ensure_cosmos_model_deps(
         config = json.load(f)
 
     # Only applies to checkpoints that bake Lustre paths for sub-model deps
-    _SUPPORTED_MODEL_TYPES = {"DreamCosmos", "DreamZero", "GrootN2", "GrootN2RL"}
+    _SUPPORTED_MODEL_TYPES = {"DreamCosmos", "DreamZero", "GrootN2", "GrootN2RL", "GrootN2TTT"}
     model_type = config.get("model_type", "")
     if not any(mt in model_type for mt in _SUPPORTED_MODEL_TYPES):
         logger.info(f"Not a supported checkpoint (model_type={model_type}), skipping")
@@ -271,16 +272,16 @@ def _download_deps(
     s3 = _get_s3_client()
     bucket = "GearCheckpoints"
 
-    for original_path, rel_path in paths_to_download:
+    for _original_path, rel_path in paths_to_download:
         local_target = cache_dir / rel_path
         s3_prefix = f"model_deps/{rel_path}"
 
         # Determine if this is a directory (text encoder) or single file
         is_directory = not rel_path.endswith((".pt", ".pth", ".bin", ".safetensors"))
 
-        print(f"Downloading model dep: {rel_path}")
-        print(f"  From: s3://{bucket}/{s3_prefix}")
-        print(f"  To:   {local_target}")
+        logger.info(f"Downloading model dep: {rel_path}")
+        logger.info(f"  From: s3://{bucket}/{s3_prefix}")
+        logger.info(f"  To:   {local_target}")
 
         local_target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -298,20 +299,20 @@ def _download_deps(
                     local_path = local_target / obj_rel
                     local_path.parent.mkdir(parents=True, exist_ok=True)
                     size_mb = obj["Size"] / 1e6
-                    print(f"    {obj_rel} ({size_mb:.1f} MB)")
+                    logger.info(f"    {obj_rel} ({size_mb:.1f} MB)")
                     s3.download_file(bucket, key, str(local_path))
                     file_count += 1
-            print(f"  Done: {file_count} files downloaded")
+            logger.info(f"  Done: {file_count} files downloaded")
         else:
             # Single file download
             t0 = time.time()
             # Get file size first
             head = s3.head_object(Bucket=bucket, Key=s3_prefix)
             size_mb = head["ContentLength"] / 1e6
-            print(f"    Size: {size_mb:.1f} MB")
+            logger.info(f"    Size: {size_mb:.1f} MB")
             s3.download_file(bucket, s3_prefix, str(local_target))
             dt = time.time() - t0
-            print(f"  Done in {dt:.1f}s ({size_mb / max(dt, 0.1):.1f} MB/s)")
+            logger.info(f"  Done in {dt:.1f}s ({size_mb / max(dt, 0.1):.1f} MB/s)")
 
 
 def _rewrite_configs(
@@ -365,6 +366,6 @@ def _rewrite_configs(
         if content != original_content:
             with open(config_path, "w") as f:
                 f.write(content)
-            print(f"  Rewrote paths in {config_file}")
+            logger.info(f"  Rewrote paths in {config_file}")
         else:
             logger.info(f"No rewrites needed for {config_file}")
