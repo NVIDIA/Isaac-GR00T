@@ -20,3 +20,13 @@ vlm_autoeval_smoke:
   ]
   workflow: "vlm_autoeval_smoke.yml"
   pool: "${OSMO_POOL}"
+
+vlm_nanobot_dummy:
+  owner: [jbjorck]
+  args: [
+    IMAGE=$IMAGE,
+    GROOT_COMMIT_BRANCH=$GROOT_COMMIT_BRANCH,
+    GITLAB_TOKEN=$GITLAB_TOKEN
+  ]
+  workflow: "vlm_nanobot_dummy.yml"
+  pool: "${OSMO_POOL}"
