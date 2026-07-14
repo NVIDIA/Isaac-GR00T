@@ -20,6 +20,7 @@ to the video-only processor.
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,18 @@ _ACTION_STATE_KEYS = frozenset(
         "has_real_action",
     }
 )
+
+
+def _env_bool_optional(name: str) -> bool | None:
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    value = value.strip().lower()
+    if value in ("1", "true", "yes", "y", "on"):
+        return True
+    if value in ("0", "false", "no", "n", "off"):
+        return False
+    raise ValueError(f"{name} must be a boolean, got {value!r}")
 
 
 def _as_python_scalar(value: Any) -> Any:
@@ -223,6 +236,9 @@ class GrootN2Processor(BaseProcessor):
         # Action/state processing
         self.embodiment_id_mapping = embodiment_id_mapping or EMBODIMENT_TAG_TO_PROJECTOR_INDEX
         if action_cfg is not None:
+            use_q99_for_rel_action = _env_bool_optional("GROOT_N2_USE_Q99_REL")
+            if use_q99_for_rel_action is None:
+                use_q99_for_rel_action = action_cfg.get("use_q99_for_rel_action", True)
             self.max_action_dim = action_cfg.get("max_action_dim", 32)
             self.max_state_dim = action_cfg.get("max_state_dim", 64)
             self.max_action_horizon = action_cfg.get("max_action_horizon", None)
@@ -233,6 +249,7 @@ class GrootN2Processor(BaseProcessor):
                 use_percentiles=action_cfg.get("use_percentiles", False),
                 clip_outliers=action_cfg.get("clip_outliers", True),
                 use_relative_action=True,
+                use_q99_for_rel_action=use_q99_for_rel_action,
             )
             self.state_dropout_prob = action_cfg.get("state_dropout_prob", 0.0)
         else:

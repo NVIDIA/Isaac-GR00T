@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Unified processor for robot state and action data.
+"""Unified processor for robot state and action data.
 
 Handles:
 - State normalization (min/max, mean/std, sin/cos encoding)
@@ -24,15 +23,10 @@ Handles:
 """
 
 from copy import deepcopy
+import logging
 
 import numpy as np
 
-from groot.core.training.configs.data.embodiment_configs import (
-    ActionFormat,
-    ActionRepresentation,
-    ActionType,
-    ModalityConfig,
-)
 from groot.core.data.state_action.action_chunking import (
     EndEffectorActionChunk,
     JointActionChunk,
@@ -47,11 +41,18 @@ from groot.core.data.utils import (
     unnormalize_values_meanstd,
     unnormalize_values_minmax,
 )
+from groot.core.training.configs.data.embodiment_configs import (
+    ActionFormat,
+    ActionRepresentation,
+    ActionType,
+    ModalityConfig,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class StateActionProcessor:
-    """
-    Unified processor for robot state and action data.
+    """Unified processor for robot state and action data.
 
     Handles:
     - State normalization (min/max, mean/std, sin/cos encoding)
@@ -68,9 +69,9 @@ class StateActionProcessor:
         clip_outliers: bool = True,
         apply_sincos_state_encoding: bool = False,
         use_relative_action: bool = False,
+        use_q99_for_rel_action: bool | None = None,
     ):
-        """
-        Initialize unified state and action processor.
+        """Initialize unified state and action processor.
 
         Args:
             modality_configs: Nested dict with structure:
@@ -85,6 +86,10 @@ class StateActionProcessor:
             use_percentiles: Whether to use percentiles (q01/q99) instead of min/max
             clip_outliers: Whether to clip normalized values to [-1, 1]
             apply_sincos_state_encoding: Global flag to enable sin/cos encoding for states
+            use_relative_action: Whether to override absolute action stats with relative-action stats.
+            use_q99_for_rel_action: Whether relative-action stats should route q01/q99
+                into the min/max slots when use_percentiles is enabled. None preserves
+                the current default behavior (match use_percentiles).
         """
         self.modality_configs = parse_modality_configs(modality_configs)
         self.statistics: dict[str, dict[str, dict[str, dict[str, list[float]]]]] = {}
@@ -92,6 +97,9 @@ class StateActionProcessor:
         self.clip_outliers = clip_outliers
         self.apply_sincos_state_encoding = apply_sincos_state_encoding
         self.use_relative_action = use_relative_action
+        self.use_q99_for_rel_action = (
+            use_percentiles if use_q99_for_rel_action is None else use_q99_for_rel_action
+        )
 
         # Normalization parameters computed from statistics
         self.norm_params: dict[str, dict[str, dict[str, dict[str, np.ndarray]]]] = {}
@@ -114,18 +122,18 @@ class StateActionProcessor:
         statistics: dict[str, dict[str, dict[str, dict[str, list[float]]]]],
         override: bool = False,
     ) -> None:
-        """
-        Set dataset statistics for normalization.
+        """Set dataset statistics for normalization.
 
         Args:
             statistics: Nested dict with structure:
                 {embodiment_tag: {modality: {joint_group: {stat_type: values}}}}
+            override: Whether to replace existing statistics for duplicate embodiment tags.
         """
-        for key in statistics:
+        for key, value in statistics.items():
             if key not in self.statistics or override:
-                self.statistics[key] = deepcopy(statistics[key])
+                self.statistics[key] = deepcopy(value)
             else:
-                print(f"Embodiment tag {key} already in statistics, skipping updating")
+                logger.info("Embodiment tag %s already in statistics, skipping updating", key)
         self._compute_normalization_parameters()
 
     def _compute_normalization_parameters(self) -> None:
@@ -164,9 +172,7 @@ class StateActionProcessor:
 
             # Override absolute action stats with relative stats where specified
             if embodiment_tag not in self.modality_configs:
-                import logging
-
-                logging.warning(
+                logger.warning(
                     f"Embodiment tag '{embodiment_tag}' found in statistics but not in "
                     f"modality_configs — skipping relative action override."
                 )
@@ -176,7 +182,7 @@ class StateActionProcessor:
                 action_configs = self.modality_configs[embodiment_tag]["action"].action_configs
 
                 if action_configs is not None:
-                    for key, action_config in zip(modality_keys, action_configs):
+                    for key, action_config in zip(modality_keys, action_configs, strict=False):
                         if (
                             action_config.rep == ActionRepresentation.RELATIVE
                             and self.use_relative_action
@@ -203,7 +209,7 @@ class StateActionProcessor:
                             # raw min/max) must be migrated with
                             # groot/core/training/scripts/patch_eval/patch_rel_stats_q99.py
                             # or they will normalize relative actions incorrectly at eval.
-                            if self.use_percentiles:
+                            if self.use_percentiles and self.use_q99_for_rel_action:
                                 rel_min = rel_stats["q01"]
                                 rel_max = rel_stats["q99"]
                             else:
@@ -228,8 +234,7 @@ class StateActionProcessor:
         state: dict[str, np.ndarray],
         embodiment_tag: str,
     ) -> dict[str, np.ndarray]:
-        """
-        Apply state processing (normalization, encoding).
+        """Apply state processing (normalization, encoding).
 
         Args:
             state: Dict mapping joint_group -> raw state values
@@ -289,8 +294,7 @@ class StateActionProcessor:
         state: dict[str, np.ndarray],
         embodiment_tag: str,
     ) -> dict[str, np.ndarray]:
-        """
-        Reverse state processing (denormalization).
+        """Reverse state processing (denormalization).
 
         Args:
             state: Dict mapping joint_group -> processed state values
@@ -325,7 +329,7 @@ class StateActionProcessor:
                 )
 
             # Reverse mean/std normalization
-            elif (
+            if (
                 hasattr(self.modality_configs[embodiment_tag]["state"], "mean_std_embedding_keys")
                 and self.modality_configs[embodiment_tag]["state"].mean_std_embedding_keys
                 and joint_group
@@ -350,8 +354,7 @@ class StateActionProcessor:
         embodiment_tag: str,
         state: dict[str, np.ndarray] | None = None,
     ) -> dict[str, np.ndarray]:
-        """
-        Apply action processing (absolute->relative conversion, normalization).
+        """Apply action processing (absolute->relative conversion, normalization).
 
         Processing order:
         1. Convert absolute actions to relative (if configured)
@@ -379,7 +382,7 @@ class StateActionProcessor:
         action_configs = self.modality_configs[embodiment_tag]["action"].action_configs
 
         if action_configs is not None:
-            for key, action_config in zip(modality_keys, action_configs):
+            for key, action_config in zip(modality_keys, action_configs, strict=False):
                 if action_config.rep == ActionRepresentation.RELATIVE and self.use_relative_action:
                     if state is None:
                         raise ValueError(
@@ -440,8 +443,7 @@ class StateActionProcessor:
         embodiment_tag: str,
         state: dict[str, np.ndarray] | None = None,
     ) -> dict[str, np.ndarray]:
-        """
-        Reverse action processing (denormalization, relative->absolute conversion).
+        """Reverse action processing (denormalization, relative->absolute conversion).
 
         Processing order:
         1. Denormalize actions
@@ -490,7 +492,7 @@ class StateActionProcessor:
         action_configs = self.modality_configs[embodiment_tag]["action"].action_configs
 
         if action_configs is not None:
-            for key, action_config in zip(modality_keys, action_configs):
+            for key, action_config in zip(modality_keys, action_configs, strict=False):
                 if action_config.rep == ActionRepresentation.RELATIVE and self.use_relative_action:
                     if state is None:
                         raise ValueError(
@@ -524,7 +526,7 @@ class StateActionProcessor:
 
                     # Convert batched relative actions to absolute
                     absolute_actions = []
-                    for s, a in zip(reference_state, relative_action):
+                    for s, a in zip(reference_state, relative_action, strict=False):
                         # Use last timestep of state as reference
                         absolute_action = self._convert_to_absolute_action(
                             action=a,
@@ -547,8 +549,7 @@ class StateActionProcessor:
         action: dict[str, np.ndarray],
         embodiment_tag: str,
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
-        """
-        Apply both state and action processing together.
+        """Apply both state and action processing together.
 
         Convenience method that processes state and action in one call,
         automatically passing raw state to action processor for relative conversion.
@@ -576,8 +577,7 @@ class StateActionProcessor:
         embodiment_tag: str,
         raw_state: dict[str, np.ndarray] | None = None,
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
-        """
-        Reverse both state and action processing together.
+        """Reverse both state and action processing together.
 
         Args:
             state: Dict mapping joint_group -> processed state values
@@ -608,8 +608,7 @@ class StateActionProcessor:
         return unapplied_state, unapplied_action
 
     def get_state_dim(self, embodiment_tag: str, include_sincos_expansion: bool = False) -> int:
-        """
-        Get total state dimension after processing.
+        """Get total state dimension after processing.
 
         Args:
             embodiment_tag: Embodiment identifier
@@ -638,8 +637,7 @@ class StateActionProcessor:
         return total_dim
 
     def get_action_dim(self, embodiment_tag: str) -> int:
-        """
-        Get total action dimension.
+        """Get total action dimension.
 
         Args:
             embodiment_tag: Embodiment identifier
@@ -734,4 +732,12 @@ class StateActionProcessor:
         return abs_action.to(action_format)
 
     def __str__(self) -> str:
-        return f"StateActionProcessor(modality_configs={self.modality_configs}, statistics={self.statistics}, use_percentiles={self.use_percentiles}, clip_outliers={self.clip_outliers}, apply_sincos_state_encoding={self.apply_sincos_state_encoding}, use_relative_action={self.use_relative_action})"
+        return (
+            "StateActionProcessor("
+            f"modality_configs={self.modality_configs}, "
+            f"statistics={self.statistics}, "
+            f"use_percentiles={self.use_percentiles}, "
+            f"clip_outliers={self.clip_outliers}, "
+            f"apply_sincos_state_encoding={self.apply_sincos_state_encoding}, "
+            f"use_relative_action={self.use_relative_action})"
+        )
