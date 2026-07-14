@@ -18,17 +18,13 @@ Evaluation is performed using [`run_libero_eval.py`](https://github.com/NVIDIA/I
 
 | Task      | Success rate       | max_steps | grad_accum_steps | batch_size | Data config                                                     |                   Checkpoint                  |
 |-----------|--------------------|-----------|------------------|------------|-----------------------------------------------------------------|-----------------------------------------------|
-| Spatial   | 46/50 (92%)        | 20K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-spatial-posttrain|
-| Goal      | 43/50 (86%)        | 20K       | 4                | 72         | examples.Libero.custom_data_config:LiberoDataConfigMeanStd      |youliangtan/gr00t-n1.5-libero-goal-posttrain|
-| Object    | 46/50 (92%)        | 20K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-object-posttrain|
+| Spatial   | 98/100 (98%)       | 20K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-spatial-posttrain|
+| Goal      | 94/100 (94%)       | 20K       | 4                | 72         | examples.Libero.custom_data_config:LiberoDataConfigMeanStd      |youliangtan/gr00t-n1.5-libero-goal-posttrain|
+| Object    | 99/100 (99%)       | 20K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-object-posttrain|
 | Libero-90 | 402/450 (89.3%)    | 60K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-90-posttrain|
-| Long      | 38/50 (76%)        | 60K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-long-posttrain|
+| Long      | 88/100 (88%)       | 60K       | 1                | 128        | examples.Libero.custom_data_config:LiberoDataConfig             |youliangtan/gr00t-n1.5-libero-long-posttrain|
 
-
-
-
-
-> Note: The results reported above were obtained with minimal hyperparameter tuning and are intended primarily for demonstration purposes. More comprehensive studies have fine-tuned GR00T on LIBERO and achieved substantially higher performance. For example, see Table 3 in this [paper](https://arxiv.org/pdf/2508.21112).
+> Note: Spatial, Goal, Object, and Long were evaluated with 10 trials per task and an action horizon of 8. The Libero-90 result retains its original evaluation setting. These results were obtained with minimal hyperparameter tuning and are intended primarily for demonstration purposes. More comprehensive studies have fine-tuned GR00T on LIBERO and achieved substantially higher performance. For example, see Table 3 in this [paper](https://arxiv.org/pdf/2508.21112).
 ----
 
 To evaluate, first start the inference server with our provided checkpoint:
@@ -74,7 +70,10 @@ pip install robosuite==1.4.0
 Then run the evaluation:
 ```bash
 cd examples/Libero/eval
-python run_libero_eval.py --task_suite_name libero_spatial
+python run_libero_eval.py \
+    --task_suite_name libero_spatial \
+    --action_horizon 8 \
+    --num_trials_per_task 10
 ```
 
 ----

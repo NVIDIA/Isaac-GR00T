@@ -57,6 +57,7 @@ class GenerateConfig:
     #################################################################################################################
     task_suite_name: str = "libero_spatial"          # Task suite. Options: libero_spatial, libero_object, libero_goal, libero_10, libero_90
     num_steps_wait: int = 10                         # Number of steps to wait for objects to stabilize in sim
+    action_horizon: int = 8                          # Number of actions to execute from each predicted action chunk
     num_trials_per_task: int = 5                    # Number of rollouts per task
     #################################################################################################################
     # fmt: on
@@ -92,10 +93,18 @@ class GR00TPolicy:
 
     def get_action(self, observation_dict, lang: str):
         """Get action from GR00T policy given observation and language instruction."""
+        return self.get_action_chunk(observation_dict, lang)[0]
+
+    def get_action_chunk(self, observation_dict, lang: str) -> list[np.ndarray]:
+        """Get and convert the complete action chunk predicted by the policy."""
         obs_dict = self._process_observation(observation_dict, lang)
         # summarize_obs(obs_dict)
         action_chunk = self.policy.get_action(obs_dict)
-        return self._convert_to_libero_action(action_chunk, 0)
+        first_action_key = f"action.{self.action_keys[0]}"
+        chunk_horizon = np.asarray(action_chunk[first_action_key]).shape[0]
+        return [
+            self._convert_to_libero_action(action_chunk, idx) for idx in range(chunk_horizon)
+        ]
 
     def _process_observation(self, obs, lang: str):
         """Convert Libero observation to GR00T format."""
@@ -141,6 +150,9 @@ class GR00TPolicy:
 
 
 def eval_libero(cfg: GenerateConfig) -> None:
+    if cfg.action_horizon < 1:
+        raise ValueError(f"action_horizon must be at least 1, got {cfg.action_horizon}")
+
     # Initialize LIBERO task suite
     benchmark_dict = benchmark.get_benchmark_dict()
     task_suite = benchmark_dict[cfg.task_suite_name]()
@@ -148,6 +160,7 @@ def eval_libero(cfg: GenerateConfig) -> None:
     print(f"Task suite: {cfg.task_suite_name}")
     log_file = open(f"{log_dir}/libero_eval_{cfg.task_suite_name}.log", "w")
     log_file.write(f"Task suite: {cfg.task_suite_name}\n")
+    log_file.write(f"Action horizon: {cfg.action_horizon}\n")
 
     # Start evaluation
     total_episodes, total_successes = 0, 0
@@ -179,6 +192,7 @@ def eval_libero(cfg: GenerateConfig) -> None:
             t = 0
             top_view = []
             wrist_view = []
+            done = False
             if cfg.task_suite_name == "libero_spatial":
                 max_steps = 220  # longest training demo has 193 steps
             elif cfg.task_suite_name == "libero_object":
@@ -201,26 +215,31 @@ def eval_libero(cfg: GenerateConfig) -> None:
                         t += 1
                         continue
 
-                    # # Get preprocessed image
-                    img, wrist_img = get_libero_image(obs)
-
-                    # # Save preprocessed image for replay video
-                    top_view.append(img)
-                    wrist_view.append(wrist_img)
-
-                    # Query model to get action
-                    action = gr00t_policy.get_action(
+                    # Query the model once, then execute several actions from the predicted chunk.
+                    action_chunk = gr00t_policy.get_action_chunk(
                         obs,
                         task.language,
                     )
 
-                    # Execute action in environment
-                    obs, reward, done, info = env.step(action.tolist())
+                    remaining_steps = max_steps + cfg.num_steps_wait - t
+                    steps_to_execute = min(
+                        cfg.action_horizon, len(action_chunk), remaining_steps
+                    )
+                    for action in action_chunk[:steps_to_execute]:
+                        # Record one pre-action frame for every environment step.
+                        img, wrist_img = get_libero_image(obs)
+                        top_view.append(img)
+                        wrist_view.append(wrist_img)
+
+                        obs, reward, done, info = env.step(action.tolist())
+                        t += 1
+                        if done:
+                            task_successes += 1
+                            total_successes += 1
+                            break
+
                     if done:
-                        task_successes += 1
-                        total_successes += 1
                         break
-                    t += 1
 
                 except Exception as e:
                     print(f"Caught exception: {e}")
