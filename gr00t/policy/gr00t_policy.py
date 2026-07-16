@@ -106,11 +106,7 @@ class Gr00tPolicy(BasePolicy):
         model_dir = Path(model_path)
 
         # Load the pretrained model and move to target device with bfloat16 precision.
-        # torch_dtype=torch.bfloat16 materializes the checkpoint (stored in bf16)
-        # directly in bf16 instead of upcasting to fp32 first, halving peak host
-        # memory and load time. The final state is unchanged: bf16 -> fp32 -> bf16
-        # is a lossless round-trip, and the .to() below still normalizes any
-        # stragglers (e.g. non-persistent buffers) exactly as before.
+        # torch_dtype avoids materializing the bf16 checkpoint in fp32 first.
         model = AutoModel.from_pretrained(model_dir, torch_dtype=torch.bfloat16)
         model.eval()  # Set model to evaluation mode
         model.to(device=device, dtype=torch.bfloat16)
