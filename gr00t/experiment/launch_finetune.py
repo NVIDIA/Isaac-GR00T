@@ -90,6 +90,7 @@ if __name__ == "__main__":
         config.model.crop_fraction = ft_config.crop_fraction
         config.model.image_crop_size = None
         config.model.image_target_size = None
+    config.model.letter_box_transform = ft_config.letter_box_transform
     if ft_config.extra_augmentation_config:
         config.model.extra_augmentation_config = json.loads(ft_config.extra_augmentation_config)
     else:
