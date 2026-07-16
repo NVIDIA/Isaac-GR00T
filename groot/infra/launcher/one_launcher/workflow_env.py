@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Environment variable names managed by one-launcher workflow setup."""
+
+AUTHORITATIVE_WORKFLOW_ENV_NAMES = {
+    "BATCH_SIZE",
+    "CLUSTER_TYPE",
+    "EXPECTED_NUM_GPUS",
+    "EXPECTED_NUM_NODES",
+    "GEAR_DASHBOARD_FORCE_OUTBOX",
+    "GRADIENT_ACCUMULATION_STEPS",
+    "GROOT_BRANCH",
+    "GROOT_COMMIT_HASH",
+    "GROOT_OL_ENABLE_RETRY_RESUME",
+    "GROOT_OL_LFS_PREFIX",
+    "GROOT_OL_LAUNCH_ID",
+    "GROOT_OL_MAX_RETRIES",
+    "GROOT_OL_RETRY_POLICY",
+    "GROOT_OL_RETRY_RESCHEDULE_EXIT_CODE",
+    "HF_HUB_CACHE",
+    "JOB_NAME",
+    "LFS_CACHE_PATH",
+    "MSC_CACHE_PATH",
+    "NUM_GPUS",
+    "RAY_WAIT_TIMEOUT_SECONDS",
+    "USER_SLUG",
+}

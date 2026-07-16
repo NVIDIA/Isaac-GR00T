@@ -213,7 +213,9 @@ def get_variant(run_type: str, path: Path | None = None) -> GoldenRunVariant:
         return variants[run_type]
     except KeyError as exc:
         valid = ", ".join(sorted(variants))
-        raise ValueError(f"Unknown golden-run variant {run_type!r}. Valid variants: {valid}") from exc
+        raise ValueError(
+            f"Unknown golden-run variant {run_type!r}. Valid variants: {valid}"
+        ) from exc
 
 
 def validate_run_type(run_type: str, path: Path | None = None) -> str:
@@ -230,7 +232,9 @@ def _parse_variant(config_path: Path, run_type: str, body: Any) -> GoldenRunVari
         raise TypeError(f"{config_path}: variants.{run_type} must be a mapping")
     unknown = set(body) - _VARIANT_FIELDS
     if unknown:
-        raise ValueError(f"{config_path}: variants.{run_type} has unknown field(s): {', '.join(sorted(unknown))}")
+        raise ValueError(
+            f"{config_path}: variants.{run_type} has unknown field(s): {', '.join(sorted(unknown))}"
+        )
     label = _required_str(config_path, body, f"variants.{run_type}.label")
     metric_run_type = _required_str(config_path, body, f"variants.{run_type}.run_type")
     if not isinstance(metric_run_type, str) or not _RUN_TYPE_RE.fullmatch(metric_run_type):
@@ -240,7 +244,9 @@ def _parse_variant(config_path: Path, run_type: str, body: Any) -> GoldenRunVari
     launcher = _optional_str(config_path, body, f"variants.{run_type}.launcher") or None
     experiment = _optional_str(config_path, body, f"variants.{run_type}.experiment") or None
     data_config = _optional_str(config_path, body, f"variants.{run_type}.data_config") or None
-    training_config = _optional_str(config_path, body, f"variants.{run_type}.training_config") or None
+    training_config = (
+        _optional_str(config_path, body, f"variants.{run_type}.training_config") or None
+    )
     if bool(data_config) != bool(training_config):
         raise ValueError(
             f"{config_path}: variants.{run_type} must set both data_config and training_config, or neither"
@@ -252,7 +258,9 @@ def _parse_variant(config_path: Path, run_type: str, body: Any) -> GoldenRunVari
         )
     if experiment:
         if launcher:
-            raise ValueError(f"{config_path}: variants.{run_type}.launcher must be omitted when experiment is set")
+            raise ValueError(
+                f"{config_path}: variants.{run_type}.launcher must be omitted when experiment is set"
+            )
         launcher = CONFIG_BACKED_LAUNCHER
     elif data_config:
         if launcher:
@@ -331,7 +339,9 @@ def _parse_eval(config_path: Path, run_type: str, body: Any) -> GoldenRunEvalCon
     )
 
 
-def _parse_evaluation_type(config_path: Path, body: dict[str, Any], field_prefix: str) -> EvaluationType:
+def _parse_evaluation_type(
+    config_path: Path, body: dict[str, Any], field_prefix: str
+) -> EvaluationType:
     raw = body.get("type", body.get("evaluation_type"))
     if not isinstance(raw, str) or not raw.strip():
         raise ValueError(f"{config_path}: {field_prefix}.type must be one of: yam, yam_simulation")
@@ -374,7 +384,9 @@ def _parse_platforms(
                 f"{raw_name!r}. Valid platforms: {valid}"
             ) from exc
         if not isinstance(raw_platform, dict):
-            raise TypeError(f"{config_path}: variants.{run_type}.platforms.{raw_name} must be a mapping")
+            raise TypeError(
+                f"{config_path}: variants.{run_type}.platforms.{raw_name} must be a mapping"
+            )
         unknown = set(raw_platform) - _PLATFORM_FIELDS
         if unknown:
             raise ValueError(
@@ -397,7 +409,9 @@ def _parse_platforms(
                 f"variants.{run_type}.platforms.{raw_name}.gradient_accumulation_steps",
                 default=1,
             ),
-            pool=_optional_str(config_path, raw_platform, f"variants.{run_type}.platforms.{raw_name}.pool")
+            pool=_optional_str(
+                config_path, raw_platform, f"variants.{run_type}.platforms.{raw_name}.pool"
+            )
             or None,
         )
     return platforms
@@ -413,7 +427,7 @@ def _experiment_platform(
     compute_type: ComputeType,
 ) -> GoldenRunPlatformConfig:
     try:
-        from groot.internal.infra.job.training_experiment_resolver import (
+        from groot.infra.launcher.one_launcher.training_experiment_resolver import (
             TrainingExperimentResolver,
         )
     except ImportError as exc:
@@ -436,7 +450,7 @@ def _experiment_platform(
 
 def _load_experiment(experiment: str) -> Any:
     try:
-        from groot.internal.infra.job.training_experiment_resolver import (
+        from groot.infra.launcher.one_launcher.training_experiment_resolver import (
             TrainingExperimentResolver,
         )
     except ImportError as exc:
@@ -455,7 +469,9 @@ def _ordered_compute_types(raw_names: Iterable[str | ComputeType]) -> tuple[Comp
     return tuple(compute_type for compute_type in ComputeType if compute_type in compute_types)
 
 
-def _parse_artifacts(config_path: Path, run_type: str, body: Any) -> GoldenRunArtifactsConfig | None:
+def _parse_artifacts(
+    config_path: Path, run_type: str, body: Any
+) -> GoldenRunArtifactsConfig | None:
     if body is None:
         return None
     if not isinstance(body, dict):
@@ -492,7 +508,9 @@ def _parse_hf_model_artifact(
 ) -> GoldenRunHFModelArtifactConfig:
     unknown = set(body) - _HF_MODEL_ARTIFACT_FIELDS
     if unknown:
-        raise ValueError(f"{config_path}: {field_prefix} has unknown field(s): {', '.join(sorted(unknown))}")
+        raise ValueError(
+            f"{config_path}: {field_prefix} has unknown field(s): {', '.join(sorted(unknown))}"
+        )
     return GoldenRunHFModelArtifactConfig(
         repo_id=_required_str(config_path, body, f"{field_prefix}.repo_id"),
         revision=_required_str(config_path, body, f"{field_prefix}.revision"),
@@ -504,7 +522,9 @@ def _parse_hf_dataset_artifact(
 ) -> GoldenRunHFDatasetArtifactConfig:
     unknown = set(body) - _HF_DATASET_ARTIFACT_FIELDS
     if unknown:
-        raise ValueError(f"{config_path}: {field_prefix} has unknown field(s): {', '.join(sorted(unknown))}")
+        raise ValueError(
+            f"{config_path}: {field_prefix} has unknown field(s): {', '.join(sorted(unknown))}"
+        )
     return GoldenRunHFDatasetArtifactConfig(
         repo_id=_required_str(config_path, body, f"{field_prefix}.repo_id"),
         revision=_required_str(config_path, body, f"{field_prefix}.revision"),
@@ -536,7 +556,9 @@ def _required_int(config_path: Path, body: dict[str, Any], field: str) -> int:
     return value
 
 
-def _optional_positive_int(config_path: Path, body: dict[str, Any], field: str, *, default: int) -> int:
+def _optional_positive_int(
+    config_path: Path, body: dict[str, Any], field: str, *, default: int
+) -> int:
     key = field.rsplit(".", 1)[-1]
     if key not in body:
         return default
@@ -573,7 +595,9 @@ def _optional_str_list(config_path: Path, body: dict[str, Any], field: str) -> l
     value = body.get(key, [])
     if value is None:
         return []
-    if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item.strip() for item in value
+    ):
         raise ValueError(f"{config_path}: {field} must be a list of strings")
     return value
 
