@@ -1,7 +1,25 @@
 # Agent Instructions
 
-This repository is optimized for Codex-driven OSS post-training and open-loop
+This repository is optimized for local OSS post-training and open-loop
 evaluation.
+
+## Default Agents and Skills
+
+Use these three OSS agent definitions as the defaults for this package:
+
+- [`autoresearch`](.agents/autoresearch/autoresearch.toml) for model-driven
+  research and OSS post-training/evaluation. Its configured skills are
+  [`insights`](skills/insights/SKILL.md),
+  [`evaluation`](skills/evaluation/SKILL.md), and
+  [`post-train`](skills/post-train/SKILL.md).
+- [`autodebug`](.agents/autodebug/autodebug.toml) for debugging repository
+  issues. Its configured skill is [`insights`](skills/insights/SKILL.md).
+- [`faq`](.agents/faq/faq.toml) for concise, source-grounded documentation and
+  FAQ answers. Its configured skill is
+  [`insights`](skills/insights/SKILL.md).
+
+Treat each agent TOML file as the source of truth for its enabled skills, and
+follow the task-specific local post-training and evaluation rules below.
 
 ## Default Action
 
@@ -10,54 +28,53 @@ When the user asks to launch, inspect, retry, or debug OSS post-training, use th
 
 When the user asks to evaluate an existing checkpoint, use the `evaluation`
 Codex skill. When the user asks for post-train and evaluation
-together, use the `post-train` skill with `--eval` so both jobs run in one
-pipeline.
+together, use `uv run python -m groot.oss train-eval` so both jobs run in one
+local process chain.
 
-Do not start from the training Python entry point. Do not use the `golden-run`
-skill for OSS post-train work.
+Do not use OSMO, GitLab staging pipelines, or the `golden-run` skill for local
+OSS post-train work.
 
-## Skill Command
+## Shared CLI Command
 
-Run from the repository root:
+Run from the OSS package root:
 
 ```bash
-uv run python .codex/skills/post-train/scripts/post_train.py n2-minwam-sim-h100 high
+uv run python -m groot.oss train n2-minwam-sim
 ```
 
-Run post-train followed by evaluation:
+Run local post-train followed by evaluation:
 
 ```bash
-uv run python .codex/skills/post-train/scripts/post_train.py n2-minwam-sim-h100 high --eval
+uv run python -m groot.oss train-eval n2-minwam-sim
 ```
 
 Run evaluation for an existing checkpoint:
 
 ```bash
-uv run python .codex/skills/evaluation/scripts/evaluation.py n2-minwam-sim-h100 high --checkpoint <hf-uri-or-shared-path>
+uv run python -m groot.oss eval n2-minwam-sim --checkpoint <hf-uri-or-local-path>
 ```
 
-Use `low`, `normal`, or `high` as the optional priority argument. If the user does
-not specify a variant, use the default configured by the skill.
+If the user does not specify a variant, use the default configured by the skill.
 
 ## Required Environment
 
-For local Codex runs, set GitLab connection variables before triggering:
+Local training requires model dependency paths:
 
 ```bash
-export GITLAB_HOST=gitlab-master.nvidia.com
-export GITLAB_PROJECT_PATH=gr00t-release/isaac-gr00t-n2
-export GITLAB_TOKEN=<token>
+export COSMOS_MODEL_PATH=<local-cosmos-tokenizer-path>
+export DIFFUSION_TRANSFORMER_PATH=<local-transformer-path>
+export VAE_PATH=<local-vae-path>
 ```
 
-Look in `~/.credentials` before asking the user for a token.
+Set `HF_TOKEN` or a Hugging Face token alias if the configured artifacts require
+authentication.
 
 ## Expected Agent Flow
 
-1. Confirm the current branch is the intended branch.
-2. Trigger the post-train or evaluation skill helper.
-3. Report the pipeline URL and whether an MR comment was posted.
-4. Monitor the staging job when the user asks for status or failure triage.
-5. If the job fails, summarize the first actionable failure from the job trace.
+1. Confirm the user wants a local run and has the required local paths or HF access.
+2. Use `--dry-run` first when setup is unclear.
+3. Run the shared `python -m groot.oss` CLI from the OSS package root.
+4. Report the local command, output checkpoint or eval JSON path, and first actionable failure if one occurs.
 
 ## Source of Truth
 
@@ -69,6 +86,6 @@ This repository is a materialized copy of upstream `gr00t/oss`.
 
 ## Smoke Test
 
-`test.oss` is the CI smoke test for the skill path. It should stay short and only
-prove that the post-train and evaluation workflows can launch and reach a few
-steps.
+Local smoke checks should stay short and prove that the post-train and
+evaluation entrypoints build the expected local commands before running a full
+training or evaluation job.
