@@ -120,13 +120,51 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX: dict[str, int] = _build_tag_to_projector_inde
 )
 
 
-def build_processor(model_name: str, transformers_loading_kwargs: dict) -> Qwen3VLProcessor:
+def build_processor(
+    model_name: str,
+    transformers_loading_kwargs: dict,
+    use_fast_image_processor: bool | None = None,
+) -> Qwen3VLProcessor:
+    """Build the underlying Qwen3VL processor.
+
+    Args:
+        model_name: HF model name or local path of the VLM.
+        transformers_loading_kwargs: Extra kwargs for ``from_pretrained``.
+        use_fast_image_processor: Selects the HF image-processor implementation.
+
+            - ``None`` (default): keep whatever ``from_pretrained`` resolves from
+              the checkpoint config — bitwise-identical to the historical
+              behavior. For the N1.7 / Cosmos-Reason2-2B checkpoint this already
+              resolves to the torchvision-based ``Qwen2VLImageProcessorFast``.
+            - ``True``: explicitly request the fast (torchvision) image
+              processor.
+            - ``False``: explicitly request the slow (PIL-based) image
+              processor.
+
+            Forcing a value that differs from the checkpoint default changes
+            resize interpolation details, so ``pixel_values`` are NOT
+            bitwise-identical. Measured fast-vs-slow divergence: max-abs
+            2/255 ≈ 0.0078 (mean-abs ~1.5e-5) on 320x240 inputs where a real
+            resize occurs; float-rounding level (max-abs ~6e-8) on 256x256
+            inputs where the smart-resize is a no-op. Closed-loop policy
+            validation is required before changing this in production.
+    """
     if Qwen3VLProcessor is None:
         raise ImportError(
             "Qwen3VLProcessor is not available. "
             "Please upgrade transformers: pip install transformers>=4.52.0"
         )
-    return Qwen3VLProcessor.from_pretrained(model_name, **transformers_loading_kwargs)
+    processor = Qwen3VLProcessor.from_pretrained(model_name, **transformers_loading_kwargs)
+    if use_fast_image_processor is not None:
+        from transformers import AutoImageProcessor
+
+        # Swap only the image processor. Passing ``use_fast`` to
+        # ``Qwen3VLProcessor.from_pretrained`` would also silently switch the
+        # tokenizer between its fast/slow implementations.
+        processor.image_processor = AutoImageProcessor.from_pretrained(
+            model_name, use_fast=use_fast_image_processor, **transformers_loading_kwargs
+        )
+    return processor
 
 
 def validate_action_horizons(modality_configs, max_action_horizon: int) -> None:
@@ -162,9 +200,12 @@ class Gr00tN1d7DataCollator:
         model_name: str,
         model_type: str = "qwen",
         transformers_loading_kwargs: dict = {},
+        use_fast_image_processor: bool | None = None,
     ):
         ### We need to use the same processor for padding input ids and concat
-        self.processor = build_processor(model_name, transformers_loading_kwargs)
+        self.processor = build_processor(
+            model_name, transformers_loading_kwargs, use_fast_image_processor
+        )
         # Set padding side to 'left' for Flash Attention compatibility
         self.processor.tokenizer.padding_side = "left"
         self.model_type = model_type
@@ -244,7 +285,14 @@ class Gr00tN1d7Processor(BaseProcessor):
         # Normalization
         use_mean_std: bool = False,
         letter_box_transform: bool = False,
+        use_fast_image_processor: bool | None = None,
     ):
+        """See ``build_processor`` for the semantics of ``use_fast_image_processor``:
+        ``None`` (default) keeps the checkpoint's own image-processor class and is
+        bitwise-identical to the historical behavior; ``True``/``False`` force the
+        fast (torchvision) / slow (PIL) implementation, which changes resize
+        numerics and requires closed-loop validation before production use.
+        """
         self.modality_configs = parse_modality_configs(modality_configs)
 
         # Initialize StateActionProcessor for state/action normalization
@@ -286,7 +334,10 @@ class Gr00tN1d7Processor(BaseProcessor):
         self.image_target_size = image_target_size
         self.random_rotation_angle = random_rotation_angle
         self.color_jitter_params = color_jitter_params
-        self.processor = build_processor(model_name, transformers_loading_kwargs)
+        self.use_fast_image_processor = use_fast_image_processor
+        self.processor = build_processor(
+            model_name, transformers_loading_kwargs, use_fast_image_processor
+        )
         # Set padding side to 'left' for Flash Attention compatibility
         self.processor.tokenizer.padding_side = "left"
         self.embodiment_id_mapping = embodiment_id_mapping or EMBODIMENT_TAG_TO_PROJECTOR_INDEX
@@ -327,6 +378,7 @@ class Gr00tN1d7Processor(BaseProcessor):
             model_name=model_name,
             model_type=model_type,
             transformers_loading_kwargs=transformers_loading_kwargs,
+            use_fast_image_processor=use_fast_image_processor,
         )
         self.train()
 
@@ -552,13 +604,24 @@ class Gr00tN1d7Processor(BaseProcessor):
         """
         # Convert images to PIL format
         pil_images = [Image.fromarray(np.transpose(v, (1, 2, 0))) for v in images]
+        return self._build_vlm_content(pil_images, language)
 
+    def _build_vlm_content(self, images: list, language: str) -> dict:
+        """Assemble the vlm_content dict (conversation, rendered text, images).
+
+        ``images`` may be PIL images (training / legacy path) or raw HWC numpy
+        / CHW torch uint8 frames (inference fast path): the Qwen3VL image
+        processor accepts all three and produces bitwise-identical
+        ``pixel_values`` (asserted in
+        tests/gr00t/model/test_image_preprocessing_parity.py), and the chat
+        template renders one placeholder per image regardless of its type.
+        """
         # Create conversation with images and text
         conversation = [
             {
                 "role": "user",
                 "content": [
-                    *[{"type": "image", "image": img} for img in pil_images],
+                    *[{"type": "image", "image": img} for img in images],
                     {"type": "text", "text": language},
                 ],
             }
@@ -573,7 +636,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         return {
             "vlm_content": {
                 "text": text,
-                "images": pil_images,
+                "images": images,
                 "conversation": conversation,
             }
         }
@@ -709,6 +772,18 @@ class Gr00tN1d7Processor(BaseProcessor):
         image_transform: transforms.Compose | A.Compose,
         language: str,
     ):
+        # Inference-only fast path: identical transform invocations, but skips
+        # the per-frame numpy copies, the HWC->CHW->HWC tensor round trip and
+        # the numpy->PIL conversion of the path below. Gated to eval mode with
+        # no masks and no replay-style transform, so training/augmentation
+        # keeps the exact original code. Bitwise output parity with the
+        # original path is asserted in
+        # tests/gr00t/model/test_image_preprocessing_parity.py.
+        uses_replay = self.use_albumentations and hasattr(image_transform, "replay")
+        if not self.training and masks is None and not uses_replay:
+            frames = self._eval_transform_frames(image_keys, images, image_transform)
+            return self._build_vlm_content(frames, language)
+
         temporal_stacked_images = {}
 
         if self.use_albumentations:
@@ -754,6 +829,65 @@ class Gr00tN1d7Processor(BaseProcessor):
         vlm_inputs = self._apply_vlm_processing(stacked_images, language)
         return vlm_inputs
 
+    def _eval_transform_frames(
+        self,
+        image_keys: list[str],
+        images: dict[str, Any],
+        image_transform: transforms.Compose | A.Compose,
+    ) -> list:
+        """Deterministic eval-path image transform without intermediate copies.
+
+        Applies exactly the same per-frame transform calls as the original
+        path (albumentations ``transform(image=...)`` or torchvision
+        ``transform(img)``), but returns the frames directly — HWC uint8 numpy
+        arrays (albumentations) or CHW uint8 torch tensors (torchvision) — in
+        the original ``(T, V)`` interleaved order, instead of round-tripping
+        through CHW torch stacks, ``.numpy()`` and PIL.
+
+        Only used at inference (``self.training`` is False) with no masks; the
+        training/augmentation path is untouched.
+        """
+        transformed: dict[str, list] = {}
+        for view in image_keys:
+            assert view in images, f"{view} not in {images}"
+            view_frames = []
+            for img in images[view]:
+                if self.use_albumentations:
+                    frame = image_transform(image=np.asarray(img))["image"]
+                    # Mirror apply_with_replay's dtype handling (float32 can
+                    # only appear with augmentations, but keep parity).
+                    if frame.dtype == np.float32:
+                        frame = (frame * 255).astype(np.uint8)
+                    elif frame.dtype != np.uint8:
+                        raise ValueError(f"Unexpected data type: {frame.dtype}")
+                    assert frame.ndim == 3 and frame.shape[2] == 3, (
+                        f"expected HWC RGB frame, got shape {frame.shape}"
+                    )
+                else:
+                    frame = image_transform(img)
+                    assert isinstance(frame, torch.Tensor)
+                    assert frame.ndim == 3 and frame.shape[0] == 3, (
+                        f"expected CHW RGB frame, got shape {tuple(frame.shape)}"
+                    )
+                    assert frame.dtype == torch.uint8, f"{frame.dtype} is not uint8"
+                view_frames.append(frame)
+            transformed[view] = view_frames
+
+        # The original path torch.stack()s across time and views, which
+        # requires every frame to share one shape; keep that contract.
+        frame_counts = {len(v) for v in transformed.values()}
+        frame_shapes = {tuple(f.shape) for v in transformed.values() for f in v}
+        if len(frame_counts) != 1 or len(frame_shapes) != 1:
+            raise ValueError(
+                "All views must produce the same number of identically-shaped frames; got "
+                f"counts {sorted(frame_counts)} and shapes {sorted(frame_shapes)}. "
+                "Use letter_box_transform for mixed-aspect views."
+            )
+
+        # Interleave to match torch.stack(..., dim=1).flatten(0, 1): t-major, view-minor.
+        num_frames = frame_counts.pop()
+        return [transformed[view][t] for t in range(num_frames) for view in image_keys]
+
     def save_pretrained(self, save_directory: str | Path) -> list[Path]:
         save_directory = Path(save_directory)
         save_directory.mkdir(parents=True, exist_ok=True)
@@ -778,6 +912,7 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "model_name": self.model_name,
                 "model_type": self.model_type,
                 "formalize_language": self.formalize_language,
+                "use_fast_image_processor": self.use_fast_image_processor,
                 # State action dimensions
                 "max_state_dim": self.max_state_dim,
                 "max_action_dim": self.max_action_dim,
@@ -861,6 +996,9 @@ class Gr00tN1d7Processor(BaseProcessor):
         processor_kwargs.setdefault("model_name", "nvidia/Cosmos-Reason2-2B")
         processor_kwargs.setdefault("model_type", "qwen")
         processor_kwargs.setdefault("clip_outliers", True)
+        # None keeps the checkpoint's own (transformers-default) image-processor
+        # class; older checkpoints never serialized this field.
+        processor_kwargs.setdefault("use_fast_image_processor", None)
 
         # Directly override other processor kwargs
         if kwargs:
@@ -871,6 +1009,7 @@ class Gr00tN1d7Processor(BaseProcessor):
             override_keys = [
                 "random_rotation_angle",
                 "color_jitter_params",
+                "use_fast_image_processor",
                 "use_relative_action",
                 "exclude_state",
                 "state_dropout_prob",

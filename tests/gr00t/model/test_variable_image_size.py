@@ -293,7 +293,10 @@ class TestProcessorVariableImageSize:
                     Image.fromarray(np.random.randint(0, 255, (360, 640, 3), dtype=np.uint8))
                 ]
 
-        with pytest.raises(RuntimeError, match="stack expects each tensor to be equal size"):
+        # The eval fast path pre-checks shape uniformity and raises an
+        # actionable ValueError instead of the raw torch.stack RuntimeError
+        # ("stack expects each tensor to be equal size") of the original path.
+        with pytest.raises(ValueError, match="letter_box_transform"):
             processor._get_vlm_inputs(
                 image_keys=image_keys,
                 images=mock_images,
