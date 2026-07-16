@@ -33,6 +33,35 @@ except ImportError:
     ExecutionMode = None
 
 
+def _msc_telemetry_stack_ready() -> bool:
+    """Return True only if MSC's ``_otlp_mtls_vault`` telemetry stack can initialize.
+
+    MSC runs telemetry inside a multiprocessing manager and, when the exporter fails to
+    import, swallows the ImportError/AttributeError and returns a ``None`` instrument.
+    Across the manager that ``None`` becomes an ``AutoProxy`` with no ``.add``/``.set``,
+    so the first storage operation crashes the job with
+    ``'AutoProxy[opentelemetry.metrics.Counter]' object has no attribute 'add'``.
+    MSC does not honor ``OTEL_SDK_DISABLED``, so verify the whole stack here and only
+    enable telemetry when it can actually work; otherwise metrics are disabled and
+    training is unaffected.
+    """
+    try:
+        import inspect
+
+        from cryptography import x509  # noqa: F401
+        import hvac  # noqa: F401
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+        import opentelemetry.sdk.metrics  # noqa: F401
+
+        params = inspect.signature(OTLPMetricExporter.__init__).parameters
+        if "client_certificate_file" not in params:
+            raise RuntimeError("OTLP HTTP exporter < 1.32.1 lacks mTLS cert kwargs")
+    except Exception as e:
+        logging.warning("MSC telemetry deps unavailable (%s); disabling metrics.", e)
+        return False
+    return True
+
+
 class DataSyncConfigBuilder:
 
     def __init__(
@@ -134,6 +163,13 @@ class DataSyncConfigBuilder:
             "MSC_VAULT_APPROLE_SECRET"
         ):
             return
+
+        # Only emit the telemetry config when MSC's exporter stack can actually
+        # initialize; otherwise MSC returns a None instrument that crashes the storage
+        # data path across its multiprocessing manager (see _msc_telemetry_stack_ready).
+        if not _msc_telemetry_stack_ready():
+            return
+
         self.config["opentelemetry"] = {
             "metrics": {
                 "attributes": [
