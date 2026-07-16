@@ -550,9 +550,6 @@ class Gr00tN1d7Processor(BaseProcessor):
                 video: [T, C, H, W]
         Returns: vlm_content format for collation
         """
-        # The Qwen3VL image processor accepts CHW uint8 frames directly and
-        # produces identical outputs; converting to PIL forced a redundant
-        # encode/decode per frame. torch.as_tensor is zero-copy for numpy input.
         frames = [torch.as_tensor(v) for v in images]
 
         # Create conversation with images and text
