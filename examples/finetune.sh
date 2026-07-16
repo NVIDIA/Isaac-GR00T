@@ -41,6 +41,7 @@ Usage: bash examples/finetune.sh \
   [--use-percentiles <true|false>] \
   [--shortest-image-edge <pixels>] \
   [--crop-fraction <fraction>] \
+  [--letter-box-transform] \
   [--ds-weights-alpha <value>] \
   [--save-only-model] \
   [--resume-from-checkpoint] \
@@ -97,6 +98,10 @@ while [ "$#" -gt 0 ]; do
         --crop-fraction)
             CROP_FRACTION="$2"
             shift 2
+            ;;
+        --letter-box-transform)
+            LETTER_BOX_TRANSFORM=1
+            shift
             ;;
         --ds-weights-alpha)
             DS_WEIGHTS_ALPHA="$2"
@@ -201,6 +206,9 @@ if [ -n "$CROP_FRACTION" ]; then
 fi
 if [ -n "$DS_WEIGHTS_ALPHA" ]; then
     LAUNCH_CMD+=(--ds_weights_alpha "$DS_WEIGHTS_ALPHA")
+fi
+if [ -n "${LETTER_BOX_TRANSFORM:-}" ]; then
+    LAUNCH_CMD+=(--letter-box-transform)
 fi
 if [ -n "${SAVE_ONLY_MODEL:-}" ]; then
     LAUNCH_CMD+=(--save_only_model)

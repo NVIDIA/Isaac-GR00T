@@ -101,6 +101,14 @@ class FinetuneConfig:
     preprocessing is disabled.
     """
 
+    letter_box_transform: bool = False
+    """
+    If True, pad each camera view to a square (black bars) before resizing, so views with
+    different native aspect ratios end up the same H x W and stay torch.stack-able. Required
+    for datasets that mix cameras of different aspect ratios (e.g. a 16:9 ego view with 4:3
+    wrist views); otherwise the per-view image stack raises a size-mismatch RuntimeError.
+    """
+
     extra_augmentation_config: str | None = None
     """
     JSON string for extra image augmentations (mask-based and others).

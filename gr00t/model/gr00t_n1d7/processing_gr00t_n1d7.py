@@ -880,6 +880,12 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "max_action_horizon",
                 "max_state_dim",
                 "max_action_dim",
+                # Needed so finetuning a released checkpoint on a dataset with
+                # mixed-aspect-ratio cameras can turn on letterbox padding; the
+                # checkpoint serializes letter_box_transform=False, so without
+                # this the override is silently dropped and the per-view image
+                # stack raises a size-mismatch RuntimeError.
+                "letter_box_transform",
             ]
             for key in override_keys:
                 if key in kwargs:
