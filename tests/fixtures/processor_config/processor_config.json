@@ -145,6 +145,7 @@
     "apply_sincos_state_encoding": true,
     "use_relative_action": true,
     "exclude_state": false,
-    "state_dropout_prob": 0.0
+    "state_dropout_prob": 0.0,
+    "use_fast_image_processor": null
   }
 }
