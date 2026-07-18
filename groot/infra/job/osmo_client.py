@@ -26,6 +26,7 @@ import subprocess
 import tempfile
 import time
 
+from groot.infra.job.osmo_command_error import OsmoCommandError
 from groot.infra.job.workflow_config import WorkflowConfig
 from groot.infra.job.workflow_overrides import WorkflowOverrides
 from groot.infra.job.workflow_template import WorkflowTemplate
@@ -40,6 +41,7 @@ class OsmoClient:
 
     submit_retry_attempts: int = 3
     submit_retry_base_delay_seconds: float = 5.0
+    workflow_status_timeout_seconds: float = 75.0
 
     def render_workflow(
         self,
@@ -111,7 +113,10 @@ class OsmoClient:
         return any(marker in text for marker in transient_markers)
 
     def get_workflow_status(self, workflow_id: str) -> str:
-        output = self.run(["osmo", "workflow", "query", workflow_id])
+        output = self.run(
+            ["osmo", "workflow", "query", workflow_id],
+            timeout_seconds=self.workflow_status_timeout_seconds,
+        )
         for line in output.splitlines():
             if line.strip().startswith("Status"):
                 return line.split(":", 1)[1].strip()
@@ -123,13 +128,27 @@ class OsmoClient:
             return match.group(1)
         raise ValueError("Could not parse workflow id from OSMO submit output")
 
-    def run(self, command: Sequence[str]) -> str:
-        process = subprocess.run(command, capture_output=True, check=False, text=True)
-        if process.returncode != 0:
+    def run(self, command: Sequence[str], timeout_seconds: float | None = None) -> str:
+        try:
+            process = subprocess.run(
+                command,
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
-                f"Command failed with exit code {process.returncode}: {' '.join(command)}\n"
-                f"stdout:\n{process.stdout}\n"
-                f"stderr:\n{process.stderr}"
+                f"Command timed out after {timeout_seconds:g}s: {' '.join(command)}\n"
+                f"stdout:\n{self.output_text(exc.stdout)}\n"
+                f"stderr:\n{self.output_text(exc.stderr)}"
+            ) from exc
+        if process.returncode != 0:
+            raise OsmoCommandError(
+                command=tuple(command),
+                returncode=process.returncode,
+                stdout=process.stdout,
+                stderr=process.stderr,
             )
         return process.stdout
 
@@ -145,10 +164,11 @@ class OsmoClient:
         except subprocess.TimeoutExpired as exc:
             return self.output_text(exc.stdout) + self.output_text(exc.stderr)
         if process.returncode != 0:
-            raise RuntimeError(
-                f"Command failed with exit code {process.returncode}: {' '.join(command)}\n"
-                f"stdout:\n{process.stdout}\n"
-                f"stderr:\n{process.stderr}"
+            raise OsmoCommandError(
+                command=tuple(command),
+                returncode=process.returncode,
+                stdout=process.stdout,
+                stderr=process.stderr,
             )
         return process.stdout
 

@@ -25,6 +25,7 @@ from groot.infra.job.constants import (
     DEFAULT_WORKDIR,
 )
 from groot.infra.job.osmo_client import OsmoClient
+from groot.infra.job.osmo_command_error import OsmoCommandError
 from groot.infra.job.ray_cluster import RayCluster
 from groot.infra.job.ray_job import RayJob, RayJobSpec, RayJobSubmissionResult
 from groot.infra.job.runtime_deps import STANDARD_PIP_PACKAGES, RuntimeDeps
@@ -42,6 +43,7 @@ __all__ = [
     "ClusterLaunchResult",
     "ClusterSpec",
     "OsmoClient",
+    "OsmoCommandError",
     "RayCluster",
     "RayJob",
     "RayJobSpec",

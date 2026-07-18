@@ -17,13 +17,16 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from importlib import resources
+import pickle
 import subprocess
 
 import pytest
 
 from groot.infra.job import ClusterSpec, RayCluster
 from groot.infra.job.osmo_client import OsmoClient
+from groot.infra.job.osmo_command_error import OsmoCommandError
 from groot.infra.job.workflow_config import WorkflowConfig
 
 
@@ -127,6 +130,75 @@ def test_run_with_timeout_returns_partial_output(monkeypatch) -> None:
         OsmoClient().run_with_timeout(["osmo", "workflow", "logs", "wf-123"], 5)
         == "partial stdout\npartial stderr\n"
     )
+
+
+def test_run_preserves_temporary_osmo_exit_code(monkeypatch) -> None:
+    def fake_run(command, **_kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            75,
+            stdout="",
+            stderr="Server responded with status code 429\n",
+        )
+
+    monkeypatch.setattr("groot.infra.job.osmo_client.subprocess.run", fake_run)
+
+    with pytest.raises(OsmoCommandError) as error:
+        OsmoClient().run(["osmo", "workflow", "query", "wf-123"])
+
+    assert error.value.returncode == 75
+    assert error.value.is_temporary
+    assert error.value.is_rate_limited
+
+
+def test_osmo_command_error_propagates_through_generator_context_manager() -> None:
+    @contextmanager
+    def wrapper():
+        yield
+
+    error = OsmoCommandError(
+        command=("osmo", "workflow", "query", "wf-123"),
+        returncode=75,
+        stdout="",
+        stderr="Server responded with status code 429",
+    )
+
+    with pytest.raises(OsmoCommandError) as raised, wrapper():
+        raise error
+
+    assert raised.value is error
+
+
+def test_osmo_command_error_is_picklable() -> None:
+    error = OsmoCommandError(
+        command=("osmo", "workflow", "query", "wf-123"),
+        returncode=75,
+        stdout="",
+        stderr="Server responded with status code 429",
+    )
+
+    restored = pickle.loads(pickle.dumps(error))  # noqa: S301
+
+    assert restored.command == error.command
+    assert restored.returncode == error.returncode
+    assert restored.stdout == error.stdout
+    assert restored.stderr == error.stderr
+
+
+def test_workflow_status_query_has_subprocess_timeout(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr("groot.infra.job.osmo_client.subprocess.run", fake_run)
+
+    with pytest.raises(RuntimeError, match="timed out after 7s"):
+        OsmoClient(workflow_status_timeout_seconds=7).get_workflow_status("wf-123")
+
+    assert calls[0][0] == ["osmo", "workflow", "query", "wf-123"]
+    assert calls[0][1]["timeout"] == 7
 
 
 def test_submit_workflow_retries_transient_submit_errors(monkeypatch) -> None:
