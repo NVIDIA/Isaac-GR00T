@@ -28,7 +28,7 @@ When the user asks to launch, inspect, retry, or debug OSS post-training, use th
 
 When the user asks to evaluate an existing checkpoint, use the `evaluation`
 Codex skill. When the user asks for post-train and evaluation
-together, use `uv run python -m groot.oss train-eval` so both jobs run in one
+together, use `uv run python -m groot.infra.oss train-eval` so both jobs run in one
 local process chain.
 
 Do not use OSMO, GitLab staging pipelines, or the `golden-run` skill for local
@@ -39,22 +39,22 @@ OSS post-train work.
 Run from the OSS package root:
 
 ```bash
-uv run python -m groot.oss train n2-minwam-sim
+uv run python -m groot.infra.oss train n2_yam_simulation_stack_bowls
 ```
 
 Run local post-train followed by evaluation:
 
 ```bash
-uv run python -m groot.oss train-eval n2-minwam-sim
+uv run python -m groot.infra.oss train-eval n2_yam_simulation_stack_bowls
 ```
 
 Run evaluation for an existing checkpoint:
 
 ```bash
-uv run python -m groot.oss eval n2-minwam-sim --checkpoint <hf-uri-or-local-path>
+uv run python -m groot.infra.oss eval n2_yam_simulation_stack_bowls --checkpoint <hf-uri-or-local-path>
 ```
 
-If the user does not specify a variant, use the default configured by the skill.
+If the user does not specify an experiment, use the default configured by the skill.
 
 ## Required Environment
 
@@ -73,7 +73,7 @@ authentication.
 
 1. Confirm the user wants a local run and has the required local paths or HF access.
 2. Use `--dry-run` first when setup is unclear.
-3. Run the shared `python -m groot.oss` CLI from the OSS package root.
+3. Run the shared `python -m groot.infra.oss` CLI from the OSS package root.
 4. Report the local command, output checkpoint or eval JSON path, and first actionable failure if one occurs.
 
 ## Source of Truth

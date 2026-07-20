@@ -12,17 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# OSS package integration tests.
-#
-# Runs OSS package workflows on OSMO clusters.
+# OSS package CPU unit and mocked functional tests.
 
-test.oss:
+test.oss.cpu:
   extends: .minimal
   stage: premerge
   needs:
     - image.minimal
-    - image.train
-  rules:
+  rules: &oss_test_rules
     # premerge rules
     - if: "$CI_COMMIT_MESSAGE =~ /OSS_TESTS=true/"
     - if: '$OSS_TESTS == "true"'
@@ -31,10 +28,8 @@ test.oss:
         - oss/**/*
         - groot/core/**/*
         - groot/infra/**/*
-        - tests/oss_workflows/**/*
         - docker/**/*
         - pyproject.toml
-        - ci/scripts/osmo_runner_*.sh
         - ci/test.oss.gitlab-ci.yml
         - ci/image.minimal.gitlab-ci.yml
         - ci/images/minimal.Dockerfile
@@ -44,53 +39,30 @@ test.oss:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$POSTMERGE_TESTS == "true"'
 
+  before_script: &oss_package_before_script
+    - |
+      if [ -z "${OSS_PACKAGE_DIR:-}" ]; then
+        if [ -d "$CI_PROJECT_DIR/oss" ]; then
+          export OSS_PACKAGE_DIR=oss
+        else
+          export OSS_PACKAGE_DIR=.
+        fi
+      fi
+      export OSS_PACKAGE_ROOT="$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
+      cd "$OSS_PACKAGE_ROOT"
+      uv pip install --no-deps -e .
+
   script:
     - |
-      if [ -z "${OSS_PACKAGE_DIR:-}" ]; then
-        if [ -d "$CI_PROJECT_DIR/oss" ]; then
-          export OSS_PACKAGE_DIR=oss
-        else
-          export OSS_PACKAGE_DIR=.
-        fi
-      fi
-    - export AWS_ACCESS_KEY_ID=$BUCKET_ACCESS_KEY_ID
-    - export AWS_SECRET_ACCESS_KEY=$BUCKET_SECRET_ACCESS_KEY
-    - export AWS_REGION=$BUCKET_REGION
-    - cd "$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
-    - uv venv --python 3.12 .venv || uv venv .venv
-    - source .venv/bin/activate
-    - uv pip install -e ".[dev]"
-    - |
-      if [ "${CI_COMMIT_BRANCH:-}" = "$CI_DEFAULT_BRANCH" ]; then
-        export OSMO_POOL=${OSMO_POOL:-groot-h100-02}
-      else
-        export OSMO_POOL=${OSMO_POOL:-groot-h100-ci-02}
-      fi
-    - export IMAGE=nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}
-    - export GROOT_COMMIT_BRANCH="${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_BRANCH}"
-    - |
-      # Evaluation runs via staging.evaluation_openloop.h100 with direct OSMO submit.
-      # Keep test.oss on post-train because the selected H100 pool validates gpu: 8.
-      export OSMO_WORKFLOW_INCLUDE_REGEX="${OSMO_WORKFLOW_INCLUDE_REGEX:-^oss_n2_minwam_sim_posttrain_workflow$}"
-    - bash ci/scripts/osmo_runner_execute.sh tests/oss_workflows
-
-  after_script:
-    - |
-      if [ -z "${OSS_PACKAGE_DIR:-}" ]; then
-        if [ -d "$CI_PROJECT_DIR/oss" ]; then
-          export OSS_PACKAGE_DIR=oss
-        else
-          export OSS_PACKAGE_DIR=.
-        fi
-      fi
-    - cd "$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
-    - bash ci/scripts/osmo_runner_cleanup.sh tests/oss_workflows
+      python -m pytest \
+        "$OSS_PACKAGE_ROOT/tests/groot" \
+        -m "not gpu" \
+        --junitxml "$CI_PROJECT_DIR/junit.oss.cpu.xml"
 
   artifacts:
     when: always
-    paths:
-      - $CI_PROJECT_DIR/log.json
-      - $CI_PROJECT_DIR/kpis.json
+    reports:
+      junit: $CI_PROJECT_DIR/junit.oss.cpu.xml
 
   retry:
     max: 2
@@ -98,4 +70,44 @@ test.oss:
       - runner_system_failure
       - script_failure
   allow_failure: false
-  timeout: 4h
+  timeout: 30m
+
+test.oss.gpu:
+  stage: premerge
+  needs:
+    - image.train
+  image:
+    name: nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}
+    entrypoint: [""]
+  tags:
+    - cpu/arm64
+    - gpu/gb300
+  variables:
+    GROOT_OSS_GPU_FUNCTIONAL_TESTS: "1"
+    OSS_GPU_COMPUTE_TYPE: "gb300"
+    OSS_GPU_TRAIN_NUM_GPUS: "1"
+    OSS_GPU_TRAIN_BATCH_SIZE: "1"
+    OSS_GPU_TRAIN_MAX_STEPS: "2"
+  rules: *oss_test_rules
+
+  before_script: *oss_package_before_script
+
+  script:
+    - |
+      python -m pytest -s \
+        "$OSS_PACKAGE_ROOT/tests/groot" \
+        -m gpu \
+        --junitxml "$CI_PROJECT_DIR/junit.oss.gpu.xml"
+
+  artifacts:
+    when: always
+    reports:
+      junit: $CI_PROJECT_DIR/junit.oss.gpu.xml
+
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - script_failure
+  allow_failure: false
+  timeout: 120m

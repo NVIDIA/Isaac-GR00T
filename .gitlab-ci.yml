@@ -22,8 +22,6 @@ workflow:
       auto_cancel:
         on_new_commit: interruptible
     - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - if: $POST_TRAIN_E2E_LEAF == "true"
-    - if: $OPEN_LOOP_EVAL_E2E_LEAF == "true"
     - when: never
 
 default:
@@ -43,5 +41,3 @@ include:
   - local: "ci/image.gitlab-ci.yml"
   - local: "ci/test.unit.gitlab-ci.yml"
   - local: "ci/test.oss.gitlab-ci.yml"
-  - local: "ci/staging.posttrain.h100.gitlab-ci.yml"
-  - local: "ci/staging.evaluation_openloop.h100.gitlab-ci.yml"

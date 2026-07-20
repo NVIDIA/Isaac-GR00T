@@ -40,21 +40,17 @@ image.train.arm64:
         - groot/core/**/*
         - groot/infra/**/*
         - oss/**/*
-        - tests/oss_workflows/**/*
         - ci/test.oss.gitlab-ci.yml
         - ci/image.minimal.gitlab-ci.yml
         - ci/images/minimal.Dockerfile
         - ci/image.train.gitlab-ci.yml
         - ci/images/train.Dockerfile
         - ci/scripts/docker_buildx_push.sh
-        - ci/scripts/osmo_runner_*.sh
         - docker/**/*
         - pyproject.toml
         - uv.lock
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$POSTMERGE_TESTS == "true"'
-    - if: '$POST_TRAIN_E2E_LEAF == "true"'
-    - if: '$OPEN_LOOP_EVAL_E2E_LEAF == "true"'
   timeout: 150m
 
 image.train.amd64:
@@ -83,21 +79,17 @@ image.train.amd64:
         - groot/core/**/*
         - groot/infra/**/*
         - oss/**/*
-        - tests/oss_workflows/**/*
         - ci/test.oss.gitlab-ci.yml
         - ci/image.minimal.gitlab-ci.yml
         - ci/images/minimal.Dockerfile
         - ci/image.train.gitlab-ci.yml
         - ci/images/train.Dockerfile
         - ci/scripts/docker_buildx_push.sh
-        - ci/scripts/osmo_runner_*.sh
         - docker/**/*
         - pyproject.toml
         - uv.lock
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$POSTMERGE_TESTS == "true"'
-    - if: '$POST_TRAIN_E2E_LEAF == "true"'
-    - if: '$OPEN_LOOP_EVAL_E2E_LEAF == "true"'
   timeout: 60m
 
 image.train:
@@ -123,18 +115,14 @@ image.train:
         - groot/core/**/*
         - groot/infra/**/*
         - oss/**/*
-        - tests/oss_workflows/**/*
         - ci/test.oss.gitlab-ci.yml
         - ci/image.minimal.gitlab-ci.yml
         - ci/images/minimal.Dockerfile
         - ci/image.train.gitlab-ci.yml
         - ci/images/train.Dockerfile
-        - ci/scripts/osmo_runner_*.sh
         - docker/**/*
         - pyproject.toml
         - uv.lock
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$POSTMERGE_TESTS == "true"'
-    - if: '$POST_TRAIN_E2E_LEAF == "true"'
-    - if: '$OPEN_LOOP_EVAL_E2E_LEAF == "true"'
   timeout: 30m
