@@ -1,0 +1,206 @@
+-----------------------------------------------------------
+|                    ListServiceQuotas                    |
++------------------------------------------------+--------+
+|                      Name                      | Value  |
++------------------------------------------------+--------+
+|  ml.c4.xlarge for spot training job usage      |  20.0  |
+|  ml.c4.xlarge for training job usage           |  30.0  |
+|  ml.m5.2xlarge for spot training job usage     |  20.0  |
+|  ml.r7i.large for spot training job usage      |  30.0  |
+|  ml.g5.4xlarge for spot training job usage     |  1.0   |
+|  ml.g4dn.16xlarge for training job usage       |  1.0   |
+|  ml.c5.2xlarge for training job usage          |  30.0  |
+|  ml.m5.xlarge for training job usage           |  30.0  |
+|  ml.c5n.9xlarge for spot training job usage    |  1.0   |
+|  ml.g5.16xlarge for spot training job usage    |  1.0   |
+|  ml.m7i.24xlarge for spot training job usage   |  8.0   |
+|  ml.c6i.2xlarge for spot training job usage    |  20.0  |
+|  ml.c7i.xlarge for spot training job usage     |  30.0  |
+|  ml.r7i.2xlarge for training job usage         |  30.0  |
+|  ml.r7i.16xlarge for training job usage        |  8.0   |
+|  ml.m7i.xlarge for training job usage          |  30.0  |
+|  ml.p4de.24xlarge for spot training job usage  |  2.0   |
+|  ml.m7i.4xlarge for training job usage         |  8.0   |
+|  ml.c6i.32xlarge for training job usage        |  8.0   |
+|  ml.r5.24xlarge for training job usage         |  1.0   |
+|  ml.c4.4xlarge for training job usage          |  30.0  |
+|  ml.g5.12xlarge for training job usage         |  32.0  |
+|  ml.m5.large for spot training job usage       |  20.0  |
+|  ml.p3dn.24xlarge for training job usage       |  10.0  |
+|  ml.c6i.4xlarge for spot training job usage    |  5.0   |
+|  ml.g6.2xlarge for training job usage          |  1.0   |
+|  ml.c5n.xlarge for training job usage          |  1.0   |
+|  ml.p5.48xlarge for spot training job usage    |  16.0  |
+|  ml.r5.large for training job usage            |  1.0   |
+|  ml.g5.8xlarge for spot training job usage     |  1.0   |
+|  ml.c6i.8xlarge for training job usage         |  8.0   |
+|  ml.m5.24xlarge for training job usage         |  3.0   |
+|  ml.c6i.24xlarge for training job usage        |  8.0   |
+|  ml.r7i.12xlarge for training job usage        |  8.0   |
+|  ml.c7i.12xlarge for training job usage        |  8.0   |
+|  ml.c5n.2xlarge for training job usage         |  1.0   |
+|  ml.m7i.2xlarge for training job usage         |  30.0  |
+|  ml.t3.large for spot training job usage       |  1.0   |
+|  ml.c6i.12xlarge for training job usage        |  8.0   |
+|  ml.m6i.xlarge for spot training job usage     |  20.0  |
+|  ml.m4.4xlarge for training job usage          |  15.0  |
+|  ml.r5.12xlarge for training job usage         |  1.0   |
+|  ml.c6i.12xlarge for spot training job usage   |  5.0   |
+|  ml.c4.8xlarge for spot training job usage     |  16.0  |
+|  ml.r7i.12xlarge for spot training job usage   |  8.0   |
+|  ml.g6.4xlarge for training job usage          |  1.0   |
+|  ml.c5.9xlarge for spot training job usage     |  5.0   |
+|  ml.c5.xlarge for spot training job usage      |  20.0  |
+|  ml.m4.xlarge for spot training job usage      |  20.0  |
+|  ml.m7i.12xlarge for training job usage        |  8.0   |
+|  ml.c7i.4xlarge for spot training job usage    |  8.0   |
+|  ml.c7i.48xlarge for spot training job usage   |  8.0   |
+|  ml.r7i.large for training job usage           |  30.0  |
+|  ml.c5n.9xlarge for training job usage         |  1.0   |
+|  ml.g4dn.4xlarge for training job usage        |  1.0   |
+|  ml.g4dn.xlarge for spot training job usage    |  1.0   |
+|  ml.c7i.8xlarge for spot training job usage    |  8.0   |
+|  ml.m6i.16xlarge for training job usage        |  3.0   |
+|  ml.g5.xlarge for spot training job usage      |  1.0   |
+|  ml.m5.4xlarge for spot training job usage     |  10.0  |
+|  ml.g5.12xlarge for spot training job usage    |  1.0   |
+|  ml.g4dn.4xlarge for spot training job usage   |  1.0   |
+|  ml.c7i.4xlarge for training job usage         |  8.0   |
+|  ml.g5.2xlarge for training job usage          |  3.0   |
+|  ml.m6i.xlarge for training job usage          |  30.0  |
+|  ml.m7i.2xlarge for spot training job usage    |  30.0  |
+|  ml.m7i.xlarge for spot training job usage     |  30.0  |
+|  ml.c4.2xlarge for training job usage          |  30.0  |
+|  ml.m4.xlarge for training job usage           |  30.0  |
+|  ml.g6.24xlarge for training job usage         |  16.0  |
+|  ml.c6i.32xlarge for spot training job usage   |  5.0   |
+|  ml.c5n.xlarge for spot training job usage     |  1.0   |
+|  ml.c5.9xlarge for training job usage          |  8.0   |
+|  ml.g5.2xlarge for spot training job usage     |  1.0   |
+|  ml.g4dn.8xlarge for spot training job usage   |  1.0   |
+|  ml.r5.4xlarge for spot training job usage     |  1.0   |
+|  ml.m6i.4xlarge for training job usage         |  30.0  |
+|  ml.m4.4xlarge for spot training job usage     |  10.0  |
+|  ml.r5.8xlarge for spot training job usage     |  1.0   |
+|  ml.m4.10xlarge for training job usage         |  8.0   |
+|  ml.m5.large for training job usage            |  30.0  |
+|  ml.g4dn.xlarge for training job usage         |  1.0   |
+|  ml.r5.large for spot training job usage       |  1.0   |
+|  ml.t3.2xlarge for spot training job usage     |  1.0   |
+|  ml.m6i.16xlarge for spot training job usage   |  3.0   |
+|  ml.m4.10xlarge for spot training job usage    |  5.0   |
+|  ml.c5.18xlarge for spot training job usage    |  5.0   |
+|  ml.m4.16xlarge for spot training job usage    |  5.0   |
+|  ml.c5.18xlarge for training job usage         |  64.0  |
+|  ml.m5.4xlarge for training job usage          |  30.0  |
+|  ml.g6.xlarge for training job usage           |  1.0   |
+|  ml.g6.12xlarge for training job usage         |  1.0   |
+|  ml.c7i.24xlarge for training job usage        |  8.0   |
+|  ml.c5.4xlarge for spot training job usage     |  5.0   |
+|  ml.g4dn.12xlarge for training job usage       |  1.0   |
+|  ml.g5.48xlarge for training job usage         |  32.0  |
+|  ml.m6i.large for training job usage           |  30.0  |
+|  ml.c6i.4xlarge for training job usage         |  8.0   |
+|  ml.m5.2xlarge for training job usage          |  128.0 |
+|  ml.c4.2xlarge for spot training job usage     |  20.0  |
+|  ml.r7i.48xlarge for training job usage        |  8.0   |
+|  ml.r7i.8xlarge for training job usage         |  8.0   |
+|  ml.g4dn.16xlarge for spot training job usage  |  1.0   |
+|  ml.m6i.24xlarge for training job usage        |  3.0   |
+|  ml.m7i.12xlarge for spot training job usage   |  8.0   |
+|  ml.r5.xlarge for training job usage           |  1.0   |
+|  ml.m6i.8xlarge for training job usage         |  5.0   |
+|  ml.m7i.large for spot training job usage      |  30.0  |
+|  ml.r7i.4xlarge for spot training job usage    |  8.0   |
+|  ml.m5.12xlarge for spot training job usage    |  3.0   |
+|  ml.c7i.8xlarge for training job usage         |  8.0   |
+|  ml.c5n.18xlarge for training job usage        |  1.0   |
+|  ml.c6i.16xlarge for spot training job usage   |  5.0   |
+|  ml.c6i.xlarge for training job usage          |  30.0  |
+|  ml.c7i.large for training job usage           |  30.0  |
+|  ml.c5.4xlarge for training job usage          |  8.0   |
+|  ml.m6i.2xlarge for spot training job usage    |  20.0  |
+|  ml.m7i.4xlarge for spot training job usage    |  8.0   |
+|  ml.m6i.2xlarge for training job usage         |  30.0  |
+|  ml.c4.4xlarge for spot training job usage     |  20.0  |
+|  ml.trn1.32xlarge for training job usage       |  8.0   |
+|  ml.c6i.xlarge for spot training job usage     |  20.0  |
+|  ml.c6i.24xlarge for spot training job usage   |  5.0   |
+|  ml.g5.4xlarge for training job usage          |  1.0   |
+|  ml.m6i.4xlarge for spot training job usage    |  10.0  |
+|  ml.r5.2xlarge for training job usage          |  1.0   |
+|  ml.r5.2xlarge for spot training job usage     |  1.0   |
+|  ml.g6.16xlarge for training job usage         |  1.0   |
+|  ml.r5.12xlarge for spot training job usage    |  1.0   |
+|  ml.g4dn.2xlarge for training job usage        |  1.0   |
+|  ml.c6i.16xlarge for training job usage        |  8.0   |
+|  ml.p4d.24xlarge for spot training job usage   |  4.0   |
+|  ml.m6i.24xlarge for spot training job usage   |  2.0   |
+|  ml.m6i.8xlarge for spot training job usage    |  5.0   |
+|  ml.r7i.24xlarge for spot training job usage   |  8.0   |
+|  ml.r7i.2xlarge for spot training job usage    |  30.0  |
+|  ml.c7i.2xlarge for training job usage         |  30.0  |
+|  ml.m4.2xlarge for training job usage          |  30.0  |
+|  ml.t3.xlarge for training job usage           |  1.0   |
+|  ml.trn1.2xlarge for training job usage        |  5.0   |
+|  ml.m5.12xlarge for training job usage         |  128.0 |
+|  ml.m5.xlarge for spot training job usage      |  20.0  |
+|  ml.m4.16xlarge for training job usage         |  8.0   |
+|  ml.t3.large for training job usage            |  1.0   |
+|  ml.g5.xlarge for training job usage           |  1.0   |
+|  ml.g4dn.2xlarge for spot training job usage   |  1.0   |
+|  ml.c7i.24xlarge for spot training job usage   |  8.0   |
+|  ml.r5.16xlarge for training job usage         |  1.0   |
+|  ml.c7i.12xlarge for spot training job usage   |  8.0   |
+|  ml.r5.16xlarge for spot training job usage    |  1.0   |
+|  ml.c7i.48xlarge for training job usage        |  8.0   |
+|  ml.c7i.xlarge for training job usage          |  30.0  |
+|  ml.m5.24xlarge for spot training job usage    |  2.0   |
+|  ml.g4dn.12xlarge for spot training job usage  |  1.0   |
+|  ml.g4dn.8xlarge for training job usage        |  1.0   |
+|  ml.r5.xlarge for spot training job usage      |  1.0   |
+|  ml.m6i.12xlarge for spot training job usage   |  3.0   |
+|  ml.m4.2xlarge for spot training job usage     |  20.0  |
+|  ml.r7i.4xlarge for training job usage         |  8.0   |
+|  ml.m7i.48xlarge for training job usage        |  8.0   |
+|  ml.m6i.12xlarge for training job usage        |  5.0   |
+|  ml.c6i.8xlarge for spot training job usage    |  5.0   |
+|  ml.g6e.48xlarge for training job usage        |  16.0  |
+|  ml.c7i.16xlarge for spot training job usage   |  8.0   |
+|  ml.c4.8xlarge for training job usage          |  16.0  |
+|  ml.c5.xlarge for training job usage           |  30.0  |
+|  ml.r7i.8xlarge for spot training job usage    |  8.0   |
+|  ml.m7i.8xlarge for training job usage         |  8.0   |
+|  ml.r7i.16xlarge for spot training job usage   |  8.0   |
+|  ml.m7i.24xlarge for training job usage        |  8.0   |
+|  ml.r5.4xlarge for training job usage          |  1.0   |
+|  ml.g5.16xlarge for training job usage         |  1.0   |
+|  ml.r7i.xlarge for spot training job usage     |  30.0  |
+|  ml.m7i.16xlarge for training job usage        |  8.0   |
+|  ml.m7i.48xlarge for spot training job usage   |  8.0   |
+|  ml.m6i.32xlarge for spot training job usage   |  2.0   |
+|  ml.g6.8xlarge for training job usage          |  1.0   |
+|  ml.r5.8xlarge for training job usage          |  1.0   |
+|  ml.m6i.large for spot training job usage      |  20.0  |
+|  ml.p4de.24xlarge for training job usage       |  64.0  |
+|  ml.c5.2xlarge for spot training job usage     |  20.0  |
+|  ml.g5.8xlarge for training job usage          |  1.0   |
+|  ml.m7i.16xlarge for spot training job usage   |  8.0   |
+|  ml.r5.24xlarge for spot training job usage    |  1.0   |
+|  ml.c7i.16xlarge for training job usage        |  8.0   |
+|  ml.c5n.18xlarge for spot training job usage   |  1.0   |
+|  ml.t3.2xlarge for training job usage          |  1.0   |
+|  ml.c5n.2xlarge for spot training job usage    |  1.0   |
+|  ml.m7i.large for training job usage           |  30.0  |
+|  ml.r7i.48xlarge for spot training job usage   |  8.0   |
+|  ml.c6i.2xlarge for training job usage         |  30.0  |
+|  ml.t3.xlarge for spot training job usage      |  1.0   |
+|  ml.c7i.large for spot training job usage      |  30.0  |
+|  ml.c5n.4xlarge for training job usage         |  1.0   |
+|  ml.c5n.4xlarge for spot training job usage    |  1.0   |
+|  ml.r7i.xlarge for training job usage          |  30.0  |
+|  ml.c7i.2xlarge for spot training job usage    |  30.0  |
+|  ml.m7i.8xlarge for spot training job usage    |  8.0   |
+|  ml.m6i.32xlarge for training job usage        |  3.0   |
+|  ml.r7i.24xlarge for training job usage        |  8.0   |
++------------------------------------------------+--------+

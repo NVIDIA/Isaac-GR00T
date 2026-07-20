@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # SPDX-License-Identifier: Apache-2.0
-"""Launch GR00T finetuning as a SageMaker training job on TRI's AWS Batch FSS queue.
+"""Launch GR00T finetuning as a SageMaker training job.
+
+Default submission is estimator.fit() (direct to SageMaker, no Batch queue).
+--submit-mode queue targets an AWS Batch SAGEMAKER_TRAINING FSS queue instead,
+but account 124224456861 has no such queue (all its Batch queues are ECS), so
+fit is the working path there.
 
 Adapted from TRI-ML/batch_test/launch_sagemaker.py. Differences from that
 open_lm launcher:
@@ -34,8 +39,13 @@ import time
 
 import boto3
 import sagemaker
-from sagemaker.aws_batch.training_queue import TrainingQueue as Queue
 from sagemaker.pytorch import PyTorch
+
+
+# NOTE: sagemaker.aws_batch.training_queue is imported lazily inside the "queue"
+# submit-mode branch -- it only exists in newer SDKs and is only needed when
+# targeting an AWS Batch SAGEMAKER_TRAINING queue. Default submission is
+# estimator.fit(), which has no such dependency.
 
 
 logging.getLogger().setLevel(logging.ERROR)
@@ -169,6 +179,20 @@ def main():
     parser.add_argument(
         "--s3-remote-sync", default=None, help="S3 output root (else reads S3_REMOTE_SYNC env var)"
     )
+    parser.add_argument(
+        "--submit-mode",
+        default="fit",
+        choices=["fit", "queue"],
+        help="'fit' submits directly to SageMaker (default; no Batch queue needed). "
+        "'queue' targets an AWS Batch SAGEMAKER_TRAINING FSS queue (batch_test style; "
+        "requires such a queue to exist -- account 124224456861 currently has none).",
+    )
+    parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="fit mode: stream logs and block until the job finishes (good for smoke tests)",
+    )
+    parser.add_argument("--queue-name", default=None, help="queue mode: override the queue name")
     parser.add_argument("--priority", default=10, type=int, help="FSS priority (1-9999)")
     parser.add_argument("--fss-identifier", default="default", help="FSS share id (do not change)")
 
@@ -244,6 +268,23 @@ def main():
         "dataloader-num-workers": args.dataloader_num_workers,
     }
 
+    # Secrets/config forwarded into the container. HF_TOKEN is required (gated
+    # backbone); WANDB_API_KEY is forwarded only if set locally -- without it,
+    # --use-wandb 1 would stall/fail at wandb.init on the training instance.
+    container_env = {
+        "HF_TOKEN": hf_token,
+        "SM_USE_RESERVED_CAPACITY": "1",
+        "NCCL_DEBUG": "INFO",
+    }
+    wandb_key = os.environ.get("WANDB_API_KEY")
+    if wandb_key:
+        container_env["WANDB_API_KEY"] = wandb_key
+    elif args.use_wandb not in ("0", "false", "False", ""):
+        print(
+            "WARNING: --use-wandb is on but WANDB_API_KEY is not set in your shell; "
+            "the job may stall at wandb login. Export WANDB_API_KEY or set --use-wandb 0."
+        )
+
     estimator = PyTorch(
         entry_point="sagemaker_entry.py",
         source_dir=str(Path(__file__).parent),
@@ -255,17 +296,12 @@ def main():
         instance_count=1,  # single-node; finetune.sh owns the torchrun fan-out
         instance_type="local_gpu" if args.local else INSTANCE_MAPPER[args.instance_type],
         output_path=output_s3,
-        job_name=job_name,
         checkpoint_s3_uri=None if args.local else f"{output_s3}/checkpoint",
         checkpoint_local_path=None if args.local else "/opt/ml/checkpoints",
         code_location=output_s3,
         max_run=args.max_run,
         input_mode="FastFile",
-        environment={
-            "HF_TOKEN": hf_token,
-            "SM_USE_RESERVED_CAPACITY": "1",
-            "NCCL_DEBUG": "INFO",
-        },
+        environment=container_env,
         keep_alive_period_in_seconds=60,
         tags=[
             {"Key": "tri.project", "Value": "MM:PJ-0077"},  # CUSTOMIZE
@@ -275,12 +311,26 @@ def main():
 
     inputs = {"training": args.s3_dataset}
 
-    if args.local:
-        print("Launching local_gpu training job (no queue)")
-        estimator.fit(inputs=inputs)
+    # Direct submission to SageMaker (default). No Batch queue involved -- this is
+    # the right path for account 124224456861, which has no SAGEMAKER_TRAINING queue.
+    # --local also uses fit() (SageMaker local_gpu mode).
+    if args.local or args.submit_mode == "fit":
+        print(f"Submitting SageMaker training job directly (estimator.fit): {job_name}")
+        estimator.fit(inputs=inputs, job_name=job_name, wait=args.wait)
+        if not args.wait:
+            print(
+                f"Submitted. Monitor in the SageMaker console (Training jobs) or:\n"
+                f"  aws sagemaker describe-training-job --training-job-name {job_name} "
+                f"--region {region} --query TrainingJobStatus --output text"
+            )
         return
 
-    queue_name = f"fss-{INSTANCE_MAPPER[args.instance_type]}-{region}".replace(".", "-")
+    # Queue mode: requires an AWS Batch SAGEMAKER_TRAINING service-environment queue.
+    from sagemaker.aws_batch.training_queue import TrainingQueue as Queue
+
+    queue_name = args.queue_name or f"fss-{INSTANCE_MAPPER[args.instance_type]}-{region}".replace(
+        ".", "-"
+    )
     queue = Queue(queue_name)
     print(f"Starting training job on queue {queue.queue_name}")
     queued_jobs = queue.map(

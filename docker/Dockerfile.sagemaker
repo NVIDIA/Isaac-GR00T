@@ -30,8 +30,10 @@ FROM ${BASE_IMAGE}
 
 SHELL ["/bin/bash", "-c"]
 
-# sagemaker-training goes into the project venv (already on PATH / VIRTUAL_ENV).
-RUN pip install --no-cache-dir sagemaker-training
+# sagemaker-training goes into the project venv. Use `uv pip` (NOT plain `pip`):
+# the base image's venv was built by `uv sync` and has no `pip` shim, so `pip`
+# resolves to the system Python and fails with PEP 668 "externally-managed".
+RUN uv pip install --no-cache sagemaker-training
 
 # Bake the repo at its own path and install the package editable (deps already present).
 COPY . /opt/gr00t/
