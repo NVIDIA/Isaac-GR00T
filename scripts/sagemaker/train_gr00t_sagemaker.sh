@@ -17,6 +17,27 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # --- account / data ---
 USER_NAME="${USER_NAME:-claire-yang}"
 AWS_PROFILE_NAME="${AWS_PROFILE_NAME:-default}"
+
+# --- local mode (LOCAL=1): debug with local docker + local dataset, no cloud GPUs ---
+# Runs the ECR image via local docker; needs docker + docker-compose (>1.29) and the
+# NVIDIA container runtime. See scripts/sagemaker/README.md.
+LOCAL="${LOCAL:-0}"
+LOCAL_DATASET_DIR="${LOCAL_DATASET_DIR:-/home/claireyang/code/github.com/claireyyang/data_preprocessing_robotics/demonstrative_gestures/out/curated_50both_25left_25right}"
+if [ "$LOCAL" = "1" ]; then
+    # File-mode local mount (no S3 download); write outputs locally (no S3 needed).
+    : "${S3_DATASET:=file://${LOCAL_DATASET_DIR}}"
+    : "${S3_REMOTE_SYNC:=file:///tmp/gr00t_local_out}"
+    # Small, safe debug defaults (only applied if not already set in the env).
+    # local_gpu exposes ALL local GPUs, so GLOBAL_BATCH_SIZE must divide the GPU
+    # count -- 8 is safe for 1/2/4/8-GPU boxes.
+    : "${MAX_STEPS:=5}"
+    : "${SAVE_STEPS:=100}"
+    : "${GLOBAL_BATCH_SIZE:=8}"
+    : "${EPISODE_SAMPLING_RATE:=1.0}"
+    : "${DATALOADER_NUM_WORKERS:=0}"
+    : "${USE_WANDB:=0}"
+fi
+
 # S3_DATASET must point at the LeRobot dataset ROOT (the dir containing meta/ data/ videos/).
 S3_DATASET="${S3_DATASET:-s3://claireyang/gr00t_lerobot_datasets/curated_50both_25left_25right/}"
 S3_REMOTE_SYNC="${S3_REMOTE_SYNC:-s3://claireyang/gr00t_finetuning/}"
@@ -61,6 +82,9 @@ ARGS=(
     --use-wandb "$USE_WANDB"
     --dataloader-num-workers "$DATALOADER_NUM_WORKERS"
 )
+if [ "$LOCAL" = "1" ]; then
+    ARGS+=(--local)
+fi
 if [ "$WAIT" = "1" ]; then
     ARGS+=(--wait)
 fi

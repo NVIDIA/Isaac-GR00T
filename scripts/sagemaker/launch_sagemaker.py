@@ -58,11 +58,9 @@ INSTANCE_MAPPER = {
     "p5": "ml.p5.48xlarge",
 }
 
-# SageMaker execution role ARN per region (account 124224456861 = TRI ml-sandbox-16011;
-# same roles batch_test uses -- proven with the Batch FSS queue).
+# only role is in us-east-1
 roles = {
     "us-east-1": "arn:aws:iam::124224456861:role/service-role/SageMaker-SageMakerAllAccess",
-    "us-west-2": "arn:aws:iam::124224456861:role/SageMaker-SageMakerAllAccess-us-west-2",
 }
 
 # ECR image URI (or pass --build-image to build+push from the Dockerfile).
@@ -245,13 +243,25 @@ def main():
     if "CHANGE-ME" in get_sagemaker_role_arn(region):
         raise SystemExit(f"Set roles['{region}'] to your SageMaker execution role ARN before submitting.")
 
-    sagemaker_session = create_session(args.profile, region)
+    if args.local:
+        # Local mode runs the container via local docker. LocalSession (not the
+        # cloud Session) is what triggers that path; local_code=True mounts the
+        # source_dir directly instead of uploading it to S3.
+        boto_sess = boto3.session.Session(profile_name=args.profile, region_name=region)
+        sagemaker_session = sagemaker.LocalSession(boto_session=boto_sess)
+        sagemaker_session.config = {"local": {"local_code": True}}
+    else:
+        sagemaker_session = create_session(args.profile, region)
     role = get_sagemaker_role_arn(region)
     print(f"SageMaker Execution Role: {role}")
 
     base_job_name = f"{args.user.replace('.', '-')}-{NAME}"
     job_name = get_job_name(base_job_name)
-    output_root = f"{args.s3_remote_sync}/sagemaker/{args.user}/{NAME}/"
+    # rstrip the trailing slash: S3_REMOTE_SYNC often ends in '/', and without this
+    # the f-string yields a doubled slash (s3://bucket//sagemaker/...), which S3
+    # preserves as a literal empty key segment -- artifacts then land under a path
+    # that doesn't match the clean one you'd eyeball in the console.
+    output_root = f"{args.s3_remote_sync.rstrip('/')}/sagemaker/{args.user}/{NAME}/"
     output_s3 = os.path.join(output_root, job_name)
 
     hyperparameters = {
@@ -300,12 +310,18 @@ def main():
         checkpoint_local_path=None if args.local else "/opt/ml/checkpoints",
         code_location=output_s3,
         max_run=args.max_run,
-        input_mode="FastFile",
+        # File (not FastFile) on cloud too: GR00T's dataset init writes stats back
+        # into <dataset>/meta/ (generate_stats + the unconditional generate_rel_stats
+        # dump). FastFile mounts the channel read-only, so those writes fail with
+        # "OSError: [Errno 30] Read-only file system". File mode stages the dataset
+        # (only ~1.2 GB here) onto the writable instance volume. See README gotchas.
+        input_mode="File",
         environment=container_env,
-        keep_alive_period_in_seconds=60,
+        # Warm pools don't exist in local mode.
+        keep_alive_period_in_seconds=None if args.local else 60,
         tags=[
-            {"Key": "tri.project", "Value": "MM:PJ-0077"},  # CUSTOMIZE
-            {"Key": "tri.owner.email", "Value": f"{args.user}@tri.global"},  # CUSTOMIZE
+            {"Key": "tri.project", "Value": "LBM:PJ-0109"},
+            {"Key": "tri.owner.email", "Value": "claire.yang@tri.global"},
         ],
     )
 
