@@ -15,14 +15,24 @@ action per ``step``. We therefore keep a per-client open-loop buffer: re-query
 the model every ``open_loop_steps`` steps and index through the chunk in
 between (mirroring vla_foundry's ``InferenceDiffusionPolicy``).
 
+``--model-path`` accepts either a local checkpoint directory or an
+``s3://bucket/prefix`` URI; an S3 URI is downloaded to a local cache directory
+before loading (see :func:`resolve_model_path`).
+
 Launch::
 
     python gr00t_g1_policy_server.py --model-path /path/to/finetuned_gr00t \\
         --device cuda --open-loop-steps 8 --server-uri 0.0.0.0:50051
+
+    # or load straight from S3
+    python gr00t_g1_policy_server.py --model-path s3://my-bucket/checkpoints/gr00t \\
+        --device cuda --open-loop-steps 8 --server-uri 0.0.0.0:50051
 """
 
 import argparse
+import os
 import uuid
+from pathlib import Path
 
 from gr00t.eval.real_robot.G1Dex3.conversions import (
     G1DexConversionConfig,
@@ -37,6 +47,69 @@ from policy_interfaces.robot_gym.policy import Policy, PolicyMetadata
 DEFAULT_SERVER_URI = "0.0.0.0:50051"
 
 
+def resolve_model_path(model_path: str, cache_dir: str | None = None) -> str:
+    """Return a local checkpoint directory, downloading from S3 if needed.
+
+    Local paths pass through unchanged. For an ``s3://bucket/prefix`` URI every
+    object under the prefix is downloaded (preserving its relative layout) into a
+    local cache directory, and that directory is returned so the rest of the
+    loader (``AutoModel`` / ``AutoProcessor.from_pretrained``) sees an ordinary
+    local checkpoint.
+
+    Args:
+        model_path: A local path or an ``s3://bucket/prefix`` URI.
+        cache_dir: Where to place the download. Defaults to the ``GR00T_S3_CACHE_DIR``
+            env var, else ``~/.cache/gr00t/s3/<bucket>/<prefix>``.
+
+    Files already present locally with a matching size are skipped, so restarts
+    against the same S3 checkpoint don't re-download.
+    """
+    if not model_path.startswith("s3://"):
+        return model_path
+
+    import boto3
+
+    bucket, _, prefix = model_path[len("s3://") :].partition("/")
+    prefix = prefix.strip("/")
+    if not bucket or not prefix:
+        raise ValueError(
+            f"Malformed S3 model path {model_path!r}; expected s3://bucket/prefix"
+        )
+
+    cache_dir = cache_dir or os.environ.get("GR00T_S3_CACHE_DIR")
+    dest_root = (
+        Path(cache_dir) if cache_dir else Path.home() / ".cache" / "gr00t" / "s3"
+    ) / bucket / prefix
+
+    print(f"[gr00t_g1_policy] downloading {model_path} -> {dest_root}", flush=True)
+    s3 = boto3.client("s3")
+    paginator = s3.get_paginator("list_objects_v2")
+    downloaded = 0
+    skipped = 0
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix + "/"):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            if key.endswith("/"):  # S3 "directory" placeholder
+                continue
+            rel = key[len(prefix) + 1 :]
+            local_file = dest_root / rel
+            if local_file.exists() and local_file.stat().st_size == obj["Size"]:
+                skipped += 1
+                continue
+            local_file.parent.mkdir(parents=True, exist_ok=True)
+            s3.download_file(bucket, key, str(local_file))
+            downloaded += 1
+
+    if downloaded == 0 and skipped == 0:
+        raise FileNotFoundError(f"No objects found under {model_path!r}")
+    print(
+        f"[gr00t_g1_policy] S3 checkpoint ready ({downloaded} downloaded, "
+        f"{skipped} cached) at {dest_root}",
+        flush=True,
+    )
+    return str(dest_root)
+
+
 class GrootG1Policy(Policy):
     """Serves the finetuned G1-Dex3 GR00T checkpoint over the TRI contract."""
 
@@ -47,6 +120,7 @@ class GrootG1Policy(Policy):
         device: int | str = "cuda",
         open_loop_steps: int = 8,
         conversion_config: G1DexConversionConfig | None = None,
+        s3_cache_dir: str | None = None,
     ):
         if open_loop_steps < 1:
             raise ValueError(f"open_loop_steps must be >= 1, got {open_loop_steps}")
@@ -63,12 +137,15 @@ class GrootG1Policy(Policy):
         # without pulling in torch / the model stack.
         from gr00t.policy.gr00t_policy import Gr00tPolicy
 
+        # Keep the caller-supplied path (possibly an s3:// URI) for metadata, but
+        # load from a resolved local directory.
         self.model_path = model_path
+        local_model_path = resolve_model_path(model_path, cache_dir=s3_cache_dir)
         self.embodiment_tag = embodiment_tag
         self.open_loop_steps = open_loop_steps
         self.cfg = conversion_config or G1DexConversionConfig()
         self.policy = Gr00tPolicy(
-            embodiment_tag=embodiment_tag, model_path=model_path, device=device
+            embodiment_tag=embodiment_tag, model_path=local_model_path, device=device
         )
 
         # Per-client open-loop state: uuid -> {"chunk", "idx", "horizon"}.
@@ -132,7 +209,14 @@ def main():
     parser.add_argument(
         "--model-path",
         required=True,
-        help="Path to the finetuned GR00T checkpoint directory.",
+        help="Local checkpoint directory or an s3://bucket/prefix URI "
+        "(downloaded to a local cache before loading).",
+    )
+    parser.add_argument(
+        "--s3-cache-dir",
+        default=None,
+        help="Directory for S3 checkpoint downloads (default: $GR00T_S3_CACHE_DIR "
+        "or ~/.cache/gr00t/s3). Ignored for local --model-path.",
     )
     parser.add_argument(
         "--embodiment-tag",
@@ -158,6 +242,7 @@ def main():
         embodiment_tag=args.embodiment_tag,
         device=args.device,
         open_loop_steps=args.open_loop_steps,
+        s3_cache_dir=args.s3_cache_dir,
     )
     run_policy_server(policy, args)
 

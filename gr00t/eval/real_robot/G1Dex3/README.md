@@ -54,7 +54,7 @@ versions to watch if the import fails are `drake`, `protobuf~=6.31`,
 ## 2. Launch the server (workstation)
 
 ```bash
-# convenience wrapper (env-overridable: MODEL_PATH, SERVER_URI, OPEN_LOOP_STEPS)
+# convenience wrapper (env-overridable: MODEL_PATH, SERVER_URI, OPEN_LOOP_STEPS, S3_CACHE_DIR)
 MODEL_PATH=<path/to>/finetuned_gr00t bash gr00t/eval/real_robot/G1Dex3/launch_gr00t_g1_policy.sh
 
 # or directly:
@@ -67,6 +67,22 @@ python gr00t/eval/real_robot/G1Dex3/gr00t_g1_policy_server.py \
 
 Binds `0.0.0.0:50051` by default so the Orin can reach it. Wait for
 `Started Server loop on 0.0.0.0:50051...` before starting the client.
+
+**Loading a checkpoint from S3.** `--model-path` (and the `MODEL_PATH` env var)
+also accepts an `s3://bucket/prefix` URI. On startup the server downloads every
+object under the prefix into a local cache and loads from there — objects already
+cached with a matching size are skipped, so restarts don't re-download:
+
+```bash
+MODEL_PATH=s3://my-bucket/checkpoints/finetuned_gr00t \
+    bash gr00t/eval/real_robot/G1Dex3/launch_gr00t_g1_policy.sh
+```
+
+The cache directory is `--s3-cache-dir` / `$S3_CACHE_DIR` / `$GR00T_S3_CACHE_DIR`,
+defaulting to `~/.cache/gr00t/s3/<bucket>/<prefix>`. Standard AWS credentials
+apply (env vars, `~/.aws/credentials`, or an instance/role profile — resolved by
+`boto3`). `get_policy_metadata` still reports the original `s3://` URI as the
+checkpoint path.
 
 ## 3. Point anzu at the workstation (Orin)
 

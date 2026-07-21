@@ -10,13 +10,21 @@
 # Run from the Isaac-GR00T repo root inside the co-installed venv (see README §1).
 set -euo pipefail
 
+# MODEL_PATH may be a local checkpoint dir or an s3://bucket/prefix URI (the
+# latter is downloaded to S3_CACHE_DIR / $GR00T_S3_CACHE_DIR / ~/.cache/gr00t/s3).
 MODEL_PATH="${MODEL_PATH:-finetuned_gr00t}"
 SERVER_URI="${SERVER_URI:-0.0.0.0:50051}"
 OPEN_LOOP_STEPS="${OPEN_LOOP_STEPS:-8}"
+
+S3_CACHE_ARGS=()
+if [[ -n "${S3_CACHE_DIR:-}" ]]; then
+    S3_CACHE_ARGS=(--s3-cache-dir "$S3_CACHE_DIR")
+fi
 
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" \
     python gr00t/eval/real_robot/G1Dex3/gr00t_g1_policy_server.py \
     --model-path "$MODEL_PATH" \
     --device cuda \
     --open-loop-steps "$OPEN_LOOP_STEPS" \
-    --server-uri "$SERVER_URI"
+    --server-uri "$SERVER_URI" \
+    "${S3_CACHE_ARGS[@]}"

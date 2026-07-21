@@ -51,3 +51,33 @@ These are the values that differ from the checked-in defaults; all live in
 | **Submit mode** | `--submit-mode` | `fit` (default; direct to SageMaker). Account 124224456861 has no `SAGEMAKER_TRAINING` Batch queue, so `queue` mode is not usable there |
 | **`tri.project` / owner tag** | estimator `tags` | `MM:PJ-0077` / `{user}@tri.global` → your project code + email |
 | **Hyperparameters** | `--max-steps`, `--save-steps`, `--global-batch-size`, `--episode-sampling-rate`, `--use-wandb`, `--dataloader-num-workers`, `--embodiment-tag`, `--modality-config-path`, `--letter-box-transform` | the finetune settings |
+
+## Pointing anzu at the workstation policy server
+
+Once the GR00T gRPC policy server is running on the workstation (see
+[`gr00t/eval/real_robot/G1Dex3/README.md`](../../gr00t/eval/real_robot/G1Dex3/README.md)),
+point the G1's anzu client at it over ethernet — no code change, just two config
+edits, then launch via procman:
+
+```bash
+cd ~/g1/anzu/projects/humanoids
+source workspace.bash
+build_unitree_tri
+# unplug/replug ZED after boot
+cd ros2/unitree_tri/demonstrator
+# edit a copy of launch_config_rollout.yaml: teleop_or_rollout: rollout,
+#   interface: grpc, real checkpoint_directory
+# edit robot_policy/config/grpc_policy_client.yaml: server_uri: "<workstation-ip>:50051"
+./launch_procman.py launch_config_rollout.yaml --run
+```
+
+The two edits:
+
+- **`launch_config_rollout.yaml`** (edit a copy) — set `teleop_or_rollout:
+  rollout`, `interface: grpc`, and a real `checkpoint_directory`.
+- **`robot_policy/config/grpc_policy_client.yaml`** — set `server_uri:
+  "<workstation-ip>:50051"` so the client connects to the workstation instead of
+  `localhost`.
+
+Make sure the gRPC policy server is already listening at `<workstation-ip>:50051`
+before engaging.
