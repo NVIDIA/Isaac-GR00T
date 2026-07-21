@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gr00t_g1_policy_server"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+# The G1-Dex3 gRPC policy server runs INSIDE the main Isaac-GR00T env (it needs
+# the full gr00t + torch model stack for inference). The only extra dependency
+# is TRI's policy_interfaces, which brings drake / grpcio / protobuf / opencv.
+#
+# Install (into the main Isaac-GR00T venv -- do NOT make a fresh torch env):
+#   cd <Isaac-GR00T> && uv sync --all-extras            # full gr00t + torch
+#   source .venv/bin/activate
+#   uv pip install -e <path/to>/policy_interfaces       # editable TRI checkout
+#
+# policy_interfaces pins numpy~=1.26.4, which already matches gr00t (==1.26.4).
+# Validate the co-install first (see README step 1): drake / protobuf~=6.31 /
+# opencv~=4.6 are the versions to watch against the gr00t stack.
+dependencies = [
+    "policy_interfaces",
+]
