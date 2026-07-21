@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+# GR00T SageMaker training image.
+#
+# Builds on the standard GR00T image (docker/Dockerfile -> `gr00t:latest`) so we
+# inherit the exact CUDA 12.8 / torch 2.9 / flash-attn / torchcodec + ffmpeg
+# stack that finetuning needs, and add only what SageMaker requires:
+#   * the sagemaker-training toolkit (reads /opt/ml/input/config/hyperparameters.json
+#     and runs SAGEMAKER_PROGRAM),
+#   * the GR00T repo baked at /opt/gr00t (its OWN path, NOT /opt/ml/code, which
+#     SageMaker overwrites with the uploaded source_dir at runtime),
+#   * the gr00t package pip-installed so `import gr00t` resolves from any cwd
+#     (the base image uses `uv sync --no-install-project`).
+#
+# The base defaults to the locally-built `gr00t:latest`, but BASE_IMAGE lets you
+# point at a base already in a registry (e.g. an ECR URI) so you don't have to
+# rebuild the base locally every time.
+#
+# Build (from the repo root):
+#   bash docker/build.sh                                   # builds gr00t:latest first
+#   docker build -f docker/Dockerfile.sagemaker -t gr00t-finetune-sagemaker .
+#   # or from a registry base (no local base build needed):
+#   docker build -f docker/Dockerfile.sagemaker \
+#       --build-arg BASE_IMAGE=<acct>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag> \
+#       -t gr00t-finetune-sagemaker .
+#
+# Then tag + push to your ECR repo (see scripts/sagemaker/README.md).
+
+ARG BASE_IMAGE=gr00t:latest
+FROM ${BASE_IMAGE}
+
+SHELL ["/bin/bash", "-c"]
+
+# sagemaker-training goes into the project venv. Use `uv pip` (NOT plain `pip`):
+# the base image's venv was built by `uv sync` and has no `pip` shim, so `pip`
+# resolves to the system Python and fails with PEP 668 "externally-managed".
+RUN uv pip install --no-cache sagemaker-training
+
+# Bake the repo at its own path and install the package editable (deps already present).
+COPY . /opt/gr00t/
+RUN uv pip install --no-deps -e /opt/gr00t
+
+ENV GR00T_REPO_DIR=/opt/gr00t \
+    SAGEMAKER_SUBMIT_DIRECTORY=/opt/ml/code \
+    SAGEMAKER_PROGRAM=sagemaker_entry.py \
+    HF_HOME=/tmp/hf_home
+
+WORKDIR /opt/ml/code
