@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+environment:
+  report_title: "Groot OSS Workflow"
+
+oss_n2_minwam_sim_posttrain_workflow:
+  owner: [cuonguyen, fengyuanh, ruijiez]
+  args: [
+    IMAGE=$IMAGE,
+    GROOT_REPOSITORY_URL=$CI_PROJECT_URL,
+    GROOT_COMMIT_BRANCH=$GROOT_COMMIT_BRANCH,
+    GITLAB_TOKEN=$GITLAB_TOKEN,
+    OSS_PACKAGE_DIR=$OSS_PACKAGE_DIR,
+    OSMO_AWS_CREDENTIAL_NAME=$OSMO_AWS_CREDENTIAL_NAME
+  ]
+  workflow: "n2_minwam_sim_posttrain.yaml"
+  pool: "${OSMO_POOL}"
+
+oss_n2_minwam_sim_policy_server_eval_workflow:
+  owner: [cuonguyen, fengyuanh, ruijiez]
+  args: [
+    IMAGE=$IMAGE,
+    GROOT_REPOSITORY_URL=$CI_PROJECT_URL,
+    GROOT_COMMIT_BRANCH=$GROOT_COMMIT_BRANCH,
+    GITLAB_TOKEN=$GITLAB_TOKEN,
+    OSS_PACKAGE_DIR=$OSS_PACKAGE_DIR,
+    FINAL_CHECKPOINT_PATH=$FINAL_CHECKPOINT_PATH,
+    OPEN_LOOP_EVAL_MODEL_PATH=$OPEN_LOOP_EVAL_MODEL_PATH,
+    OPEN_LOOP_EVAL_CHECKPOINT_NAME=$OPEN_LOOP_EVAL_CHECKPOINT_NAME,
+    OPEN_LOOP_EVAL_TRAJ_IDS=$OPEN_LOOP_EVAL_TRAJ_IDS,
+    OPEN_LOOP_EVAL_STEPS=$OPEN_LOOP_EVAL_STEPS,
+    OPEN_LOOP_EVAL_ACTION_HORIZON=$OPEN_LOOP_EVAL_ACTION_HORIZON,
+    OPEN_LOOP_EVAL_DENOISING_STEPS=$OPEN_LOOP_EVAL_DENOISING_STEPS,
+    OPEN_LOOP_EVAL_SERVER_PARITY_TOLERANCE=$OPEN_LOOP_EVAL_SERVER_PARITY_TOLERANCE,
+    HF_TOKEN=$HF_TOKEN,
+    HUGGING_FACE_HUB_TOKEN=$HUGGING_FACE_HUB_TOKEN,
+    HUGGINGFACE_TOKEN=$HUGGINGFACE_TOKEN
+  ]
+  workflow: "n2_minwam_sim_policy_server_eval.yaml"
+  pool: "${OSMO_POOL}"

@@ -1,0 +1,138 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+staging.evaluation_openloop.h100:
+  extends: .minimal
+  stage: staging
+  needs:
+    - image.minimal
+    - image.train
+    - job: staging.posttrain.h100
+      artifacts: true
+      optional: true
+  variables:
+    OPEN_LOOP_EVAL_VARIANT: "n2-minwam-sim"
+    OPEN_LOOP_EVAL_COMPUTE_TYPE: "h100"
+  script:
+    - |
+      if [ -z "${OSS_PACKAGE_DIR:-}" ]; then
+        if [ -d "$CI_PROJECT_DIR/oss" ]; then
+          export OSS_PACKAGE_DIR=oss
+        else
+          export OSS_PACKAGE_DIR=.
+        fi
+      fi
+    - export AWS_ACCESS_KEY_ID=$BUCKET_ACCESS_KEY_ID
+    - export AWS_SECRET_ACCESS_KEY=$BUCKET_SECRET_ACCESS_KEY
+    - export AWS_REGION=$BUCKET_REGION
+    - export AWS_ENDPOINT_URL=https://pdx.s8k.io
+    - export S3_ENDPOINT_URL=https://pdx.s8k.io
+    - cd "$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
+    - uv venv --python 3.12 .venv || uv venv .venv
+    - source .venv/bin/activate
+    - uv pip install -e ".[dev]"
+    - export OSMO_POOL=${OSMO_POOL:-groot-l40-ci-02}
+    - export OSMO_PRIORITY=${OSMO_PRIORITY:-high}
+    - export OSMO_AWS_CREDENTIAL_NAME="${OSMO_AWS_CREDENTIAL_NAME:-gear-aws-cred-${CI_PIPELINE_ID}-${CI_JOB_ID}}"
+    - export OSMO_WORKFLOW_ID_FILE="$CI_PROJECT_DIR/active_workflows.txt"
+    - export IMAGE=nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}
+    - export GROOT_COMMIT_BRANCH="${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_BRANCH}"
+    - export OPEN_LOOP_EVAL_VARIANT="${OPEN_LOOP_EVAL_VARIANT:-n2-minwam-sim}"
+    - export OPEN_LOOP_EVAL_COMPUTE_TYPE="${OPEN_LOOP_EVAL_COMPUTE_TYPE:-h100}"
+    - |
+      eval "$(uv run --active -m groot.infra.ci.main.golden_train print-env \
+        --run-type "$OPEN_LOOP_EVAL_VARIANT" \
+        --compute-type "$OPEN_LOOP_EVAL_COMPUTE_TYPE" | sed 's/^/export /')"
+      if [ -n "${OPEN_LOOP_EVAL_CHECKPOINT:-}" ]; then
+        export FINAL_CHECKPOINT_PATH="$OPEN_LOOP_EVAL_CHECKPOINT"
+      fi
+      if [ "${OPEN_LOOP_EVAL_AFTER_POST_TRAIN:-false}" = "true" ] && [ -z "${FINAL_CHECKPOINT_PATH:-}" ]; then
+        echo "OPEN_LOOP_EVAL_AFTER_POST_TRAIN=true but FINAL_CHECKPOINT_PATH was not produced by post-train"
+        exit 1
+      fi
+      osmo login --method token --token "$OSMO_TOKEN" "$OSMO_URL"
+      osmo credential set "$OSMO_AWS_CREDENTIAL_NAME" --type GENERIC --payload \
+        aws_access_key_id="$BUCKET_ACCESS_KEY_ID" \
+        aws_secret_access_key="$BUCKET_SECRET_ACCESS_KEY" \
+        aws_endpoint_url="https://pdx.s8k.io" \
+        aws_default_region="$BUCKET_REGION"
+      for attempt in $(seq 1 12); do
+        if osmo credential list | grep -F "$OSMO_AWS_CREDENTIAL_NAME" >/dev/null; then
+          echo "OSMO credential $OSMO_AWS_CREDENTIAL_NAME is visible"
+          break
+        fi
+        if [ "$attempt" -eq 12 ]; then
+          echo "Timed out waiting for OSMO credential $OSMO_AWS_CREDENTIAL_NAME to become visible"
+          exit 1
+        fi
+        sleep 5
+      done
+      bash ci/scripts/osmo_submit_and_stream.sh \
+        tests/oss_workflows/n2_minwam_sim_policy_server_eval.yaml \
+        --pool "$OSMO_POOL" \
+        --priority "$OSMO_PRIORITY" \
+        --set-string \
+          "IMAGE=$IMAGE" \
+          "GROOT_REPOSITORY_URL=$CI_PROJECT_URL" \
+          "GROOT_COMMIT_BRANCH=$GROOT_COMMIT_BRANCH" \
+          "GITLAB_TOKEN=$GITLAB_TOKEN" \
+          "OSS_PACKAGE_DIR=$OSS_PACKAGE_DIR" \
+          "FINAL_CHECKPOINT_PATH=${FINAL_CHECKPOINT_PATH:-}" \
+          "OPEN_LOOP_EVAL_MODEL_PATH=${OPEN_LOOP_EVAL_MODEL_PATH:-}" \
+          "OPEN_LOOP_EVAL_CHECKPOINT_NAME=${OPEN_LOOP_EVAL_CHECKPOINT_NAME:-}" \
+          "OPEN_LOOP_EVAL_TRAJ_IDS=${OPEN_LOOP_EVAL_TRAJ_IDS:-}" \
+          "OPEN_LOOP_EVAL_STEPS=${OPEN_LOOP_EVAL_STEPS:-}" \
+          "OPEN_LOOP_EVAL_ACTION_HORIZON=${OPEN_LOOP_EVAL_ACTION_HORIZON:-}" \
+          "OPEN_LOOP_EVAL_DENOISING_STEPS=${OPEN_LOOP_EVAL_DENOISING_STEPS:-}" \
+          "OPEN_LOOP_EVAL_SERVER_PARITY_TOLERANCE=${OPEN_LOOP_EVAL_SERVER_PARITY_TOLERANCE:-}" \
+          "HF_TOKEN=${HF_TOKEN:-}" \
+          "HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}" \
+          "HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN:-}"
+  after_script:
+    - |
+      if [ -z "${OSS_PACKAGE_DIR:-}" ]; then
+        if [ -d "$CI_PROJECT_DIR/oss" ]; then
+          export OSS_PACKAGE_DIR=oss
+        else
+          export OSS_PACKAGE_DIR=.
+        fi
+      fi
+    - cd "$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
+    - |
+      if ! command -v osmo >/dev/null 2>&1; then
+        exit 0
+      fi
+      osmo login --method token --token "$OSMO_TOKEN" "$OSMO_URL"
+      if [ -f "$CI_PROJECT_DIR/active_workflows.txt" ]; then
+        sort -u "$CI_PROJECT_DIR/active_workflows.txt" | while read -r workflow_id; do
+          if [ -n "$workflow_id" ]; then
+            echo "Cancelling evaluation workflow $workflow_id"
+            osmo workflow cancel "$workflow_id" || true
+          fi
+        done
+      fi
+      OSMO_AWS_CREDENTIAL_NAME="${OSMO_AWS_CREDENTIAL_NAME:-gear-aws-cred-${CI_PIPELINE_ID}-${CI_JOB_ID}}"
+      osmo credential delete "$OSMO_AWS_CREDENTIAL_NAME" || true
+  artifacts:
+    when: always
+    paths:
+      - $CI_PROJECT_DIR/active_workflows.txt
+  rules:
+    - if: '$OPEN_LOOP_EVAL_E2E_LEAF == "true" && $OPEN_LOOP_EVAL_COMPUTE_TYPE == "h100"'
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - script_failure
+  timeout: 4h

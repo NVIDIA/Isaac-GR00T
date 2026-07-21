@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import enum
-from typing import Generic, TypeVar
 
 import numpy as np
 import pydantic
@@ -42,16 +41,7 @@ class RotationType(enum.Enum):
 # LeRobot schema
 
 
-_OriginalKeyT = TypeVar("_OriginalKeyT", bound=str | None)
-
-
-class _LeRobotModalityFieldBase(pydantic.BaseModel, Generic[_OriginalKeyT]):
-    """Base metadata for a LeRobot modality field."""
-
-    original_key: _OriginalKeyT
-
-
-class LeRobotModalityField(_LeRobotModalityFieldBase[str | None]):
+class LeRobotModalityField(pydantic.BaseModel):
     """Metadata for a LeRobot modality field."""
 
     original_key: str | None = pydantic.Field(
@@ -60,7 +50,7 @@ class LeRobotModalityField(_LeRobotModalityFieldBase[str | None]):
     )
 
 
-class LeRobotStateActionMetadata(_LeRobotModalityFieldBase[str]):
+class LeRobotStateActionMetadata(LeRobotModalityField):
     """Metadata for a LeRobot modality."""
 
     start: int = pydantic.Field(
@@ -161,14 +151,14 @@ class LeRobotModalityMetadata(pydantic.BaseModel):
 
         return self
 
-    def get_key_meta(self, key: str) -> LeRobotModalityField | LeRobotStateActionMetadata:
+    def get_key_meta(self, key: str) -> LeRobotModalityField:
         """Get the metadata for a key in the LeRobot modality metadata.
 
         Args:
             key: The key to get the metadata for.
 
         Returns:
-            LeRobotModalityField | LeRobotStateActionMetadata: The metadata for the key.
+            LeRobotModalityField: The metadata for the key.
 
         Raises:
             ValueError: If the key's subkey is not found or the modality is unexpected.

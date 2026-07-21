@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections.abc import Callable
+import contextlib
 import dataclasses
 from dataclasses import dataclass
 import enum
 import io
 import json
+import time
 from typing import Any, cast
 
 import msgpack
@@ -26,6 +28,46 @@ import zmq
 
 from groot.core.data import types
 from groot.core.policy import base
+
+RPC_TIMING_INFO_KEY = "_rpc_timing"
+
+
+def _attach_server_rpc_timing(
+    result: Any,
+    *,
+    request_id: int | None,
+    server_processing_ms: float,
+) -> Any:
+    """Attach transport metadata to a get_action result without mutating policy info."""
+    if not isinstance(result, list | tuple) or len(result) != 2:
+        return result
+
+    action, info = result
+    if not isinstance(info, dict):
+        return result
+
+    timed_info = dict(info)
+    rpc_timing = timed_info.get(RPC_TIMING_INFO_KEY, {})
+    rpc_timing = dict(rpc_timing) if isinstance(rpc_timing, dict) else {}
+    rpc_timing["server_processing_ms"] = server_processing_ms
+    if request_id is not None:
+        rpc_timing["request_id"] = request_id
+    timed_info[RPC_TIMING_INFO_KEY] = rpc_timing
+
+    if isinstance(result, tuple):
+        return action, timed_info
+    return [action, timed_info]
+
+
+def _get_response_rpc_timing(response: Any) -> dict[str, Any]:
+    """Return RPC metadata from a get_action response, if the server supplied it."""
+    if not isinstance(response, list | tuple) or len(response) != 2:
+        return {}
+    info = response[1]
+    if not isinstance(info, dict):
+        return {}
+    rpc_timing = info.get(RPC_TIMING_INFO_KEY)
+    return dict(rpc_timing) if isinstance(rpc_timing, dict) else {}
 
 
 # --- Inlined from jpeg_codec.py ---
@@ -111,11 +153,8 @@ def _to_msgpack_safe(obj: Any) -> Any:
     if isinstance(obj, enum.Enum):
         return obj.value
     if isinstance(obj, dict):
-        return {
-            _to_msgpack_safe(key): _to_msgpack_safe(value)
-            for key, value in obj.items()
-        }
-    if isinstance(obj, (list, tuple)):
+        return {_to_msgpack_safe(key): _to_msgpack_safe(value) for key, value in obj.items()}
+    if isinstance(obj, list | tuple):
         return [_to_msgpack_safe(value) for value in obj]
     if isinstance(obj, set):
         return [_to_msgpack_safe(value) for value in obj]
@@ -169,7 +208,7 @@ class MsgSerializer:
             # client. Downstream code that only reads ``delta_indices`` /
             # ``modality_keys`` still works when a dict is returned.
             data = obj["as_json"]
-            if isinstance(data, (str, bytes)):
+            if isinstance(data, str | bytes):
                 data = json.loads(data)
             known_fields = {f.name for f in dataclasses.fields(types.ModalityConfig)}
             filtered = {k: v for k, v in data.items() if k in known_fields}
@@ -235,8 +274,8 @@ class EndpointHandler:
 
 
 class PolicyServer:
-    """
-    An inference server that spin up a ZeroMQ socket and listen for incoming requests.
+    """An inference server that spin up a ZeroMQ socket and listen for incoming requests.
+
     Can add custom endpoints by calling `register_endpoint`.
     """
 
@@ -274,20 +313,15 @@ class PolicyServer:
         return cast(dict[str, Any], _to_msgpack_safe(get_modality_config()))
 
     def _kill_server(self):
-        """
-        Kill the server.
-        """
+        """Kill the server."""
         self.running = False
 
     def _handle_ping(self) -> dict:
-        """
-        Simple ping handler that returns a success message.
-        """
+        """Simple ping handler that returns a success message."""
         return {"status": "ok", "message": "Server is running"}
 
     def register_endpoint(self, name: str, handler: Callable, requires_input: bool = True):
-        """
-        Register a new endpoint to the server.
+        """Register a new endpoint to the server.
 
         Args:
             name: The name of the endpoint.
@@ -297,16 +331,14 @@ class PolicyServer:
         self._endpoints[name] = EndpointHandler(handler, requires_input)
 
     def _validate_token(self, request: dict) -> bool:
-        """
-        Validate the API token in the request.
-        """
+        """Validate the API token in the request."""
         if self.api_token is None:
             return True  # No token required
         return request.get("api_token") == self.api_token
 
     def run(self):
         addr = self.socket.getsockopt_string(zmq.LAST_ENDPOINT)
-        print(f"Server is ready and listening on {addr}")
+        print(f"Server is ready and listening on {addr}")  # noqa: T201
         while self.running:
             try:
                 message = self.socket.recv()
@@ -325,17 +357,26 @@ class PolicyServer:
                     raise ValueError(f"Unknown endpoint: {endpoint}")
 
                 handler = self._endpoints[endpoint]
+                handler_start = time.perf_counter()
                 result = (
                     handler.handler(**request.get("data", {}))
                     if handler.requires_input
                     else handler.handler()
                 )
+                server_processing_ms = (time.perf_counter() - handler_start) * 1000
+                if endpoint == "get_action":
+                    result = _attach_server_rpc_timing(
+                        result,
+                        request_id=request.get("request_id"),
+                        server_processing_ms=server_processing_ms,
+                    )
                 self.socket.send(self.serializer.to_bytes(result))
             except Exception as e:  # noqa: BLE001
-                print(f"Error in server: {e}")
+                print(f"Error in server: {e}")  # noqa: T201
                 import traceback
+
                 tb = traceback.format_exc()
-                print(tb)
+                print(tb)  # noqa: T201
                 self.socket.send(self.serializer.to_bytes({"error": f"{e}\n{tb}"}))
 
     @staticmethod
@@ -390,6 +431,8 @@ class PolicyClient(base.BasePolicy):
             jpeg_enabled=jpeg_enabled,
             jpeg_quality=jpeg_quality,
         )
+        self._next_request_id = 0
+        self.last_rpc_timing: dict[str, Any] = {}
         self._init_socket()
 
     def _init_socket(self):
@@ -407,16 +450,14 @@ class PolicyClient(base.BasePolicy):
         After a ``RCVTIMEO`` timeout on a REQ socket the send/recv state
         machine is broken and the socket must be recreated.
         """
-        try:
+        with contextlib.suppress(Exception):
             self.socket.close()
-        except Exception:  # noqa: BLE001
-            pass
         self._init_socket()
 
     def _log(self, message: str):
         """Log a message when ``verbose=True`` (used by subclasses)."""
         if self.verbose:
-            print(f"[{self.__class__.__name__}] {message}")
+            print(f"[{self.__class__.__name__}] {message}")  # noqa: T201
 
     def ping(self) -> bool:
         """Ping the server; return ``True`` iff it responds."""
@@ -445,7 +486,9 @@ class PolicyClient(base.BasePolicy):
             TimeoutError: If the request times out.
             RuntimeError: If the server returns an error.
         """
-        request: dict = {"endpoint": endpoint}
+        request_id = self._next_request_id
+        self._next_request_id += 1
+        request: dict = {"endpoint": endpoint, "request_id": request_id}
         if requires_input:
             request["data"] = data
         if self.api_token:
@@ -453,17 +496,58 @@ class PolicyClient(base.BasePolicy):
 
         self._log(f"Sending request to endpoint: {endpoint}")
 
+        rpc_start = time.perf_counter()
+        serialize_start = time.perf_counter()
+        request_bytes = self.serializer.to_bytes(request)
+        request_serialize_ms = (time.perf_counter() - serialize_start) * 1000
+
+        send_recv_start = time.perf_counter()
         try:
-            self.socket.send(self.serializer.to_bytes(request))
+            self.socket.send(request_bytes)
             message = self.socket.recv()
         except zmq.error.Again as exc:
+            self.last_rpc_timing = {
+                "request_id": request_id,
+                "request_serialize_ms": request_serialize_ms,
+                "rpc_total_ms": (time.perf_counter() - rpc_start) * 1000,
+                "timed_out": True,
+            }
+            self._reset_socket()
             raise TimeoutError(f"Request to endpoint '{endpoint}' timed out") from exc
+        send_recv_ms = (time.perf_counter() - send_recv_start) * 1000
 
         if message == b"ERROR":
-            raise RuntimeError(
-                "Server error. Make sure the correct policy server is running."
-            )
+            raise RuntimeError("Server error. Make sure the correct policy server is running.")
+        deserialize_start = time.perf_counter()
         response = self.serializer.from_bytes(message)
+        response_deserialize_ms = (time.perf_counter() - deserialize_start) * 1000
+        rpc_total_ms = (time.perf_counter() - rpc_start) * 1000
+
+        server_rpc_timing = _get_response_rpc_timing(response)
+        echoed_request_id = server_rpc_timing.get("request_id")
+        if echoed_request_id is not None and echoed_request_id != request_id:
+            self._reset_socket()
+            raise RuntimeError(
+                f"RPC response ID mismatch: sent {request_id}, received {echoed_request_id}"
+            )
+
+        server_processing_ms = server_rpc_timing.get("server_processing_ms")
+        transport_overhead_ms = None
+        if isinstance(server_processing_ms, int | float):
+            # Includes network/ZMQ time and server-side request/response serialization.
+            transport_overhead_ms = max(0.0, send_recv_ms - server_processing_ms)
+        self.last_rpc_timing = {
+            "request_id": request_id,
+            "request_serialize_ms": request_serialize_ms,
+            "send_recv_ms": send_recv_ms,
+            "response_deserialize_ms": response_deserialize_ms,
+            "client_serde_ms": request_serialize_ms + response_deserialize_ms,
+            "rpc_total_ms": rpc_total_ms,
+            "server_processing_ms": server_processing_ms,
+            "transport_overhead_ms": transport_overhead_ms,
+            "request_id_verified": echoed_request_id is not None,
+            "timed_out": False,
+        }
 
         if isinstance(response, dict) and "error" in response:
             raise RuntimeError(f"Server error: {response['error']}")
@@ -482,10 +566,8 @@ class PolicyClient(base.BasePolicy):
 
     def __del__(self):
         """Best-effort cleanup on destruction."""
-        try:
+        with contextlib.suppress(Exception):
             self.close()
-        except Exception:  # noqa: BLE001
-            pass
 
     def __enter__(self):
         return self

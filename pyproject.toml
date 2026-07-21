@@ -93,6 +93,7 @@ include = ["groot*"]
 
 [tool.setuptools.package-data]
 groot = ["**/*.yaml", "core/training/configs/deepspeed/zero2_config.json"]
+"groot.infra.job" = ["templates/*.yaml"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
@@ -114,6 +115,3 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = [
-    "gpu: tests that require a GPU runtime and mounted model/data artifacts",
-]

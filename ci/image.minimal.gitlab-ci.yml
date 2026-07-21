@@ -37,4 +37,6 @@ image.minimal:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$POSTMERGE_TESTS == "true"'
+    - if: '$POST_TRAIN_E2E_LEAF == "true"'
+    - if: '$OPEN_LOOP_EVAL_E2E_LEAF == "true"'
   timeout: 30m
