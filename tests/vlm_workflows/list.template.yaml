@@ -11,16 +11,6 @@ vlm_inference_eval:
   workflow: "vlm_inference_eval.yml"
   pool: "${OSMO_POOL}"
 
-vlm_autoeval_smoke:
-  owner: [yman, jbjorck]
-  args: [
-    IMAGE=$IMAGE,
-    GROOT_COMMIT_BRANCH=$GROOT_COMMIT_BRANCH,
-    GITLAB_TOKEN=$GITLAB_TOKEN
-  ]
-  workflow: "vlm_autoeval_smoke.yml"
-  pool: "${OSMO_POOL}"
-
 vlm_nanobot_dummy:
   owner: [jbjorck]
   args: [
