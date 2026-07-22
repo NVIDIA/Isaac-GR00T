@@ -201,7 +201,7 @@ def _generate_stats_for_path_worker(
     Uses passed HydratorClient (IPC to main-process Hydrator).
     Returns (path, stats_reason, rel_stats_reason).
     """
-    print("[STATS_WORKER] process entered (before any logger)", flush=True)
+    print("[STATS_WORKER] process entered (before any logger)", flush=True)  # noqa: T201
     worker_log = worker_logging.get_unified_logger()
     worker_log.info("[STATS_WORKER] start path=%r worker_id=%s", dataset_path_str, worker_id)
     try:
@@ -236,8 +236,7 @@ def _needs_relative_stats(embodiment_tag: str, data_config: DataConfig) -> bool:
     if not action_configs:
         return False
     return any(
-        getattr(ac, "rep", None) == types.ActionRepresentation.RELATIVE
-        for ac in action_configs
+        getattr(ac, "rep", None) == types.ActionRepresentation.RELATIVE for ac in action_configs
     )
 
 
@@ -272,9 +271,7 @@ def _generate_all_stats(
                 for source in dataset_sources:
                     if source.format in ("packds", "deltacat"):
                         continue
-                    path_str = service.Hydrator.normalize_path(
-                        _resolve_one_path(source.uri)
-                    )
+                    path_str = service.Hydrator.normalize_path(_resolve_one_path(source.uri))
                     stats.generate_stats(path_str, hydrator, auto_generate=auto_generate)
                     use_rel = (
                         use_relative_action
@@ -304,7 +301,9 @@ def _generate_all_stats(
     # when no actual stats computation is needed.
     if _all_stats_cached(data_config, resolved_dataset_sources):
         if rank == 0:
-            print("All dataset stats already cached, skipping stats generation barrier.")
+            print(  # noqa: T201
+                "All dataset stats already cached, skipping stats generation barrier."
+            )
         return
 
     # Build a deterministic global task list; deduplicate by (path, embodiment_tag).
@@ -417,9 +416,7 @@ def get_dataset_factory(
 
 
 class DatasetFactory:
-    """
-    Factory class for building training datasets. Model-agnostic.
-    """
+    """Factory class for building training datasets. Model-agnostic."""
 
     def __init__(
         self,
@@ -442,7 +439,9 @@ class DatasetFactory:
         """Create a Hydrator for the current process/rank."""
         worker_id = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
         hydrator_config = getattr(self.data_config, "hydrator_config", None) or HydratorConfig()
-        return service.Hydrator(job_name=self.experiment_name, worker_id=worker_id, config=hydrator_config)
+        return service.Hydrator(
+            job_name=self.experiment_name, worker_id=worker_id, config=hydrator_config
+        )
 
     def _get_data_filter(self):
         """Build the data filter from config, or return None."""

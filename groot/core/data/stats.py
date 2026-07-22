@@ -20,8 +20,6 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from groot.core.utils.state_action.rotation import compute_se3_relative
-from groot.core.training.configs.data.embodiment_configs import MODALITY_CONFIGS
 from groot.core.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from groot.core.data.hydrator.client_protocol import HydratorClientProtocol
 from groot.core.data.hydrator.service import Hydrator
@@ -42,6 +40,8 @@ from groot.core.data.types import (
     ModalityConfig,
 )
 from groot.core.data.utils import to_json_serializable
+from groot.core.training.configs.data.embodiment_configs import MODALITY_CONFIGS
+from groot.core.utils.state_action.rotation import compute_se3_relative
 
 LE_ROBOT_DATA_FILENAME = "data/*/*.parquet"
 
@@ -106,7 +106,7 @@ def _check_stats_validity(
         data = hydrator.hydrate(stats_uri)
         raw = data[0] if data else {}
         stats = _normalize_stats_dict(raw) if isinstance(raw, dict) else {}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return (
             False,
             f"meta/stats.json NOT FOUND or failed to load at {stats_uri!r}: {e}",
@@ -117,7 +117,8 @@ def _check_stats_validity(
         if feature not in stats:
             return (
                 False,
-                f"required feature {feature!r} not in stats.json (stats keys: {stats_keys!r}; required from info.json: {features!r})",
+                f"required feature {feature!r} not in stats.json "
+                f"(stats keys: {stats_keys!r}; required from info.json: {features!r})",
             )
         if not isinstance(stats[feature], dict):
             return (False, f"stats[{feature!r}] is not a dict")
@@ -197,7 +198,7 @@ def calculate_dataset_statistics(
     if features is None:
         features = list(all_low_dim_data.columns)
     for le_modality in features:
-        print(f"Computing statistics for {le_modality}...")
+        print(f"Computing statistics for {le_modality}...")  # noqa: T201
         np_data = np.vstack(
             [np.asarray(x, dtype=np.float32) for x in all_low_dim_data[le_modality]]
         )
@@ -234,13 +235,16 @@ def generate_stats(
     hydrator: HydratorClientProtocol | None = None,
     auto_generate: bool = True,
 ) -> str | None:
-    """Generate meta/stats.json. When hydrator is provided, supports S3 paths. Returns reason str for logging, or None."""
+    """Generate meta/stats.json.
+
+    When hydrator is provided, supports S3 paths. Returns a logging reason or None.
+    """
     if hydrator is not None:
         base_path = Hydrator.normalize_path(str(dataset_path))
-        print(f"[stats.py] Generating stats for {base_path}")
+        print(f"[stats.py] Generating stats for {base_path}")  # noqa: T201
         return _generate_stats(base_path, hydrator)
     dataset_path = Path(dataset_path)
-    print(f"Generating stats for {str(dataset_path)}")
+    print(f"Generating stats for {dataset_path!s}")  # noqa: T201
     lowdim_features = []
     with open(dataset_path / LE_ROBOT_INFO_FILENAME) as f:
         le_features = json.load(f)["features"]
@@ -248,7 +252,7 @@ def generate_stats(
         if "float" in le_features[feature]["dtype"]:
             lowdim_features.append(feature)
     if check_stats_validity(dataset_path, lowdim_features):
-        return
+        return None
 
     if not auto_generate:
         stats_path = dataset_path / LE_ROBOT_STATS_FILENAME
@@ -263,6 +267,7 @@ def generate_stats(
     stats_path = dataset_path / LE_ROBOT_STATS_FILENAME
     with open(stats_path, "w") as f:
         json.dump(stats, f, indent=4)
+    return None
 
 
 class RelativeActionLoader:
@@ -313,13 +318,13 @@ class RelativeActionLoader:
         )
 
     def load_relative_actions(self, trajectory_id: int) -> list[np.ndarray]:
-        df = self.loader[trajectory_id]
+        trajectory_df = self.loader[trajectory_id]
 
         action_key_col = f"action.{self.action_key}"
         # pl.Array(pl.Float32, width) → 2D ndarray (episode_length, width).
-        action_data = df[action_key_col].to_numpy()
+        action_data = trajectory_df[action_key_col].to_numpy()
         trajectories = []
-        usable_length = df.height - self.modality_configs["action"].delta_indices[-1]
+        usable_length = trajectory_df.height - self.modality_configs["action"].delta_indices[-1]
         action_delta_indices = np.array(self.modality_configs["action"].delta_indices)
 
         # Compute relative from state and absolute action.
@@ -328,7 +333,7 @@ class RelativeActionLoader:
             if self.action_config.state_key is not None
             else f"state.{self.action_key}"
         )
-        state_data = df[state_key].to_numpy()
+        state_data = trajectory_df[state_key].to_numpy()
         for i in range(usable_length):
             state_ind = self.modality_configs["state"].delta_indices[-1] + i
             action_inds = action_delta_indices + i
@@ -370,7 +375,10 @@ def calculate_stats_for_key(
         Dict with keys mean, std, min, max, q01, q99 (numpy arrays as float64).
     """
     loader = RelativeActionLoader(
-        dataset_path, embodiment_tag, group_key, hydrator=hydrator,
+        dataset_path,
+        embodiment_tag,
+        group_key,
+        hydrator=hydrator,
         max_action_chunk_size=max_action_chunk_size,
     )
     batch_size_episodes = 50
@@ -401,7 +409,10 @@ def _load_episode_relative_actions(args: tuple) -> list[np.ndarray]:
     """Load and compute relative actions for a single episode. Designed for ray.util.multiprocessing.Pool."""
     dataset_path, embodiment_tag, group_key, episode_id, hydrator, max_action_chunk_size = args
     loader = RelativeActionLoader(
-        dataset_path, embodiment_tag, group_key, hydrator=hydrator,
+        dataset_path,
+        embodiment_tag,
+        group_key,
+        hydrator=hydrator,
         max_action_chunk_size=max_action_chunk_size,
     )
     return loader.load_relative_actions(episode_id)
@@ -595,7 +606,7 @@ def generate_rel_stats(
         return None
     action_keys = [
         key
-        for key, ac in zip(action_config.modality_keys, action_config.action_configs)
+        for key, ac in zip(action_config.modality_keys, action_config.action_configs, strict=False)
         if ac.rep == ActionRepresentation.RELATIVE
     ]
     if not action_keys:
@@ -616,7 +627,7 @@ def generate_rel_stats(
                     data = hydrator.hydrate(rel_stats_uri)
                     first = data[0] if data else None
                     stats = first if isinstance(first, dict) else {}
-                except Exception:
+                except Exception:  # noqa: BLE001
                     stats = {}
             keys_to_compute = [k for k in sorted(action_keys) if k not in stats]
             if not keys_to_compute:
@@ -649,7 +660,7 @@ def generate_rel_stats(
             stats = json.loads(content)
         except (json.JSONDecodeError, ValueError) as e:
             raise ValueError(
-                f"Corrupt stats file {stats_path}: {e}. " f"Delete it and re-run to regenerate."
+                f"Corrupt stats file {stats_path}: {e}. Delete it and re-run to regenerate."
             ) from e
     else:
         stats = {}
@@ -674,6 +685,7 @@ def generate_rel_stats(
         content = json.dumps(to_json_serializable(dict(stats)), indent=4)
         with open(stats_path, "w") as f:
             f.write(content)
+    return None
 
 
 def main(
