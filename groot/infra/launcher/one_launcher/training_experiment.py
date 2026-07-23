@@ -9,15 +9,21 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any
 
-from groot.infra.launcher.one_launcher.resolved_training_experiment import ResolvedTrainingExperiment
+from groot.infra.launcher.one_launcher.resolved_training_experiment import (
+    ResolvedTrainingExperiment,
+)
 from groot.infra.launcher.one_launcher.training_experiment_compute_config import (
     TrainingExperimentComputeConfig,
 )
-from groot.infra.launcher.one_launcher.training_experiment_data_config import TrainingExperimentDataConfig
+from groot.infra.launcher.one_launcher.training_experiment_data_config import (
+    TrainingExperimentDataConfig,
+)
 from groot.infra.launcher.one_launcher.training_experiment_training_config import (
     TrainingExperimentTrainingConfig,
 )
-from groot.infra.launcher.one_launcher.training_launch_compute_profile import TrainingLaunchComputeProfile
+from groot.infra.launcher.one_launcher.training_launch_compute_profile import (
+    TrainingLaunchComputeProfile,
+)
 
 
 @dataclass(frozen=True)
@@ -60,6 +66,7 @@ class TrainingExperiment:
             global_batch_size=global_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
             env_vars=self.compute_config.env_section(),
+            skypilot_queue=compute_family.skypilot_queue,
         )
 
     def data_section(self) -> Mapping[str, Any]:

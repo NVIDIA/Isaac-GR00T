@@ -16,8 +16,12 @@ import yaml
 from groot.infra.launcher.one_launcher.resolved_training_experiment_files import (
     ResolvedTrainingExperimentFiles,
 )
-from groot.infra.launcher.one_launcher.training_experiment_override import TrainingExperimentOverride
-from groot.infra.launcher.one_launcher.training_launch_compute_profile import TrainingLaunchComputeProfile
+from groot.infra.launcher.one_launcher.training_experiment_override import (
+    TrainingExperimentOverride,
+)
+from groot.infra.launcher.one_launcher.training_launch_compute_profile import (
+    TrainingLaunchComputeProfile,
+)
 from groot.infra.launcher.one_launcher.workflow_env import AUTHORITATIVE_WORKFLOW_ENV_NAMES
 
 _OVERRIDE_ROOTS = {"compute", "data", "training"}
@@ -25,6 +29,10 @@ _COMPUTE_SIZE_TARGETS = {
     "num_gpus": "num_gpus",
     "num_nodes": "num_nodes",
     "per_device_batch_size": "batch_size",
+}
+_COMPUTE_SCALAR_TARGETS = {
+    **_COMPUTE_SIZE_TARGETS,
+    "skypilot_queue": "skypilot_queue",
 }
 _TRAINING_PATHS_FOR_COMPUTE_FIELDS = {
     "batch_size": "per_device_batch_size",
@@ -62,12 +70,16 @@ class ResolvedTrainingExperiment:
     gradient_accumulation_steps: int
     data_cli_section: Mapping[str, Any] = field(default_factory=dict)
     env_vars: Mapping[str, str] = field(default_factory=dict)
+    skypilot_queue: str | None = None
 
     def config_fingerprint(self) -> str:
+        override_payload = self.override_payload()
+        if override_payload["skypilot_queue"] is None:
+            del override_payload["skypilot_queue"]
         payload = {
             "name": self.name,
             "compute_type": self.compute_type,
-            **self.override_payload(),
+            **override_payload,
         }
         return hashlib.sha256(yaml.safe_dump(payload, sort_keys=True).encode()).hexdigest()
 
@@ -122,6 +134,7 @@ class ResolvedTrainingExperiment:
             global_batch_size=global_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
             env_vars=self.environment_values(payload),
+            skypilot_queue=self.optional_string(payload, "skypilot_queue"),
         )
 
     def override_payload(self) -> MutableMapping[str, Any]:
@@ -136,6 +149,7 @@ class ResolvedTrainingExperiment:
             "batch_size": self.batch_size,
             "global_batch_size": self.global_batch_size,
             "gradient_accumulation_steps": self.gradient_accumulation_steps,
+            "skypilot_queue": self.skypilot_queue,
         }
 
     def validate_override_path(self, override: TrainingExperimentOverride) -> None:
@@ -172,12 +186,12 @@ class ResolvedTrainingExperiment:
             return
 
         compute_key = override.path[1]
-        if compute_key in _COMPUTE_SIZE_TARGETS:
+        if compute_key in _COMPUTE_SCALAR_TARGETS:
             if len(override.path) != 2:
                 raise ValueError(f"--set compute.{compute_key} is a scalar")
             return
         if compute_key != "env_vars":
-            supported = ", ".join([*_COMPUTE_SIZE_TARGETS, "env_vars.NAME"])
+            supported = ", ".join([*_COMPUTE_SCALAR_TARGETS, "env_vars.NAME"])
             raise ValueError(
                 f"Unknown compute override {compute_key!r}; supported values: {supported}"
             )
@@ -203,7 +217,7 @@ class ResolvedTrainingExperiment:
         compute_key = override.path[1]
         if compute_key == "env_vars":
             return ("env_vars", *override.path[2:])
-        return (_COMPUTE_SIZE_TARGETS[compute_key],)
+        return (_COMPUTE_SCALAR_TARGETS[compute_key],)
 
     def synchronize_size_override(
         self,
@@ -320,6 +334,14 @@ class ResolvedTrainingExperiment:
                 environment[key] = str(value)
         return environment
 
+    def optional_string(self, payload: Mapping[str, Any], key: str) -> str | None:
+        value = payload.get(key)
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"Experiment override compute.{key} must be a non-empty string")
+        return value
+
     def write_configs(self, output_root: Path) -> ResolvedTrainingExperimentFiles:
         output_dir = output_root / self.name / self.compute_type
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -357,4 +379,5 @@ class ResolvedTrainingExperiment:
             "training": dict(self.training_section),
             "model": dict(self.model_section),
             "env_vars": dict(self.env_vars),
+            "skypilot_queue": self.skypilot_queue,
         }

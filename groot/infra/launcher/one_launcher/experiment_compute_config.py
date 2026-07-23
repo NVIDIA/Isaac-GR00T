@@ -10,3 +10,4 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ExperimentComputeConfig:
     per_device_batch_size: int
+    skypilot_queue: str | None = None
