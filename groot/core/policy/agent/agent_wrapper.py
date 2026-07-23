@@ -71,6 +71,7 @@ class AgentSyncPolicyWrapper(base.PolicyWrapper):
         max_drift: float = 2.0,
         rpc_timeout_ms: int = 300_000,
         fallback_response: str = "wait and observe",
+        subtask_candidates: list[str] | None = None,
         strict: bool = True,
         client: AgentClient | None = None,
     ) -> None:
@@ -81,6 +82,10 @@ class AgentSyncPolicyWrapper(base.PolicyWrapper):
         self._robot_description = robot_description
         self._max_drift = max_drift
         self._fallback = fallback_response
+        # Optional closed vocabulary: when set, every episode's ``robot_step`` is
+        # enum-constrained to these candidates (fixed at reset). ``None`` → the
+        # server generates free-form subtasks.
+        self._subtask_candidates = subtask_candidates
         # The only link to System-2: a thin RPC client to the agent server.
         self._client = (
             client if client is not None else AgentClient(server_address, timeout_ms=rpc_timeout_ms)
@@ -191,6 +196,7 @@ class AgentSyncPolicyWrapper(base.PolicyWrapper):
             system_prompt=self._system_prompt,
             robot_description=self._robot_description,
             images=self._ordered_frames(observation),
+            candidates=self._subtask_candidates,
         )
         if result.session_ended:
             self._mark_session_ended()

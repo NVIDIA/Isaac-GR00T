@@ -47,10 +47,14 @@ class _FakeAgentClient:
         self.reset_ends = reset_ends
         self.i = 0
         self.reset_sessions: list[str] = []
+        self.reset_candidates: list[list[str] | None] = []
         self.closed_sessions: list[str] = []
 
-    def reset(self, *, session_id, goal, system_prompt, robot_description, images) -> Subtask:
+    def reset(
+        self, *, session_id, goal, system_prompt, robot_description, images, candidates=None
+    ) -> Subtask:
         self.reset_sessions.append(session_id)
+        self.reset_candidates.append(candidates)
         if self.reset_ends:
             return Subtask(text=None, session_ended=True)
         self.i = 1
@@ -99,7 +103,7 @@ def _frame_extractor(_obs: dict[str, Any]) -> dict[str, list]:
     return {"top": [PILImage.new("RGB", (2, 2))]}
 
 
-def _make_wrapper(inner, client, *, max_drift):
+def _make_wrapper(inner, client, *, max_drift, subtask_candidates=None):
     return agent_wrapper.AgentSyncPolicyWrapper(
         inner,
         frame_extractor=_frame_extractor,
@@ -107,12 +111,32 @@ def _make_wrapper(inner, client, *, max_drift):
         robot_description="desc",
         server_address="tcp://unused",
         max_drift=max_drift,
+        subtask_candidates=subtask_candidates,
         client=client,
     )
 
 
 def _obs(task: str = "do the task") -> dict[str, Any]:
     return {"annotation.task": task, "top_camera_image": PILImage.new("RGB", (2, 2))}
+
+
+def test_forwards_subtask_candidates_on_reset():
+    """Closed vocab, when set, is forwarded to the server on reset (fixed per episode)."""
+    vocab = ["put the candy in the white box", "close the white box", "other"]
+    client = _FakeAgentClient()
+    wrapper = _make_wrapper(_RecordingPolicy(), client, max_drift=0.0, subtask_candidates=vocab)
+    wrapper.prepare_new_episode(_obs())
+    wrapper.shutdown()
+    assert client.reset_candidates == [vocab]
+
+
+def test_no_candidates_forwards_none_by_default():
+    """Free-form (default) sends no candidates, preserving the pre-closed-vocab path."""
+    client = _FakeAgentClient()
+    wrapper = _make_wrapper(_RecordingPolicy(), client, max_drift=0.0)
+    wrapper.prepare_new_episode(_obs())
+    wrapper.shutdown()
+    assert client.reset_candidates == [None]
 
 
 def test_reinfers_every_boundary():

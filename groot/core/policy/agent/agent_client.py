@@ -93,17 +93,22 @@ class AgentClient:
         system_prompt: str,
         robot_description: str,
         images: list[Image],
+        candidates: list[str] | None = None,
     ) -> Subtask:
-        reply = self._rpc(
-            {
-                "cmd": "reset",
-                "session_id": session_id,
-                "goal": goal,
-                "system_prompt": system_prompt,
-                "robot_description": robot_description,
-                "images": [self._jpeg(img) for img in images],
-            }
-        )
+        request: dict[str, object] = {
+            "cmd": "reset",
+            "session_id": session_id,
+            "goal": goal,
+            "system_prompt": system_prompt,
+            "robot_description": robot_description,
+            "images": [self._jpeg(img) for img in images],
+        }
+        # Optional closed-vocabulary: only sent when non-empty so older servers
+        # (which ignore unknown keys) stay backward-compatible and the free-form
+        # path is byte-identical to before.
+        if candidates:
+            request["candidates"] = list(candidates)
+        reply = self._rpc(request)
         return Subtask(text=reply.get("subtask"), session_ended=bool(reply.get("session_ended")))
 
     def step(self, *, session_id: str, images: list[Image]) -> Subtask:
