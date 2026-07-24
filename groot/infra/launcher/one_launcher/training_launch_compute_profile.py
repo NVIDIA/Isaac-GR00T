@@ -7,15 +7,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 _GPUS_PER_NODE_BY_COMPUTE_TYPE = {
+    "colossus": 1,
     "gb200": 4,
     "gb300": 4,
     "h100": 8,
 }
 _POOL_BY_COMPUTE_TYPE = {
+    "colossus": "",
     "gb300": "good_cliques",
     "h100": "groot-h100-02",
 }
 _PER_DEVICE_BATCH_SIZE_BY_COMPUTE_TYPE = {
+    "colossus": 12,
     "gb200": 16,
     "gb300": 12,
     "h100": 16,
@@ -58,8 +61,8 @@ class TrainingLaunchComputeProfile:
     def num_nodes_for_num_gpus(self, num_gpus: int) -> int:
         gpus_per_node = self.gpus_per_node(num_gpus)
         worker_nodes = (num_gpus + gpus_per_node - 1) // gpus_per_node
-        if self.compute_type == "gb300":
-            # gb300 bad nodes are handled at cluster allocation time, not runtime.
+        if self.compute_type in {"colossus", "gb300"}:
+            # gb300/Colossus bad nodes are handled at cluster allocation time, not runtime.
             return worker_nodes
         # Reserve one extra pod so runtime GPU preflight can drop one bad node.
         return worker_nodes + 1

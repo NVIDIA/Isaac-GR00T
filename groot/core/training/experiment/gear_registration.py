@@ -374,7 +374,14 @@ def _get_branch() -> str:
 
 
 def _infer_gpu_type(cluster_type: str) -> str:
-    mapping = {"gb200": "GB200", "gb300": "GB300", "h100": "H100", "l40": "L40", "l40s": "L40S"}
+    mapping = {
+        "colossus": "GB300",
+        "gb200": "GB200",
+        "gb300": "GB300",
+        "h100": "H100",
+        "l40": "L40",
+        "l40s": "L40S",
+    }
     return mapping.get(cluster_type.lower(), cluster_type.upper())
 
 
