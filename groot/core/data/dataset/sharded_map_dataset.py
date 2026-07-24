@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import time
 
 import numpy as np
@@ -23,9 +24,67 @@ from torch.utils.data import Dataset
 from groot.core.data.types import EmbodimentTag, ShardedDataset, VLAStepDataId
 
 
-class ShardedMapDataset(ShardedDataset):
+class _FeistelPerm:
+    """O(1)-memory pseudo-random permutation on [0, n).
+
+    A 4-round Feistel network on [0, 2^k) (smallest even k with 2^k >= n) plus
+    cycle walking restricts outputs to [0, n). The round function is a
+    SplitMix64-style keyed mixer -- statistically indistinguishable from random
+    for shuffling, but not cryptographically strong. Decorrelates within- and
+    inter-shard order, fixing the arithmetic-progression artifact of an
+    affine permutation `(b + a*i) mod n`.
     """
-    Generic sharded dataset wrapper for any PyTorch Dataset.
+
+    _M1 = np.uint64(0xBF58476D1CE4E5B9)
+    _M2 = np.uint64(0x94D049BB133111EB)
+    _M3 = np.uint64(0xC4CEB9FE1A85EC53)
+    _S30 = np.uint64(30)
+    _S27 = np.uint64(27)
+    _S31 = np.uint64(31)
+
+    def __init__(self, n: int, seed: int, rounds: int = 4):
+        self.n = int(n)
+        bits = max(2, max(self.n - 1, 1).bit_length())
+        if bits % 2:
+            bits += 1
+        self.half_bits = np.uint64(bits // 2)
+        self.half_mask = (np.uint64(1) << self.half_bits) - np.uint64(1)
+        key_rng = np.random.default_rng([int(seed), 0xFE15741])
+        self.round_keys = key_rng.integers(0, np.iinfo(np.uint64).max, size=rounds, dtype=np.uint64)
+
+    def _round(self, r: np.ndarray, key: np.uint64) -> np.ndarray:
+        x = r ^ key
+        x = x * self._M1
+        x = x ^ (x >> self._S30)
+        x = x * self._M2
+        x = x ^ (x >> self._S27)
+        x = x * self._M3
+        x = x ^ (x >> self._S31)
+        return x & self.half_mask
+
+    def _encrypt(self, x: np.ndarray) -> np.ndarray:
+        left = (x >> self.half_bits) & self.half_mask
+        right = x & self.half_mask
+        for k in self.round_keys:
+            left, right = right, (left ^ self._round(right, k)) & self.half_mask
+        return (left << self.half_bits) | right
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        y = np.ascontiguousarray(x, dtype=np.uint64).copy()
+        y = self._encrypt(y)
+        n_u = np.uint64(self.n)
+        # Cycle-walk values that landed outside [0, n). Geometric distribution
+        # with success rate n / 2^k >= 1/2, so a couple of iterations suffice.
+        while True:
+            mask = y >= n_u
+            if not mask.any():
+                break
+            y[mask] = self._encrypt(y[mask])
+        return y.astype(np.int64, copy=False)
+
+
+class ShardedMapDataset(ShardedDataset):
+    """Generic sharded dataset wrapper for any PyTorch Dataset.
 
     This class provides a simple yet effective sharding mechanism that can wrap any standard
     PyTorch map-style Dataset, enabling its use with the ShardedMixtureDataset for high-performance
@@ -69,8 +128,7 @@ class ShardedMapDataset(ShardedDataset):
         seed: int = 42,
         enable_preload_indices: bool = False,
     ):
-        """
-        Initialize the sharded map dataset with the given configuration.
+        """Initialize the sharded map dataset with the given configuration.
 
         Sets up the sharding structure by randomly permuting dataset indices and
         distributing them across shards using a round-robin approach.
@@ -79,6 +137,8 @@ class ShardedMapDataset(ShardedDataset):
             dataset: PyTorch Dataset to wrap with sharding functionality
             shard_size: Target number of samples per shard
             seed: Random seed for reproducible sharding
+            enable_preload_indices: If True, forward shard indices to the wrapped
+                dataset's preload hook before loading a shard.
         """
         self.dataset = dataset
         self.processor = None
@@ -86,37 +146,36 @@ class ShardedMapDataset(ShardedDataset):
         self.seed = seed
         self.enable_preload_indices = enable_preload_indices
 
-        # Initialize random number generator and create shard structure
-        self.rng = np.random.default_rng(seed)
-        self.sharded_indices = self.shard_dataset()
+        # Lazy, O(1)-memory sharding: instead of materializing a full
+        # rng.permutation(length) plus one index array per shard (which blows up
+        # host RAM at init for large trajectory-mode datasets with many shards),
+        # derive each shard's indices on demand via a Feistel permutation over
+        # round-robin positions. See _get_shard_indices / _FeistelPerm.
+        self.length = len(self.dataset)  # type: ignore[arg-type]
+        assert self.length > 0, "Dataset is empty"
+        self.num_shards = math.ceil(self.length / self.shard_size)
+        self._perm = _FeistelPerm(self.length, seed)
 
-    def shard_dataset(self):
+    @staticmethod
+    def _shard_length(idx: int, length: int, num_shards: int) -> int:
+        if idx < 0 or idx >= num_shards:
+            raise IndexError(f"Shard index {idx} out of range for {num_shards} shards")
+        return (length - 1 - idx) // num_shards + 1
+
+    def _get_shard_indices(self, idx: int) -> np.ndarray:
+        """Materialize the dataset indices for shard `idx` on demand.
+
+        Round-robin positions (idx, idx+num_shards, ...) are mapped through the
+        Feistel permutation, reproducing the old shuffled round-robin sharding
+        without materializing the full permutation or per-shard arrays.
         """
-        Create balanced shards by distributing dataset indices using round-robin assignment.
-
-        The sharding process:
-        1. Randomly permute all dataset indices for good mixing
-        2. Calculate the number of shards needed based on dataset size and target shard size
-        3. Distribute indices across shards using round-robin assignment
-        4. Return list of index arrays, one per shard
-
-        This approach ensures relatively balanced shard sizes while maintaining randomization
-        across the dataset. The round-robin distribution means shard sizes will be within
-        one sample of each other.
-
-        Returns:
-            List of numpy arrays, each containing the dataset indices for one shard
-        """
-        length = len(self.dataset)  # type: ignore
-        num_shards = np.ceil(length / self.shard_size).astype(int)
-        indices = self.rng.permutation(length)
-        # Round-robin distribution: shard i gets indices i, i+num_shards, i+2*num_shards, ...
-        shards = [indices[i::num_shards] for i in range(num_shards)]
-        return shards
+        if idx < 0 or idx >= self.num_shards:
+            raise IndexError(f"Shard index {idx} out of range for {self.num_shards} shards")
+        positions = np.arange(idx, self.length, self.num_shards, dtype=np.uint64)
+        return self._perm(positions)
 
     def get_shard(self, idx: int) -> list:
-        """
-        Load and process all samples in a specific shard.
+        """Load and process all samples in a specific shard.
 
         Retrieves all dataset samples assigned to the specified shard and applies
         the configured processor to each sample. The processor transforms raw
@@ -134,7 +193,7 @@ class ShardedMapDataset(ShardedDataset):
         """
         assert self.processor is not None, "Processor must be set before getting shard"
 
-        shard_indices = self.sharded_indices[idx]
+        shard_indices = self._get_shard_indices(idx)
         if self.enable_preload_indices:
             preload_indices = getattr(self.dataset, "preload_indices", None)
             if callable(preload_indices):
@@ -156,7 +215,7 @@ class ShardedMapDataset(ShardedDataset):
                     if data_sample:
                         processed = self.processor(data_sample)
                         shard_samples.append(processed)
-                    # TODO: episode_idx is the same for all messages under one sample.
+                    # NOTE: episode_idx is the same for all messages under one sample.
                     # Consider adding this to a message header instead of reading from step metadata.
                     episode_idx = None
                     if data_sample:
@@ -173,18 +232,22 @@ class ShardedMapDataset(ShardedDataset):
                     structlog.get_logger().debug(
                         "get_datapoint_completed",
                         episode_idx=episode_idx,
-                        num_messages=len(data_sample)
-                        if data_sample and hasattr(data_sample, "__len__")
-                        else None,
-                        num_frames=sum(
-                            m["content"].num_frames
-                            for m in data_sample
-                            if isinstance(m, dict)
-                            and m.get("type") == "episode_step"
-                            and hasattr(m.get("content"), "num_frames")
-                        )
-                        if data_sample
-                        else None,
+                        num_messages=(
+                            len(data_sample)
+                            if data_sample and hasattr(data_sample, "__len__")
+                            else None
+                        ),
+                        num_frames=(
+                            sum(
+                                m["content"].num_frames
+                                for m in data_sample
+                                if isinstance(m, dict)
+                                and m.get("type") == "episode_step"
+                                and hasattr(m.get("content"), "num_frames")
+                            )
+                            if data_sample
+                            else None
+                        ),
                         duration_ms=round((time.perf_counter() - sample_t0) * 1000, 2),
                     )
             assert len(shard_samples) > 0, "No valid data samples encountered in the shard"
@@ -197,11 +260,10 @@ class ShardedMapDataset(ShardedDataset):
 
     def __len__(self):
         """Return the number of shards in the dataset."""
-        return len(self.sharded_indices)
+        return self.num_shards
 
     def get_shard_length(self, idx: int) -> int:
-        """
-        Get the number of samples in a specific shard.
+        """Get the number of samples in a specific shard.
 
         Args:
             idx: Shard index to query
@@ -209,7 +271,7 @@ class ShardedMapDataset(ShardedDataset):
         Returns:
             Number of samples in the specified shard
         """
-        return len(self.sharded_indices[idx])
+        return self._shard_length(idx, self.length, self.num_shards)
 
     def get_dataset_statistics(self) -> dict:
         """Get dataset statistics from the underlying dataset."""
@@ -220,8 +282,7 @@ class ShardedMapDataset(ShardedDataset):
 
     @property
     def embodiment_tag(self) -> EmbodimentTag | None:
-        """
-        Get the embodiment tag from the underlying dataset.
+        """Get the embodiment tag from the underlying dataset.
 
         Propagates embodiment information from the wrapped dataset to enable
         proper handling in multi-embodiment training scenarios.

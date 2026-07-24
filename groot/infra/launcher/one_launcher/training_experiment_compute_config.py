@@ -16,9 +16,8 @@ class TrainingExperimentComputeConfig:
     env_vars: Mapping[str, str] = field(default_factory=dict)
 
     def family(self, *, experiment: str, compute_type: str) -> ExperimentComputeConfig:
-        lookup_compute_type = "gb300" if compute_type == "colossus" else compute_type
         try:
-            return self.families[lookup_compute_type]
+            return self.families[compute_type]
         except KeyError as exc:
             valid = ", ".join(sorted(self.families))
             raise ValueError(

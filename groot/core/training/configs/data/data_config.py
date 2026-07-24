@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -13,8 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Simplified Configuration for ICRT v2 Training
+"""Simplified Configuration for ICRT v2 Training.
 
 Flat configuration structure with sensible defaults.
 Focus on DeepSpeed for distributed training.
@@ -38,9 +36,8 @@ except ImportError:
 
 def _to_plain_container(value: Any) -> Any:
     """Convert OmegaConf-style containers when available, otherwise use dict()."""
-    if OmegaConf is not None:
-        if OmegaConf.is_config(value):
-            return OmegaConf.to_container(value, resolve=True)
+    if OmegaConf is not None and OmegaConf.is_config(value):
+        return OmegaConf.to_container(value, resolve=True)
     if isinstance(value, dict):
         return dict(value)
     return dict(value)
@@ -162,7 +159,7 @@ class DataConfig:
     # 1 and 2 are unified through `config.data.modality_configs`.
     # 3. modality configs saved in the pretrained checkpoint.
     # Both 1, 2 and 3 will be "merged" in N1.5 finetuning. See logic in `GrootN1d5Processor.from_pretrained`.
-    # TODO: Add similar logic for N1.6.
+    # NOTE: N1.6 does not yet have equivalent modality-config merge logic.
     modality_configs: dict[str, dict[str, ModalityConfig]] = field(
         # Config.load merges YAML overrides into this mapping, so each DataConfig
         # needs its own copy instead of mutating the shared default template.
@@ -186,9 +183,12 @@ class DataConfig:
     deltacat_stats: DeltaCatStatsSamplingConfig = field(default_factory=DeltaCatStatsSamplingConfig)
 
     # General task / mode config (shared across datasets)
-    mode: str = "single_turn"  # (options: "icrt", "trajectory", "single_turn", "single_turn_rl") # TODO Fix so that Literal is used.
+    # Options: "icrt", "trajectory", "single_turn", "single_turn_rl".
+    # NOTE: This should become a Literal when downstream config parsing supports it.
+    mode: str = "single_turn"
     random_chop: float = 0.0
-    mock_dataset_mode: bool = False  # if True, cache the first datapoint of each dataset and always return one of them to simulate best-case dataloading
+    # Cache and repeatedly return the first datapoint to simulate best-case data loading.
+    mock_dataset_mode: bool = False
 
     # ICRT specific
     num_prompt_trajectories: int = 2
@@ -231,7 +231,8 @@ class DataConfig:
     # Chunk configuration (Currently used by DreamZero)
     num_chunks: int = 1
 
-    # Relative stats: use reservoir sampling for q01/q99 (True = streaming, lower memory; False = exact, higher memory)
+    # Relative stats: reservoir sampling is streaming/lower-memory; False computes exact
+    # q01/q99 values with higher memory use.
     use_reservoir_sampling: bool = True
 
     # Weighted BC factory v2 settings (used when dataset_factory_type == "weighted_sampling")
@@ -249,8 +250,12 @@ class DataConfig:
     # Whether to add +1 priority for human-source steps, except failure quality.
     quality_weighted_allow_upweight_human: bool = False
     # Mapping from priority level -> sampling weight, normalized within each family.
-    quality_weighted_demo_priority_map: dict[int, float] = field(default_factory=lambda: {0: 0, 1: 1, 2: 4})
-    quality_weighted_rollout_priority_map: dict[int, float] = field(default_factory=lambda: {0: 0, 1: 1, 2: 4})
+    quality_weighted_demo_priority_map: dict[int, float] = field(
+        default_factory=lambda: {0: 0, 1: 1, 2: 4}
+    )
+    quality_weighted_rollout_priority_map: dict[int, float] = field(
+        default_factory=lambda: {0: 0, 1: 1, 2: 4}
+    )
     # Lookahead window for quality majority vote; 0/1 uses the anchor step only.
     quality_weighted_lookahead: int = 10
     # When True, budget allocation considers natural step counts per priority level.
@@ -279,7 +284,9 @@ class DataConfig:
                 converted_datasets.append(dataset)
         self.datasets = converted_datasets
 
-        if self.hydrator_config is not None and not isinstance(self.hydrator_config, HydratorConfig):
+        if self.hydrator_config is not None and not isinstance(
+            self.hydrator_config, HydratorConfig
+        ):
             raw = _to_plain_container(self.hydrator_config)
             if isinstance(raw, dict):
                 self.hydrator_config = HydratorConfig(**cast(dict[str, Any], raw))
@@ -329,6 +336,50 @@ class DataConfig:
     def has_deltacat_sources(self) -> bool:
         """Return whether any configured dataset source is DeltaCAT-backed."""
         return any(_dataset_has_deltacat_source(dataset) for dataset in self.datasets)
+
+    def get_max_trajectory_sequence_length(self) -> int:
+        """Return the fixed trajectory length implied by the active data configuration."""
+        if self.mode != "trajectory":
+            raise ValueError("Fixed trajectory sequence length requires data.mode='trajectory'")
+        if self.max_len is None or self.max_len <= 0:
+            raise ValueError("Fixed trajectory sequence length requires data.max_len > 0")
+
+        active_embodiments = {
+            dataset.embodiment_tag
+            for dataset in self.datasets
+            if dataset.embodiment_tag is not None
+        }
+        if not active_embodiments:
+            raise ValueError("Fixed trajectory sequence length requires an embodiment_tag")
+
+        max_sequence_length = 0
+        for embodiment_tag in active_embodiments:
+            modalities = self.modality_configs.get(embodiment_tag)
+            if modalities is None or "action" not in modalities:
+                raise ValueError(f"Missing action modality config for {embodiment_tag!r}")
+            action_delta_indices = modalities["action"].delta_indices
+            if not action_delta_indices:
+                raise ValueError(f"Action delta indices must not be empty for {embodiment_tag!r}")
+
+            step_stride = (
+                len(action_delta_indices)
+                if self.trajectory_step_stride is None
+                else self.trajectory_step_stride
+            )
+            if step_stride <= 0:
+                raise ValueError("data.trajectory_step_stride must be positive")
+
+            action_horizon = len(action_delta_indices)
+            effective_length = self.max_len - action_horizon + 1
+            if effective_length <= 0:
+                raise ValueError(
+                    f"data.max_len={self.max_len} is shorter than the action horizon "
+                    f"{action_horizon} for {embodiment_tag!r}"
+                )
+            sequence_length = (effective_length + step_stride - 1) // step_stride
+            max_sequence_length = max(max_sequence_length, sequence_length)
+
+        return max_sequence_length
 
 
 def _dataset_has_deltacat_source(dataset: SingleDatasetConfig) -> bool:

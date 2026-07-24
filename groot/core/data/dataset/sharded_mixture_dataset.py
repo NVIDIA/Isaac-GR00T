@@ -35,8 +35,7 @@ def merge_statistics(
     action_horizon: int | None = None,
     dataset_paths: list[str] | None = None,
 ) -> dict[str, dict[str, list[float]]]:
-    """
-    Compute overall statistics from per-dataset statistics using weighted averaging.
+    """Compute overall statistics from per-dataset statistics using weighted averaging.
 
     This function combines statistics from multiple datasets according to their sampling
     weights, computing weighted means and variances while preserving min/max/quantile
@@ -163,8 +162,7 @@ def merge_statistics(
 
 
 class ShardedMixtureDataset(IterableDataset):
-    """
-    Iterable dataset that combines multiple sharded datasets with configurable mixing ratios.
+    """Iterable dataset that combines multiple sharded datasets with configurable mixing ratios.
 
     This dataset provides the core functionality for multi-dataset training in VLA systems:
     1. Combines multiple ShardedDataset instances with specified mixing weights
@@ -272,8 +270,7 @@ class ShardedMixtureDataset(IterableDataset):
             self._executor = None
 
     def merge_statistics(self):
-        """
-        Merge dataset statistics across all datasets, grouped by embodiment.
+        """Merge dataset statistics across all datasets, grouped by embodiment.
 
         Combines statistics from datasets with the same embodiment tag using
         weighted averaging, then configures the processor with merged statistics.
@@ -294,7 +291,7 @@ class ShardedMixtureDataset(IterableDataset):
                 all_stats_by_emb[emb] = []
                 weights_by_emb[emb] = []
                 paths_by_emb[emb] = []
-            stats = ds.get_dataset_statistics()  # type: ignore
+            stats = ds.get_dataset_statistics()  # type: ignore[attr-defined]
             all_stats_by_emb[emb].append(stats)
             weights_by_emb[emb].append(w)
             paths_by_emb[emb].append(
@@ -346,7 +343,7 @@ class ShardedMixtureDataset(IterableDataset):
             ds.dataset_index = ds_idx
             # ShardedMapDataset wraps an inner dataset via .dataset; ShardedSingleStepDataset
             # does not — use getattr to avoid AttributeError on the latter.
-            # TODO: make ShardedDataset subclasses expose a uniform interface for the
+            # NOTE: make ShardedDataset subclasses expose a uniform interface for the
             # inner dataset so this workaround is no longer needed.
             inner = getattr(ds, "dataset", None)
             if inner is not None and hasattr(inner, "dataset_idx"):
@@ -358,8 +355,7 @@ class ShardedMixtureDataset(IterableDataset):
         return self.global_stats
 
     def generate_shard_sampling_schedule(self) -> list[tuple[int, int]]:
-        """
-        Generate a schedule of (dataset_index, shard_index) pairs for shard sampling.
+        """Generate a schedule of (dataset_index, shard_index) pairs for shard sampling.
 
         For training: Uses weighted random sampling normalized by average shard sizes
         to ensure fair representation regardless of shard size differences.
@@ -392,23 +388,24 @@ class ShardedMixtureDataset(IterableDataset):
                 len(self.datasets), size=self.num_shards_per_epoch, p=normalized_weights
             )
 
-            # Generate shuffled shard indices for each dataset
+            # Generate shuffled shard indices for each dataset. numpy permutation
+            # uses 8 bytes per int vs ~28 for a Python list, and lets us track
+            # consumption with an O(1) cursor instead of O(N) list.pop(0) (which
+            # is O(N^2) per epoch at shard_size=16 where num_shards reaches the
+            # hundreds of thousands).
             shard_sampling_schedule = []
-            shards_to_sample = []
-            for dataset in self.datasets:
-                shard_ids = list(range(len(dataset)))
-                rng.shuffle(shard_ids)
-                shards_to_sample.append(shard_ids)
+            shards_to_sample = [rng.permutation(len(d)) for d in self.datasets]
+            shard_cursors = [0] * len(self.datasets)
 
-            # Create final sampling schedule with shard cycling
-            for i in dataset_sampling_schedule:
+            for raw_dataset_idx in dataset_sampling_schedule:
+                dataset_idx = int(raw_dataset_idx)
                 # Reshuffle and refill if dataset shards are exhausted
-                if len(shards_to_sample[i]) == 0:
-                    shard_ids = list(range(len(self.datasets[i])))
-                    rng.shuffle(shard_ids)
-                    shards_to_sample[i] = shard_ids
-                shard_idx = shards_to_sample[i].pop(0)
-                shard_sampling_schedule.append((i, shard_idx))
+                if shard_cursors[dataset_idx] >= len(shards_to_sample[dataset_idx]):
+                    shards_to_sample[dataset_idx] = rng.permutation(len(self.datasets[dataset_idx]))
+                    shard_cursors[dataset_idx] = 0
+                shard_idx = int(shards_to_sample[dataset_idx][shard_cursors[dataset_idx]])
+                shard_cursors[dataset_idx] += 1
+                shard_sampling_schedule.append((dataset_idx, shard_idx))
 
         else:
             # Evaluation mode: sample every shard exactly once
@@ -418,8 +415,7 @@ class ShardedMixtureDataset(IterableDataset):
         return shard_sampling_schedule
 
     def filter_shard_sample_schedule(self):
-        """
-        Filter the shard sampling schedule for distributed training.
+        """Filter the shard sampling schedule for distributed training.
 
         Distributes shards across world_size processes and num_workers per process,
         ensuring each worker gets a unique subset of shards for parallel processing.
@@ -467,9 +463,11 @@ class ShardedMixtureDataset(IterableDataset):
         return max(1, val)
 
     def _next_shard_pair(self):
-        """Advance the submit cursor, rolling the epoch + schedule over when the
-        worker's schedule is exhausted. Returns ``(dataset_index, shard_index,
-        dataset_path)``."""
+        """Advance the submit cursor to the next shard pair.
+
+        Rolls the epoch + schedule over when the worker's schedule is exhausted.
+        Returns ``(dataset_index, shard_index, dataset_path)``.
+        """
         self.curr_shard_index += 1
         if self.curr_shard_index >= len(self.worker_shard_sampling_schedule):
             self.epoch += 1
@@ -496,8 +494,7 @@ class ShardedMixtureDataset(IterableDataset):
         return self.enable_shard_prefetch_pipeline
 
     def __iter__(self):
-        """
-        Iterate over the mixture dataset with an N-ahead background shard pipeline.
+        """Iterate over the mixture dataset with an N-ahead background shard pipeline.
 
         Implements an efficient iteration strategy:
         1. Filter shards for this worker's portion
@@ -530,10 +527,9 @@ class ShardedMixtureDataset(IterableDataset):
             self._raise_empty_worker_schedule()
         self.curr_shard_index = -1
         if self.worker_id in (0, None) and self.rank == 0:
-            print(
+            logger.info(
                 f"[shard-prefetch] depth={depth} workers={workers} "
-                f"(schedule_len={len(self.worker_shard_sampling_schedule)})",
-                flush=True,
+                f"(schedule_len={len(self.worker_shard_sampling_schedule)})"
             )
         # Prime the pipeline with `depth` background shard builds.
         for _ in range(depth):
@@ -578,7 +574,7 @@ class ShardedMixtureDataset(IterableDataset):
             # Immediately refill so the pipeline stays `depth` deep while we serve.
             self._submit_shard()
 
-            print(
+            logger.info(
                 f"Rank {self.rank}, Worker {self.worker_id}: "
                 f"Wait for shard {shard_index} in dataset {dataset_path} "
                 f"in {wait_end - wait_start:.2f} seconds, shard_len={len(self.curr_shard)}, "
@@ -605,8 +601,7 @@ class ShardedMixtureDataset(IterableDataset):
             self.delete_cached_shard()
 
     def _iter_legacy_cache(self):
-        """
-        Iterate with the historical one-shard-ahead cache path.
+        """Iterate with the historical one-shard-ahead cache path.
 
         This keeps non-DeltaCAT training on the same iterator control flow as
         main while the DeltaCAT-specific prefetch pipeline soaks separately.
@@ -660,7 +655,7 @@ class ShardedMixtureDataset(IterableDataset):
             dataset_path = getattr(
                 self.datasets[dataset_index], "dataset_path", f"idx={dataset_index}"
             )
-            print(
+            logger.info(
                 f"Rank {self.rank}, Worker {self.worker_id}: "
                 f"Wait for shard {shard_index} in dataset {dataset_path} "
                 f"in {wait_end - wait_start:.2f} seconds, shard_len={len(self.curr_shard)}"
@@ -689,8 +684,7 @@ class ShardedMixtureDataset(IterableDataset):
             self.delete_cached_shard()
 
     def cache_next_shard(self):
-        """
-        Start background caching of the next shard using ThreadPoolExecutor.
+        """Start background caching of the next shard using ThreadPoolExecutor.
 
         Handles epoch transitions by regenerating the sampling schedule when
         the current schedule is exhausted.
@@ -738,8 +732,7 @@ class ShardedMixtureDataset(IterableDataset):
         )
 
     def reset_seed(self, seed: int):
-        """
-        Reset the random seed and regenerate sampling schedules.
+        """Reset the random seed and regenerate sampling schedules.
 
         Used for deterministic training restarts or seed changes during training.
 
@@ -755,13 +748,13 @@ class ShardedMixtureDataset(IterableDataset):
 
     def print_dataset_statistics(self):
         """Print formatted dataset statistics for debugging and monitoring."""
-        print("=" * 100)
-        print("ShardedMixtureDataset Statistics")
-        print("=" * 100)
+        logger.info("=" * 100)
+        logger.info("ShardedMixtureDataset Statistics")
+        logger.info("=" * 100)
 
         # Print header
-        print(f"{'Dataset Path':<60} {'Length':<10} {'Mix Ratio':<12}")
-        print("-" * 100)
+        logger.info(f"{'Dataset Path':<60} {'Length':<10} {'Mix Ratio':<12}")
+        logger.info("-" * 100)
 
         # Print dataset details
         for i, ds in enumerate(self.datasets):
@@ -773,19 +766,18 @@ class ShardedMixtureDataset(IterableDataset):
             length = len(ds)
             mix_ratio = self.weights[i] * 100
 
-            print(f"{dataset_path:<60} {length:<10,} {mix_ratio:<12.2f}")
+            logger.info(f"{dataset_path:<60} {length:<10,} {mix_ratio:<12.2f}")
 
         # Print additional metadata
         embodiments = {
-            ds.embodiment_tag.value for ds in self.datasets if hasattr(ds, "embodiment_tag")  # type: ignore
+            ds.embodiment_tag.value for ds in self.datasets if hasattr(ds, "embodiment_tag")  # type: ignore[attr-defined]
         }
-        print(f"Embodiments: {', '.join(sorted(embodiments))}")
-        print(f"Number of datasets: {len(self.datasets)}")
-        print("=" * 100)
+        logger.info(f"Embodiments: {', '.join(sorted(embodiments))}")
+        logger.info(f"Number of datasets: {len(self.datasets)}")
+        logger.info("=" * 100)
 
     def get_initial_actions(self):
-        """
-        Collect initial actions from all datasets.
+        """Collect initial actions from all datasets.
 
         Returns:
             Combined list of initial actions from all constituent datasets
@@ -793,5 +785,5 @@ class ShardedMixtureDataset(IterableDataset):
         initial_actions = []
         for dataset in self.datasets:
             if hasattr(dataset, "get_initial_actions"):
-                initial_actions.extend(dataset.get_initial_actions())  # type: ignore
+                initial_actions.extend(dataset.get_initial_actions())  # type: ignore[attr-defined]
         return initial_actions

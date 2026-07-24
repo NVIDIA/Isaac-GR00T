@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 from collections.abc import Sequence
 from typing import Any
 
+import numpy as np
 from structlog.contextvars import bound_contextvars
 from torch.utils import data
 
@@ -27,8 +27,7 @@ from groot.core.data.hydrator import client_protocol
 
 
 class EpisodeDataset(data.Dataset):
-    """
-    Episode-level dataset that structures robot demonstration episodes as message sequences.
+    """Episode-level dataset that structures robot demonstration episodes as message sequences.
 
     This dataset transforms LeRobot format data into structured episode sequences suitable
     for training VLA models that process episodes as conversations. Each episode is
@@ -60,6 +59,7 @@ class EpisodeDataset(data.Dataset):
         resample_on_invalid_frames: If True, clamp invalid video frame indices and retry; if False, raise.
         filter: Optional filter of the data.
         max_len: Maximum length of a subsequence to be sampled from the dataset.
+
     Example:
         >>> dataset = EpisodeDataset(
         ...     dataset_path="s3://bucket/lerobot_dataset",
@@ -91,8 +91,7 @@ class EpisodeDataset(data.Dataset):
         episode_loader_kwargs: dict[str, Any] | None = None,
         dataset_idx: int = 0,
     ):
-        """
-        Initialize episode dataset with LeRobot data loader and configuration.
+        """Initialize episode dataset with LeRobot data loader and configuration.
 
         Sets up the underlying data loader and computes the action horizon for
         episode augmentation. The action horizon determines how many different
@@ -106,10 +105,14 @@ class EpisodeDataset(data.Dataset):
             hydrator: Hydrator for file access (required for S3, optional for local).
             video_backend: Backend for video decoding
             video_backend_kwargs: Additional backend-specific arguments
-            filter: Optional filter for the data
+            resample_on_invalid_frames: If True, clamp invalid video frame indices
+                and retry; if False, raise.
+            data_filter: Optional online filter applied to the data.
             max_len: Maximum length of a subsequence to be sampled from the dataset.
             step_stride: Step interval between trajectory samples. Defaults to the
                 action horizon, preserving non-overlapping action sequences.
+            episode_loader_kwargs: Extra keyword arguments forwarded to the episode loader.
+            dataset_idx: Index of this dataset within a multi-dataset mixture.
         """
         self.dataset_path = dataset_path
         self.embodiment_tag = embodiment_tag
@@ -141,31 +144,50 @@ class EpisodeDataset(data.Dataset):
         if self.step_stride <= 0:
             raise ValueError(f"step_stride must be positive, got {self.step_stride}")
 
-        # Build map from index to episode_idx and start_idx
-        episode_lengths = []
-        idx_to_episode_and_start_map = []
+        # Lazy window index: instead of materializing one (episode_idx, start_idx)
+        # tuple per stride-1 window (O(total_frames) Python tuples -> multi-GB
+        # host RAM at init for long-episode trajectory datasets), store only two
+        # per-episode int arrays (O(num_episodes)) plus a prefix-sum, and resolve
+        # a global window index -> (episode_idx, start_idx) on demand via
+        # searchsorted (see _lookup_window).
+        num_episodes = len(self.episode_loader.episodes_metadata)
+        ep_num_windows = np.empty(num_episodes, dtype=np.int64)
+        # Per-episode "recorded length" (max_len for windowed episodes, else the
+        # raw episode length), shared by all of an episode's windows.
+        ep_recorded_len = np.empty(num_episodes, dtype=np.int64)
         for episode_idx, ep_meta in enumerate(self.episode_loader.episodes_metadata):
             ep_len = int(ep_meta["length"])
             if self.max_len is None:
-                idx_to_episode_and_start_map.append((episode_idx, 0))
-                episode_lengths.append(ep_len)
+                ep_num_windows[episode_idx] = 1
+                ep_recorded_len[episode_idx] = ep_len
             else:
                 effective_len = max(0, ep_len - self.action_horizon)
                 if effective_len > self.max_len:
-                    num_subsequences = effective_len - self.max_len + 1
-                    idx_to_episode_and_start_map.extend(
-                        [(episode_idx, start_idx) for start_idx in range(num_subsequences)]
-                    )
-                    episode_lengths.extend([self.max_len] * num_subsequences)
+                    ep_num_windows[episode_idx] = effective_len - self.max_len + 1
+                    ep_recorded_len[episode_idx] = self.max_len
                 else:
-                    idx_to_episode_and_start_map.append((episode_idx, 0))
-                    episode_lengths.append(ep_len)
-        self.idx_to_episode_and_start_map = idx_to_episode_and_start_map
-        self.episode_lengths = episode_lengths
+                    ep_num_windows[episode_idx] = 1
+                    ep_recorded_len[episode_idx] = ep_len
+        self._ep_recorded_len = ep_recorded_len
+        # Prefix sum over per-episode window counts: window range for episode e is
+        # [_cum_windows[e], _cum_windows[e + 1]). Size num_episodes + 1.
+        self._cum_windows = np.zeros(num_episodes + 1, dtype=np.int64)
+        np.cumsum(ep_num_windows, out=self._cum_windows[1:])
+        self._map_len = int(self._cum_windows[-1])
+
+    def _lookup_window(self, map_idx: int) -> tuple[int, int]:
+        """Resolve a global window index -> (episode_idx, start_idx) lazily.
+
+        Equivalent to indexing the old materialized ``idx_to_episode_and_start_map``
+        (episodes in order, start_idx 0..num_windows-1), but O(log num_episodes)
+        with O(num_episodes) memory instead of O(num_windows).
+        """
+        episode_idx = int(np.searchsorted(self._cum_windows, map_idx, side="right") - 1)
+        start_idx = int(map_idx - self._cum_windows[episode_idx])
+        return episode_idx, start_idx
 
     def __len__(self):
-        """
-        Return total number of episode sequences available.
+        """Return total number of episode sequences available.
 
         The total count is number_of_episodes * step_stride, as each episode
         can be started from multiple different timestep phases based on the step stride.
@@ -173,7 +195,7 @@ class EpisodeDataset(data.Dataset):
         Returns:
             Total number of episode sequences (episodes * step_stride)
         """
-        return len(self.idx_to_episode_and_start_map) * self.step_stride
+        return self._map_len * self.step_stride
 
     def preload_indices(self, indices: Sequence[int]) -> None:
         preload_episodes = getattr(self.episode_loader, "preload_episodes", None)
@@ -182,15 +204,14 @@ class EpisodeDataset(data.Dataset):
         episode_indices = []
         for idx in indices:
             map_idx = int(idx) // self.step_stride
-            if map_idx < 0 or map_idx >= len(self.idx_to_episode_and_start_map):
+            if map_idx < 0 or map_idx >= self._map_len:
                 continue
-            episode_idx, _start_idx = self.idx_to_episode_and_start_map[map_idx]
+            episode_idx, _start_idx = self._lookup_window(map_idx)
             episode_indices.append(int(episode_idx))
         preload_episodes(list(dict.fromkeys(episode_indices)))
 
     def __getitem__(self, idx: int) -> list[dict[str, Any]]:
-        """
-        Get a complete episode sequence as a list of formatted messages.
+        """Get a complete episode sequence as a list of formatted messages.
 
         Converts a raw episode into a structured message sequence with proper
         start/step/end markers. The index determines both which episode to load
@@ -217,7 +238,7 @@ class EpisodeDataset(data.Dataset):
         """
         # Calculate global index into episode and offset within episode
         map_idx = idx // self.step_stride
-        episode_idx, start_idx = self.idx_to_episode_and_start_map[map_idx]
+        episode_idx, start_idx = self._lookup_window(map_idx)
         offset = idx % self.step_stride
         episode_length = self.get_effective_episode_length(episode_idx)
 
@@ -262,6 +283,14 @@ class EpisodeDataset(data.Dataset):
                 if self.max_len is not None and len(episode_data) > self.max_len:
                     episode_data = episode_data.slice(start_idx, self.max_len)
 
+            # Guard against metadata/data length mismatch: clamp episode_length to
+            # actual rows so extract_step_data never sees n_rows=0 with step_idx>0.
+            # Metadata (episodes.jsonl) can overcount if parquet is truncated or
+            # a filter removed rows after the window was planned.
+            episode_length = min(
+                episode_length, max(0, len(episode_data) - self.action_horizon + 1)
+            )
+
             # Generate episode steps starting from the specified offset. By default
             # steps are spaced by action_horizon to provide non-overlapping action
             # sequences; step_stride can intentionally sample denser overlapping
@@ -305,14 +334,13 @@ class EpisodeDataset(data.Dataset):
 
     def get_effective_episode_length(self, episode_index: int) -> int:
         """Get the effective episode length accounting for action horizon."""
-        original_length = self.episode_lengths[episode_index]
+        original_length = int(self._ep_recorded_len[episode_index])
         action_delta_indices = self.modality_configs["action"].delta_indices
         action_horizon = max(action_delta_indices) - min(action_delta_indices) + 1
         return max(0, original_length - action_horizon + 1)
 
     def get_dataset_statistics(self) -> dict:
-        """
-        Get dataset statistics from the underlying episode loader.
+        """Get dataset statistics from the underlying episode loader.
 
         Provides access to normalization statistics computed from the underlying
         LeRobot dataset, enabling consistent data preprocessing across different

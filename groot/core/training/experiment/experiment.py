@@ -64,6 +64,7 @@ from groot.core.training.experiment.gear_registration import (
     append_training_run_status_event,
     preserve_checkpoint_root_enabled,
     register_experiment,
+    resolve_training_output_dir,
     update_training_run,
 )
 from groot.core.training.experiment.tracking_policy import (
@@ -247,7 +248,7 @@ class OmniTrainingArguments(TrainingArguments):
     nan_loss_diagnostics_max_dumps: int = field(default=4)
     log_distributed_grad_norm: bool = field(default=True)
     sync_seq_len: bool = field(default=False)
-    seq_len_handle_strategy: str = field(default="pad")  # "pad" or "truncate"
+    seq_len_handle_strategy: str = field(default="pad")  # "pad", "truncate", or "fixed"
     use_truncated_bptt: bool = field(default=False)
     truncated_bptt_chunk_size: int = field(default=10000)
     use_async_checkpoint_save: bool = field(default=True)
@@ -550,11 +551,7 @@ def _build_in_process_open_loop_callback(
             )
             continue
 
-        train_path = (
-            str(dataset_config.dataset_paths[0])
-            if dataset_config.dataset_paths
-            else None
-        )
+        train_path = str(dataset_config.dataset_paths[0]) if dataset_config.dataset_paths else None
         val_path = dataset_config.val_dataset_path
 
         if val_path:
@@ -669,7 +666,11 @@ def _build_open_loop_eval_callback(
 
         train_dataset_path = dataset_config.dataset_paths[0]
         eval_configs.append(
-            {"dataset_path": train_dataset_path, "embodiment_tag": embodiment_tag, "eval_type": "train"}
+            {
+                "dataset_path": train_dataset_path,
+                "embodiment_tag": embodiment_tag,
+                "eval_type": "train",
+            }
         )
         val_dataset_path = dataset_config.val_dataset_path or train_dataset_path
         eval_configs.append(
@@ -741,9 +742,7 @@ def run(
             backend = "nccl"
         else:
             backend = "gloo"
-        distributed_timeout_minutes = int(
-            os.environ.get("GROOT_DISTRIBUTED_TIMEOUT_MINUTES", "25")
-        )
+        distributed_timeout_minutes = int(os.environ.get("GROOT_DISTRIBUTED_TIMEOUT_MINUTES", "25"))
         dist.init_process_group(
             backend=backend,
             timeout=timedelta(minutes=distributed_timeout_minutes),
@@ -776,7 +775,9 @@ def run(
     preserve_checkpoint_root = preserve_checkpoint_root_enabled()
     api_checkpoint_path = os.environ.get("GEAR_CHECKPOINT_PATH", "")
     api_msc_checkpoint_url = (
-        "" if preserve_checkpoint_root else dashboard_checkpoint_path_to_msc_url(api_checkpoint_path)
+        ""
+        if preserve_checkpoint_root
+        else dashboard_checkpoint_path_to_msc_url(api_checkpoint_path)
     )
     configured_msc_checkpoint_url = getattr(config.training, "msc_checkpoint_url", None)
     if configured_msc_checkpoint_url and api_msc_checkpoint_url:
@@ -787,9 +788,24 @@ def run(
         )
         config.training.msc_checkpoint_url = api_msc_checkpoint_url
 
-    api_lfs_checkpoint_path = "" if preserve_checkpoint_root else os.environ.get("GEAR_LFS_CHECKPOINT_PATH", "")
-    if api_lfs_checkpoint_path:
-        config.training.output_dir = api_lfs_checkpoint_path
+    resolved_output_dir = resolve_training_output_dir(config.training.output_dir)
+    if resolved_output_dir != config.training.output_dir:
+        logging.info(
+            "Resolved canonical training.output_dir on worker: %s",
+            resolved_output_dir,
+        )
+        config.training.output_dir = resolved_output_dir
+    if preserve_checkpoint_root:
+        requested_msc_checkpoint_url = os.environ.get("TRAINING_MSC_CHECKPOINT_URL", "")
+        if (
+            requested_msc_checkpoint_url
+            and config.training.msc_checkpoint_url != requested_msc_checkpoint_url
+        ):
+            logging.info(
+                "Preserving launcher training.msc_checkpoint_url on worker: %s",
+                requested_msc_checkpoint_url,
+            )
+            config.training.msc_checkpoint_url = requested_msc_checkpoint_url
     api_wandb_run_name = os.environ.get("GEAR_WANDB_RUN_NAME", "")
 
     # Create output directory and check if using remote MSC upload
@@ -1031,14 +1047,14 @@ def run(
     try:
         if global_rank == 0:
             sys.stdout.write(
-                "OL_PHASE name=model_loading status=started "
-                "message=building model and trainer\n"
+                "OL_PHASE name=model_loading status=started message=building model and trainer\n"
             )
             sys.stdout.flush()
 
         # Resolve start_from_checkpoint if it's a remote URL
-        if config.training.start_from_checkpoint and config.training.start_from_checkpoint.startswith(
-            "msc://"
+        if (
+            config.training.start_from_checkpoint
+            and config.training.start_from_checkpoint.startswith("msc://")
         ):
             _setup_msc_config(config)
             # this downloads remote checkpoint to shared file system and return the local path
@@ -1058,6 +1074,7 @@ def run(
         if config.training.enable_struct_logs and config.training.training_log_dir:
             os.makedirs(config.training.training_log_dir, exist_ok=True)
             from groot.core.utils.distributed import worker_logging
+
             worker_logging.configure_logging(
                 worker_type="training_actor",
                 level=config.training.training_logging_level,
@@ -1341,8 +1358,7 @@ def run(
             data_cfg=config.data,
             processor=processor,
             action_horizon=(
-                config.training.open_loop_eval_in_process.action_horizon
-                or _model_action_horizon
+                config.training.open_loop_eval_in_process.action_horizon or _model_action_horizon
             ),
             video_backend=config.data.video_backend,
             trainer=trainer,
@@ -1366,7 +1382,9 @@ def run(
             if initial_actions:
                 initial_actions_path = save_cfg_dir / INITIAL_ACTIONS_FILENAME
                 save_initial_actions(initial_actions, initial_actions_path)
-                logging.info(f"Saved {len(initial_actions)} initial actions to {initial_actions_path}")
+                logging.info(
+                    f"Saved {len(initial_actions)} initial actions to {initial_actions_path}"
+                )
 
         # Resume always reads from the local Lustre checkpoint dir
         # (`output_dir`). The pre-download from MSC was added in

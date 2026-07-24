@@ -42,7 +42,7 @@ from pathlib import Path
 import queue
 import threading
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 from accelerate.utils import DistributedType
 import structlog
@@ -520,7 +520,8 @@ class GR00TTrainer(Trainer):
             assert self.args.seq_len_handle_strategy in (
                 "pad",
                 "truncate",
-            ), "seq_len_handle_strategy must be 'pad' or 'truncate'"
+                "fixed",
+            ), "seq_len_handle_strategy must be 'pad', 'truncate', or 'fixed'"
         if self.args.use_truncated_bptt:
             assert (
                 self.args.truncated_bptt_chunk_size > 0
@@ -1213,6 +1214,12 @@ class GR00TTrainer(Trainer):
                 )
             return self.lr_scheduler
         return super().create_scheduler(num_training_steps, optimizer)
+
+    _NO_DECAY_KEYWORDS: ClassVar[set[str]] = {"gating_alpha", "register_tokens"}
+
+    def get_decay_parameter_names(self, model) -> list[str]:
+        decay_parameters = super().get_decay_parameter_names(model)
+        return [n for n in decay_parameters if not any(kw in n for kw in self._NO_DECAY_KEYWORDS)]
 
     def create_optimizer(self):
         """Setup the optimizer.
@@ -2451,6 +2458,11 @@ class GR00TTrainer(Trainer):
 
         def _sync_seq_len(inputs):
             """Sync shapes across ranks and adjust seq len dimension accordingly"""
+            # "fixed" pads every sample (on every rank) to the same precomputed constant
+            # in the collator, so all ranks already share an identical sequence length.
+            if self.args.seq_len_handle_strategy == "fixed":
+                return inputs
+
             local_T = inputs["inputs"]["state"].shape[1]
 
             # Create tensor on same device as data

@@ -28,6 +28,7 @@ is never blocked by a registration error.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import getpass
 import json
 import logging
@@ -55,6 +56,8 @@ TIMEOUT_ENV = "GEAR_DASHBOARD_TIMEOUT"
 FORCE_OUTBOX_ENV = "GEAR_DASHBOARD_FORCE_OUTBOX"
 PRESERVE_CHECKPOINT_ROOT_ENV = "GEAR_PRESERVE_CHECKPOINT_ROOT"
 PRESERVE_OUTPUT_DIR_ENV = "GEAR_PRESERVE_OUTPUT_DIR"
+TRAINING_OUTPUT_DIR_ENV = "TRAINING_OUTPUT_DIR"
+DASHBOARD_LFS_CHECKPOINT_PATH_ENV = "GEAR_LFS_CHECKPOINT_PATH"
 # Production API. ``GEAR_DASHBOARD_API_URL`` overrides this -- point it at
 # ``DEV_API_URL`` (or any other host) for development and integration testing
 # so local runs never write to the prod experiments table by accident.
@@ -73,13 +76,25 @@ if platform.system() == "Darwin" and truststore is not None:
     truststore.inject_into_ssl()
 
 
-def preserve_checkpoint_root_enabled(env: dict[str, str] | None = None) -> bool:
+def preserve_checkpoint_root_enabled(env: Mapping[str, str] | None = None) -> bool:
     """Whether launcher/worker should keep user-provided checkpoint roots."""
-    env = env or os.environ
+    env = os.environ if env is None else env
     for key in (PRESERVE_CHECKPOINT_ROOT_ENV, PRESERVE_OUTPUT_DIR_ENV):
         if env.get(key, "").lower() in ("1", "true", "yes"):
             return True
     return False
+
+
+def resolve_training_output_dir(
+    configured_output_dir: str,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve the one output root used by training, resume, locks, and retry state."""
+    env = os.environ if env is None else env
+    configured_output_dir = env.get(TRAINING_OUTPUT_DIR_ENV, "").strip() or configured_output_dir
+    if preserve_checkpoint_root_enabled(env):
+        return configured_output_dir
+    return env.get(DASHBOARD_LFS_CHECKPOINT_PATH_ENV, "").strip() or configured_output_dir
 
 
 def _get_api_url() -> str:
@@ -374,14 +389,7 @@ def _get_branch() -> str:
 
 
 def _infer_gpu_type(cluster_type: str) -> str:
-    mapping = {
-        "colossus": "GB300",
-        "gb200": "GB200",
-        "gb300": "GB300",
-        "h100": "H100",
-        "l40": "L40",
-        "l40s": "L40S",
-    }
+    mapping = {"gb200": "GB200", "gb300": "GB300", "h100": "H100", "l40": "L40", "l40s": "L40S"}
     return mapping.get(cluster_type.lower(), cluster_type.upper())
 
 

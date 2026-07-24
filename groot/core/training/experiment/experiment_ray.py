@@ -33,8 +33,59 @@ from groot.core.data.dataset import deltacat_sampled_stats
 from groot.core.data.dataset.build_artifacts import DatasetBuildArtifacts
 from groot.core.training.configs import base_config
 from groot.core.training.experiment import experiment, memory_monitor
-from groot.core.training.experiment.gear_registration import preserve_checkpoint_root_enabled
+from groot.core.training.experiment.gear_registration import (
+    preserve_checkpoint_root_enabled,
+    resolve_training_output_dir,
+)
 from groot.core.utils.storage import cache as cache_entrypoint
+
+_DRY_RUN_PROPAGATED_VARS = ("_GROOT_DRY_RUN_STUB_MODEL", "IDENTITY_FORWARD_SLEEP_MS")
+_TORCH_COMPILE_PROPAGATED_VARS = (
+    "GLOBAL_DISABLE_TTT_COMPILE",
+    "GROOT_N2_COMPILE_DIAGNOSTICS_INTERVAL",
+    "GROOT_N2_COMPILE_DIAGNOSTICS_STEPS",
+    "GROOT_TTT_COMPILE_TRANSFORMER_BLOCKS",
+    "GROOT_TTT_INNER_COMPILE_MODE",
+    "GROOT_TTT_TRANSFORMER_COMPILE_MODE",
+    "TORCHDYNAMO_VERBOSE",
+    "TORCHINDUCTOR_CUDAGRAPH_TREES",
+    "TORCHINDUCTOR_FORCE_DISABLE_CACHES",
+    "TORCH_LOGS",
+)
+_DELTACAT_PROPAGATED_VARS = (
+    "DELTACAT_BETA_SERVER_URL",
+    "DELTACAT_SERVER_URL",
+    "DELTACAT_USER_ID",
+    "DELTACAT_TOKEN_ID",
+    "DELTACAT_BEARER_TOKEN",
+    "DELTACAT_WORKER_TOKEN",
+    "DELTACAT_CLIENT_TIMEOUT",
+    "DELTACAT_PACKDS_DECODE_WORKERS",
+    "DELTACAT_PACKDS_MAX_BLOB_CACHE_BYTES",
+    "DELTACAT_PACKDS_MAX_DECODED_CACHE_BYTES",
+)
+_PROPAGATED_WORKER_ENV_VARS = (
+    *_DRY_RUN_PROPAGATED_VARS,
+    *_TORCH_COMPILE_PROPAGATED_VARS,
+    *_DELTACAT_PROPAGATED_VARS,
+    "GROOT_DISTRIBUTED_TIMEOUT_MINUTES",
+    "TRAINING_OUTPUT_DIR",
+    "TRAINING_MSC_CHECKPOINT_URL",
+    "GEAR_PRESERVE_CHECKPOINT_ROOT",
+)
+
+
+def _collect_worker_env_vars() -> dict[str, str]:
+    return {key: os.environ[key] for key in _PROPAGATED_WORKER_ENV_VARS if os.environ.get(key)}
+
+
+def _build_ray_init_runtime_env() -> dict | None:
+    env_vars = _collect_worker_env_vars()
+    runtime_env = {"env_vars": env_vars} if env_vars else {}
+    runtime_pip = os.environ.get("GROOT_RAY_RUNTIME_PIP", "")
+    if runtime_pip:
+        runtime_env["pip"] = shlex.split(runtime_pip)
+    return runtime_env or None
 
 
 def train_func(cfg, dataset_build_artifacts=None):
@@ -355,16 +406,25 @@ def main():
         )
         config.training.msc_checkpoint_url = api_msc_checkpoint_url
 
-    api_lfs_checkpoint_path = (
-        "" if preserve_checkpoint_root else os.environ.get("GEAR_LFS_CHECKPOINT_PATH", "")
-    )
-    if api_lfs_checkpoint_path:
+    resolved_output_dir = resolve_training_output_dir(config.training.output_dir)
+    if resolved_output_dir != config.training.output_dir:
         logging.info(
-            "Overriding training.output_dir on driver from %s to dashboard-allocated %s",
+            "Resolved canonical training.output_dir on driver from %s to %s",
             config.training.output_dir,
-            api_lfs_checkpoint_path,
+            resolved_output_dir,
         )
-        config.training.output_dir = api_lfs_checkpoint_path
+        config.training.output_dir = resolved_output_dir
+    if preserve_checkpoint_root:
+        requested_msc_checkpoint_url = os.environ.get("TRAINING_MSC_CHECKPOINT_URL", "")
+        if (
+            requested_msc_checkpoint_url
+            and config.training.msc_checkpoint_url != requested_msc_checkpoint_url
+        ):
+            logging.info(
+                "Preserving launcher training.msc_checkpoint_url on driver: %s",
+                requested_msc_checkpoint_url,
+            )
+            config.training.msc_checkpoint_url = requested_msc_checkpoint_url
 
     # Attach to an existing Ray cluster when RAY_ADDRESS is set (the
     # multi-node CPU path; SkyPilot's start_cluster exports this env
@@ -372,11 +432,10 @@ def main():
     # ray.init() with no address starts a fresh local single-pod
     # cluster — the single-node CPU and the GPU paths.
     #
-    # Propagate launch_identity_*_dry_run knobs into Ray workers via
-    # runtime_env.env_vars. When RAY_ADDRESS is set we attach to an
-    # existing user-Ray whose worker processes were spawned by the
-    # cluster's Ray daemon with the daemon's env — the launcher's
-    # os.environ from sky exec doesn't reach them otherwise.
+    # Propagate launch-time knobs into Ray workers via runtime_env.env_vars.
+    # When RAY_ADDRESS is set we attach to an existing user-Ray whose worker
+    # processes were spawned by the cluster's Ray daemon with the daemon's env;
+    # the launcher's os.environ from sky exec does not reach them otherwise.
     #
     # _GROOT_DRY_RUN_STUB_MODEL: boolean flag (any truthy ⇒ "1") read in
     #   experiment.run to shadow pipeline._create_model with IdentityModel
@@ -387,57 +446,23 @@ def main():
     # IDENTITY_FORWARD_SLEEP_MS: read by IdentityModel.__init__ to inject
     #   forward-pass latency in the dry-run; without this propagation the
     #   sleep silently no-ops on the GPU (RAY_ADDRESS-attach) path.
-    _DRY_RUN_PROPAGATED_VARS = ("_GROOT_DRY_RUN_STUB_MODEL", "IDENTITY_FORWARD_SLEEP_MS")
-    _TORCH_COMPILE_PROPAGATED_VARS = (
-        "GLOBAL_DISABLE_TTT_COMPILE",
-        "GROOT_N2_COMPILE_DIAGNOSTICS_INTERVAL",
-        "GROOT_N2_COMPILE_DIAGNOSTICS_STEPS",
-        "GROOT_TTT_COMPILE_TRANSFORMER_BLOCKS",
-        "GROOT_TTT_INNER_COMPILE_MODE",
-        "GROOT_TTT_TRANSFORMER_COMPILE_MODE",
-        "TORCHDYNAMO_VERBOSE",
-        "TORCHINDUCTOR_CUDAGRAPH_TREES",
-        "TORCHINDUCTOR_FORCE_DISABLE_CACHES",
-        "TORCH_LOGS",
-    )
-    _DELTACAT_PROPAGATED_VARS = (
-        "DELTACAT_BETA_SERVER_URL",
-        "DELTACAT_SERVER_URL",
-        "DELTACAT_USER_ID",
-        "DELTACAT_TOKEN_ID",
-        "DELTACAT_BEARER_TOKEN",
-        "DELTACAT_WORKER_TOKEN",
-        "DELTACAT_CLIENT_TIMEOUT",
-        "DELTACAT_PACKDS_DECODE_WORKERS",
-        "DELTACAT_PACKDS_MAX_BLOB_CACHE_BYTES",
-        "DELTACAT_PACKDS_MAX_DECODED_CACHE_BYTES",
-    )
-    env_vars = {
-        k: os.environ[k]
-        for k in (
-            *_DRY_RUN_PROPAGATED_VARS,
-            *_TORCH_COMPILE_PROPAGATED_VARS,
-            *_DELTACAT_PROPAGATED_VARS,
-        )
-        if os.environ.get(k)
-    }
-    # A gear-submitted Ray job's runtime_env already propagates these env vars to
-    # the driver and to actors the job spawns. Re-declaring them in ray.init's
-    # runtime_env makes Ray reject the merge with the job runtime_env on
-    # duplicate keys ("Use RAY_OVERRIDE_JOB_RUNTIME_ENV=1..."). gear_ray's
-    # submit_job always injects WORKFLOW_ID + SUBMISSION_ID into the job
-    # runtime_env (see gear_ray.py), so their presence marks the submitted-job
-    # path — skip re-injection there. The local / sky-exec attach paths (which
-    # run this module directly, not via submit_job) lack them and still need the
-    # re-injection, because daemon-spawned actors do not inherit the driver env.
-    if os.environ.get("SUBMISSION_ID") or os.environ.get("WORKFLOW_ID"):
-        env_vars = {}
-    runtime_env = {"env_vars": env_vars} if env_vars else {}
-    runtime_pip = os.environ.get("GROOT_RAY_RUNTIME_PIP", "")
-    if runtime_pip:
-        runtime_env["pip"] = shlex.split(runtime_pip)
-    runtime_env = runtime_env or None
-    ray.init(address=os.environ.get("RAY_ADDRESS"), runtime_env=runtime_env)
+    # These variables must be present before the actor imports TTT modules,
+    # because compile settings are read at import time. True Ray-job
+    # submissions may already contain the same keys in their job runtime_env;
+    # retry without an explicit runtime_env when Ray reports that duplicate.
+    runtime_env = _build_ray_init_runtime_env()
+    try:
+        ray.init(address=os.environ.get("RAY_ADDRESS"), runtime_env=runtime_env)
+    except ValueError as exc:
+        message = str(exc)
+        if runtime_env and "runtime_env" in message and "RAY_OVERRIDE_JOB_RUNTIME_ENV" in message:
+            logging.warning(
+                "ray.init rejected duplicate runtime_env keys; assuming the Ray job "
+                "runtime_env already contains launch env and retrying without explicit runtime_env."
+            )
+            ray.init(address=os.environ.get("RAY_ADDRESS"))
+        else:
+            raise
     memory_monitor.start()
     if config.data.download_cache:
         cache_entrypoint.maybe_download_cache_contents(config)
