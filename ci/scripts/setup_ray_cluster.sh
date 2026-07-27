@@ -14,18 +14,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Build a persistent Ray cluster across bare-metal GR00T GPU hosts.
+# Reserve Colossus bare-metal GPU hosts and create or extend a persistent Ray cluster.
 
 set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_SETUP_SCRIPT="${SCRIPT_DIR}/setup_bare_metal_gpu_host.sh"
 
-IMAGE="${GROOT_CI_TRAIN_IMAGE:-nvcr.io/nvidian/groot-ci-train:c7a32a6d}"
-INVENTORY=""
+IMAGE="${GROOT_CI_TRAIN_IMAGE:-nvcr.io/nvidian/groot-ci-train:latest}"
+COLOSSUS_POOL_ID="${COLOSSUS_POOL_ID:-gear-gb300-automation}"
+COLOSSUS_NODE_COUNT="${COLOSSUS_NODE_COUNT:-}"
+COLOSSUS_LEASE_DURATION="${COLOSSUS_LEASE_DURATION:-7d}"
+COLOSSUS_LEASE_JUSTIFICATION="${COLOSSUS_LEASE_JUSTIFICATION:-GR00T persistent Ray cluster}"
+COLOSSUS_OS="${COLOSSUS_OS:-ubuntu-24.04-aarch64-standard-uefi}"
+COLOSSUS_PROVISION_MODE="${COLOSSUS_PROVISION_MODE:-CLEAN}"
+COLOSSUS_LEASE_READY_TIMEOUT="${COLOSSUS_LEASE_READY_TIMEOUT:-3600}"
+COLOSSUS_LEASE_POLL_INTERVAL="${COLOSSUS_LEASE_POLL_INTERVAL:-15}"
+KEEP_COLOSSUS_LEASES_ON_FAILURE="${KEEP_COLOSSUS_LEASES_ON_FAILURE:-0}"
+COLOSSUS_LEASES_COMMITTED="0"
 SSL_CERT="${SSL_CERT:-/etc/ssl/groot-ray/fullchain.pem}"
 SSL_KEY="${SSL_KEY:-/etc/ssl/groot-ray/privkey.pem}"
 HEAD_DOMAIN=""
+JOIN_RAY_ADDRESS=""
+JOIN_RAY_HEAD_IP=""
+JOIN_RAY_HEAD_PORT=""
 RAY_AUTH_USER="${RAY_AUTH_USER:-gear}"
 RAY_AUTH_PASSWORD=""
 RAY_AUTH_PASSWORD_SOURCE=""
@@ -75,6 +88,11 @@ declare -a NODE_IPS=()
 declare -a DATA_IPS=()
 declare -a FAILED_HOSTS=()
 declare -a HOST_SETUP_PIDS=()
+declare -a JOINED_WORKER_INDICES=()
+declare -a COLOSSUS_CANDIDATE_NAMES=()
+declare -a COLOSSUS_CANDIDATE_FQDNS=()
+declare -a COLOSSUS_LEASE_IDS=()
+declare -a COLOSSUS_LEASE_NAMES=()
 
 log() {
   printf '[setup_ray_cluster] %s\n' "$*"
@@ -88,17 +106,37 @@ die() {
 usage() {
   cat <<EOF
 Usage:
+  # Create a new Ray cluster:
   ci/scripts/setup_ray_cluster.sh \\
-    --inventory hosts.csv \\
+    --nodes 2 \\
     --ray-auth-password-file /path/to/password \\
     --nvcr-token-file /path/to/nvcr-token
 
+  # Add workers to an existing Ray cluster without changing its head:
+  ci/scripts/setup_ray_cluster.sh \\
+    --nodes 2 \\
+    --join-ray-address 10.0.0.10:6379 \\
+    --nvcr-token-file /path/to/nvcr-token
+
 Options:
-  --inventory PATH              CSV with host,user,password[,data_ip] rows. First row is Ray head.
+  --nodes COUNT                 Number of Colossus hosts to reserve. The first lease is
+                                the Ray head unless --join-ray-address is set.
+  --join-ray-address IP[:PORT]  Add every leased host as a worker to this existing Ray
+                                control-plane address. Default port: ${RAY_PORT}.
+                                The existing head and its nginx endpoint are not changed.
+  --pool-id ID                  Colossus bare-metal pool ID. Default: ${COLOSSUS_POOL_ID}
+  --lease-duration DURATION     Colossus lease duration. Default: ${COLOSSUS_LEASE_DURATION}
+  --lease-justification TEXT    Colossus lease justification. Default: ${COLOSSUS_LEASE_JUSTIFICATION}
+  --colossus-os OS              OS requested for each lease. Default: ${COLOSSUS_OS}
+  --colossus-provision-mode MODE
+                                Colossus provisioning mode. Default: ${COLOSSUS_PROVISION_MODE}
+  --lease-ready-timeout SECS    Overall wait for all leases to become active. Default: ${COLOSSUS_LEASE_READY_TIMEOUT}
+  --lease-poll-interval SECS    Seconds between lease readiness checks. Default: ${COLOSSUS_LEASE_POLL_INTERVAL}
+  --keep-leases-on-failure      Do not release newly created leases when setup fails.
   --image IMAGE                 Docker image to pull and run. Default: ${IMAGE}
   --ssl-cert PATH               TLS certificate path on the head host. Default: ${SSL_CERT}
   --ssl-key PATH                TLS private key path on the head host. Default: ${SSL_KEY}
-  --head-domain DOMAIN          Public HTTPS domain. Default: first inventory host.
+  --head-domain DOMAIN          Public HTTPS domain. Default: first leased host FQDN.
   --ray-auth-user USER          nginx basic-auth username for /ray/. Default: ${RAY_AUTH_USER}
   --ray-auth-password-file PATH Read basic-auth password from a local file.
   --ray-auth-password-env VAR   Read basic-auth password from environment variable VAR.
@@ -139,6 +177,7 @@ Options:
   --transport-validation-timeout SECS
                                 Bound the validation command. Default: ${TRANSPORT_VALIDATION_TIMEOUT}
   --dry-run                     Print the plan without changing any host.
+                                Pool discovery is read-only; no lease is created.
   -h, --help                    Show this help.
 
 GPU policy:
@@ -185,14 +224,21 @@ cleanup() {
   local status=$?
   trap - EXIT INT TERM
   terminate_host_setup_jobs
+  if [[ "${status}" -ne 0 && -n "${JOIN_RAY_ADDRESS}" && "${#JOINED_WORKER_INDICES[@]}" -gt 0 ]]; then
+    stop_joined_worker_containers
+  fi
+  if [[ "${status}" -ne 0 && "${COLOSSUS_LEASES_COMMITTED}" != "1" && "${#COLOSSUS_LEASE_IDS[@]}" -gt 0 ]]; then
+    if [[ "${KEEP_COLOSSUS_LEASES_ON_FAILURE}" == "1" ]]; then
+      log "setup failed; keeping Colossus leases: ${COLOSSUS_LEASE_IDS[*]}"
+    else
+      release_colossus_leases
+    fi
+  fi
   if [[ -n "${TMP_DIR}" && -d "${TMP_DIR}" ]]; then
     rm -rf "${TMP_DIR}" || true
   fi
   return "${status}"
 }
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 require_value() {
   local option="$1"
@@ -213,10 +259,54 @@ read_secret_file() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --inventory)
+      --nodes)
         require_value "$1" "${2:-}"
-        INVENTORY="$2"
+        COLOSSUS_NODE_COUNT="$2"
         shift 2
+        ;;
+      --join-ray-address)
+        require_value "$1" "${2:-}"
+        JOIN_RAY_ADDRESS="$2"
+        shift 2
+        ;;
+      --pool-id)
+        require_value "$1" "${2:-}"
+        COLOSSUS_POOL_ID="$2"
+        shift 2
+        ;;
+      --lease-duration)
+        require_value "$1" "${2:-}"
+        COLOSSUS_LEASE_DURATION="$2"
+        shift 2
+        ;;
+      --lease-justification)
+        require_value "$1" "${2:-}"
+        COLOSSUS_LEASE_JUSTIFICATION="$2"
+        shift 2
+        ;;
+      --colossus-os)
+        require_value "$1" "${2:-}"
+        COLOSSUS_OS="$2"
+        shift 2
+        ;;
+      --colossus-provision-mode)
+        require_value "$1" "${2:-}"
+        COLOSSUS_PROVISION_MODE="$2"
+        shift 2
+        ;;
+      --lease-ready-timeout)
+        require_value "$1" "${2:-}"
+        COLOSSUS_LEASE_READY_TIMEOUT="$2"
+        shift 2
+        ;;
+      --lease-poll-interval)
+        require_value "$1" "${2:-}"
+        COLOSSUS_LEASE_POLL_INTERVAL="$2"
+        shift 2
+        ;;
+      --keep-leases-on-failure)
+        KEEP_COLOSSUS_LEASES_ON_FAILURE="1"
+        shift
         ;;
       --image)
         require_value "$1" "${2:-}"
@@ -420,19 +510,69 @@ join_quoted() {
 }
 
 validate_args() {
-  [[ -n "${INVENTORY}" ]] || die "--inventory is required"
-  [[ -r "${INVENTORY}" ]] || die "cannot read inventory: ${INVENTORY}"
+  case "${COLOSSUS_NODE_COUNT}" in
+    ''|*[!0-9]*) die "--nodes must be a positive integer" ;;
+  esac
+  (( COLOSSUS_NODE_COUNT > 0 )) || die "--nodes must be greater than 0"
+  if [[ -n "${JOIN_RAY_ADDRESS}" ]]; then
+    if [[ "${JOIN_RAY_ADDRESS}" == *://* || "${JOIN_RAY_ADDRESS}" == *:*:* ]]; then
+      die "--join-ray-address must be an internal IPv4 address with an optional port"
+    fi
+    JOIN_RAY_HEAD_IP="${JOIN_RAY_ADDRESS%%:*}"
+    if [[ "${JOIN_RAY_ADDRESS}" == *:* ]]; then
+      JOIN_RAY_HEAD_PORT="${JOIN_RAY_ADDRESS##*:}"
+    else
+      JOIN_RAY_HEAD_PORT="${RAY_PORT}"
+    fi
+    is_cluster_ip "${JOIN_RAY_HEAD_IP}" \
+      || die "--join-ray-address must use a non-loopback cluster IPv4 address"
+    case "${JOIN_RAY_HEAD_PORT}" in
+      ''|*[!0-9]*) die "--join-ray-address port must be an integer" ;;
+    esac
+    (( JOIN_RAY_HEAD_PORT > 0 && JOIN_RAY_HEAD_PORT <= 65535 )) \
+      || die "--join-ray-address port must be between 1 and 65535"
+    JOIN_RAY_ADDRESS="${JOIN_RAY_HEAD_IP}:${JOIN_RAY_HEAD_PORT}"
+  fi
+  [[ -n "${COLOSSUS_POOL_ID}" ]] || die "--pool-id is required"
+  case "${COLOSSUS_POOL_ID}" in
+    *$'\n'*|*$'\r'*) die "--pool-id cannot contain newlines" ;;
+  esac
+  [[ "${COLOSSUS_LEASE_DURATION}" =~ ^[1-9][0-9]*([mhd])?$ ]] \
+    || die "--lease-duration must look like 120, 120m, 4h, or 7d"
+  [[ -n "${COLOSSUS_LEASE_JUSTIFICATION}" ]] || die "--lease-justification is required"
+  case "${COLOSSUS_LEASE_JUSTIFICATION}" in
+    *$'\n'*|*$'\r'*) die "--lease-justification cannot contain newlines" ;;
+  esac
+  [[ -n "${COLOSSUS_OS}" ]] || die "--colossus-os is required"
+  case "${COLOSSUS_PROVISION_MODE}" in
+    PRE_PROVISION|CLEAN|REUSE_SPECIFIED_OS|NOT_APPLICABLE|REUSE_ANY_OS) ;;
+    *) die "--colossus-provision-mode is invalid: ${COLOSSUS_PROVISION_MODE}" ;;
+  esac
+  case "${COLOSSUS_LEASE_READY_TIMEOUT}" in
+    ''|*[!0-9]*) die "--lease-ready-timeout must be a positive integer" ;;
+  esac
+  case "${COLOSSUS_LEASE_POLL_INTERVAL}" in
+    ''|*[!0-9]*) die "--lease-poll-interval must be a positive integer" ;;
+  esac
+  (( COLOSSUS_LEASE_READY_TIMEOUT > 0 )) || die "--lease-ready-timeout must be greater than 0"
+  (( COLOSSUS_LEASE_POLL_INTERVAL > 0 )) || die "--lease-poll-interval must be greater than 0"
+  case "${KEEP_COLOSSUS_LEASES_ON_FAILURE}" in
+    0|1) ;;
+    *) die "KEEP_COLOSSUS_LEASES_ON_FAILURE must be 0 or 1" ;;
+  esac
   [[ -x "${HOST_SETUP_SCRIPT}" ]] || die "missing executable host setup script: ${HOST_SETUP_SCRIPT}"
-  [[ -n "${SSL_CERT}" ]] || die "--ssl-cert is required"
-  [[ -n "${SSL_KEY}" ]] || die "--ssl-key is required"
-  [[ -n "${RAY_AUTH_USER}" ]] || die "--ray-auth-user is required"
+  if [[ -z "${JOIN_RAY_ADDRESS}" ]]; then
+    [[ -n "${SSL_CERT}" ]] || die "--ssl-cert is required"
+    [[ -n "${SSL_KEY}" ]] || die "--ssl-key is required"
+    [[ -n "${RAY_AUTH_USER}" ]] || die "--ray-auth-user is required"
 
-  case "${RAY_AUTH_USER}" in
-    *:*|*$'\n'*|*$'\r'*) die "--ray-auth-user cannot contain ':' or newlines" ;;
-  esac
-  case "${SSL_CERT}${SSL_KEY}" in
-    *[[:space:]]*) die "--ssl-cert and --ssl-key paths cannot contain whitespace" ;;
-  esac
+    case "${RAY_AUTH_USER}" in
+      *:*|*$'\n'*|*$'\r'*) die "--ray-auth-user cannot contain ':' or newlines" ;;
+    esac
+    case "${SSL_CERT}${SSL_KEY}" in
+      *[[:space:]]*) die "--ssl-cert and --ssl-key paths cannot contain whitespace" ;;
+    esac
+  fi
   case "${GROOT_DATA_ROOT}" in
     ""|*[[:space:]]*) die "--groot-data-root must be non-empty and cannot contain whitespace" ;;
   esac
@@ -503,7 +643,9 @@ validate_args() {
   fi
 
   if [[ "${DRY_RUN}" == "0" ]]; then
-    [[ -n "${RAY_AUTH_PASSWORD_SOURCE}" ]] || die "provide a Ray auth password via --ray-auth-password-file/env/stdin"
+    if [[ -z "${JOIN_RAY_ADDRESS}" ]]; then
+      [[ -n "${RAY_AUTH_PASSWORD_SOURCE}" ]] || die "provide a Ray auth password via --ray-auth-password-file/env/stdin"
+    fi
     [[ -n "${NVCR_TOKEN_SOURCE}" || -n "${NVCR_TOKEN}" ]] || die "provide an NVCR token via --nvcr-token-file/env/stdin or NVCR_TOKEN"
   fi
 }
@@ -533,7 +675,9 @@ resolve_secret_sources() {
   fi
 
   if [[ "${DRY_RUN}" == "0" ]]; then
-    [[ -n "${RAY_AUTH_PASSWORD}" ]] || die "Ray auth password is empty"
+    if [[ -z "${JOIN_RAY_ADDRESS}" ]]; then
+      [[ -n "${RAY_AUTH_PASSWORD}" ]] || die "Ray auth password is empty"
+    fi
     [[ -n "${NVCR_TOKEN}" ]] || die "NVCR token is empty"
   fi
 
@@ -551,71 +695,405 @@ resolve_secret_sources() {
   fi
 }
 
-parse_inventory() {
+validate_colossus_pool_access() {
+  local access_path="${TMP_DIR}/colossus-pool-access.json"
+
+  if ! colossus bm pool access --pool-name "${COLOSSUS_POOL_ID}" --json > "${access_path}"; then
+    die "failed to check reserve permission for Colossus pool ${COLOSSUS_POOL_ID}"
+  fi
+  if ! python3 - "${access_path}" "${COLOSSUS_POOL_ID}" <<'PY'
+import json
+import sys
+
+path, pool_id = sys.argv[1:]
+with open(path) as f:
+    data = json.load(f)
+if not isinstance(data, dict) or data.get(pool_id) is not True:
+    raise SystemExit(f"current Colossus identity cannot reserve from pool {pool_id}")
+PY
+  then
+    die "Colossus pool access check failed"
+  fi
+}
+
+write_colossus_lease_list() {
+  local status="$1"
+  local path="$2"
+
+  if colossus bm lease list --status "${status}" --json > "${path}"; then
+    return 0
+  fi
+  # Colossus CLI 2.3 exits 1 for an empty result while still writing valid [] JSON.
+  python3 - "${path}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+if data != []:
+    raise SystemExit("lease query failed with a non-empty response")
+PY
+}
+
+discover_colossus_candidates() {
+  local resources_path="${TMP_DIR}/colossus-resources.json"
+  local active_path="${TMP_DIR}/colossus-active-leases.json"
+  local pending_path="${TMP_DIR}/colossus-pending-leases.json"
+  local assignments
+
+  validate_colossus_pool_access
+  if ! colossus bm resource list \
+    --filters "poolId=${COLOSSUS_POOL_ID}" status=AVAILABLE gpuTag=GB300 \
+    --authorized-to-reserve \
+    --json > "${resources_path}"; then
+    die "failed to list available resources in Colossus pool ${COLOSSUS_POOL_ID}"
+  fi
+  if ! write_colossus_lease_list ACTIVE "${active_path}"; then
+    die "failed to list active Colossus leases"
+  fi
+  if ! write_colossus_lease_list PENDING "${pending_path}"; then
+    die "failed to list pending Colossus leases"
+  fi
+
+  if ! assignments="$(
+    python3 - \
+      "${resources_path}" \
+      "${active_path}" \
+      "${pending_path}" \
+      "${COLOSSUS_POOL_ID}" \
+      "${COLOSSUS_OS}" <<'PY'
+import json
+import re
+import shlex
+import sys
+
+resources_path, active_path, pending_path, pool_id, requested_os = sys.argv[1:]
+
+
+def load_records(path):
+    with open(path) as f:
+        data = json.load(f)
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        return [data]
+    raise SystemExit(f"{path}: expected a JSON object or array")
+
+
+busy_names = set()
+for path in (active_path, pending_path):
+    for record in load_records(path):
+        details = record.get("lease_details") or record
+        status = str(details.get("status", "")).upper()
+        name = details.get("resourceName")
+        if not name:
+            name = (record.get("entity_details") or {}).get("name")
+        if status in {"ACTIVE", "PENDING"} and isinstance(name, str) and name:
+            busy_names.add(name)
+
+candidates = {}
+for resource in load_records(resources_path):
+    if resource.get("poolId") != pool_id:
+        continue
+    if str(resource.get("status", "")).upper() != "AVAILABLE":
+        continue
+    if resource.get("gpuTag") != "GB300":
+        continue
+    name = resource.get("name")
+    if (
+        not isinstance(name, str)
+        or re.fullmatch(r"[A-Za-z0-9._-]+", name) is None
+        or name in busy_names
+    ):
+        continue
+    supported_os = resource.get("supportedOs")
+    if isinstance(supported_os, list) and supported_os and requested_os not in supported_os:
+        continue
+    fqdn = resource.get("fqdn")
+    if not isinstance(fqdn, str):
+        fqdn = ""
+    candidates[name] = fqdn
+
+print("COLOSSUS_CANDIDATE_NAMES=()")
+print("COLOSSUS_CANDIDATE_FQDNS=()")
+for name in sorted(candidates):
+    print(f"COLOSSUS_CANDIDATE_NAMES+=({shlex.quote(name)})")
+    print(f"COLOSSUS_CANDIDATE_FQDNS+=({shlex.quote(candidates[name])})")
+PY
+  )"; then
+    die "failed to parse Colossus resource discovery"
+  fi
+  eval "${assignments}"
+
+  if (( ${#COLOSSUS_CANDIDATE_NAMES[@]} < COLOSSUS_NODE_COUNT )); then
+    die "pool ${COLOSSUS_POOL_ID} has ${#COLOSSUS_CANDIDATE_NAMES[@]} unleased compatible host(s), but --nodes requested ${COLOSSUS_NODE_COUNT}"
+  fi
+  log "found ${#COLOSSUS_CANDIDATE_NAMES[@]} unleased compatible host(s) in Colossus pool ${COLOSSUS_POOL_ID}"
+}
+
+prepare_dry_run_hosts() {
   HOSTS=()
   USERS=()
   PASSWORDS=()
   DATA_IPS=()
 
-  eval "$(python3 - "${INVENTORY}" <<'PY'
-import csv
-import ipaddress
-import shlex
-import sys
+  local idx host
+  for ((idx = 0; idx < COLOSSUS_NODE_COUNT; idx++)); do
+    host="${COLOSSUS_CANDIDATE_FQDNS[$idx]}"
+    if [[ -z "${host}" ]]; then
+      host="<assigned-after-provisioning>"
+    fi
+    HOSTS+=("${host}")
+    USERS+=("<assigned-by-colossus>")
+    PASSWORDS+=("")
+    DATA_IPS+=("")
+  done
 
-path = sys.argv[1]
-first_record = True
-
-with open(path, newline="") as f:
-    reader = csv.reader(f)
-    for lineno, row in enumerate(reader, start=1):
-        if not row or all(not cell.strip() for cell in row):
-            continue
-        if row[0].lstrip().startswith("#"):
-            continue
-        normalized = [cell.strip().lower() for cell in row[:4]]
-        if first_record and normalized[:3] == ["host", "user", "password"]:
-            if len(normalized) == 4 and normalized[3] not in {"", "data_ip"}:
-                raise SystemExit(f"{path}:{lineno}: fourth inventory header must be data_ip")
-            first_record = False
-            continue
-        first_record = False
-        if len(row) < 3:
-            raise SystemExit(f"{path}:{lineno}: expected host,user,password")
-        host = row[0].strip()
-        user = row[1].strip()
-        password = row[2]
-        data_ip = row[3].strip() if len(row) >= 4 else ""
-        if not host or not user or password == "":
-            raise SystemExit(f"{path}:{lineno}: host, user, and password must be non-empty")
-        if data_ip:
-            try:
-                address = ipaddress.ip_address(data_ip)
-            except ValueError as exc:
-                raise SystemExit(f"{path}:{lineno}: invalid data_ip {data_ip!r}: {exc}") from exc
-            if address.version != 4 or address.is_unspecified or address.is_loopback or address.is_link_local:
-                raise SystemExit(f"{path}:{lineno}: data_ip must be a usable IPv4 address")
-        print(f"HOSTS+=({shlex.quote(host)})")
-        print(f"USERS+=({shlex.quote(user)})")
-        print(f"PASSWORDS+=({shlex.quote(password)})")
-        print(f"DATA_IPS+=({shlex.quote(data_ip)})")
-PY
-)"
-
-  [[ "${#HOSTS[@]}" -gt 0 ]] || die "inventory has no hosts"
-  if [[ -z "${HEAD_DOMAIN}" ]]; then
+  if [[ -z "${JOIN_RAY_ADDRESS}" && -z "${HEAD_DOMAIN}" ]]; then
     HEAD_DOMAIN="${HOSTS[0]}"
   fi
 }
 
+parse_created_lease_id() {
+  local path="$1"
+  python3 - "${path}" <<'PY'
+import json
+import re
+import sys
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+if isinstance(data, list):
+    if len(data) != 1:
+        raise SystemExit("expected exactly one created lease")
+    data = data[0]
+if not isinstance(data, dict):
+    raise SystemExit("expected a created lease object")
+details = data.get("lease_details") or data
+lease_id = details.get("id")
+if (
+    not isinstance(lease_id, str)
+    or re.fullmatch(r"[A-Za-z0-9-]+", lease_id) is None
+):
+    raise SystemExit("created lease response has no lease id")
+print(lease_id)
+PY
+}
+
+append_colossus_lease_host() {
+  local lease_id="$1"
+  local expected_name="$2"
+  local credentials_path="${TMP_DIR}/colossus-lease-${lease_id}-credentials.json"
+  local assignments
+
+  if ! colossus bm lease list \
+    --lease-id "${lease_id}" \
+    --show-creds \
+    --json > "${credentials_path}"; then
+    return 1
+  fi
+  chmod 0600 "${credentials_path}"
+  if ! assignments="$(
+    python3 - "${credentials_path}" "${lease_id}" "${expected_name}" <<'PY'
+import json
+import shlex
+import sys
+
+path, expected_id, expected_name = sys.argv[1:]
+with open(path) as f:
+    data = json.load(f)
+records = data if isinstance(data, list) else [data]
+record = next(
+    (
+        item
+        for item in records
+        if isinstance(item, dict)
+        and (item.get("lease_details") or item).get("id") == expected_id
+    ),
+    None,
+)
+if record is None:
+    raise SystemExit("lease record is unavailable")
+details = record.get("lease_details") or record
+entity = record.get("entity_details") or {}
+secrets = record.get("lease_secrets") or {}
+if str(details.get("status", "")).upper() != "ACTIVE":
+    raise SystemExit("lease is not active")
+name = details.get("resourceName") or entity.get("name")
+if name != expected_name:
+    raise SystemExit(f"lease resource mismatch: expected {expected_name}, got {name}")
+host = entity.get("fqdn")
+user = secrets.get("local_accountname")
+password = secrets.get("local_accountpassword")
+if not all(isinstance(value, str) and value for value in (host, user, password)):
+    raise SystemExit("active lease credentials are incomplete")
+print(f"HOSTS+=({shlex.quote(host)})")
+print(f"USERS+=({shlex.quote(user)})")
+print(f"PASSWORDS+=({shlex.quote(password)})")
+print("DATA_IPS+=('')")
+PY
+  )"; then
+    rm -f "${credentials_path}"
+    return 1
+  fi
+  rm -f "${credentials_path}"
+  eval "${assignments}"
+}
+
+colossus_lease_status() {
+  local lease_id="$1"
+  local status_path="${TMP_DIR}/colossus-lease-${lease_id}-status.json"
+
+  if ! colossus bm lease list --lease-id "${lease_id}" --json > "${status_path}"; then
+    return 1
+  fi
+  python3 - "${status_path}" "${lease_id}" <<'PY'
+import json
+import sys
+
+path, expected_id = sys.argv[1:]
+with open(path) as f:
+    data = json.load(f)
+records = data if isinstance(data, list) else [data]
+for record in records:
+    if not isinstance(record, dict):
+        continue
+    details = record.get("lease_details") or record
+    if details.get("id") == expected_id:
+        print(str(details.get("status", "")).upper())
+        break
+PY
+}
+
+wait_for_colossus_lease() {
+  local lease_id="$1"
+  local resource_name="$2"
+  local deadline="$3"
+  local status=""
+
+  while (( SECONDS < deadline )); do
+    status="$(colossus_lease_status "${lease_id}" || true)"
+    case "${status}" in
+      ACTIVE)
+        if append_colossus_lease_host "${lease_id}" "${resource_name}"; then
+          log "${resource_name}: Colossus lease ${lease_id} is active and credentials are ready"
+          return 0
+        fi
+        log "${resource_name}: lease is active; waiting for SSH credentials"
+        ;;
+      PENDING|"")
+        log "${resource_name}: waiting for Colossus lease ${lease_id} (${status:-status unavailable})"
+        ;;
+      EXPIRED)
+        die "Colossus lease ${lease_id} for ${resource_name} expired during provisioning"
+        ;;
+      *)
+        log "${resource_name}: waiting for Colossus lease ${lease_id} (status ${status})"
+        ;;
+    esac
+    sleep "${COLOSSUS_LEASE_POLL_INTERVAL}"
+  done
+  die "timed out after ${COLOSSUS_LEASE_READY_TIMEOUT}s waiting for Colossus lease ${lease_id} (${resource_name})"
+}
+
+reserve_colossus_hosts() {
+  local idx name lease_id
+  local create_path error_path
+  local deadline
+
+  HOSTS=()
+  USERS=()
+  PASSWORDS=()
+  DATA_IPS=()
+  COLOSSUS_LEASE_IDS=()
+  COLOSSUS_LEASE_NAMES=()
+
+  for idx in "${!COLOSSUS_CANDIDATE_NAMES[@]}"; do
+    if (( ${#COLOSSUS_LEASE_IDS[@]} >= COLOSSUS_NODE_COUNT )); then
+      break
+    fi
+    name="${COLOSSUS_CANDIDATE_NAMES[$idx]}"
+    create_path="${TMP_DIR}/colossus-create-${name}.json"
+    error_path="${TMP_DIR}/colossus-create-${name}.stderr"
+    log "${name}: requesting ${COLOSSUS_LEASE_DURATION} lease from ${COLOSSUS_POOL_ID}"
+    if ! colossus bm lease create \
+      --duration "${COLOSSUS_LEASE_DURATION}" \
+      --lease-justification "${COLOSSUS_LEASE_JUSTIFICATION}; ${name}" \
+      --provision-mode "${COLOSSUS_PROVISION_MODE}" \
+      --os "${COLOSSUS_OS}" \
+      --filters "name=${name}" "poolId=${COLOSSUS_POOL_ID}" status=AVAILABLE \
+      --json > "${create_path}" 2> "${error_path}"; then
+      log "${name}: reservation lost or failed; trying another pool host"
+      if [[ -s "${error_path}" ]]; then
+        tail -n 3 "${error_path}" | sed "s/^/[setup_ray_cluster] ${name}: /"
+      fi
+      continue
+    fi
+    if ! lease_id="$(parse_created_lease_id "${create_path}")"; then
+      die "Colossus reported a successful reservation for ${name} without a lease id; inspect the service user's leases"
+    fi
+    COLOSSUS_LEASE_IDS+=("${lease_id}")
+    COLOSSUS_LEASE_NAMES+=("${name}")
+    log "${name}: created Colossus lease ${lease_id}"
+  done
+
+  if (( ${#COLOSSUS_LEASE_IDS[@]} < COLOSSUS_NODE_COUNT )); then
+    die "created ${#COLOSSUS_LEASE_IDS[@]} of ${COLOSSUS_NODE_COUNT} requested Colossus leases"
+  fi
+
+  deadline=$((SECONDS + COLOSSUS_LEASE_READY_TIMEOUT))
+  for idx in "${!COLOSSUS_LEASE_IDS[@]}"; do
+    wait_for_colossus_lease \
+      "${COLOSSUS_LEASE_IDS[$idx]}" \
+      "${COLOSSUS_LEASE_NAMES[$idx]}" \
+      "${deadline}"
+  done
+  if [[ -z "${JOIN_RAY_ADDRESS}" && -z "${HEAD_DOMAIN}" ]]; then
+    HEAD_DOMAIN="${HOSTS[0]}"
+  fi
+}
+
+release_colossus_leases() {
+  local idx lease_id name
+
+  log "releasing ${#COLOSSUS_LEASE_IDS[@]} Colossus lease(s) created by this failed setup"
+  for idx in "${!COLOSSUS_LEASE_IDS[@]}"; do
+    lease_id="${COLOSSUS_LEASE_IDS[$idx]}"
+    name="${COLOSSUS_LEASE_NAMES[$idx]:-unknown}"
+    if colossus bm lease delete \
+      --lease-id "${lease_id}" \
+      --force \
+      --release-mode CLEAN \
+      --json >/dev/null; then
+      log "${name}: released Colossus lease ${lease_id}"
+    else
+      log "${name}: WARNING: failed to release Colossus lease ${lease_id}"
+    fi
+  done
+  COLOSSUS_LEASE_IDS=()
+  COLOSSUS_LEASE_NAMES=()
+}
+
 print_dry_run() {
-  log "dry-run only; no host will be changed"
+  log "dry-run only; no Colossus lease will be created and no host will be changed"
+  log "Colossus pool: ${COLOSSUS_POOL_ID}"
+  log "requested nodes: ${COLOSSUS_NODE_COUNT}"
+  log "lease duration: ${COLOSSUS_LEASE_DURATION}"
+  log "lease OS: ${COLOSSUS_OS}"
+  log "lease provision mode: ${COLOSSUS_PROVISION_MODE}"
   log "image: ${IMAGE}"
-  log "head domain: ${HEAD_DOMAIN}"
-  log "ssl cert on head: ${SSL_CERT}"
-  log "ssl key on head: ${SSL_KEY}"
-  log "nginx endpoint: https://${HEAD_DOMAIN}/ray/"
-  log "ray auth user: ${RAY_AUTH_USER}"
+  if [[ -n "${JOIN_RAY_ADDRESS}" ]]; then
+    log "cluster mode: join existing"
+    log "existing Ray address: ${JOIN_RAY_ADDRESS}"
+    log "existing Ray head and nginx configuration: unchanged"
+  else
+    log "cluster mode: create new"
+    log "head domain: ${HEAD_DOMAIN}"
+    log "ssl cert on head: ${SSL_CERT}"
+    log "ssl key on head: ${SSL_KEY}"
+    log "nginx endpoint: https://${HEAD_DOMAIN}/ray/"
+    log "ray auth user: ${RAY_AUTH_USER}"
+  fi
   log "host setup concurrency: ${HOST_SETUP_CONCURRENCY}"
   log "GPU isolation: one NVIDIA GB300 per Ray node"
   log "data interface: ${DATA_INTERFACE:-<automatic>}"
@@ -644,10 +1122,10 @@ print_dry_run() {
   local i role
   for i in "${!HOSTS[@]}"; do
     role="worker"
-    if [[ "${i}" == "0" ]]; then
+    if [[ -z "${JOIN_RAY_ADDRESS}" && "${i}" == "0" ]]; then
       role="head"
     fi
-    log "inventory[$i]: ${role} ${USERS[$i]}@${HOSTS[$i]} data_ip=${DATA_IPS[$i]:-<automatic>}"
+    log "reservation candidate[$i]: ${role} ${COLOSSUS_CANDIDATE_NAMES[$i]} (${HOSTS[$i]}) data_ip=<automatic>"
   done
 }
 
@@ -818,7 +1296,7 @@ set -euo pipefail
 
 role="$1"
 image="$2"
-head_ip="$3"
+head_address="$3"
 node_ip="$4"
 gpu_count="$5"
 data_root="$6"
@@ -952,7 +1430,7 @@ if [[ "${role}" == "head" ]]; then
   ray_cmd="ray stop --force >/dev/null 2>&1 || true; exec ray start --head --port=6379 --dashboard-host=127.0.0.1 --dashboard-port=8265 --ray-client-server-port=10001 --include-dashboard=True ${common_ray_args[*]}"
 else
   container="${worker_container}"
-  ray_cmd="ray stop --force >/dev/null 2>&1 || true; exec ray start --address=${head_ip}:6379 ${common_ray_args[*]}"
+  ray_cmd="ray stop --force >/dev/null 2>&1 || true; exec ray start --address=${head_address} ${common_ray_args[*]}"
 fi
 
 docker rm -f "${head_container}" "${worker_container}" >/dev/null 2>&1 || true
@@ -1753,7 +2231,7 @@ expected_gpu_count() {
 start_ray_container() {
   local idx="$1"
   local role="$2"
-  local head_ip="$3"
+  local head_address="$3"
   local host="${HOSTS[$idx]}"
   local user="${USERS[$idx]}"
   local password="${PASSWORDS[$idx]}"
@@ -1763,7 +2241,7 @@ start_ray_container() {
   log "${host}: starting Ray ${role} container on ${node_ip}"
   remote_sudo_script "${host}" "${user}" "${password}" \
     "${REMOTE_ROOT}/remote_ray_container.sh" \
-    "${role}" "${IMAGE}" "${head_ip}" "${node_ip}" "${gpu_count}" "${GROOT_DATA_ROOT}" \
+    "${role}" "${IMAGE}" "${head_address}" "${node_ip}" "${gpu_count}" "${GROOT_DATA_ROOT}" \
     "${DATA_INTERFACE}" "${NCCL_SOCKET_IFNAME}" "${GLOO_SOCKET_IFNAME}" \
     "${NCCL_IB_HCA}" "${NCCL_IB_GID_INDEX}" "${REQUIRE_RDMA}" "${TARGET_GPU_NAME}"
 }
@@ -1785,6 +2263,69 @@ wait_for_worker() {
   log "${host}: waiting for Ray worker container"
   remote_sudo_bash_lc "${host}" "${user}" "${password}" \
     "for i in \$(seq 1 30); do docker ps --filter name=${WORKER_CONTAINER} --filter status=running --format '{{.Names}}' | grep -qx ${WORKER_CONTAINER} && exit 0; sleep 2; done; docker logs --tail 200 ${WORKER_CONTAINER}; exit 1"
+}
+
+stop_joined_worker_containers() {
+  local idx host user password
+
+  log "stopping worker containers started by this failed join attempt"
+  for idx in "${JOINED_WORKER_INDICES[@]}"; do
+    host="${HOSTS[$idx]}"
+    user="${USERS[$idx]}"
+    password="${PASSWORDS[$idx]}"
+    if remote_sudo_bash_lc "${host}" "${user}" "${password}" \
+      "docker rm -f ${WORKER_CONTAINER} >/dev/null 2>&1 || true"; then
+      log "${host}: stopped ${WORKER_CONTAINER}"
+    else
+      log "${host}: WARNING: failed to stop ${WORKER_CONTAINER}"
+    fi
+  done
+  JOINED_WORKER_INDICES=()
+}
+
+verify_existing_ray_head_reachable() {
+  local idx host user password
+
+  log "checking existing Ray head reachability at ${JOIN_RAY_ADDRESS}"
+  for idx in "${!HOSTS[@]}"; do
+    [[ "${HOST_READY[$idx]:-0}" == "1" ]] || continue
+    host="${HOSTS[$idx]}"
+    user="${USERS[$idx]}"
+    password="${PASSWORDS[$idx]}"
+    remote_sudo_bash_lc "${host}" "${user}" "${password}" \
+      "timeout --kill-after=2s 10s bash -c '</dev/tcp/${JOIN_RAY_HEAD_IP}/${JOIN_RAY_HEAD_PORT}'" \
+      || die "${host} cannot reach existing Ray head ${JOIN_RAY_ADDRESS}"
+  done
+}
+
+wait_for_joined_workers() {
+  local expected_ips
+  local host="${HOSTS[0]}"
+  local user="${USERS[0]}"
+  local password="${PASSWORDS[0]}"
+
+  expected_ips="$(IFS=,; printf '%s' "${NODE_IPS[*]}")"
+  log "${host}: waiting for ${#NODE_IPS[@]} new worker(s) to appear in ${JOIN_RAY_ADDRESS}"
+  remote_sudo_bash_lc "${host}" "${user}" "${password}" \
+    "for i in \$(seq 1 60); do joined=\$(timeout --kill-after=5s 15s docker exec -e RAY_ADDRESS=$(shell_quote "${JOIN_RAY_ADDRESS}") -e EXPECTED_NODE_IPS=$(shell_quote "${expected_ips}") -i ${WORKER_CONTAINER} python - <<'PY' 2>/dev/null | awk '/^[01]$/ {value=\$1} END {print value}' || true
+import os
+import ray
+
+ray.init(address=os.environ['RAY_ADDRESS'], logging_level='ERROR')
+expected = set(filter(None, os.environ['EXPECTED_NODE_IPS'].split(',')))
+nodes = {
+    node['NodeManagerAddress']: node
+    for node in ray.nodes()
+    if node.get('Alive')
+}
+ready = all(
+    ip in nodes and float(nodes[ip].get('Resources', {}).get('GPU', 0)) >= 1
+    for ip in expected
+)
+print(1 if ready else 0)
+ray.shutdown()
+PY
+); if [[ \"\${joined}\" == \"1\" ]]; then exit 0; fi; sleep 2; done; docker exec ${WORKER_CONTAINER} ray status --address=$(shell_quote "${JOIN_RAY_ADDRESS}"); exit 1"
 }
 
 wait_for_cluster_gpus() {
@@ -1812,10 +2353,14 @@ run_transport_validation() {
   local host="${HOSTS[0]}"
   local user="${USERS[0]}"
   local password="${PASSWORDS[0]}"
-  local command
+  local command container="${HEAD_CONTAINER}"
   command="timeout --kill-after=10s ${TRANSPORT_VALIDATION_TIMEOUT}s docker exec"
   command+=" -e NCCL_DEBUG=INFO -e NCCL_DEBUG_SUBSYS=INIT,NET"
-  command+=" ${HEAD_CONTAINER} bash -lc $(shell_quote "${TRANSPORT_VALIDATION_COMMAND}")"
+  if [[ -n "${JOIN_RAY_ADDRESS}" ]]; then
+    container="${WORKER_CONTAINER}"
+    command+=" -e RAY_ADDRESS=$(shell_quote "${JOIN_RAY_ADDRESS}")"
+  fi
+  command+=" ${container} bash -lc $(shell_quote "${TRANSPORT_VALIDATION_COMMAND}")"
   log "${host}: running configured transport validation command"
   remote_sudo_bash_lc "${host}" "${user}" "${password}" "${command}"
 }
@@ -1850,7 +2395,7 @@ start_ray_cluster() {
     fi
   done
 
-  start_ray_container "0" "head" "${head_ip}"
+  start_ray_container "0" "head" "${head_ip}:${RAY_PORT}"
   wait_for_head
   configure_nginx_on_head
 
@@ -1859,7 +2404,7 @@ start_ray_cluster() {
       continue
     fi
     if [[ "${HOST_READY[$idx]:-0}" == "1" ]]; then
-      start_ray_container "${idx}" "worker" "${head_ip}"
+      start_ray_container "${idx}" "worker" "${head_ip}:${RAY_PORT}"
       wait_for_worker "${idx}"
     fi
   done
@@ -1874,13 +2419,50 @@ start_ray_cluster() {
   remote_sudo_bash_lc "${host}" "${user}" "${password}" "docker exec ${HEAD_CONTAINER} ray status"
 }
 
+start_ray_workers() {
+  local idx
+
+  verify_existing_ray_head_reachable
+  for idx in "${!HOSTS[@]}"; do
+    if [[ "${HOST_READY[$idx]:-0}" == "1" ]]; then
+      resolve_node_ip "${idx}" "${JOIN_RAY_HEAD_IP}"
+    fi
+  done
+
+  for idx in "${!HOSTS[@]}"; do
+    if [[ "${HOST_READY[$idx]:-0}" == "1" ]]; then
+      # Track the attempt first so cleanup covers an ambiguous SSH failure
+      # after the remote container has started.
+      JOINED_WORKER_INDICES+=("${idx}")
+      start_ray_container "${idx}" "worker" "${JOIN_RAY_ADDRESS}"
+      wait_for_worker "${idx}"
+    fi
+  done
+
+  wait_for_joined_workers
+  run_transport_validation
+
+  local host="${HOSTS[0]}"
+  local user="${USERS[0]}"
+  local password="${PASSWORDS[0]}"
+  log "${host}: existing cluster status after adding workers"
+  remote_sudo_bash_lc "${host}" "${user}" "${password}" \
+    "docker exec ${WORKER_CONTAINER} ray status --address=$(shell_quote "${JOIN_RAY_ADDRESS}")"
+}
+
 main() {
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
   parse_args "$@"
   validate_args
-  require_cmd python3
-  parse_inventory
+  require_cmd colossus python3
+  TMP_DIR="$(mktemp -d)"
+  discover_colossus_candidates
 
   if [[ "${DRY_RUN}" == "1" ]]; then
+    prepare_dry_run_hosts
     print_dry_run
     return 0
   fi
@@ -1888,16 +2470,32 @@ main() {
   resolve_secret_sources
   require_cmd sshpass ssh scp
 
-  TMP_DIR="$(mktemp -d)"
   write_remote_scripts
   create_local_secret_files
+  reserve_colossus_hosts
   setup_hosts
   if [[ "${#FAILED_HOSTS[@]}" -gt 0 ]]; then
     die "host setup failed for ${FAILED_HOSTS[*]}; refusing to start a partial Ray cluster"
   fi
-  start_ray_cluster
+  if [[ -n "${JOIN_RAY_ADDRESS}" ]]; then
+    start_ray_workers
+  else
+    start_ray_cluster
+  fi
+  COLOSSUS_LEASES_COMMITTED="1"
 
-  log "Ray endpoint: https://${HEAD_DOMAIN}/ray/"
+  if [[ -n "${JOIN_RAY_ADDRESS}" ]]; then
+    log "added ${#HOSTS[@]} Colossus worker(s) to existing Ray cluster ${JOIN_RAY_ADDRESS}"
+    log "existing Ray head and endpoint were not reconfigured"
+  else
+    log "Ray endpoint: https://${HEAD_DOMAIN}/ray/"
+  fi
+  local idx
+  for idx in "${!COLOSSUS_LEASE_IDS[@]}"; do
+    log "Colossus lease: ${COLOSSUS_LEASE_IDS[$idx]} (${COLOSSUS_LEASE_NAMES[$idx]})"
+  done
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
