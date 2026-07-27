@@ -1116,7 +1116,7 @@ class GrootN2(PreTrainedModel):
                         denoising_step=i,
                         is_cfg=True,
                     )
-                action_noise_pred = action_noise_pred + guidance_scale * (
+                action_noise_pred = action_noise_pred_neg + guidance_scale * (
                     action_noise_pred - action_noise_pred_neg
                 )
 
@@ -1411,7 +1411,7 @@ class GrootN2(PreTrainedModel):
                         video_out_neg, shape_info
                     )
                 video_noise_pred_neg = gt_velocity + video_noise_pred_neg * (1 - cond_mask)
-                video_noise_pred = video_noise_pred + guidance_scale * (
+                video_noise_pred = video_noise_pred_neg + guidance_scale * (
                     video_noise_pred - video_noise_pred_neg
                 )
 
@@ -1647,10 +1647,10 @@ class GrootN2(PreTrainedModel):
                     action_noise_pred_neg = self.action_decoder(action_out_neg, embodiment_id)
 
                 video_noise_pred_neg = gt_velocity + video_noise_pred_neg * (1 - cond_mask)
-                video_noise_pred = video_noise_pred + video_guidance_scale * (
+                video_noise_pred = video_noise_pred_neg + video_guidance_scale * (
                     video_noise_pred - video_noise_pred_neg
                 )
-                action_noise_pred = action_noise_pred + action_guidance_scale * (
+                action_noise_pred = action_noise_pred_neg + action_guidance_scale * (
                     action_noise_pred - action_noise_pred_neg
                 )
 
@@ -1725,7 +1725,7 @@ class GrootN2(PreTrainedModel):
                             denoising_step=act_step,
                             is_cfg=True,
                         )
-                    action_noise_pred = action_noise_pred + action_guidance_scale * (
+                    action_noise_pred = action_noise_pred_neg + action_guidance_scale * (
                         action_noise_pred - action_noise_pred_neg
                     )
 
