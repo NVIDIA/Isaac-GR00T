@@ -38,8 +38,32 @@ from transformers import AutoConfig, AutoModel, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 
 from groot.core.training.configs.model.n2 import GrootN2Config
-from groot.core.training.models.n2.components.sequence_packing import PackedSequence
+from groot.core.training.models.n2.components.kv_cache import CondKVCache
+from groot.core.training.models.n2.components.scheduler import (
+    BetaFlowMatchEulerScheduler,
+    BetaSchedulerConfig,
+    FlowMatchUniPCScheduler,
+    SchedulerConfig,
+)
+from groot.core.training.models.n2.components.sequence_packing import (
+    MODALITY_ACTION,
+    MODALITY_STATE,
+    MODALITY_VIDEO,
+    MODALITY_VIDEO_COND,
+    AttentionMaskPattern,
+    ConcatPacker,
+    PackedSequence,
+    unpack,
+)
 from groot.core.training.models.n2.components.text_encoder import CosmosTextEncoder
+from groot.core.training.models.n2.components.transformer_cosmos import (
+    COSMOS_2B_CONFIG,
+    COSMOS_14B_CONFIG,
+    CosmosTransformer3DModel,
+    MultiViewRoPE,
+)
+from groot.core.training.models.n2.components.video_tokenizer import VideoTokenizer
+from groot.core.training.models.n2.components.wan_video_vae import WanVideoVAE
 
 # Key prefixes for routing checkpoint weights to sub-modules.
 VIDEO_TOKENIZER_PREFIXES = (
@@ -50,31 +74,6 @@ VIDEO_TOKENIZER_PREFIXES = (
 )
 VIDEO_ROPE_PREFIXES = ("rope.",)
 ACTION_ROPE_SEQ_KEYS = frozenset(("action_rope.seq", "state_rope.seq"))
-from groot.core.training.models.n2.components.wan_video_vae import WanVideoVAE
-from groot.core.training.models.n2.components.scheduler import (
-    BetaFlowMatchEulerScheduler,
-    BetaSchedulerConfig,
-    FlowMatchUniPCScheduler,
-    SchedulerConfig,
-)
-from groot.core.training.models.n2.components.kv_cache import CondKVCache
-from groot.core.training.models.n2.components.sequence_packing import (
-    MODALITY_ACTION,
-    MODALITY_STATE,
-    MODALITY_VIDEO,
-    MODALITY_VIDEO_COND,
-    AttentionMaskPattern,
-    ConcatPacker,
-    unpack,
-)
-from groot.core.training.models.n2.components.transformer_cosmos import (
-    COSMOS_2B_CONFIG,
-    COSMOS_14B_CONFIG,
-    CosmosTransformer3DModel,
-    MultiViewRoPE,
-)
-from groot.core.training.models.n2.components.video_tokenizer import VideoTokenizer
-
 VAE_TEMPORAL_FACTOR = 4  # Wan VAE temporal compression ratio
 
 
@@ -106,9 +105,7 @@ class GrootN2(PreTrainedModel):
         transformer_config = dataclasses.replace(dit_config, max_n_cameras=self.max_n_cameras)
         self.transformer = self._create_transformer(transformer_config)
         self.transformer.compile_flex_attention = config.compile_flex_attention
-        self.packer = ConcatPacker(
-            flex_attention_block_size=config.flex_attention_block_size
-        )
+        self.packer = ConcatPacker(flex_attention_block_size=config.flex_attention_block_size)
 
         # 1b. Action modules (conditional on action_cfg)
         self.has_action_head = config.action_cfg is not None
@@ -150,17 +147,18 @@ class GrootN2(PreTrainedModel):
 
         if self.has_action_head:
             ac = config.action_cfg
-            self.action_scheduler = BetaFlowMatchEulerScheduler(BetaSchedulerConfig(
-                beta_alpha=ac.get("noise_beta_alpha", 1.5),
-                beta_beta=ac.get("noise_beta_beta", 1.0),
-                noise_s=ac.get("noise_s", 0.999),
-            ))
+            self.action_scheduler = BetaFlowMatchEulerScheduler(
+                BetaSchedulerConfig(
+                    beta_alpha=ac.get("noise_beta_alpha", 1.5),
+                    beta_beta=ac.get("noise_beta_beta", 1.0),
+                    noise_s=ac.get("noise_s", 0.999),
+                )
+            )
             self.action_scheduler.setup_training()
 
         # 4. Freeze text encoder + VAE
         self.text_encoder.requires_grad_(False)
         self.vae.requires_grad_(False)
-
 
         # 5. Optionally freeze transformer
         if not config.tune_dit:
@@ -221,7 +219,7 @@ class GrootN2(PreTrainedModel):
 
     @staticmethod
     def _pixel_to_latent_frames(num_pixel_frames: int) -> int:
-        """Wan VAE: first pixel frame → latent 0, then every 4 pixel frames → 1 latent"""
+        """Wan VAE: first pixel frame → latent 0, then every 4 pixel frames → 1 latent."""
         if num_pixel_frames <= 0:
             return 0
         return (num_pixel_frames - 1) // VAE_TEMPORAL_FACTOR + 1
@@ -256,9 +254,9 @@ class GrootN2(PreTrainedModel):
             T_lat_per_view,
             device=video_padded_mask.device,
         ).view(1, 1, T_lat_per_view)
-        return (
-            latent_frame_ids >= T_lat_per_view - padded_lat_per_view.unsqueeze(-1)
-        ).view(B, n_cameras * T_lat_per_view)
+        return (latent_frame_ids >= T_lat_per_view - padded_lat_per_view.unsqueeze(-1)).view(
+            B, n_cameras * T_lat_per_view
+        )
 
     @staticmethod
     def _require_python_bool(data: dict, key: str, default: bool) -> bool:
@@ -321,7 +319,6 @@ class GrootN2(PreTrainedModel):
 
     def _create_transformer(self, transformer_config) -> CosmosTransformer3DModel:
         """Construct the transformer module."""
-
         return CosmosTransformer3DModel(transformer_config)
 
     # ─── Transformer call hook ────────────────────────────────────────────────
@@ -439,14 +436,10 @@ class GrootN2(PreTrainedModel):
         if "inputs" in data:
             data = data["inputs"]
         if isinstance(data, tuple):
-            raise ValueError("GrootN2 training expects single_turn batches, not tuple batches")
+            raise TypeError("GrootN2 training expects single_turn batches, not tuple batches")
 
         has_real_action = self._require_python_bool(data, "has_real_action", True)
-        has_action = (
-            self.has_action_head
-            and "action" in data
-            and has_real_action
-        )
+        has_action = self.has_action_head and "action" in data and has_real_action
 
         if return_action_loss_details:
             required_keys = ("action", "action_mask", "state", "state_keep", "has_real_action")
@@ -459,9 +452,9 @@ class GrootN2(PreTrainedModel):
                 has_action is True
             ), "GrootN2 action loss details require an action head and real actions"
             if validate:
-                assert has_real_action, (
-                    "GrootN2 action loss details require all samples to have real actions"
-                )
+                assert (
+                    has_real_action
+                ), "GrootN2 action loss details require all samples to have real actions"
 
         videos = data["images"]  # (B, T, H, W, C) uint8
         text_ids = data["text"]
@@ -628,7 +621,9 @@ class GrootN2(PreTrainedModel):
                 token_valid_mask = torch.cat([video_token_valid, rest_valid], dim=1)
 
             # 8d. Pack → transformer → unpack
-            video_cond_token_mask = (video_token_sigmas == self.cond_timestep) if has_action else None
+            video_cond_token_mask = (
+                (video_token_sigmas == self.cond_timestep) if has_action else None
+            )
             packed = self.packer.pack(
                 video_tokens=video_tokens,
                 video_timesteps=video_token_sigmas,
@@ -672,10 +667,12 @@ class GrootN2(PreTrainedModel):
             frame_valid = data["frame_valid_mask"].to(device=device, dtype=torch.bool)
             if frame_valid.ndim == 1:
                 frame_valid = frame_valid.unsqueeze(0).expand(B, -1)
-            assert frame_valid.shape[0] == B, f"frame_valid_mask batch={frame_valid.shape[0]} != B={B}"
-            assert frame_valid.shape[1] >= T, (
-                f"frame_valid_mask length {frame_valid.shape[1]} shorter than video frames T={T}"
-            )
+            assert (
+                frame_valid.shape[0] == B
+            ), f"frame_valid_mask batch={frame_valid.shape[0]} != B={B}"
+            assert (
+                frame_valid.shape[1] >= T
+            ), f"frame_valid_mask length {frame_valid.shape[1]} shorter than video frames T={T}"
             weight = weight * frame_valid[:, :T].to(dtype=weight.dtype)
         elif video_padded_mask is not None:
             if isinstance(video_padded_mask, torch.Tensor):
@@ -711,9 +708,7 @@ class GrootN2(PreTrainedModel):
                 )
             elif weight_sum.item() == 0:
                 padded_sum = (
-                    video_padded_mask.sum().item()
-                    if video_padded_mask is not None
-                    else "N/A"
+                    video_padded_mask.sum().item() if video_padded_mask is not None else "N/A"
                 )
                 logging.warning(
                     "All weights are zero — all prediction frames padded. "
@@ -722,9 +717,7 @@ class GrootN2(PreTrainedModel):
                 )
 
         # 11. Action loss
-        video_loss_scaled = (
-            self.config.action_cfg.get("video_loss_scale", 1.0) * video_loss
-        )
+        video_loss_scaled = self.config.action_cfg.get("video_loss_scale", 1.0) * video_loss
         if has_action:
             action_out = packed.unpack(out_tokens, MODALITY_ACTION)
             pred_actions = self.action_decoder(action_out, embodiment_id)
@@ -764,7 +757,7 @@ class GrootN2(PreTrainedModel):
         """Training forward pass. Returns dict with 'loss' for HF Trainer.
 
         ``kwargs`` are threaded through to :py:meth:`_forward_train_impl` and
-        :py:meth:`_call_transformer` so subclasses can pass extra per-call 
+        :py:meth:`_call_transformer` so subclasses can pass extra per-call
         state via ``super().forward(...)``.
         """
         return self._forward_train_impl(
@@ -809,9 +802,7 @@ class GrootN2(PreTrainedModel):
 
         B_vid = videos.shape[0]
         T_total = videos.shape[2]
-        assert (
-            T_total % n_cameras == 0
-        ), f"Video T={T_total} not divisible by n_cameras={n_cameras}"
+        assert T_total % n_cameras == 0, f"Video T={T_total} not divisible by n_cameras={n_cameras}"
         T_per_view = T_total // n_cameras
         videos_per_view = videos.reshape(
             B_vid, videos.shape[1], n_cameras, T_per_view, *videos.shape[3:]
@@ -923,8 +914,9 @@ class GrootN2(PreTrainedModel):
         n_extra_tokens: int,
         device: torch.device,
     ) -> torch.Tensor | None:
-        """Mirror the training-time `token_valid_mask` so real-view query
-        tokens cannot attend to padded-view KVs at inference.
+        """Mirror the training-time ``token_valid_mask`` at inference.
+
+        This prevents real-view query tokens from attending to padded-view KVs.
 
         Training (`forward`) builds this mask from `frame_valid_mask` and
         passes it to `SequencePacker.pack(...)` — see line 487 of this file.
@@ -961,7 +953,7 @@ class GrootN2(PreTrainedModel):
         )
         T_pixel_per_view = video_padded_mask.shape[1] // n_cameras
         vpm_per_view = video_padded_mask.reshape(B, n_cameras, T_pixel_per_view)
-        view_is_real = (vpm_per_view.sum(dim=-1) == 0)  # (B, n_cameras)
+        view_is_real = vpm_per_view.sum(dim=-1) == 0  # (B, n_cameras)
         video_frame_valid = view_is_real.repeat_interleave(T_per_view, dim=1)  # (B, T_full)
         video_token_valid = video_frame_valid.repeat_interleave(tokens_per_frame, dim=1)
         if n_extra_tokens > 0:
@@ -1021,7 +1013,10 @@ class GrootN2(PreTrainedModel):
         state_tokens = self.state_encoder(states, embodiment_id)
         state_rope_freqs = self.state_rope(state_tokens)
         state_token_sigmas = torch.full(
-            (B, state_tokens.shape[1]), self.cond_timestep, device=device, dtype=dtype,
+            (B, state_tokens.shape[1]),
+            self.cond_timestep,
+            device=device,
+            dtype=dtype,
         )
 
         # Patchify conditioning frames once (constant across denoising steps)
@@ -1032,7 +1027,10 @@ class GrootN2(PreTrainedModel):
             )
             L_video = video_tokens.shape[1]
             video_token_sigmas = torch.full(
-                (B, L_video), self.cond_timestep, device=device, dtype=dtype,
+                (B, L_video),
+                self.cond_timestep,
+                device=device,
+                dtype=dtype,
             )
             video_rope_freqs = self.video_rope(cond_latent, n_cameras=n_cameras)
             video_cond_token_mask = torch.ones(B, L_video, dtype=torch.bool, device=device)
@@ -1051,17 +1049,17 @@ class GrootN2(PreTrainedModel):
             device=device,
         )
 
-        static_inputs = dict(
-            video_tokens=video_tokens,
-            video_token_sigmas=video_token_sigmas,
-            video_rope_freqs=video_rope_freqs,
-            video_extra_pos_emb=video_extra_pos_emb,
-            video_cond_token_mask=video_cond_token_mask,
-            state_tokens=state_tokens,
-            state_token_sigmas=state_token_sigmas,
-            state_rope_freqs=state_rope_freqs,
-            token_valid_mask=token_valid_mask,
-        )
+        static_inputs = {
+            "video_tokens": video_tokens,
+            "video_token_sigmas": video_token_sigmas,
+            "video_rope_freqs": video_rope_freqs,
+            "video_extra_pos_emb": video_extra_pos_emb,
+            "video_cond_token_mask": video_cond_token_mask,
+            "state_tokens": state_tokens,
+            "state_token_sigmas": state_token_sigmas,
+            "state_rope_freqs": state_rope_freqs,
+            "token_valid_mask": token_valid_mask,
+        }
 
         pos_cache: CondKVCache | None = None
         neg_cache: CondKVCache | None = None
@@ -1077,10 +1075,16 @@ class GrootN2(PreTrainedModel):
                 action_t = act_sched.timesteps[i].to(dtype)
                 action_sigma = act_sched.sigmas[i].to(dtype)
                 action_t_per_step = torch.full(
-                    (B, T_action), action_t, device=device, dtype=dtype,
+                    (B, T_action),
+                    action_t,
+                    device=device,
+                    dtype=dtype,
                 )
                 action_sigma_per_step = torch.full(
-                    (B, T_action), action_sigma, device=device, dtype=dtype,
+                    (B, T_action),
+                    action_sigma,
+                    device=device,
+                    dtype=dtype,
                 )
                 action_tokens = self.action_encoder(
                     action_latents, action_t_per_step, embodiment_id
@@ -1144,9 +1148,10 @@ class GrootN2(PreTrainedModel):
     def _precompute_cond_kv_cache(
         self, static_inputs: dict, prompt_embs: torch.Tensor
     ) -> CondKVCache:
-        """Run the transformer on a static token prefix and capture per-layer
-        self-attention K/V. Used by both code paths that splice a static prefix
-        into action-only denoising steps:
+        """Capture per-layer self-attention K/V for a static token prefix.
+
+        The cache is used by both code paths that splice a static prefix into
+        action-only denoising steps:
 
         - Disjoint action denoising: ``static_inputs`` carries
           ``[video_cond, state]`` (video_cond_token_mask is all-True).
@@ -1173,8 +1178,7 @@ class GrootN2(PreTrainedModel):
         tvm = static_inputs.get("token_valid_mask")
         if tvm is not None:
             L_static = (
-                static_inputs["video_tokens"].shape[1]
-                + static_inputs["state_tokens"].shape[1]
+                static_inputs["video_tokens"].shape[1] + static_inputs["state_tokens"].shape[1]
             )
             tvm = tvm[:, :L_static]
         packed = self.packer.pack(
@@ -1200,14 +1204,12 @@ class GrootN2(PreTrainedModel):
         # are populated regardless of validity. Filter them out here so the
         # downstream consumer sees only real positions.
         if tvm is not None and not bool(tvm.all()):
-            assert torch.all(tvm == tvm[:1]), (
-                "kv_cache_cond assumes per-view padding is uniform across the batch"
-            )
+            assert torch.all(
+                tvm == tvm[:1]
+            ), "kv_cache_cond assumes per-view padding is uniform across the batch"
             keep_idx = tvm[0].nonzero(as_tuple=True)[0]
             for layer_idx in range(len(cache.key_cache)):
-                cache.key_cache[layer_idx] = cache.key_cache[layer_idx].index_select(
-                    2, keep_idx
-                )
+                cache.key_cache[layer_idx] = cache.key_cache[layer_idx].index_select(2, keep_idx)
                 cache.value_cache[layer_idx] = cache.value_cache[layer_idx].index_select(
                     2, keep_idx
                 )
@@ -1255,8 +1257,10 @@ class GrootN2(PreTrainedModel):
                 token_valid_mask=static_inputs.get("token_valid_mask"),
             )
             out_tokens = self._call_transformer(
-                packed, prompt_embs,
-                denoising_step=denoising_step, is_cfg=is_cfg,
+                packed,
+                prompt_embs,
+                denoising_step=denoising_step,
+                is_cfg=is_cfg,
             )
             action_out = unpack(out_tokens, packed.modality_ids, MODALITY_ACTION)
         else:
@@ -1281,9 +1285,12 @@ class GrootN2(PreTrainedModel):
                 non_video_token_indices=torch.arange(L_action, device=device),
             )
             action_out = self._call_transformer(
-                packed_action, prompt_embs,
-                kv_cache=kv_cache, store_kv=False,
-                denoising_step=denoising_step, is_cfg=is_cfg,
+                packed_action,
+                prompt_embs,
+                kv_cache=kv_cache,
+                store_kv=False,
+                denoising_step=denoising_step,
+                is_cfg=is_cfg,
             )
         return self.action_decoder(action_out, embodiment_id)
 
@@ -1377,7 +1384,9 @@ class GrootN2(PreTrainedModel):
                     token_valid_mask=token_valid_mask,
                 )
                 out_tokens = self._call_transformer(
-                    packed, prompt_embs, denoising_step=i,
+                    packed,
+                    prompt_embs,
+                    denoising_step=i,
                 )
                 video_out = unpack(
                     out_tokens, packed.modality_ids, (MODALITY_VIDEO, MODALITY_VIDEO_COND)
@@ -1390,7 +1399,10 @@ class GrootN2(PreTrainedModel):
             if neg_prompt_embs is not None and guidance_scale != 1.0:
                 with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda"):
                     out_tokens_neg = self._call_transformer(
-                        packed, neg_prompt_embs, denoising_step=i, is_cfg=True,
+                        packed,
+                        neg_prompt_embs,
+                        denoising_step=i,
+                        is_cfg=True,
                     )
                     video_out_neg = unpack(
                         out_tokens_neg, packed.modality_ids, (MODALITY_VIDEO, MODALITY_VIDEO_COND)
@@ -1488,7 +1500,10 @@ class GrootN2(PreTrainedModel):
         state_tokens = self.state_encoder(states, embodiment_id)
         state_rope_freqs = self.state_rope(state_tokens)
         state_token_sigmas = torch.full(
-            (B, state_tokens.shape[1]), self.cond_timestep, device=device, dtype=dtype,
+            (B, state_tokens.shape[1]),
+            self.cond_timestep,
+            device=device,
+            dtype=dtype,
         )
 
         # ── Video conditioning setup ─────────────────────────────────
@@ -1533,18 +1548,22 @@ class GrootN2(PreTrainedModel):
                     in_latents, cond_mask, None, n_cameras
                 )
                 L = video_tokens.shape[1]
-                video_token_sigmas = self._expand_timesteps(
-                    in_timestep, B, T_full, shape_info, L
-                )
+                video_token_sigmas = self._expand_timesteps(in_timestep, B, T_full, shape_info, L)
                 video_rope_freqs = self.video_rope(in_latents, n_cameras=n_cameras)
                 video_cond_token_mask = video_token_sigmas == self.cond_timestep
 
                 # Encode action at current noise level
                 action_t_per_step = torch.full(
-                    (B, T_action), action_t, device=device, dtype=dtype,
+                    (B, T_action),
+                    action_t,
+                    device=device,
+                    dtype=dtype,
                 )
                 action_sigma_per_step = torch.full(
-                    (B, T_action), action_sigma, device=device, dtype=dtype,
+                    (B, T_action),
+                    action_sigma,
+                    device=device,
+                    dtype=dtype,
                 )
                 action_tokens = self.action_encoder(
                     action_latents, action_t_per_step, embodiment_id
@@ -1586,8 +1605,10 @@ class GrootN2(PreTrainedModel):
                 # run this iteration).
                 pos_cache = CondKVCache() if (use_kv_cache and k > 1) else None
                 out_tokens = self._call_transformer(
-                    packed, prompt_embs,
-                    denoising_step=i, kv_cache=pos_cache,
+                    packed,
+                    prompt_embs,
+                    denoising_step=i,
+                    kv_cache=pos_cache,
                 )
 
                 # Unpack predictions
@@ -1608,19 +1629,21 @@ class GrootN2(PreTrainedModel):
                 with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda"):
                     neg_cache = CondKVCache() if (use_kv_cache and k > 1) else None
                     out_tokens_neg = self._call_transformer(
-                        packed, neg_prompt_embs,
-                        denoising_step=i, is_cfg=True, kv_cache=neg_cache,
+                        packed,
+                        neg_prompt_embs,
+                        denoising_step=i,
+                        is_cfg=True,
+                        kv_cache=neg_cache,
                     )
                     video_out_neg = unpack(
-                        out_tokens_neg, packed.modality_ids,
+                        out_tokens_neg,
+                        packed.modality_ids,
                         (MODALITY_VIDEO, MODALITY_VIDEO_COND),
                     )
                     video_noise_pred_neg = self.video_tokenizer.unpatchify(
                         video_out_neg, shape_info
                     )
-                    action_out_neg = unpack(
-                        out_tokens_neg, packed.modality_ids, MODALITY_ACTION
-                    )
+                    action_out_neg = unpack(out_tokens_neg, packed.modality_ids, MODALITY_ACTION)
                     action_noise_pred_neg = self.action_decoder(action_out_neg, embodiment_id)
 
                 video_noise_pred_neg = gt_velocity + video_noise_pred_neg * (1 - cond_mask)
@@ -1632,12 +1655,14 @@ class GrootN2(PreTrainedModel):
                 )
 
             # Step both schedulers (one video step, one action step)
-            video_latents = vid_sched.step(
-                video_noise_pred, video_t, video_latents, step_index=i
-            )[0]
+            video_latents = vid_sched.step(video_noise_pred, video_t, video_latents, step_index=i)[
+                0
+            ]
             action_latents = act_sched.step(
-                action_noise_pred, act_sched.timesteps[act_step],
-                action_latents, step_index=act_step,
+                action_noise_pred,
+                act_sched.timesteps[act_step],
+                action_latents,
+                step_index=act_step,
             )[0]
             act_step += 1
 
@@ -1660,10 +1685,16 @@ class GrootN2(PreTrainedModel):
                     action_t = act_sched.timesteps[act_step].to(dtype)
                     action_sigma = act_sched.sigmas[act_step].to(dtype)
                     action_t_per_step = torch.full(
-                        (B, T_action), action_t, device=device, dtype=dtype,
+                        (B, T_action),
+                        action_t,
+                        device=device,
+                        dtype=dtype,
                     )
                     action_sigma_per_step = torch.full(
-                        (B, T_action), action_sigma, device=device, dtype=dtype,
+                        (B, T_action),
+                        action_sigma,
+                        device=device,
+                        dtype=dtype,
                     )
                     action_tokens = self.action_encoder(
                         action_latents, action_t_per_step, embodiment_id
@@ -1699,8 +1730,10 @@ class GrootN2(PreTrainedModel):
                     )
 
                 action_latents = act_sched.step(
-                    action_noise_pred, act_sched.timesteps[act_step],
-                    action_latents, step_index=act_step,
+                    action_noise_pred,
+                    act_sched.timesteps[act_step],
+                    action_latents,
+                    step_index=act_step,
                 )[0]
                 act_step += 1
 
@@ -1715,8 +1748,7 @@ class GrootN2(PreTrainedModel):
         modality_ids: torch.Tensor,
         token_valid_mask: torch.Tensor | None = None,
     ) -> CondKVCache:
-        """Slice a captured-during-joint-forward cache to the positions action
-        actually attends to under the configured attention pattern.
+        """Slice a joint-forward cache to positions attended to by action.
 
         The joint forward's ``kv_cache`` stores per-layer K/V for the
         full packed sequence ``[video, state, action]``. Later cached
@@ -1758,13 +1790,13 @@ class GrootN2(PreTrainedModel):
         for m in keep_modalities:
             keep |= ids == m
         if token_valid_mask is not None:
-            assert torch.all(token_valid_mask == token_valid_mask[:1]), (
-                "kv_cache_cond assumes per-view padding is uniform across the batch"
-            )
+            assert torch.all(
+                token_valid_mask == token_valid_mask[:1]
+            ), "kv_cache_cond assumes per-view padding is uniform across the batch"
             keep &= token_valid_mask[0, : keep.shape[0]]
         keep_idx = keep.nonzero(as_tuple=True)[0]
         sliced = CondKVCache()
-        for k_layer, v_layer in zip(cache.key_cache, cache.value_cache):
+        for k_layer, v_layer in zip(cache.key_cache, cache.value_cache, strict=False):
             sliced.key_cache.append(k_layer.index_select(2, keep_idx).clone())
             sliced.value_cache.append(v_layer.index_select(2, keep_idx).clone())
         return sliced
@@ -1813,6 +1845,8 @@ class GrootN2(PreTrainedModel):
                 update, where ``k = num_action_steps // num_video_steps``.
                 Unsupported with the ``FULL`` attention pattern (video not
                 self-contained).
+            step_callback: Optional callback invoked after each completed joint
+                video denoising step with ``(completed_steps, total_steps)``.
 
         Returns:
             dict with:
