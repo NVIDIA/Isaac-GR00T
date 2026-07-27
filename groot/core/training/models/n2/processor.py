@@ -58,6 +58,9 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "real_g1_relative_eef_absolute_joints": 3,
     "real_g1_relative_eef_absolute_joints_wrist_cam": 3,
     "real_g1_relative_eef_relative_joints": 3,
+    # This schema has different state/action semantics from the older G1
+    # schemas above, so it uses its own projector row.
+    "unitree_g1_whole_body_teleop_latent_gripper": 5,
     "real_r1_pro_sharpa_relative_joint": 2,
     "oxe_droid_relative_eef_relative_joint": 1,
     "xdof_relative_eef_relative_joint": 0,
@@ -234,7 +237,14 @@ class GrootN2Processor(BaseProcessor):
         self._collator = self.data_collator_class(tokenizer=self.tokenizer)
 
         # Action/state processing
-        self.embodiment_id_mapping = embodiment_id_mapping or EMBODIMENT_TAG_TO_PROJECTOR_INDEX
+        if embodiment_id_mapping is not None:
+            self.embodiment_id_mapping = embodiment_id_mapping
+        elif action_cfg is not None and action_cfg.get("num_embodiments", 1) == 1:
+            # A single-embodiment action head has only projector row 0. Keep
+            # globally reserved IDs for multi-embodiment checkpoints only.
+            self.embodiment_id_mapping = dict.fromkeys(EMBODIMENT_TAG_TO_PROJECTOR_INDEX, 0)
+        else:
+            self.embodiment_id_mapping = EMBODIMENT_TAG_TO_PROJECTOR_INDEX
         if action_cfg is not None:
             use_q99_for_rel_action = _env_bool_optional("GROOT_N2_USE_Q99_REL")
             if use_q99_for_rel_action is None:

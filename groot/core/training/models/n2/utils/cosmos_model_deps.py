@@ -38,6 +38,7 @@ _LUSTRE_CKPT_PREFIXES = [
     "/mnt/aws-lfs-02/shared/ckpts/",
     "/mnt/aws-lfs-03/shared/ckpts/",
     "/mnt/amlfs-02/shared/ckpts/",
+    "/mnt/amlfs-05/shared/ckpts/",
     "/mnt/amlfs-07/shared/ckpts/",
 ]
 

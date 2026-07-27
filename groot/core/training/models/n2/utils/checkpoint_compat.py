@@ -14,10 +14,12 @@
 # limitations under the License.
 """Checkpoint compatibility helpers for cross-version weight loading."""
 
-import re
 from collections.abc import Iterable
+import re
 from typing import Any
 
+import torch
+import torch.nn.functional as F
 import transformers as _tx_module
 
 # Detect target Qwen layout from the installed transformers version. 4.55+
@@ -36,6 +38,53 @@ _TARGET_IS_457 = _TX_VERSION >= (4, 55)
 _GROOT_QWEN_PREFIX = "text_encoder.text_encoder."
 
 
+def resize_temporal_pos_embedding(
+    checkpoint_tensor: torch.Tensor,
+    target_tensor: torch.Tensor,
+    *,
+    key: str = "action_encoder.temporal_pos_emb",
+) -> torch.Tensor:
+    """Resize a learned ``[1, time, hidden]`` table along time only.
+
+    Rows are treated as samples over normalized horizon progress, so linear
+    interpolation with aligned corners preserves the learned first and last
+    positions exactly. All non-temporal dimensions must already match.
+    """
+    if checkpoint_tensor.shape == target_tensor.shape:
+        return checkpoint_tensor
+
+    source_shape = tuple(checkpoint_tensor.shape)
+    target_shape = tuple(target_tensor.shape)
+    valid_layout = (
+        checkpoint_tensor.ndim == 3
+        and target_tensor.ndim == 3
+        and checkpoint_tensor.shape[0] == target_tensor.shape[0] == 1
+        and checkpoint_tensor.shape[2] == target_tensor.shape[2]
+    )
+    if not valid_layout:
+        raise ValueError(
+            f"Cannot resize {key} from {source_shape} to {target_shape}: "
+            "only the temporal axis may differ"
+        )
+    if checkpoint_tensor.shape[1] == 0 or target_tensor.shape[1] == 0:
+        raise ValueError(
+            f"Cannot resize {key} from {source_shape} to {target_shape}: "
+            "temporal dimensions must be non-zero"
+        )
+    if not checkpoint_tensor.is_floating_point():
+        raise TypeError(
+            f"Cannot resize non-floating {key} tensor with dtype {checkpoint_tensor.dtype}"
+        )
+
+    resized = F.interpolate(
+        checkpoint_tensor.float().transpose(1, 2),
+        size=target_tensor.shape[1],
+        mode="linear",
+        align_corners=True,
+    ).transpose(1, 2)
+    return resized.to(dtype=checkpoint_tensor.dtype).contiguous()
+
+
 def remap_qwen2_5_vl_key(key: str) -> str:
     """Per-key Qwen2.5-VL 4.51.3 ↔ 4.57.6 remap (singular).
 
@@ -52,7 +101,7 @@ def remap_qwen2_5_vl_key(key: str) -> str:
     """
     if not key.startswith(_GROOT_QWEN_PREFIX):
         return key
-    suffix = key[len(_GROOT_QWEN_PREFIX):]
+    suffix = key[len(_GROOT_QWEN_PREFIX) :]
 
     if _TARGET_IS_457:
         # 4.51.3-form key being loaded into a 4.57.6 model: insert `model.`
@@ -64,14 +113,13 @@ def remap_qwen2_5_vl_key(key: str) -> str:
             and not suffix.startswith("model.visual.")
             and not suffix.startswith("model.language_model.")
         ):
-            suffix = "model.language_model." + suffix[len("model."):]
-    else:
-        # 4.57.6-form key being loaded into a 4.51.3 model: drop `model.`
-        # before `visual.` and `language_model.` after `model.`.
-        if suffix.startswith("model.visual."):
-            suffix = suffix[len("model."):]
-        elif suffix.startswith("model.language_model."):
-            suffix = "model." + suffix[len("model.language_model."):]
+            suffix = "model.language_model." + suffix[len("model.") :]
+    # 4.57.6-form key being loaded into a 4.51.3 model: drop `model.`
+    # before `visual.` and `language_model.` after `model.`.
+    elif suffix.startswith("model.visual."):
+        suffix = suffix[len("model.") :]
+    elif suffix.startswith("model.language_model."):
+        suffix = "model." + suffix[len("model.language_model.") :]
 
     return _GROOT_QWEN_PREFIX + suffix
 
@@ -119,8 +167,7 @@ def remap_qwen2_5_vl_keys(
     has_dot_model_visual = any(".model.visual." in k for k in target_set)
     has_dot_lang_model = any(".model.language_model." in k for k in target_set)
     has_bare_visual = any(
-        re.search(r"(^|\.)visual\.", k) and ".model.visual." not in k
-        for k in target_set
+        re.search(r"(^|\.)visual\.", k) and ".model.visual." not in k for k in target_set
     )
 
     target_is_457 = has_dot_model_visual and has_dot_lang_model
@@ -190,8 +237,10 @@ def _remap_with_prefixes(
     prefixes: set[str],
     tail_fn,
 ) -> dict[str, Any]:
-    """Apply ``tail_fn`` to the post-prefix portion of any key under one of
-    the detected Qwen prefixes; pass other keys through unchanged."""
+    """Apply ``tail_fn`` to matching Qwen key suffixes.
+
+    Keys outside the detected Qwen prefixes pass through unchanged.
+    """
     # Sort prefixes longest-first so e.g. "text_encoder.text_encoder." beats
     # the bare-Qwen "" when both somehow apply.
     sorted_prefixes = sorted(prefixes, key=len, reverse=True)
@@ -200,7 +249,7 @@ def _remap_with_prefixes(
         new_k = k
         for p in sorted_prefixes:
             if (p == "" and "." in k) or (p and k.startswith(p)):
-                tail = k[len(p):]
+                tail = k[len(p) :]
                 new_tail = tail_fn(tail)
                 new_k = p + new_tail
                 break

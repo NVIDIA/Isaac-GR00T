@@ -18,6 +18,12 @@
 # of .git/, not nested paths like .git/objects/pack/*.pack (~8.8 GB of every
 # workdir upload).
 .git/**
+# Nested repositories and local agent worktrees are source-control state, not
+# runtime inputs. Some contain multi-gigabyte object packs and virtualenvs.
+**/.git/**
+.codex/**
+# Local experiment dumps and generated assets are not used by core training.
+runs/**
 # Top-level data/ dumps are local scratch (~1.4 GB); training reads datasets
 # from cluster Lustre, not from the uploaded workdir.
 data/**
@@ -27,6 +33,7 @@ gear_working_dir/**
 *.venv/**
 **/.venv/**
 **/.venv/*
+**/.venv-*/**
 groot/core/.venv/**
 groot/core/.venv/*
 src/groot/core/.venv/**

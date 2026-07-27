@@ -74,6 +74,8 @@ VIDEO_TOKENIZER_PREFIXES = (
 )
 VIDEO_ROPE_PREFIXES = ("rope.",)
 ACTION_ROPE_SEQ_KEYS = frozenset(("action_rope.seq", "state_rope.seq"))
+ACTION_TEMPORAL_POS_EMB_KEY = "action_encoder.temporal_pos_emb"
+
 VAE_TEMPORAL_FACTOR = 4  # Wan VAE temporal compression ratio
 
 
@@ -1972,7 +1974,10 @@ class GrootN2(PreTrainedModel):
         internal load path including ``from_pretrained``), so direct callers
         and ``from_pretrained`` produce equivalent post-load weights.
         """
-        from groot.core.training.models.n2.utils.checkpoint_compat import remap_n2_vae_key
+        from groot.core.training.models.n2.utils.checkpoint_compat import (
+            remap_n2_vae_key,
+            resize_temporal_pos_embedding,
+        )
 
         current_state = self.state_dict() if not strict else {}
         remapped = {}
@@ -1992,6 +1997,27 @@ class GrootN2(PreTrainedModel):
                 and new_key in current_state
                 and current_state[new_key].shape != val.shape
             ):
+                continue
+            if (
+                not strict
+                and new_key == ACTION_TEMPORAL_POS_EMB_KEY
+                and new_key in current_state
+                and val.ndim == current_state[new_key].ndim == 3
+                and val.shape[1] < current_state[new_key].shape[1]
+            ):
+                old_horizon = val.shape[1]
+                resized_val = resize_temporal_pos_embedding(
+                    val,
+                    current_state[new_key],
+                    key=new_key,
+                )
+                logging.info(
+                    "[GrootN2] Resized %s horizon: %s -> %d",
+                    new_key,
+                    old_horizon,
+                    resized_val.shape[1],
+                )
+                remapped[new_key] = resized_val
                 continue
             remapped[new_key] = val
         return super().load_state_dict(remapped, strict=strict, assign=assign)
