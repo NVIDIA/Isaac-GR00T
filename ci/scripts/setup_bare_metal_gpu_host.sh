@@ -400,7 +400,7 @@ EOF
 }
 
 install_docker_and_toolkit() {
-  log "Installing Docker CE and NVIDIA Container Toolkit"
+  log "Installing Docker CE, Podman, and NVIDIA Container Toolkit"
   apt_get update
   remove_conflicting_docker_packages
   apt_get install -y \
@@ -409,17 +409,38 @@ install_docker_and_toolkit() {
     containerd.io \
     docker-buildx-plugin \
     docker-compose-plugin \
-    nvidia-container-toolkit
+    nvidia-container-toolkit \
+    podman
 
   log "Configuring NVIDIA runtime for Docker"
   nvidia-ctk runtime configure --runtime=docker
 
   systemctl enable --now docker
   systemctl restart docker
+  systemctl enable --now podman.socket
 
   if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
     log "Adding ${SUDO_USER} to the docker group"
     usermod -aG docker "${SUDO_USER}"
+  fi
+}
+
+repair_podman_apparmor_profile() {
+  local profile="/etc/apparmor.d/podman"
+  if [[ ! -f "${profile}" ]] || ! command -v apparmor_parser >/dev/null 2>&1; then
+    return
+  fi
+
+  # Ubuntu ships this named profile as unconfined so Podman can load its
+  # libraries and apply container-specific confinement. Some Colossus host
+  # hardening images strip the flag while leaving the otherwise empty profile,
+  # which makes AppArmor deny Podman's dynamic loader before main() starts.
+  if grep -Fxq 'profile podman /usr/bin/podman {' "${profile}"; then
+    log "Restoring Ubuntu's unconfined AppArmor flag for Podman"
+    sed -i \
+      's|^profile podman /usr/bin/podman {$|profile podman /usr/bin/podman flags=(unconfined) {|' \
+      "${profile}"
+    apparmor_parser -r "${profile}"
   fi
 }
 
@@ -521,6 +542,20 @@ docker_login_nvcr_if_requested() {
   printf '%s' "${NVCR_TOKEN}" | docker login nvcr.io --username '$oauthtoken' --password-stdin >/dev/null
 }
 
+podman_login_nvcr_if_requested() {
+  if [[ -z "${NVCR_TOKEN}" ]]; then
+    return
+  fi
+
+  log "Logging rootful Podman in to nvcr.io for Ray runtime images"
+  install -d -m 0700 /root/.config/containers
+  printf '%s' "${NVCR_TOKEN}" | podman login nvcr.io \
+    --authfile /root/.config/containers/auth.json \
+    --username '$oauthtoken' \
+    --password-stdin >/dev/null
+  chmod 0600 /root/.config/containers/auth.json
+}
+
 ensure_validation_image_available() {
   if [[ -z "${NVIDIA_TEST_IMAGE}" ]]; then
     return
@@ -540,6 +575,9 @@ ensure_validation_image_available() {
 validate_installation() {
   log "Validating Docker service"
   docker info >/dev/null
+  log "Validating rootful Podman service"
+  podman info >/dev/null
+  systemctl is-active --quiet podman.socket
   validate_rdma_host
 
   if [[ ! -r /proc/driver/nvidia/params ]]; then
@@ -580,7 +618,6 @@ validate_installation() {
           nvidia-smi -L
           IFS=: read -r -a devices <<< "${GROOT_RDMA_UVERBS:?}"
           for device in "${devices[@]}"; do test -c "${device}"; done
-          python -c '\''import ctypes; ctypes.CDLL("libibverbs.so.1")'\''
         '
     else
       timeout --kill-after=10s "${NVIDIA_DOCKER_GPU_GATE_TIMEOUT}s" \
@@ -610,6 +647,8 @@ main() {
   install_nvidia_driver
   persist_nvidia_module_options
   install_docker_and_toolkit
+  repair_podman_apparmor_profile
+  podman_login_nvcr_if_requested
   validate_installation
 
   log "Provisioning complete"

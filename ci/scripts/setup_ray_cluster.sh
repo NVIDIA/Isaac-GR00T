@@ -21,10 +21,16 @@ umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_SETUP_SCRIPT="${SCRIPT_DIR}/setup_bare_metal_gpu_host.sh"
+PODMAN_WRAPPER="${SCRIPT_DIR}/colossus_ray_podman.sh"
+PRUNE_SCRIPT="${SCRIPT_DIR}/colossus_ray_prune.sh"
 
-IMAGE="${GROOT_CI_TRAIN_IMAGE:-nvcr.io/nvidian/groot-ci-train:latest}"
+IMAGE="${COLOSSUS_RAY_CONTROL_IMAGE:-rayproject/ray:2.48.0-py312-cpu}"
+GPU_TEST_IMAGE="${COLOSSUS_GPU_TEST_IMAGE:-docker.io/nvidia/cuda:13.0.1-base-ubuntu24.04}"
+ARTIFACT_IMAGE="${COLOSSUS_ARTIFACT_IMAGE:-python:3.12-slim-bookworm}"
 COLOSSUS_POOL_ID="${COLOSSUS_POOL_ID:-gear-gb300-automation}"
 COLOSSUS_NODE_COUNT="${COLOSSUS_NODE_COUNT:-}"
+COLOSSUS_EXISTING_LEASE_ID="${COLOSSUS_EXISTING_LEASE_ID:-}"
+COLOSSUS_EXISTING_LEASE_NAME=""
 COLOSSUS_LEASE_DURATION="${COLOSSUS_LEASE_DURATION:-7d}"
 COLOSSUS_LEASE_JUSTIFICATION="${COLOSSUS_LEASE_JUSTIFICATION:-GR00T persistent Ray cluster}"
 COLOSSUS_OS="${COLOSSUS_OS:-ubuntu-24.04-aarch64-standard-uefi}"
@@ -71,6 +77,7 @@ NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-}"
 REQUIRE_RDMA="${REQUIRE_RDMA:-0}"
 TRANSPORT_VALIDATION_COMMAND="${TRANSPORT_VALIDATION_COMMAND:-}"
 TRANSPORT_VALIDATION_TIMEOUT="${TRANSPORT_VALIDATION_TIMEOUT:-300}"
+TRANSPORT_VALIDATION_IMAGE="${COLOSSUS_TRANSPORT_VALIDATION_IMAGE:-}"
 
 readonly HEAD_CONTAINER="groot-ray-head"
 readonly WORKER_CONTAINER="groot-ray-worker"
@@ -121,6 +128,9 @@ Usage:
 Options:
   --nodes COUNT                 Number of Colossus hosts to reserve. The first lease is
                                 the Ray head unless --join-ray-address is set.
+  --existing-lease-id ID        Reuse this active Colossus lease instead of reserving a
+                                host. Requires --nodes 1. The lease is never released by
+                                setup, including when setup fails.
   --join-ray-address IP[:PORT]  Add every leased host as a worker to this existing Ray
                                 control-plane address. Default port: ${RAY_PORT}.
                                 The existing head and its nginx endpoint are not changed.
@@ -133,7 +143,11 @@ Options:
   --lease-ready-timeout SECS    Overall wait for all leases to become active. Default: ${COLOSSUS_LEASE_READY_TIMEOUT}
   --lease-poll-interval SECS    Seconds between lease readiness checks. Default: ${COLOSSUS_LEASE_POLL_INTERVAL}
   --keep-leases-on-failure      Do not release newly created leases when setup fails.
-  --image IMAGE                 Docker image to pull and run. Default: ${IMAGE}
+  --image IMAGE                 Public Ray control-plane image. Default: ${IMAGE}
+  --gpu-test-image IMAGE        Public CUDA image for the GB300 container gate.
+                                Default: ${GPU_TEST_IMAGE}
+  --artifact-image IMAGE        Public Python image used to stage artifacts.
+                                Default: ${ARTIFACT_IMAGE}
   --ssl-cert PATH               TLS certificate path on the head host. Default: ${SSL_CERT}
   --ssl-key PATH                TLS private key path on the head host. Default: ${SSL_KEY}
   --head-domain DOMAIN          Public HTTPS domain. Default: first leased host FQDN.
@@ -158,7 +172,7 @@ Options:
   --bucket-endpoint-url-env VAR Env var containing S3 endpoint URL. Default: ${BUCKET_ENDPOINT_URL_ENV}
   --bucket-region-env VAR       Env var containing S3 region. Default: ${BUCKET_REGION_ENV}
   --skip-post-training-artifacts
-                                Do not mirror model deps/checkpoint artifacts or inject data creds.
+                                Do not mirror model deps/checkpoint artifacts.
   --ssh-connect-timeout SECS    SSH connect timeout. Default: ${SSH_CONNECT_TIMEOUT}
   --reboot-wait-timeout SECS    Overall seconds to wait for a reboot. Default: ${REBOOT_WAIT_TIMEOUT}
   --reboot-poll-interval SECS   Seconds between SSH reboot polls. Default: ${REBOOT_POLL_INTERVAL}
@@ -167,13 +181,15 @@ Options:
   --nccl-socket-ifname IFACE   NCCL socket netdev. Default: --data-interface value.
   --gloo-socket-ifname IFACE   Gloo socket netdev. Default: --data-interface value.
   --nccl-ib-hca HCA[:PORT]     Verbs HCA/port list for NCCL, for example mlx5_3:1.
-                                Matching uverbs devices are derived from sysfs and passed to Docker.
+                                Matching uverbs devices are derived from sysfs and passed to Podman.
   --nccl-ib-gid-index INDEX    RoCE GID index used by NCCL, for example 3.
   --require-rdma               Fail unless the selected HCA/GID and container RDMA path are usable.
   --allow-socket-transport     Permit legacy TCP-only operation. This is the default.
   --transport-validation-command COMMAND
-                                Run COMMAND in the head container after all GPUs join Ray; a
-                                nonzero exit prevents the cluster from being declared ready.
+                                Run COMMAND in a head-host Podman GPU container after all GPUs
+                                join Ray; a nonzero exit prevents cluster readiness.
+  --transport-validation-image IMAGE
+                                Image for COMMAND. Default: --gpu-test-image value.
   --transport-validation-timeout SECS
                                 Bound the validation command. Default: ${TRANSPORT_VALIDATION_TIMEOUT}
   --dry-run                     Print the plan without changing any host.
@@ -182,7 +198,8 @@ Options:
 
 GPU policy:
   Every host must contain exactly one ${TARGET_GPU_NAME}. Only that GPU is
-  exposed to its Ray container and advertised as one generic GPU resource.
+  attached to scheduled Podman GPU workers, while Ray advertises one generic
+  GPU resource from its device-free control container.
 
 If both --ray-auth-password-stdin and --nvcr-token-stdin are used, pass two lines:
   first line = Ray basic-auth password, second line = NVCR token.
@@ -264,6 +281,11 @@ parse_args() {
         COLOSSUS_NODE_COUNT="$2"
         shift 2
         ;;
+      --existing-lease-id)
+        require_value "$1" "${2:-}"
+        COLOSSUS_EXISTING_LEASE_ID="$2"
+        shift 2
+        ;;
       --join-ray-address)
         require_value "$1" "${2:-}"
         JOIN_RAY_ADDRESS="$2"
@@ -311,6 +333,16 @@ parse_args() {
       --image)
         require_value "$1" "${2:-}"
         IMAGE="$2"
+        shift 2
+        ;;
+      --gpu-test-image)
+        require_value "$1" "${2:-}"
+        GPU_TEST_IMAGE="$2"
+        shift 2
+        ;;
+      --artifact-image)
+        require_value "$1" "${2:-}"
+        ARTIFACT_IMAGE="$2"
         shift 2
         ;;
       --ssl-cert)
@@ -462,6 +494,11 @@ parse_args() {
         TRANSPORT_VALIDATION_COMMAND="$2"
         shift 2
         ;;
+      --transport-validation-image)
+        require_value "$1" "${2:-}"
+        TRANSPORT_VALIDATION_IMAGE="$2"
+        shift 2
+        ;;
       --transport-validation-timeout)
         require_value "$1" "${2:-}"
         TRANSPORT_VALIDATION_TIMEOUT="$2"
@@ -514,6 +551,12 @@ validate_args() {
     ''|*[!0-9]*) die "--nodes must be a positive integer" ;;
   esac
   (( COLOSSUS_NODE_COUNT > 0 )) || die "--nodes must be greater than 0"
+  if [[ -n "${COLOSSUS_EXISTING_LEASE_ID}" ]]; then
+    [[ "${COLOSSUS_EXISTING_LEASE_ID}" =~ ^[A-Za-z0-9-]+$ ]] \
+      || die "--existing-lease-id contains invalid characters"
+    (( COLOSSUS_NODE_COUNT == 1 )) \
+      || die "--existing-lease-id requires --nodes 1"
+  fi
   if [[ -n "${JOIN_RAY_ADDRESS}" ]]; then
     if [[ "${JOIN_RAY_ADDRESS}" == *://* || "${JOIN_RAY_ADDRESS}" == *:*:* ]]; then
       die "--join-ray-address must be an internal IPv4 address with an optional port"
@@ -561,6 +604,11 @@ validate_args() {
     *) die "KEEP_COLOSSUS_LEASES_ON_FAILURE must be 0 or 1" ;;
   esac
   [[ -x "${HOST_SETUP_SCRIPT}" ]] || die "missing executable host setup script: ${HOST_SETUP_SCRIPT}"
+  [[ -r "${PODMAN_WRAPPER}" ]] || die "missing Podman wrapper: ${PODMAN_WRAPPER}"
+  [[ -r "${PRUNE_SCRIPT}" ]] || die "missing cleanup script: ${PRUNE_SCRIPT}"
+  [[ -n "${IMAGE}" ]] || die "--image must be non-empty"
+  [[ -n "${GPU_TEST_IMAGE}" ]] || die "--gpu-test-image must be non-empty"
+  [[ -n "${ARTIFACT_IMAGE}" ]] || die "--artifact-image must be non-empty"
   if [[ -z "${JOIN_RAY_ADDRESS}" ]]; then
     [[ -n "${SSL_CERT}" ]] || die "--ssl-cert is required"
     [[ -n "${SSL_KEY}" ]] || die "--ssl-key is required"
@@ -854,6 +902,85 @@ prepare_dry_run_hosts() {
   fi
 }
 
+load_existing_colossus_host() {
+  local include_credentials="$1"
+  local existing_path="${TMP_DIR}/colossus-existing-lease.json"
+  local assignments
+  local -a command=(
+    colossus bm lease list
+    --lease-id "${COLOSSUS_EXISTING_LEASE_ID}"
+  )
+
+  if [[ "${include_credentials}" == "1" ]]; then
+    command+=(--show-creds)
+  fi
+  command+=(--json)
+  "${command[@]}" > "${existing_path}" \
+    || die "could not read existing Colossus lease ${COLOSSUS_EXISTING_LEASE_ID}"
+  chmod 0600 "${existing_path}"
+  if ! assignments="$(
+    python3 - \
+      "${existing_path}" \
+      "${COLOSSUS_EXISTING_LEASE_ID}" \
+      "${include_credentials}" <<'PY'
+import json
+import re
+import shlex
+import sys
+
+path, expected_id, include_credentials = sys.argv[1:]
+with open(path) as f:
+    data = json.load(f)
+records = data if isinstance(data, list) else [data]
+record = next(
+    (
+        item
+        for item in records
+        if isinstance(item, dict)
+        and (item.get("lease_details") or item).get("id") == expected_id
+    ),
+    None,
+)
+if record is None:
+    raise SystemExit("existing lease record is unavailable")
+details = record.get("lease_details") or record
+entity = record.get("entity_details") or {}
+secrets = record.get("lease_secrets") or {}
+if str(details.get("status", "")).upper() != "ACTIVE":
+    raise SystemExit("existing lease is not active")
+name = details.get("resourceName") or entity.get("name")
+host = entity.get("fqdn")
+if (
+    not isinstance(name, str)
+    or re.fullmatch(r"[A-Za-z0-9._-]+", name) is None
+    or not isinstance(host, str)
+    or not host
+):
+    raise SystemExit("existing lease resource identity is incomplete")
+print(f"COLOSSUS_EXISTING_LEASE_NAME={shlex.quote(name)}")
+print(f"HOSTS+=({shlex.quote(host)})")
+print("DATA_IPS+=('')")
+if include_credentials == "1":
+    user = secrets.get("local_accountname")
+    password = secrets.get("local_accountpassword")
+    if not all(isinstance(value, str) and value for value in (user, password)):
+        raise SystemExit("existing lease SSH credentials are incomplete")
+    print(f"USERS+=({shlex.quote(user)})")
+    print(f"PASSWORDS+=({shlex.quote(password)})")
+else:
+    print("USERS+=('<assigned-by-colossus>')")
+    print("PASSWORDS+=('')")
+PY
+  )"; then
+    die "could not load active existing lease ${COLOSSUS_EXISTING_LEASE_ID}"
+  fi
+  eval "${assignments}"
+  if [[ -z "${JOIN_RAY_ADDRESS}" && -z "${HEAD_DOMAIN}" ]]; then
+    HEAD_DOMAIN="${HOSTS[0]}"
+  fi
+  log "reusing Colossus lease ${COLOSSUS_EXISTING_LEASE_ID} (${COLOSSUS_EXISTING_LEASE_NAME})"
+}
+
 parse_created_lease_id() {
   local path="$1"
   python3 - "${path}" <<'PY'
@@ -870,7 +997,12 @@ if isinstance(data, list):
 if not isinstance(data, dict):
     raise SystemExit("expected a created lease object")
 details = data.get("lease_details") or data
-lease_id = details.get("id")
+lease_id = details.get("id") or data.get("lease_id")
+if not lease_id:
+    response = data.get("json_output") or {}
+    request_url = response.get("requestUrl") or data.get("lease_url")
+    if isinstance(request_url, str):
+        lease_id = request_url.rstrip("/").rsplit("/", 1)[-1]
 if (
     not isinstance(lease_id, str)
     or re.fullmatch(r"[A-Za-z0-9-]+", lease_id) is None
@@ -1076,12 +1208,18 @@ release_colossus_leases() {
 
 print_dry_run() {
   log "dry-run only; no Colossus lease will be created and no host will be changed"
-  log "Colossus pool: ${COLOSSUS_POOL_ID}"
+  if [[ -n "${COLOSSUS_EXISTING_LEASE_ID}" ]]; then
+    log "host source: existing Colossus lease ${COLOSSUS_EXISTING_LEASE_ID}"
+  else
+    log "Colossus pool: ${COLOSSUS_POOL_ID}"
+  fi
   log "requested nodes: ${COLOSSUS_NODE_COUNT}"
   log "lease duration: ${COLOSSUS_LEASE_DURATION}"
   log "lease OS: ${COLOSSUS_OS}"
   log "lease provision mode: ${COLOSSUS_PROVISION_MODE}"
-  log "image: ${IMAGE}"
+  log "Ray control image: ${IMAGE}"
+  log "GPU test image: ${GPU_TEST_IMAGE}"
+  log "artifact image: ${ARTIFACT_IMAGE}"
   if [[ -n "${JOIN_RAY_ADDRESS}" ]]; then
     log "cluster mode: join existing"
     log "existing Ray address: ${JOIN_RAY_ADDRESS}"
@@ -1105,7 +1243,10 @@ print_dry_run() {
     log "NCCL IB GID index: ${NCCL_IB_GID_INDEX}"
   fi
   if [[ -n "${TRANSPORT_VALIDATION_COMMAND}" ]]; then
+    [[ -n "${TRANSPORT_VALIDATION_IMAGE:-${GPU_TEST_IMAGE}}" ]] \
+      || die "--transport-validation-image must be non-empty"
     log "transport validation command: configured (timeout ${TRANSPORT_VALIDATION_TIMEOUT}s)"
+    log "transport validation image: ${TRANSPORT_VALIDATION_IMAGE:-${GPU_TEST_IMAGE}}"
   else
     log "transport validation command: disabled"
   fi
@@ -1125,7 +1266,11 @@ print_dry_run() {
     if [[ -z "${JOIN_RAY_ADDRESS}" && "${i}" == "0" ]]; then
       role="head"
     fi
-    log "reservation candidate[$i]: ${role} ${COLOSSUS_CANDIDATE_NAMES[$i]} (${HOSTS[$i]}) data_ip=<automatic>"
+    if [[ -n "${COLOSSUS_EXISTING_LEASE_ID}" ]]; then
+      log "existing lease host[$i]: ${role} ${COLOSSUS_EXISTING_LEASE_NAME} (${HOSTS[$i]}) data_ip=<automatic>"
+    else
+      log "reservation candidate[$i]: ${role} ${COLOSSUS_CANDIDATE_NAMES[$i]} (${HOSTS[$i]}) data_ip=<automatic>"
+    fi
   done
 }
 
@@ -1307,10 +1452,15 @@ nccl_ib_hca="${10}"
 nccl_ib_gid_index="${11}"
 require_rdma="${12}"
 target_gpu_name="${13}"
+gpu_test_image="${14}"
 
 head_container="groot-ray-head"
 worker_container="groot-ray-worker"
-volume="groot_ray_tmp"
+ray_tmp="/tmp/ray"
+job_root="/data/groot-ol-jobs"
+podman_socket="/run/podman/podman.sock"
+podman_auth="/root/.config/containers/auth.json"
+host_podman_wrapper="/usr/local/libexec/groot-ray/podman"
 
 case "${require_rdma}" in
   0|1) ;;
@@ -1347,15 +1497,67 @@ gb300_gpu_uuid="$(printf '%s\n' "${gpu_inventory}" \
   echo "expected exactly one ${target_gpu_name} GPU in the host inventory" >&2
   exit 1
 }
-declare -a docker_gpu_args=(--gpus "device=${gb300_gpu_uuid}")
 ray_num_gpus="1"
+
+install -d -m 0755 /etc/cdi "${ray_tmp}" "${job_root}"
+nvidia-ctk cdi generate \
+  --device-name-strategy=uuid \
+  --output=/etc/cdi/nvidia.yaml >/dev/null
+# Colossus currently ships Podman 4.9, whose CDI parser predates the 0.7
+# additionalGids field emitted by current NVIDIA Container Toolkit releases.
+# Rootful job containers do not need those supplemental DRM group IDs.
+python3 - /etc/cdi/nvidia.yaml <<'PYTHON'
+from pathlib import Path
+import os
+import sys
+import tempfile
+
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines(keepends=True)
+output: list[str] = []
+skip_indent: int | None = None
+for line in lines:
+    stripped = line.lstrip(" ")
+    indent = len(line) - len(stripped)
+    if skip_indent is not None:
+        if stripped.strip() and indent > skip_indent:
+            continue
+        skip_indent = None
+    if stripped.strip() == "additionalGids:":
+        skip_indent = indent
+        continue
+    if line.startswith("cdiVersion:"):
+        line = "cdiVersion: 0.6.0\n"
+    output.append(line)
+
+mode = path.stat().st_mode
+with tempfile.NamedTemporaryFile(
+    mode="w",
+    dir=path.parent,
+    prefix=f".{path.name}.",
+    delete=False,
+) as destination:
+    destination.writelines(output)
+    temporary_path = destination.name
+os.chmod(temporary_path, mode)
+os.replace(temporary_path, path)
+PYTHON
+nvidia-ctk cdi list | grep -Fxq "nvidia.com/gpu=${gb300_gpu_uuid}"
+systemctl enable --now podman.socket
+[[ -S "${podman_socket}" ]] || {
+  echo "rootful Podman socket is unavailable: ${podman_socket}" >&2
+  exit 1
+}
+[[ -r "${podman_auth}" ]] || {
+  echo "rootful Podman registry auth is unavailable: ${podman_auth}" >&2
+  exit 1
+}
 
 if [[ -n "${data_interface}" ]]; then
   ip link show dev "${data_interface}" >/dev/null
   ip -o -4 addr show dev "${data_interface}" scope global | grep -q '[[:space:]]inet[[:space:]]'
 fi
 
-declare -a rdma_device_args=()
 declare -a uverbs_devices=()
 declare -A seen_uverbs=()
 if [[ "${require_rdma}" == "1" ]]; then
@@ -1377,9 +1579,12 @@ if [[ "${require_rdma}" == "1" ]]; then
     if [[ -z "${seen_uverbs[${uverbs}]:-}" ]]; then
       seen_uverbs[${uverbs}]=1
       uverbs_devices+=("${uverbs}")
-      rdma_device_args+=(--device "${uverbs}:${uverbs}")
     fi
   done
+fi
+rdma_devices=""
+if [[ "${#uverbs_devices[@]}" -gt 0 ]]; then
+  rdma_devices="$(IFS=:; printf '%s' "${uverbs_devices[*]}")"
 fi
 
 declare -a network_env_args=()
@@ -1398,11 +1603,12 @@ if [[ "${require_rdma}" == "1" ]]; then
 fi
 
 declare -a container_fips_args=()
-container_fips_mask="/var/lib/groot-ray/fips-disabled"
+container_fips_mask=""
 if [[ "$(head -c 1 /proc/sys/crypto/fips_enabled 2>/dev/null || true)" == "1" ]]; then
-  # The GR00T training image is not FIPS-certified. Mask the host kernel flag
-  # inside the container so its bundled crypto libraries do not enter an
-  # unsupported FIPS mode and abort during their self-tests.
+  # The public Ray control image and per-job training images are not
+  # FIPS-certified. Mask the host kernel flag so their bundled crypto
+  # libraries do not enter an unsupported mode during self-tests.
+  container_fips_mask="/var/lib/groot-ray/fips-disabled"
   install -d -m 0755 "$(dirname "${container_fips_mask}")"
   printf '0\n' > "${container_fips_mask}"
   chmod 0444 "${container_fips_mask}"
@@ -1427,94 +1633,122 @@ common_ray_args=(
 
 if [[ "${role}" == "head" ]]; then
   container="${head_container}"
-  ray_cmd="ray stop --force >/dev/null 2>&1 || true; exec ray start --head --port=6379 --dashboard-host=127.0.0.1 --dashboard-port=8265 --ray-client-server-port=10001 --include-dashboard=True ${common_ray_args[*]}"
+  ray_start="ray start --head --port=6379 --dashboard-host=127.0.0.1 --dashboard-port=8265 --ray-client-server-port=10001 --include-dashboard=True ${common_ray_args[*]}"
 else
   container="${worker_container}"
-  ray_cmd="ray stop --force >/dev/null 2>&1 || true; exec ray start --address=${head_address} ${common_ray_args[*]}"
+  ray_start="ray start --address=${head_address} ${common_ray_args[*]}"
 fi
+ray_cmd="if [[ ! -x /usr/bin/podman ]]; then apt-get update && apt-get install -y --no-install-recommends podman && rm -rf /var/lib/apt/lists/*; fi; ray stop --force >/dev/null 2>&1 || true; exec ${ray_start}"
+
+install -m 0755 \
+  /tmp/groot-ray-cluster/colossus_ray_prune.sh \
+  /usr/local/sbin/colossus-ray-prune
+install -D -m 0755 \
+  /tmp/groot-ray-cluster/colossus_ray_podman.sh \
+  "${host_podman_wrapper}"
+cat > /etc/systemd/system/colossus-ray-prune.service <<SYSTEMD
+[Unit]
+Description=Prune stale Colossus Ray runtime images and job checkouts
+After=podman.socket
+
+[Service]
+Type=oneshot
+Environment=COLOSSUS_JOB_ROOT=${job_root}
+ExecStart=/usr/local/sbin/colossus-ray-prune
+SYSTEMD
+cat > /etc/systemd/system/colossus-ray-prune.timer <<'SYSTEMD'
+[Unit]
+Description=Daily Colossus Ray runtime cleanup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target
+SYSTEMD
+systemctl daemon-reload
+systemctl enable --now colossus-ray-prune.timer
 
 docker rm -f "${head_container}" "${worker_container}" >/dev/null 2>&1 || true
-docker volume create "${volume}" >/dev/null
+# A reset starts a new Ray session. Remove stale sockets and old job/runtime-env
+# logs, which may contain serialized credentials from older Ray configurations.
+find "${ray_tmp}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+install -d -m 0755 "${ray_tmp}"
+# Runtime-env INFO logs serialize env_vars, including job credentials. Keep
+# those node-local rather than forwarding them into user-visible job logs.
 docker run -d \
   --name "${container}" \
   --restart unless-stopped \
+  --user root \
   --network host \
-  "${docker_gpu_args[@]}" \
+  --pid host \
   --ipc=host \
   --ulimit memlock=-1 \
   --ulimit stack=67108864 \
   --ulimit nofile=65536:65536 \
-  "${rdma_device_args[@]}" \
   "${network_env_args[@]}" \
   "${container_fips_args[@]}" \
-  -v "${volume}:/tmp/ray" \
+  -e "CONTAINER_HOST=unix://${podman_socket}" \
+  -e "REGISTRY_AUTH_FILE=${podman_auth}" \
+  -e "COLOSSUS_DATA_ROOT=${data_root}" \
+  -e "COLOSSUS_JOB_ROOT=${job_root}" \
+  -e "COLOSSUS_GPU_CDI_DEVICE=nvidia.com/gpu=${gb300_gpu_uuid}" \
+  -e "COLOSSUS_RDMA_DEVICES=${rdma_devices}" \
+  -e "COLOSSUS_FIPS_MASK=${container_fips_mask:-}" \
+  -e "RAY_RUNTIME_ENV_LOG_TO_DRIVER_ENABLED=0" \
+  -v "${podman_socket}:${podman_socket}" \
+  -v "${podman_auth}:${podman_auth}:ro" \
+  -v "${host_podman_wrapper}:/usr/local/bin/podman:ro" \
+  -v "${ray_tmp}:${ray_tmp}" \
   -v "${data_root}:${data_root}" \
-  --env-file /tmp/groot-ray-cluster/data-credentials.env \
-  -w /workspace \
+  -v "${job_root}:${job_root}" \
+  -w /tmp \
   "${image}" \
   bash -lc "${ray_cmd}"
 
-if ! visible_gpu_count="$(
-  timeout --kill-after=5s 20s docker exec "${container}" nvidia-smi -L \
-    | wc -l \
-    | tr -d '[:space:]'
-)"; then
-  echo "failed to query GPU visibility in ${container}" >&2
-  docker rm -f "${container}" >/dev/null 2>&1 || true
+for _ in $(seq 1 300); do
+  if docker exec "${container}" /usr/bin/podman --remote version >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+docker exec "${container}" /usr/bin/podman --remote version >/dev/null
+docker exec "${container}" python -c \
+  'import ray; assert ray.__version__ == "2.48.0", ray.__version__'
+
+visible_gpu="$(
+  timeout --kill-after=10s 120s docker exec \
+    -e CUDA_VISIBLE_DEVICES=0 \
+    "${container}" \
+    podman run --rm "${gpu_test_image}" \
+    nvidia-smi --query-gpu=uuid,name --format=csv,noheader
+)"
+visible_gpu_uuid="${visible_gpu%%,*}"
+visible_gpu_uuid="${visible_gpu_uuid//[[:space:]]/}"
+visible_gpu_name="${visible_gpu#*,}"
+visible_gpu_name="$(printf '%s' "${visible_gpu_name}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+[[ "${visible_gpu_uuid}" == "${gb300_gpu_uuid}" ]] || {
+  echo "Podman Ray job sees GPU ${visible_gpu_uuid}, expected ${gb300_gpu_uuid}" >&2
   exit 1
-fi
-if [[ "${visible_gpu_count}" != "${gpu_count}" ]]; then
-  echo "${container} sees ${visible_gpu_count} GPU(s), expected ${gpu_count}" >&2
-  docker rm -f "${container}" >/dev/null 2>&1 || true
+}
+[[ "${visible_gpu_name}" == "${target_gpu_name}" ]] || {
+  echo "Podman Ray job sees ${visible_gpu_name}, expected ${target_gpu_name}" >&2
   exit 1
-fi
-if ! visible_gpu_uuid="$(
-  timeout --kill-after=5s 20s docker exec "${container}" nvidia-smi \
-    --query-gpu=uuid --format=csv,noheader \
-    | tr -d '[:space:]'
-)"; then
-  echo "failed to query the GPU UUID in ${container}" >&2
-  docker rm -f "${container}" >/dev/null 2>&1 || true
-  exit 1
-fi
-if [[ "${visible_gpu_uuid}" != "${gb300_gpu_uuid}" ]]; then
-  echo "${container} sees GPU ${visible_gpu_uuid}, expected ${target_gpu_name} ${gb300_gpu_uuid}" >&2
-  docker rm -f "${container}" >/dev/null 2>&1 || true
-  exit 1
-fi
-if ! visible_gpu_name="$(
-  timeout --kill-after=5s 20s docker exec "${container}" nvidia-smi \
-    --query-gpu=name --format=csv,noheader \
-    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
-)"; then
-  echo "failed to query the GPU model in ${container}" >&2
-  docker rm -f "${container}" >/dev/null 2>&1 || true
-  exit 1
-fi
-if [[ "${visible_gpu_name}" != "${target_gpu_name}" ]]; then
-  echo "${container} sees GPU model ${visible_gpu_name}, expected ${target_gpu_name}" >&2
-  docker rm -f "${container}" >/dev/null 2>&1 || true
-  exit 1
-fi
+}
 
 if [[ "${require_rdma}" == "1" ]]; then
-  for uverbs in "${uverbs_devices[@]}"; do
-    docker exec "${container}" test -c "${uverbs}"
-  done
-  docker exec "${container}" python -c \
-    'import ctypes; ctypes.CDLL("libibverbs.so.1")'
-  docker exec "${container}" env | grep -Fxq "NCCL_IB_DISABLE=0"
-  docker exec "${container}" env | grep -Fxq "NCCL_IB_HCA=${nccl_ib_hca}"
-  docker exec "${container}" env | grep -Fxq "NCCL_IB_GID_INDEX=${nccl_ib_gid_index}"
-  docker exec "${container}" env | grep -Fxq "NCCL_SOCKET_IFNAME=${nccl_socket_ifname}"
-  docker exec "${container}" env | grep -Fxq "GLOO_SOCKET_IFNAME=${gloo_socket_ifname}"
+  docker exec -e CUDA_VISIBLE_DEVICES=0 "${container}" \
+    podman run --rm "${gpu_test_image}" sh -c \
+    'IFS=:; for device in ${COLOSSUS_RDMA_DEVICES:?}; do test -c "${device}"; done'
 fi
 if [[ "${#container_fips_args[@]}" -gt 0 ]]; then
   docker exec "${container}" sh -c \
     'test "$(head -c 1 /proc/sys/crypto/fips_enabled)" = "0"'
 fi
 docker exec "${container}" python -c \
-  'import ssl; ssl.create_default_context(); import av, cv2; from transformers import ProcessorMixin'
+  'import ray, ssl; ssl.create_default_context(); assert ray.__version__ == "2.48.0"'
 EOF
 
   cat > "${TMP_DIR}/remote_post_training_artifacts.sh" <<'EOF'
@@ -1549,7 +1783,7 @@ docker run --rm -i \
   "${container_fips_args[@]}" \
   --env-file "${env_file}" \
   "${image}" \
-  python - <<'PY'
+  sh -c 'python -m pip install --quiet --no-cache-dir boto3 && exec python -' <<'PY'
 from __future__ import annotations
 
 import json
@@ -1875,11 +2109,13 @@ copy_common_remote_files() {
   local user="$2"
   local password="$3"
   remote_scp_to "${host}" "${user}" "${password}" "${HOST_SETUP_SCRIPT}" "${REMOTE_ROOT}/setup_bare_metal_gpu_host.sh" || return 1
+  remote_scp_to "${host}" "${user}" "${password}" "${PODMAN_WRAPPER}" "${REMOTE_ROOT}/colossus_ray_podman.sh" || return 1
+  remote_scp_to "${host}" "${user}" "${password}" "${PRUNE_SCRIPT}" "${REMOTE_ROOT}/colossus_ray_prune.sh" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/remote_ray_container.sh" "${REMOTE_ROOT}/remote_ray_container.sh" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/remote_post_training_artifacts.sh" "${REMOTE_ROOT}/remote_post_training_artifacts.sh" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/nvcr-token" "${REMOTE_ROOT}/nvcr-token" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/data-credentials.env" "${REMOTE_ROOT}/data-credentials.env" || return 1
-  remote_ssh "${host}" "${user}" "${password}" "chmod 700 $(shell_quote "${REMOTE_ROOT}") && chmod 600 $(shell_quote "${REMOTE_ROOT}/nvcr-token") $(shell_quote "${REMOTE_ROOT}/data-credentials.env") && chmod +x $(shell_quote "${REMOTE_ROOT}/setup_bare_metal_gpu_host.sh") $(shell_quote "${REMOTE_ROOT}/remote_ray_container.sh") $(shell_quote "${REMOTE_ROOT}/remote_post_training_artifacts.sh")" || return 1
+  remote_ssh "${host}" "${user}" "${password}" "chmod 700 $(shell_quote "${REMOTE_ROOT}") && chmod 600 $(shell_quote "${REMOTE_ROOT}/nvcr-token") $(shell_quote "${REMOTE_ROOT}/data-credentials.env") && chmod +x $(shell_quote "${REMOTE_ROOT}/setup_bare_metal_gpu_host.sh") $(shell_quote "${REMOTE_ROOT}/colossus_ray_podman.sh") $(shell_quote "${REMOTE_ROOT}/colossus_ray_prune.sh") $(shell_quote "${REMOTE_ROOT}/remote_ray_container.sh") $(shell_quote "${REMOTE_ROOT}/remote_post_training_artifacts.sh")" || return 1
 }
 
 run_host_setup() {
@@ -1888,8 +2124,7 @@ run_host_setup() {
   local user="${USERS[$idx]}"
   local password="${PASSWORDS[$idx]}"
   local -a setup_args=(
-    "--validate-groot-image"
-    "--nvidia-test-image" "${IMAGE}"
+    "--nvidia-test-image" "${GPU_TEST_IMAGE}"
     "--nvcr-token-file" "${REMOTE_ROOT}/nvcr-token"
   )
 
@@ -1920,7 +2155,7 @@ sync_post_training_artifacts() {
   log "${host}: syncing Colossus post-training artifacts under ${GROOT_DATA_ROOT}"
   remote_sudo_script "${host}" "${user}" "${password}" \
     "${REMOTE_ROOT}/remote_post_training_artifacts.sh" \
-    "${IMAGE}" "${GROOT_DATA_ROOT}" "${REMOTE_ROOT}/data-credentials.env"
+    "${ARTIFACT_IMAGE}" "${GROOT_DATA_ROOT}" "${REMOTE_ROOT}/data-credentials.env"
 }
 
 remote_nvidia_numa_param() {
@@ -2032,8 +2267,8 @@ setup_one_host() {
   gpu_count="1"
 
   remote_sudo_bash_lc "${host}" "${user}" "${password}" \
-    "docker image inspect $(shell_quote "${IMAGE}") >/dev/null" || {
-    log "${host}: prepared image is unavailable"
+    "docker pull $(shell_quote "${IMAGE}") >/dev/null && docker image inspect $(shell_quote "${IMAGE}") >/dev/null" || {
+    log "${host}: Ray control image is unavailable"
     return 1
   }
 
@@ -2243,7 +2478,8 @@ start_ray_container() {
     "${REMOTE_ROOT}/remote_ray_container.sh" \
     "${role}" "${IMAGE}" "${head_address}" "${node_ip}" "${gpu_count}" "${GROOT_DATA_ROOT}" \
     "${DATA_INTERFACE}" "${NCCL_SOCKET_IFNAME}" "${GLOO_SOCKET_IFNAME}" \
-    "${NCCL_IB_HCA}" "${NCCL_IB_GID_INDEX}" "${REQUIRE_RDMA}" "${TARGET_GPU_NAME}"
+    "${NCCL_IB_HCA}" "${NCCL_IB_GID_INDEX}" "${REQUIRE_RDMA}" "${TARGET_GPU_NAME}" \
+    "${GPU_TEST_IMAGE}"
 }
 
 wait_for_head() {
@@ -2355,12 +2591,14 @@ run_transport_validation() {
   local password="${PASSWORDS[0]}"
   local command container="${HEAD_CONTAINER}"
   command="timeout --kill-after=10s ${TRANSPORT_VALIDATION_TIMEOUT}s docker exec"
-  command+=" -e NCCL_DEBUG=INFO -e NCCL_DEBUG_SUBSYS=INIT,NET"
+  command+=" -e CUDA_VISIBLE_DEVICES=0 -e NCCL_DEBUG=INFO -e NCCL_DEBUG_SUBSYS=INIT,NET"
   if [[ -n "${JOIN_RAY_ADDRESS}" ]]; then
     container="${WORKER_CONTAINER}"
     command+=" -e RAY_ADDRESS=$(shell_quote "${JOIN_RAY_ADDRESS}")"
   fi
-  command+=" ${container} bash -lc $(shell_quote "${TRANSPORT_VALIDATION_COMMAND}")"
+  command+=" ${container} podman run --rm"
+  command+=" $(shell_quote "${TRANSPORT_VALIDATION_IMAGE:-${GPU_TEST_IMAGE}}")"
+  command+=" bash -lc $(shell_quote "${TRANSPORT_VALIDATION_COMMAND}")"
   log "${host}: running configured transport validation command"
   remote_sudo_bash_lc "${host}" "${user}" "${password}" "${command}"
 }
@@ -2459,10 +2697,16 @@ main() {
   validate_args
   require_cmd colossus python3
   TMP_DIR="$(mktemp -d)"
-  discover_colossus_candidates
+  if [[ -n "${COLOSSUS_EXISTING_LEASE_ID}" ]]; then
+    load_existing_colossus_host "0"
+  else
+    discover_colossus_candidates
+  fi
 
   if [[ "${DRY_RUN}" == "1" ]]; then
-    prepare_dry_run_hosts
+    if [[ -z "${COLOSSUS_EXISTING_LEASE_ID}" ]]; then
+      prepare_dry_run_hosts
+    fi
     print_dry_run
     return 0
   fi
@@ -2472,7 +2716,15 @@ main() {
 
   write_remote_scripts
   create_local_secret_files
-  reserve_colossus_hosts
+  if [[ -n "${COLOSSUS_EXISTING_LEASE_ID}" ]]; then
+    HOSTS=()
+    USERS=()
+    PASSWORDS=()
+    DATA_IPS=()
+    load_existing_colossus_host "1"
+  else
+    reserve_colossus_hosts
+  fi
   setup_hosts
   if [[ "${#FAILED_HOSTS[@]}" -gt 0 ]]; then
     die "host setup failed for ${FAILED_HOSTS[*]}; refusing to start a partial Ray cluster"
@@ -2489,6 +2741,9 @@ main() {
     log "existing Ray head and endpoint were not reconfigured"
   else
     log "Ray endpoint: https://${HEAD_DOMAIN}/ray/"
+  fi
+  if [[ -n "${COLOSSUS_EXISTING_LEASE_ID}" ]]; then
+    log "Colossus lease: ${COLOSSUS_EXISTING_LEASE_ID} (${COLOSSUS_EXISTING_LEASE_NAME}, reused)"
   fi
   local idx
   for idx in "${!COLOSSUS_LEASE_IDS[@]}"; do
