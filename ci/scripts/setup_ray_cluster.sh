@@ -24,7 +24,7 @@ HOST_SETUP_SCRIPT="${SCRIPT_DIR}/setup_bare_metal_gpu_host.sh"
 PODMAN_WRAPPER="${SCRIPT_DIR}/colossus_ray_podman.sh"
 PRUNE_SCRIPT="${SCRIPT_DIR}/colossus_ray_prune.sh"
 
-IMAGE="${COLOSSUS_RAY_CONTROL_IMAGE:-rayproject/ray:2.48.0-py312-cpu}"
+IMAGE="${COLOSSUS_RAY_CONTROL_IMAGE:-rayproject/ray:2.48.0-py312-gpu}"
 GPU_TEST_IMAGE="${COLOSSUS_GPU_TEST_IMAGE:-docker.io/nvidia/cuda:13.0.1-base-ubuntu24.04}"
 ARTIFACT_IMAGE="${COLOSSUS_ARTIFACT_IMAGE:-python:3.12-slim-bookworm}"
 COLOSSUS_POOL_ID="${COLOSSUS_POOL_ID:-gear-gb300-automation}"
@@ -1553,10 +1553,31 @@ systemctl enable --now podman.socket
   exit 1
 }
 
-if [[ -n "${data_interface}" ]]; then
-  ip link show dev "${data_interface}" >/dev/null
-  ip -o -4 addr show dev "${data_interface}" scope global | grep -q '[[:space:]]inet[[:space:]]'
+if [[ -z "${data_interface}" ]]; then
+  data_interface="$(ip -o -4 addr show scope global \
+    | awk -v node_ip="${node_ip}" '
+        {
+          address=$4
+          sub(/\/.*/, "", address)
+          if (address == node_ip) {
+            print $2
+            exit
+          }
+        }
+      ')"
+  [[ -n "${data_interface}" ]] || {
+    echo "could not resolve the network interface for Ray node IP ${node_ip}" >&2
+    exit 1
+  }
 fi
+if [[ -z "${nccl_socket_ifname}" ]]; then
+  nccl_socket_ifname="${data_interface}"
+fi
+if [[ -z "${gloo_socket_ifname}" ]]; then
+  gloo_socket_ifname="${data_interface}"
+fi
+ip link show dev "${data_interface}" >/dev/null
+ip -o -4 addr show dev "${data_interface}" scope global | grep -q '[[:space:]]inet[[:space:]]'
 
 declare -a uverbs_devices=()
 declare -A seen_uverbs=()
