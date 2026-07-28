@@ -24,10 +24,10 @@ import polars as pl
 from groot.core.data.packds import constants
 from groot.core.data.packds.video import get_video_codec
 
-DEFAULT_DELTACAT_BETA_SERVER_URL = "http://gear-data-infra-iris-beta-alb-1753350942.us-east-2.elb.amazonaws.com"
-DEFAULT_STEPS_URI = (
-    "dc://default/xdof/yam_airplane_post_training_steps"
+DEFAULT_DELTACAT_BETA_SERVER_URL = (
+    "http://gear-data-infra-iris-beta-alb-1753350942.us-east-2.elb.amazonaws.com"
 )
+DEFAULT_STEPS_URI = "dc://default/xdof/yam_airplane_post_training_steps"
 SOURCE_VIDEO_BLOB_HEADER = "PACKDS_SOURCE_VIDEO_BLOB_REFERENCE_V1"
 CHUNK_SIDECAR_BLOB_HEADER = "PACKDS_CHUNK_SIDECAR_REFERENCE_V1"
 
@@ -35,6 +35,11 @@ CHUNK_SIDECAR_BLOB_HEADER = "PACKDS_CHUNK_SIDECAR_REFERENCE_V1"
 _BORROWED_CLIENT_LOCK = threading.Lock()
 _AMBIENT_S3_ENDPOINT_LOCK = threading.Lock()
 _RETRYABLE_CATALOG_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+# Max episode ids per ``episode_id IN (...)`` metadata read. The ids ride in the
+# GET query string, so an unbounded list over a large dataset builds a multi-MB
+# URL the catalog server rejects with HTTP 414. Ids carry a long task prefix
+# (~90 URL-encoded chars each), so 32 keeps the URL a few KB, under the server cap.
+_STEP_COUNT_ID_CHUNK = 32
 
 # Env-gated per-shard build instrumentation (GROOT_PACKDS_SHARD_TIMING=1).
 # Accumulates fetch vs decode seconds (SUMMED across decode threads) and the
@@ -54,7 +59,9 @@ def _shard_timing_enabled() -> bool:
     }
 
 
-def _timing_add(*, fetch_s: float = 0.0, decode_s: float = 0.0, n_fetch: int = 0, fetch_bytes: int = 0) -> None:
+def _timing_add(
+    *, fetch_s: float = 0.0, decode_s: float = 0.0, n_fetch: int = 0, fetch_bytes: int = 0
+) -> None:
     with _TIMING_LOCK:
         _TIMING["fetch_s"] += fetch_s
         _TIMING["decode_s"] += decode_s
@@ -113,7 +120,9 @@ def _ambient_s3_fallback_disabled() -> bool:
 
 def _ignore_vended_s3_express_endpoint_enabled() -> bool:
     """Whether H100 reads should bypass non-resolvable PDX S3 Express endpoints."""
-    return os.environ.get("DELTACAT_PACKDS_IGNORE_VENDED_S3_EXPRESS_ENDPOINT", "1").strip().lower() not in {
+    return os.environ.get(
+        "DELTACAT_PACKDS_IGNORE_VENDED_S3_EXPRESS_ENDPOINT", "1"
+    ).strip().lower() not in {
         "0",
         "false",
         "no",
@@ -171,9 +180,13 @@ class DeltaCatTableRef:
             raise ValueError(f"Expected a dc:// URI, got {uri!r}")
         parts = [part for part in parsed.path.split("/") if part]
         if not parsed.netloc or len(parts) < 2:
-            raise ValueError("DeltaCAT URIs must be dc://<catalog>/<namespace>/<table>[/<table_version>]")
+            raise ValueError(
+                "DeltaCAT URIs must be dc://<catalog>/<namespace>/<table>[/<table_version>]"
+            )
         if len(parts) > 3:
-            raise ValueError(f"DeltaCAT table refs support at most one table_version path segment: {uri!r}")
+            raise ValueError(
+                f"DeltaCAT table refs support at most one table_version path segment: {uri!r}"
+            )
         return cls(
             catalog=parsed.netloc,
             namespace=parts[0],
@@ -286,7 +299,9 @@ class VideoBlobReference:
         else:
             byte_range = f"{self.object_byte_range_start}-{self.object_byte_range_end}"
         shape_hash = self.raw_reference.get("chunk_shape_hash", "")
-        return f"s3-source:{self.object_uri}:{byte_range}:{self.byte_size}:{self.sha256 or shape_hash}"
+        return (
+            f"s3-source:{self.object_uri}:{byte_range}:{self.byte_size}:{self.sha256 or shape_hash}"
+        )
 
 
 @dataclass(frozen=True)
@@ -351,7 +366,9 @@ def app_episodes_table_uri(steps_table_uri: str) -> str:
     table_ref = DeltaCatTableRef.from_uri(steps_table_uri)
     if not table_ref.table.endswith(constants.STEPS_TABLE_SUFFIX):
         raise ValueError(f"Steps table name must end with {constants.STEPS_TABLE_SUFFIX!r}")
-    episodes_table = table_ref.table[: -len(constants.STEPS_TABLE_SUFFIX)] + constants.APP_EPISODES_TABLE_SUFFIX
+    episodes_table = (
+        table_ref.table[: -len(constants.STEPS_TABLE_SUFFIX)] + constants.APP_EPISODES_TABLE_SUFFIX
+    )
     uri = f"dc://{table_ref.catalog}/{table_ref.namespace}/{episodes_table}"
     if table_ref.table_version is not None:
         return f"{uri}/{table_ref.table_version}"
@@ -508,7 +525,9 @@ def _resolve_token() -> str:
         token = os.environ.get(name)
         if token:
             return token
-    raise RuntimeError("Set DELTACAT_BEARER_TOKEN or DELTACAT_WORKER_TOKEN before reading DeltaCAT tables.")
+    raise RuntimeError(
+        "Set DELTACAT_BEARER_TOKEN or DELTACAT_WORKER_TOKEN before reading DeltaCAT tables."
+    )
 
 
 def _weighted_size(value: Any) -> int:
@@ -614,7 +633,9 @@ class PackDSStepsReader:
         decode_workers: int = 1,
     ) -> None:
         self.steps_table_ref = DeltaCatTableRef.from_uri(table)
-        self.episodes_table_ref = DeltaCatTableRef.from_uri(episodes_table_uri or app_episodes_table_uri(table))
+        self.episodes_table_ref = DeltaCatTableRef.from_uri(
+            episodes_table_uri or app_episodes_table_uri(table)
+        )
         self.episode_query = episode_query
         self.steps_query = steps_query
         self.as_of_timestamp = _normalize_as_of_timestamp(as_of_timestamp)
@@ -707,19 +728,27 @@ class PackDSStepsReader:
         return max(1, int(os.environ.get("DELTACAT_PACKDS_CATALOG_MAX_ATTEMPTS", "12") or 12))
 
     def _catalog_retry_base_sleep_s(self) -> float:
-        return max(0.0, float(os.environ.get("DELTACAT_PACKDS_CATALOG_RETRY_BASE_SLEEP_S", "2.0") or 2.0))
+        return max(
+            0.0, float(os.environ.get("DELTACAT_PACKDS_CATALOG_RETRY_BASE_SLEEP_S", "2.0") or 2.0)
+        )
 
     def _catalog_retry_max_sleep_s(self) -> float:
-        return max(0.0, float(os.environ.get("DELTACAT_PACKDS_CATALOG_RETRY_MAX_SLEEP_S", "30.0") or 30.0))
+        return max(
+            0.0, float(os.environ.get("DELTACAT_PACKDS_CATALOG_RETRY_MAX_SLEEP_S", "30.0") or 30.0)
+        )
 
     def _blob_retry_attempts(self) -> int:
         return max(1, int(os.environ.get("DELTACAT_PACKDS_BLOB_MAX_ATTEMPTS", "8") or 8))
 
     def _blob_retry_base_sleep_s(self) -> float:
-        return max(0.0, float(os.environ.get("DELTACAT_PACKDS_BLOB_RETRY_BASE_SLEEP_S", "0.5") or 0.5))
+        return max(
+            0.0, float(os.environ.get("DELTACAT_PACKDS_BLOB_RETRY_BASE_SLEEP_S", "0.5") or 0.5)
+        )
 
     def _blob_retry_max_sleep_s(self) -> float:
-        return max(0.0, float(os.environ.get("DELTACAT_PACKDS_BLOB_RETRY_MAX_SLEEP_S", "8.0") or 8.0))
+        return max(
+            0.0, float(os.environ.get("DELTACAT_PACKDS_BLOB_RETRY_MAX_SLEEP_S", "8.0") or 8.0)
+        )
 
     def _reset_cached_s3_clients(self) -> None:
         self._ambient_s3_client = None
@@ -807,7 +836,9 @@ class PackDSStepsReader:
             query_params = inspect.signature(query_partition_stats).parameters
             if any(param.kind is inspect.Parameter.VAR_KEYWORD for param in query_params.values()):
                 return query_partition_stats(**kwargs)
-            return query_partition_stats(**{key: value for key, value in kwargs.items() if key in query_params})
+            return query_partition_stats(
+                **{key: value for key, value in kwargs.items() if key in query_params}
+            )
 
         return self._with_catalog_retries("catalog.query_partition_stats", call)
 
@@ -1061,7 +1092,9 @@ class PackDSStepsReader:
         rows.sort(key=lambda row: row["trajectory_id"])
         return rows
 
-    def steps_lazyframe_for_episode_ids(self, episode_ids: Sequence[str]) -> tuple[Any, pl.LazyFrame]:
+    def steps_lazyframe_for_episode_ids(
+        self, episode_ids: Sequence[str]
+    ) -> tuple[Any, pl.LazyFrame]:
         """Return a DeltaCAT read plan and step LazyFrame for selected episode ids."""
         ids = list(dict.fromkeys(str(episode_id) for episode_id in episode_ids))
         if not ids:
@@ -1255,6 +1288,18 @@ class PackDSStepsReader:
         ids = list(dict.fromkeys(str(episode_id) for episode_id in episode_ids))
         if not ids:
             return {}
+        # Both read paths encode ``episode_id IN (ids)`` as a GET query param, so a
+        # single call over a large dataset (thousands of episodes) builds a
+        # multi-MB URL the catalog server rejects with HTTP 414. Chunk the ids and
+        # merge -- the per-episode counts are independent, so the union is identical
+        # to one unchunked call.
+        if len(ids) > _STEP_COUNT_ID_CHUNK:
+            merged: dict[str, int] = {}
+            for start in range(0, len(ids), _STEP_COUNT_ID_CHUNK):
+                merged.update(
+                    self.get_step_counts_by_episode(ids[start : start + _STEP_COUNT_ID_CHUNK])
+                )
+            return merged
         if _is_valid_action_steps_query(self.steps_query):
             valid_counts = self._num_valid_action_steps(ids)
             missing = [episode_id for episode_id in ids if episode_id not in valid_counts]
@@ -1323,7 +1368,9 @@ class PackDSStepsReader:
             table_version=self.steps_table_ref.table_version,
             as_of=self.as_of_timestamp,
             columns=list(
-                dict.fromkeys(["episode_id", "step_index", *_sql_referenced_columns(self.steps_query)])
+                dict.fromkeys(
+                    ["episode_id", "step_index", *_sql_referenced_columns(self.steps_query)]
+                )
             ),
             filter_predicate=filter_predicate,
             include_files=True,
@@ -1337,12 +1384,7 @@ class PackDSStepsReader:
             .collect()
         )
         counts = dict.fromkeys(ids, 0)
-        counts.update(
-            {
-                str(row["episode_id"]): int(row["count"])
-                for row in counts_df.to_dicts()
-            }
-        )
+        counts.update({str(row["episode_id"]): int(row["count"]) for row in counts_df.to_dicts()})
         return counts
 
     def _source_step_column(self, column: str) -> str:
@@ -1386,7 +1428,9 @@ class PackDSStepsReader:
         rows: list[dict[str, Any]],
         plan: Any,
     ) -> list[DeltaCatDecodedStep]:
-        row_requests: list[tuple[dict[str, Any], dict[str, VideoBlobReference], dict[str, tuple[str, int]]]] = []
+        row_requests: list[
+            tuple[dict[str, Any], dict[str, VideoBlobReference], dict[str, tuple[str, int]]]
+        ] = []
         references_by_key: dict[str, VideoBlobReference] = {}
 
         for row in rows:
@@ -1473,7 +1517,9 @@ class PackDSStepsReader:
     def _with_forward_filled_video_blobs(self, lf: pl.LazyFrame) -> pl.LazyFrame:
         schema = lf.collect_schema()
         if self.cameras is None:
-            blob_columns = [name for name in schema if name.startswith(f"{constants.VIDEO_BLOB_PREFIX}:")]
+            blob_columns = [
+                name for name in schema if name.startswith(f"{constants.VIDEO_BLOB_PREFIX}:")
+            ]
         else:
             blob_columns = [
                 f"{constants.VIDEO_BLOB_PREFIX}:{camera}"
@@ -1598,7 +1644,9 @@ class PackDSStepsReader:
             with _without_ambient_s3_endpoint_urls():
                 s3 = boto3_s3_client_for_s3_access(access)
             if s3 is None:
-                raise RuntimeError(f"DeltaCAT read plan did not provide S3 access for {object_uri!r}.")
+                raise RuntimeError(
+                    f"DeltaCAT read plan did not provide S3 access for {object_uri!r}."
+                )
             return s3
 
         # The object is not authorized by any plan-file binding -- e.g. an
@@ -1620,7 +1668,9 @@ class PackDSStepsReader:
             )
         return self._get_ambient_s3_client(object_uri)
 
-    def _s3_express_client_without_vended_endpoint(self, access: Any, object_uri: str, plan: Any) -> Any | None:
+    def _s3_express_client_without_vended_endpoint(
+        self, access: Any, object_uri: str, plan: Any
+    ) -> Any | None:
         """Build an S3 Express client that ignores ambient endpoint overrides.
 
         H100 CI can resolve AWS' native S3 Express virtual-hosted endpoint but
@@ -1646,7 +1696,11 @@ class PackDSStepsReader:
 
         from deltacat_io_core.filesystem_support import infer_s3_express_region
 
-        region = getattr(access, "region", None) or creds.get("region") or infer_s3_express_region(object_uri)
+        region = (
+            getattr(access, "region", None)
+            or creds.get("region")
+            or infer_s3_express_region(object_uri)
+        )
         if not region:
             return None
         access_key = creds.get("access_key_id") or creds.get("aws_access_key_id")
@@ -1715,7 +1769,9 @@ class PackDSStepsReader:
             "Key": parsed.path.lstrip("/"),
         }
         if reference.object_byte_range_start is not None:
-            request["Range"] = f"bytes={reference.object_byte_range_start}-{reference.object_byte_range_end}"
+            request["Range"] = (
+                f"bytes={reference.object_byte_range_start}-{reference.object_byte_range_end}"
+            )
 
         def read_once() -> bytes:
             s3 = self._s3_client_for_reference(reference.object_uri, plan)
@@ -1765,7 +1821,9 @@ class PackDSStepsReader:
 
         lease_creds: dict[str, Any] | None = None
         for file_info in plan_files:
-            file_path = getattr(file_info, "path", None) or getattr(file_info, "canonical_path", None)
+            file_path = getattr(file_info, "path", None) or getattr(
+                file_info, "canonical_path", None
+            )
             if not file_path:
                 continue
             try:
@@ -1773,7 +1831,11 @@ class PackDSStepsReader:
             except RuntimeError:
                 continue
             creds = getattr(access, "credentials", None)
-            if isinstance(creds, dict) and creds.get("access_key_id") and creds.get("secret_access_key"):
+            if (
+                isinstance(creds, dict)
+                and creds.get("access_key_id")
+                and creds.get("secret_access_key")
+            ):
                 lease_creds = creds
                 break
         if lease_creds is None:
@@ -1828,13 +1890,19 @@ class PackDSStepsReader:
 
             region_name = infer_s3_express_region(object_uri) or "us-east-2"
         else:
-            region_name = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-2"
+            region_name = (
+                os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-2"
+            )
 
         identity = (pid, region_name, suppress_endpoint_overrides)
         if self._ambient_s3_client is None or self._ambient_s3_client_identity != identity:
             import boto3
 
-            context = _without_ambient_s3_endpoint_urls() if suppress_endpoint_overrides else nullcontext()
+            context = (
+                _without_ambient_s3_endpoint_urls()
+                if suppress_endpoint_overrides
+                else nullcontext()
+            )
             with context:
                 self._ambient_s3_client = boto3.client(
                     "s3", region_name=region_name, config=_s3_client_config()
@@ -1918,4 +1986,6 @@ class PackDSStepsReader:
                 )
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{type(exc).__name__}: {exc}")
-        raise RuntimeError(f"Could not resolve DeltaCAT S3 authority for {object_uri!r}.\n" + "\n".join(errors))
+        raise RuntimeError(
+            f"Could not resolve DeltaCAT S3 authority for {object_uri!r}.\n" + "\n".join(errors)
+        )
