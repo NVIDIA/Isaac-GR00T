@@ -7,6 +7,9 @@ This guide shows how to finetune dataset collected from [rebot arm b601 dm](http
 
 To collect the dataset via teleoperation, please refer to the official documentation in lerobot: https://wiki.seeedstudio.com/rebot_arm_b601_dm_lerobot/#calibrate-the-robotic-arm
 
+The commands below use the test tube organization dataset as an example
+
+[youjiang97/organize_test_tube_0](https://huggingface.co/datasets/youjiang97/organize_test_tube_0)
 
 ## Handling the dataset
 
@@ -56,16 +59,16 @@ To read these numbers and decide whether your fine-tune is working, see [Interpr
 
 ## Closed-Loop Evaluation
 
-Please refer to [eval_rebot_arm_dm.py](../../gr00t/eval/real_robot/rebot-arm-dm/eval_rebot_arm_dm.py) for how to write rebot arm deployment code using Policy API.
+Please refer to [eval_rebot_arm_dm.py](./eval_rebot_arm_dm.py) for how to write rebot arm deployment code using Policy API.
 
 1. set up client side deps
 
 ```bash
-cd gr00t/eval/real_robot/rebot-arm-dm
+cd examples/rebot-arm-dm
 uv venv
 source .venv/bin/activate
 uv pip install -e . --verbose
-uv pip install --no-deps -e ../../../../
+uv pip install --no-deps -e ../../
 ```
 
 2. Start policy server from the repository root in a separate terminal:
@@ -75,9 +78,9 @@ uv run python gr00t/eval/run_gr00t_server.py \
   --embodiment-tag NEW_EMBODIMENT 
 ```
 
-3. Run the eval script as the client from the `gr00t/eval/real_robot/rebot-arm-dm` environment created above:
+3. Run the eval script as the client from the `examples/rebot-arm-dm` environment created above:
 ```bash
-python eval_rebot_arm_dm.py \
+uv run python eval_rebot_arm_dm.py \
   --robot.type=seeed_b601_dm_follower \
   --robot.id=b601_dm_follower \
   --robot.port=/dev/ttyACM0 \

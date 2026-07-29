@@ -20,10 +20,14 @@ from gr00t.policy.server_client import PolicyClient
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig  # noqa: F401
 from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig  # noqa: F401
 from lerobot.robots import RobotConfig, make_robot_from_config
+
+
 try:
     from lerobot.utils.import_utils import register_third_party_plugins
 except ImportError:
-    from lerobot.utils.import_utils import register_third_party_devices as register_third_party_plugins
+    from lerobot.utils.import_utils import (
+        register_third_party_devices as register_third_party_plugins,
+    )
 from lerobot.utils.utils import init_logging, log_say
 import numpy as np
 
@@ -111,6 +115,11 @@ class RebotArmDMAdapter:
 
     @staticmethod
     def _validate_keys(field_name: str, keys: list[str]) -> None:
+        if len(keys) != len(set(keys)):
+            raise ValueError(f"{field_name} must not contain duplicate keys")
+        if not keys or keys[-1] != "gripper.pos":
+            raise ValueError(f"{field_name} must end with gripper.pos")
+
         unknown = [key for key in keys if key not in ROBOT_STATE_KEYS]
         if unknown:
             raise ValueError(f"{field_name} contains unsupported B601-DM keys: {unknown}")

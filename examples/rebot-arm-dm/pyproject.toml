@@ -20,4 +20,4 @@ dependencies = [
     "motorbridge",
 ]
 
-# Please also manually install `uv pip install --no-deps -e ../../../../`
+# Please also manually install `uv pip install --no-deps -e ../../`
