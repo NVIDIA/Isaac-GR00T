@@ -44,10 +44,11 @@ import argparse
 import json
 import logging
 from pathlib import Path
-import shutil
 import subprocess
 
+from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.state_action.droid_frame import compute_eef_9d
+from gr00t.data.stats import generate_rel_stats, generate_stats
 import jsonlines
 import numpy as np
 import pyarrow.parquet as pq
@@ -75,9 +76,10 @@ def download_droid_files(cache_dir: Path) -> None:
 
     logger.info("Downloading DROID v3.0 metadata and first chunks...")
 
+    # Source stats.json is skipped; stats are regenerated from the rebuilt
+    # 17D data in extract_episodes (source layout differs).
     files_to_download = [
         "meta/info.json",
-        "meta/stats.json",
         "meta/tasks.parquet",
         "meta/episodes/chunk-000/file-000.parquet",
         "data/chunk-000/file-000.parquet",
@@ -292,17 +294,6 @@ def extract_episodes(cache_dir: Path, output_dir: Path, num_episodes: int) -> No
     for rec in episode_records:
         del rec["_src_row"]
 
-    # meta/stats.json — copy from source dataset (used for normalization)
-    src_stats = cache_dir / "meta" / "stats.json"
-    if src_stats.exists():
-        shutil.copy2(src_stats, meta_dir / "stats.json")
-        logger.info("  Copied stats.json from source dataset")
-    else:
-        logger.warning(
-            "  stats.json not found in source. Generate it with:\n"
-            f"    python gr00t/data/stats.py --dataset-path {output_dir} --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
-        )
-
     # meta/episodes.jsonl
     with jsonlines.open(meta_dir / "episodes.jsonl", mode="w") as writer:
         for rec in episode_records:
@@ -365,6 +356,11 @@ def extract_episodes(cache_dir: Path, output_dir: Path, num_episodes: int) -> No
     }
     with open(meta_dir / "modality.json", "w") as f:
         json.dump(modality, f, indent=2)
+
+    # Regenerate stats from the rebuilt columns (needs info.json + modality.json).
+    logger.info("  Generating stats.json and relative_stats.json from rebuilt data...")
+    generate_stats(output_dir)
+    generate_rel_stats(output_dir, EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT)
 
     logger.info(f"\nDataset created at: {output_dir}")
     logger.info(f"  Episodes: {len(episode_records)}")

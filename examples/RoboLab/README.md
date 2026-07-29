@@ -4,11 +4,11 @@ This guide shows the validated path for running the finetuned GR00T N1.7 DROID c
 
 ## Why the DROID Checkpoint
 
-RoboLab directly uses the DROID checkpoint published in the GR00T N1.7 Early Access (EA) release, without any RoboLab-specific finetuning. This is intentional: the purpose of the RoboLab benchmark is **zero-shot testing** of the released checkpoint. We evaluate the public EA DROID checkpoint as-is so the reported numbers reflect its out-of-the-box transfer to RoboLab simulation tasks, and so the comparison against the N1.6 DROID baseline stays apples-to-apples.
+RoboLab directly uses the DROID checkpoint published with the GR00T N1.7 General Availability (GA) release, without any RoboLab-specific finetuning.
 
 ## Validation Snapshot
 
-The current release baseline uses the public GR00T N1.7 DROID checkpoint and a minimal RoboLab client patch:
+The current release baseline uses the public GR00T N1.7 DROID checkpoint and RoboLab's built-in GR00T client:
 
 - GR00T model: `nvidia/GR00T-N1.7-DROID`
 - Embodiment tag: `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT`
@@ -18,7 +18,7 @@ The current release baseline uses the public GR00T N1.7 DROID checkpoint and a m
 
 | Setup | Tasks | Episodes | Successes | Success rate |
 | --- | ---: | ---: | ---: | ---: |
-| GR00T N1.7 DROID + RoboLab ([branch](https://github.com/xiaotongc0/RoboLab/tree/n17-release-minimal)) | 120 | 4,800 | 412 | 8.58% |
+| GR00T N1.7 DROID + RoboLab ([client](https://github.com/NVlabs/RoboLab/tree/main/policies/gr00t)) | 120 | 4,800 | 412 | 8.58% |
 | N1.6 reference ([branch](https://github.com/nadunRanawaka1/Isaac-GR00T-n16-droid)) | 120 | 1,200 | 87 | 7.25% |
 
 `--open-loop-horizon 8` is part of the reproduced result. It controls how many rows from each predicted action chunk RoboLab executes before querying the GR00T server again. It is separate from the model checkpoint action horizon.
@@ -93,33 +93,36 @@ The N1.6 runs used 10 trials per task. The N1.7 release run above used 40 trials
 
 ### Install
 
-Install Isaac-GR00T:
+Set up Isaac-GR00T and RoboLab in separate environments. First, install Isaac-GR00T for the policy server. See the main [environment setup guide](../../README.md#set-up-the-environment) for platform-specific system requirements:
 
 ```bash
 git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git
 cd Isaac-GR00T
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --python 3.10
+uv sync --python 3.12
 ```
 
-Install RoboLab from the patched branch:
+GR00T N1.7 requires access to the gated [`nvidia/Cosmos-Reason2-2B`](https://huggingface.co/nvidia/Cosmos-Reason2-2B) backbone. Request access on the model page, then authenticate:
 
 ```bash
-git clone --branch n17-release-minimal https://github.com/xiaotongc0/RoboLab.git
+uv run huggingface-cli login
+```
+
+In a separate terminal, install RoboLab for the simulation client. RoboLab's `uv sync` installs Isaac Sim, Isaac Lab, and the GR00T client dependencies:
+
+```bash
+git clone https://github.com/NVlabs/RoboLab.git
 cd RoboLab
-python -m pip install -e .
-```
-
-The GR00T RoboLab client needs:
-
-```bash
-python -m pip install msgpack-numpy pyzmq opencv-python
+sudo apt install ffmpeg
+uv venv --python 3.11
+source .venv/bin/activate
+uv sync
 ```
 
 RoboLab should provide the GR00T runner:
 
 ```bash
-python policies/gr00t/run.py --help
+uv run python policies/gr00t/run.py --help
 ```
 
 ### Start GR00T
@@ -144,14 +147,24 @@ The server is ready when it prints:
 Server is ready and listening on tcp://127.0.0.1:5555
 ```
 
+The command above assumes the server and client run on the same host. For a separate server host, bind the server to an appropriate private interface, pass its reachable hostname to RoboLab's `--remote-host`, and restrict port `5555` to the intended network boundary.
+
 ### Run RoboLab
+
+Isaac Sim checks EULA acceptance when the process starts. Export the variable in every new terminal before launching RoboLab:
+
+```bash
+export OMNI_KIT_ACCEPT_EULA=Y
+```
+
+To avoid repeating this command, persist it in your shell startup file (for example, `~/.bashrc`) or environment launcher.
 
 Run a smoke test first:
 
 ```bash
 cd RoboLab
 
-CUDA_VISIBLE_DEVICES=0 python policies/gr00t/run.py \
+CUDA_VISIBLE_DEVICES=0 uv run python policies/gr00t/run.py \
     --headless \
     --remote-host 127.0.0.1 \
     --remote-port 5555 \
@@ -166,7 +179,7 @@ CUDA_VISIBLE_DEVICES=0 python policies/gr00t/run.py \
 For a more stable estimate, use the largest `--num-envs` that fits GPU memory:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python policies/gr00t/run.py \
+CUDA_VISIBLE_DEVICES=0 uv run python policies/gr00t/run.py \
     --headless \
     --remote-host 127.0.0.1 \
     --remote-port 5555 \
