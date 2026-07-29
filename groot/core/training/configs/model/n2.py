@@ -19,6 +19,10 @@ from transformers import PretrainedConfig
 
 from groot.core.training.configs.model import register_model_config
 
+# The DiT's patch_embed/proj_out shapes derive from this, so the transformer and
+# the VAE cannot disagree.
+VAE_LATENT_CHANNELS = {"wan21": 16, "wan22": 48}
+
 
 class DiffusionModelConfig(TypedDict, total=False):
     diffusion_model_pretrained_path: str
@@ -93,6 +97,13 @@ class GrootN2Config(PretrainedConfig):
     use_gradient_checkpointing: bool = True
 
     # Video
+    # Latent space the DiT operates in, and therefore which N2 architecture:
+    #   "wan21" - Wan2.1 f8t4c16.
+    #   "wan22" - N2 Turbo. Wan2.2 f16t4c48: a quarter of the video tokens at the
+    #             same pixel resolution, which is the lever on step time.
+    # Owns the DiT's patch_embed/proj_out widths and the VAE class, so the two
+    # latent spaces are not checkpoint-compatible in either direction.
+    vae_type: str = "wan21"
     tiled: bool = True
     tile_size_height: int = 34
     tile_size_width: int = 34
@@ -125,7 +136,9 @@ class GrootN2Config(PretrainedConfig):
 
     # Multiview (n_cameras derived from data at runtime — supports cross-embodiment)
     max_n_cameras: int = 3
-    view_embed_dim: int = 0  # per-view embedding dim concatenated to input channels (7 for official AV multiview)
+    view_embed_dim: int = (
+        0  # per-view embedding dim concatenated to input channels (7 for official AV multiview)
+    )
     # FlexAttention kernel settings. Cluster training uses the compiled 128-token
     # path; local smoke can override these explicitly for smaller GPUs.
     flex_attention_block_size: int = 128
@@ -162,6 +175,15 @@ class GrootN2Config(PretrainedConfig):
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
+        if self.vae_type not in VAE_LATENT_CHANNELS:
+            raise ValueError(
+                f"vae_type must be one of {sorted(VAE_LATENT_CHANNELS)}, got {self.vae_type!r}"
+            )
+        if self.vae_type == "wan22":
+            # No validated tiled path at Wan2.2's upsampling_factor of 16.
+            if kwargs.get("tiled", False):
+                raise ValueError("vae_type='wan22' does not support tiled VAE encode/decode")
+            self.tiled = False
 
 
 register_model_config("GrootN2", GrootN2Config)

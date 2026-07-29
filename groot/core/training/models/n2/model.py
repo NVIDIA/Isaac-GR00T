@@ -37,7 +37,7 @@ from torchvision.transforms import v2
 from transformers import AutoConfig, AutoModel, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 
-from groot.core.training.configs.model.n2 import GrootN2Config
+from groot.core.training.configs.model.n2 import VAE_LATENT_CHANNELS, GrootN2Config
 from groot.core.training.models.n2.components.kv_cache import CondKVCache
 from groot.core.training.models.n2.components.scheduler import (
     BetaFlowMatchEulerScheduler,
@@ -63,6 +63,7 @@ from groot.core.training.models.n2.components.transformer_cosmos import (
     MultiViewRoPE,
 )
 from groot.core.training.models.n2.components.video_tokenizer import VideoTokenizer
+from groot.core.training.models.n2.components.wan22_video_vae import WanVideoVAE38
 from groot.core.training.models.n2.components.wan_video_vae import WanVideoVAE
 
 # Key prefixes for routing checkpoint weights to sub-modules.
@@ -91,10 +92,13 @@ class GrootN2(PreTrainedModel):
         # 1. Build video tokenizer + video_rope + transformer (split architecture)
         dit_config = COSMOS_2B_CONFIG if config.model_size == "2B" else COSMOS_14B_CONFIG
         self.max_n_cameras = config.max_n_cameras
+        latent_channels = VAE_LATENT_CHANNELS[config.vae_type]
         dit_config = dataclasses.replace(
             dit_config,
             max_n_cameras=self.max_n_cameras,
             view_embed_dim=config.view_embed_dim,
+            in_channels=latent_channels + 1,  # +1 for the cond_mask channel
+            out_channels=latent_channels,
         )
         self.video_tokenizer = VideoTokenizer(dit_config)
         # RoPE lives here (sibling to video_tokenizer), not inside it
@@ -141,7 +145,7 @@ class GrootN2(PreTrainedModel):
             self.attention_mask_pattern = ac.get("attention_mask_pattern", None)
         # 2. Frozen components
         self.text_encoder = CosmosTextEncoder(**config.text_encoder_cfg)
-        self.vae = WanVideoVAE(**config.vae_cfg)
+        self.vae = self.build_vae(config)
 
         # 3. Schedulers
         self.video_scheduler = self._make_video_scheduler(config)
@@ -183,6 +187,25 @@ class GrootN2(PreTrainedModel):
         self.tile_size = (config.tile_size_height, config.tile_size_width)
         self.tile_stride = (config.tile_stride_height, config.tile_stride_width)
         self.normalize_video = v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+
+    @staticmethod
+    def build_vae(config: GrootN2Config):
+        """Build the frozen video VAE for `config.vae_type`.
+
+        Both VAE classes already default z_dim/dim to their own geometry, so
+        `vae_cfg` only ever carries the checkpoint path.
+        """
+        vae_cls = WanVideoVAE if config.vae_type == "wan21" else WanVideoVAE38
+        vae = vae_cls(**config.vae_cfg)
+        # A vae_cfg that overrides z_dim would give the DiT and the VAE different
+        # latent widths -- which trains happily on garbage rather than crashing.
+        expected = VAE_LATENT_CHANNELS[config.vae_type]
+        if vae.z_dim != expected:
+            raise ValueError(
+                f"vae_type={config.vae_type!r} implies {expected} latent channels, "
+                f"but vae_cfg built a VAE with z_dim={vae.z_dim}"
+            )
+        return vae
 
     @staticmethod
     def _make_video_scheduler(config):
@@ -719,7 +742,9 @@ class GrootN2(PreTrainedModel):
                 )
 
         # 11. Action loss
-        video_loss_scaled = self.config.action_cfg.get("video_loss_scale", 1.0) * video_loss
+        # action_cfg is None for video-only recipes, which still scale the video loss.
+        action_cfg = self.config.action_cfg or {}
+        video_loss_scaled = action_cfg.get("video_loss_scale", 1.0) * video_loss
         if has_action:
             action_out = packed.unpack(out_tokens, MODALITY_ACTION)
             pred_actions = self.action_decoder(action_out, embodiment_id)
@@ -2078,6 +2103,12 @@ class GrootN2(PreTrainedModel):
         sd: dict[str, torch.Tensor] = {}
         for sf in shard_files:
             sd.update(load_file(sf, device=device))
+
+        if self.config.vae_type != "wan21":
+            # Cosmos ships a 16-channel DiT: patch_embed and proj_out are the only
+            # weights whose shape tracks the latent space, so in a wider one neither
+            # is reusable. They keep their fresh init; everything else transfers.
+            sd = {k: v for k, v in sd.items() if not k.startswith(("patch_embed.", "proj_out."))}
 
         # Handle patch_embed shape mismatch (view_embed_dim zero-padding)
         pe_key = "patch_embed.proj.weight"
