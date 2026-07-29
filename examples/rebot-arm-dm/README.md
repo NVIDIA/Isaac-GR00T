@@ -71,7 +71,7 @@ uv pip install --no-deps -e ../../../../
 2. Start policy server from the repository root in a separate terminal:
 ```bash
 uv run python gr00t/eval/run_gr00t_server.py \
-  --model-path /tmp/so100_finetune/checkpoint-10000 \
+  --model-path  /tmp/rebot-arm-dm_finetune/checkpoint-10000 \
   --embodiment-tag NEW_EMBODIMENT 
 ```
 
