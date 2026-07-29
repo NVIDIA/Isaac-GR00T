@@ -180,7 +180,7 @@ uv run python -c "import gr00t; print('GR00T installed successfully')"
 
 > **Hugging Face access (required):** GR00T's VLM backbone is [`nvidia/Cosmos-Reason2-2B`](https://huggingface.co/nvidia/Cosmos-Reason2-2B), a **gated** model that every GR00T checkpoint (including the base `nvidia/GR00T-N1.7-3B`) loads on first use. Before running inference or finetuning, request access on the model page and authenticate:
 > ```sh
-> uv run hf auth login   # or: export HF_TOKEN=<your_token>
+> uv run huggingface-cli login   # or: export HF_TOKEN=<your_token>
 > ```
 > Without access, model loading fails with a `GatedRepoError` / `401 Client Error`.
 
