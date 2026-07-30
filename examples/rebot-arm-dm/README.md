@@ -27,7 +27,7 @@ cp examples/rebot-arm-dm/modality.json <path-to-lerobot-dataset>/meta/modality.j
 
 ## Finetuning
 
-Run the shared finetune launcher directly, using absolute joint positions (feel free to experiment with relative positions):
+Run the shared finetune launcher directly. The provided modality config trains the six arm joints as relative actions and the gripper as an absolute action:
 ```bash
 CUDA_VISIBLE_DEVICES=0 NUM_GPUS=1 uv run bash examples/finetune.sh \
   --base-model-path nvidia/GR00T-N1.7-3B \
