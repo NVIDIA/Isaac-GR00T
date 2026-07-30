@@ -15,8 +15,8 @@ dependencies = [
     "msgpack-numpy==0.4.8",
     "zmq",
     "transformers",
-    "lerobot @ git+https://github.com/Seeed-Projects/lerobot.git",
-    "lerobot-robot-seeed-b601 @ git+https://github.com/Seeed-Projects/lerobot-robot-seeed-b601.git",
+    "lerobot @ git+https://github.com/Seeed-Projects/lerobot.git@0f392484458cb5ebca0310c0c4c47390a31c80ed",
+    "lerobot-robot-seeed-b601 @ git+https://github.com/Seeed-Projects/lerobot-robot-seeed-b601.git@5d36bef6e352ddfc4cefc40a16db02772e25655c",
     "motorbridge",
 ]
 
