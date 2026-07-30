@@ -15,8 +15,9 @@ The commands below use the test tube organization dataset as an example
 
 ```bash
 uv run --project scripts/lerobot_conversion \
-  python scripts/lerobot_conversion/convert_v3_to_v2.py  \
-  --root <path-to-lerobot-dataset>
+  python scripts/lerobot_conversion/convert_v3_to_v2.py \
+  --repo-id youjiang97/organize_test_tube_0 \
+  --root <path-to-dataset-parent>
 ```
 
 Then move the `modality.json` file to the root of the dataset.
