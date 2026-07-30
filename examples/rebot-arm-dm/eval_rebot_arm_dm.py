@@ -213,18 +213,24 @@ def eval(cfg: EvalConfig):
         blocking=True,
     )
 
-    while True:
-        obs = robot.get_observation()
-        obs["lang"] = cfg.lang_instruction
+    try:
+        while True:
+            obs = robot.get_observation()
+            obs["lang"] = cfg.lang_instruction
 
-        actions = policy.get_action(obs)
-        for i, action_dict in enumerate(actions[: cfg.action_horizon]):
-            tic = time.time()
-            print(f"action[{i}]: {action_dict}")
-            robot.send_action(action_dict)
-            toc = time.time()
-            if toc - tic < 1.0 / 30:
-                time.sleep(1.0 / 30 - (toc - tic))
+            actions = policy.get_action(obs)
+            for i, action_dict in enumerate(actions[: cfg.action_horizon]):
+                tic = time.time()
+                print(f"action[{i}]: {action_dict}")
+                robot.send_action(action_dict)
+                toc = time.time()
+                if toc - tic < 1.0 / 30:
+                    time.sleep(1.0 / 30 - (toc - tic))
+    finally:
+        try:
+            robot.disconnect()
+        finally:
+            policy_client.close()
 
 
 def main():
