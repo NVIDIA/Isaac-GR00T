@@ -19,6 +19,14 @@ jointly denoises video and action, then decodes actions via the processor.
 Also supports saving generated videos.
 """
 
+# Pre-existing baseline for this module, surfaced because the lint job only runs on files
+# changed in an MR. The per-step timing/config prints are the eval-run instrumentation;
+# the broad except keeps a video-save failure from killing a rollout; `options` and
+# `video_texts` are kept for base-class / public-signature parity.
+# ruff: noqa: ARG002, BLE001, T201
+
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 import json
 import os
 import time
@@ -28,8 +36,7 @@ import numpy as np
 import torch
 import transformers
 
-from groot.core.data import schema
-from groot.core.data import types
+from groot.core.data import schema, types
 from groot.core.policy.gr00t_policy import Gr00tPolicy, _rec_to_dtype
 
 N2_VIEW_NAMES = ("top", "left", "right", "bottom")
@@ -39,6 +46,93 @@ N2_VIEW_NAMES = ("top", "left", "right", "bottom")
 # datasets, "mp4v" matches in-house cv2.VideoWriter('mp4v') datasets, "none"
 # disables the roundtrip (feed raw frames).
 _CODEC_ROUNDTRIPS = ("h264", "none", "mp4v")
+_MAX_CODEC_WORKERS = 4
+
+
+def _decode_video(source: Any) -> np.ndarray:
+    import av
+
+    with av.open(source) as container:
+        frames = [frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)]
+    return np.stack(frames, axis=0)
+
+
+def _mp4v_roundtrip(video: np.ndarray) -> np.ndarray:
+    import tempfile
+
+    import cv2
+
+    frame_count, height, width, _ = video.shape
+    bgr_video = np.ascontiguousarray(video[..., ::-1])
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False, dir="/dev/shm") as tmp:
+        tmp_path = tmp.name
+    try:
+        writer = cv2.VideoWriter(tmp_path, cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (width, height))
+        try:
+            for frame_index in range(frame_count):
+                writer.write(bgr_video[frame_index])
+        finally:
+            writer.release()
+        return _decode_video(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
+def _h264_roundtrip(video: np.ndarray) -> np.ndarray:
+    import io
+
+    import av
+
+    frame_count, height, width, _ = video.shape
+    buffer = io.BytesIO()
+    with av.open(buffer, mode="w", format="mp4") as container:
+        stream = container.add_stream("h264", rate=20)
+        stream.width = width
+        stream.height = height
+        stream.pix_fmt = "yuv420p"
+        stream.options = {"crf": "22"}
+        for frame_index in range(frame_count):
+            frame = av.VideoFrame.from_ndarray(video[frame_index], format="rgb24")
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+    buffer.seek(0)
+    return _decode_video(buffer)
+
+
+def _codec_roundtrip_clip(video: np.ndarray, *, codec: str) -> np.ndarray:
+    if codec == "mp4v":
+        return _mp4v_roundtrip(video)
+    if codec == "h264":
+        return _h264_roundtrip(video)
+    raise ValueError(f"Unsupported codec roundtrip: {codec!r}")
+
+
+def _codec_roundtrip_videos(vids: dict[str, Any], codec: str) -> float:
+    """Roundtrip clips concurrently and return elapsed seconds."""
+    if codec == "none" or not vids:
+        return 0.0
+
+    start = time.perf_counter()
+    arrays = {key: np.asarray(value) for key, value in vids.items()}
+    clips = [
+        (key, batch_index, array[batch_index])
+        for key, array in arrays.items()
+        for batch_index in range(array.shape[0])
+    ]
+    if not clips:
+        return 0.0
+    roundtrip = partial(_codec_roundtrip_clip, codec=codec)
+    with ThreadPoolExecutor(max_workers=min(_MAX_CODEC_WORKERS, len(clips))) as executor:
+        decoded_clips = executor.map(roundtrip, (clip[2] for clip in clips))
+
+    decoded_by_key: dict[str, list[np.ndarray]] = {key: [] for key in arrays}
+    for (key, _, _), decoded in zip(clips, decoded_clips, strict=True):
+        decoded_by_key[key].append(decoded)
+    for key in arrays:
+        vids[key] = np.stack(decoded_by_key[key], axis=0).astype(np.uint8)
+    return time.perf_counter() - start
 
 
 def _env_bool(name: str, *, default: bool) -> bool:
@@ -96,7 +190,7 @@ class Gr00tN2Policy(Gr00tPolicy):
     ):
         # Import to register the N2 model (pipeline setup runs AutoModel
         # registration as a side effect).
-        import groot.core.training.models.n2  # noqa: F401
+        import groot.core.training.models.n2
         import groot.core.training.models.rl  # noqa: F401  GrootN2RL AutoModel registration
 
         # Skip Gr00tPolicy.__init__ (it assumes action_head exists) — do the
@@ -107,14 +201,19 @@ class Gr00tN2Policy(Gr00tPolicy):
         model = transformers.AutoModel.from_pretrained(model_dir)
         # GrootN2RL actor checkpoints only wrap the base GrootN2 actor; inference
         # uses the inner model's predict/vae/decode_latents APIs directly.
-        if getattr(model, "wrapped_model", None) is not None and type(model).__name__ == "GrootN2RL":
+        if (
+            getattr(model, "wrapped_model", None) is not None
+            and type(model).__name__ == "GrootN2RL"
+        ):
             model = model.wrapped_model
         model.eval()
         model.to(device=device, dtype=torch.bfloat16)
         self.model = model
         if use_torch_compile:
             print(f"[Gr00tN2Policy] Compiling model with mode: {torch_compile_mode}")
-            self.model.vae.model = torch.compile(self.model.vae.model, mode=torch_compile_mode, dynamic=False)
+            self.model.vae.model = torch.compile(
+                self.model.vae.model, mode=torch_compile_mode, dynamic=False
+            )
             # NOTE(FY): dynamic=True is needed for using kv cache — the action-only
             # forward after the first joint step has a different sequence length.
             self.model.transformer = torch.compile(self.model.transformer, mode=torch_compile_mode)
@@ -150,9 +249,7 @@ class Gr00tN2Policy(Gr00tPolicy):
         self.num_video_steps = _env_int("GROOT_N2_NUM_VIDEO_STEPS", default=2)
         # Observation-video codec roundtrip (see _codec_roundtrip_views). The env
         # var overrides the ctor arg so eval can flip it without an API change.
-        self.codec_roundtrip = os.environ.get(
-            "GROOT_N2_CODEC_ROUNDTRIP", codec_roundtrip
-        ).lower()
+        self.codec_roundtrip = os.environ.get("GROOT_N2_CODEC_ROUNDTRIP", codec_roundtrip).lower()
         if self.codec_roundtrip not in _CODEC_ROUNDTRIPS:
             raise ValueError(
                 f"codec_roundtrip must be one of {_CODEC_ROUNDTRIPS}, "
@@ -180,7 +277,7 @@ class Gr00tN2Policy(Gr00tPolicy):
         self._cached_prompt_embs: torch.Tensor | None = None
         self._cached_language_dict: str | None = None
 
-    def _codec_roundtrip_views(self, vids: dict[str, Any]) -> None:
+    def _codec_roundtrip_views(self, vids: dict[str, Any]) -> float:
         """Encode→decode each observation video through the configured codec.
 
         N2 ckpts are trained on codec-encoded LeRobot datasets, and the visual
@@ -196,89 +293,17 @@ class Gr00tN2Policy(Gr00tPolicy):
 
         Mutates ``vids`` in place (values are (B, T, H, W, C) uint8 arrays).
         """
-        if self.codec_roundtrip == "none":
-            return
-
-        import av as _av
-
-        if self.codec_roundtrip == "mp4v":
-            # cv2.VideoWriter('mp4v') @ 30fps with RGB->BGR — byte-for-byte the
-            # encoder the in-house YAM recorder (record_episode_wrapper) uses, so
-            # the DCT/quantization artifacts match the training videos. PyAV's
-            # "mpeg4" is a *different* MPEG-4 implementation and does NOT reproduce
-            # these artifacts, so we must encode through OpenCV here. The RGB->BGR
-            # swap is required because cv2.VideoWriter expects BGR input; PyAV then
-            # decodes back to rgb24, so the net is RGB-in -> RGB-out (verified
-            # color-preserving). Decode with PyAV to match the h264 path.
-            import os as _os
-            import tempfile as _tmf
-
-            import cv2 as _cv2
-
-            for _k, _v in list(vids.items()):
-                _arr = np.asarray(_v)  # (B, T, H, W, C) uint8
-                _B = _arr.shape[0]
-                _new = []
-                for _b in range(_B):
-                    _stack = _arr[_b]
-                    _T, _H, _W, _C = _stack.shape
-                    _tmp = _tmf.NamedTemporaryFile(suffix=".mp4", delete=False, dir="/dev/shm")  # noqa: S108
-                    _tmp.close()
-                    _writer = _cv2.VideoWriter(
-                        _tmp.name, _cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (_W, _H)
-                    )
-                    for _i in range(_T):
-                        _writer.write(_cv2.cvtColor(_stack[_i], _cv2.COLOR_RGB2BGR))
-                    _writer.release()
-                    _decoded = []
-                    with _av.open(_tmp.name) as _cnt:
-                        for _f in _cnt.decode(video=0):
-                            _decoded.append(_f.to_ndarray(format="rgb24"))
-                    _os.unlink(_tmp.name)
-                    _new.append(np.stack(_decoded, axis=0))
-                vids[_k] = np.stack(_new, axis=0).astype(np.uint8)
-            return
-
-        # "h264": libx264 @ crf=22, in-memory via PyAV. crf=22 matches typical
-        # training-encode quality for h264-converted / purchased datasets.
-        import io as _io
-
-        for _k, _v in list(vids.items()):
-            _arr = np.asarray(_v)  # (B, T, H, W, C) uint8
-            _B = _arr.shape[0]
-            _new = []
-            for _b in range(_B):
-                _stack = _arr[_b]
-                _T, _H, _W, _C = _stack.shape
-                _buf = _io.BytesIO()
-                with _av.open(_buf, mode="w", format="mp4") as _cnt:
-                    _st = _cnt.add_stream("h264", rate=20)
-                    _st.width = _W
-                    _st.height = _H
-                    _st.pix_fmt = "yuv420p"
-                    _st.options = {"crf": "22"}
-                    for _i in range(_T):
-                        _f = _av.VideoFrame.from_ndarray(_stack[_i], format="rgb24")
-                        for _pkt in _st.encode(_f):
-                            _cnt.mux(_pkt)
-                    for _pkt in _st.encode():
-                        _cnt.mux(_pkt)
-                _buf.seek(0)
-                _decoded = []
-                with _av.open(_buf) as _cnt:
-                    for _f in _cnt.decode(video=0):
-                        _decoded.append(_f.to_ndarray(format="rgb24"))
-                _new.append(np.stack(_decoded, axis=0))
-            vids[_k] = np.stack(_new, axis=0).astype(np.uint8)
+        return _codec_roundtrip_videos(vids, self.codec_roundtrip)
 
     def _get_action(
         self, observation: dict[str, Any], options: dict[str, Any] | None = None
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Generate video + action jointly, return decoded actions."""
-        # Codec roundtrip on observation videos (no-op when codec_roundtrip="none").
-        self._codec_roundtrip_views(observation.get("video", {}))
-
         t0 = time.perf_counter()
+        # Codec roundtrip on observation videos (no-op when codec_roundtrip="none").
+        codec_time = self._codec_roundtrip_views(observation.get("video", {}))
+        t_codec = time.perf_counter()
+
         observation = self._post_process_observation(observation)
         unbatched_observations = self._unbatch_observation(observation)
         processed_inputs = []
@@ -354,15 +379,14 @@ class Gr00tN2Policy(Gr00tPolicy):
         if predicted_image is not None:
             casted_action["predicted_image"] = predicted_image
         t_end = time.perf_counter()
-        action_shapes = {
-            k: v.shape for k, v in casted_action.items() if isinstance(v, np.ndarray)
-        }
+        action_shapes = {k: v.shape for k, v in casted_action.items() if isinstance(v, np.ndarray)}
         if predicted_image is not None:
             action_shapes["predicted_image"] = {
                 view: arr.shape for view, arr in predicted_image.items()
             }
         print(
-            f"[Gr00tN2Policy] preprocess={t_preprocess - t0:.3f}s  "
+            f"[Gr00tN2Policy] codec={codec_time:.3f}s  "
+            f"preprocess={t_preprocess - t_codec:.3f}s  "
             f"predict={t_predict - t_preprocess:.3f}s  "
             f"postprocess={t_end - t_predict:.3f}s  "
             f"total={t_end - t0:.3f}s  "
