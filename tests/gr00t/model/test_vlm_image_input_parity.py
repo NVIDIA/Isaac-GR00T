@@ -27,6 +27,8 @@ import pytest
 import torch
 
 
+pytestmark = pytest.mark.serial
+
 INSTRUCTION = "pick up the black bowl and place it on the plate"
 
 

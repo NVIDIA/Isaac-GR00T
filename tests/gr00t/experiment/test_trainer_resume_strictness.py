@@ -37,6 +37,9 @@ from torch.utils.data import Dataset
 from transformers import TrainingArguments
 
 
+pytestmark = pytest.mark.serial
+
+
 class _TinyModel(nn.Module):
     def __init__(self):
         super().__init__()

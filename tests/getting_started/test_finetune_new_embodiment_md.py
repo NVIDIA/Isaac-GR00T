@@ -35,6 +35,7 @@ _CHECKPOINT = f"/tmp/so100/checkpoint-{_TRAINING_STEPS}"
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.serial
 def test_modality_config_block() -> None:
     """The SO-100 modality config block in finetune_new_embodiment.md executes without error."""
     blocks = extract_code_blocks(FINETUNE_README)

@@ -153,6 +153,7 @@ def test_trt_full_pipeline(batch_size: int, tmp_path, load_hf_model_weights) -> 
 _PIPELINE_SCRIPT = os.path.join(_DEPLOY_DIR, "build_trt_pipeline.py")
 
 
+@pytest.mark.serial
 def test_build_trt_pipeline_help() -> None:
     """--help exits 0 and surfaces the expected CLI options."""
     result = subprocess.run(
@@ -165,6 +166,7 @@ def test_build_trt_pipeline_help() -> None:
         assert flag in result.stdout, f"Expected '{flag}' in --help output:\n{result.stdout}"
 
 
+@pytest.mark.serial
 def test_build_trt_pipeline_missing_model_path() -> None:
     """Invoking the script without --model-path exits non-zero with a clear error."""
     result = subprocess.run(
