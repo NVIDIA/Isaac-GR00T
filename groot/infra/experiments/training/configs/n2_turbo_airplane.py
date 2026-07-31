@@ -2,21 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """N2 Turbo Airplane posttraining experiment.
 
-Migrates
-``groot/core/training/scripts/n2/airplane/launch_n2turbo_posttrain_airplane_200traj_0421.py``
-to One Launcher.
-
 Launch on H100 with:
 
     uv run ol train --experiment n2_turbo_airplane --compute-type h100
 """
 
 from __future__ import annotations
-
-from copy import deepcopy
-from pathlib import Path
-
-import yaml
 
 from groot.core.training.configs.training.training_config import TrainingConfig
 from groot.infra.launcher.one_launcher.experiment_compute_config import ExperimentComputeConfig
@@ -31,39 +22,47 @@ from groot.infra.launcher.one_launcher.training_experiment_training_config impor
     TrainingExperimentTrainingConfig,
 )
 
-_REPO_ROOT = Path(__file__).resolve().parents[5]
-_DATA_CONFIG_PATH = (
-    _REPO_ROOT / "groot/core/training/configs/experiments/n2/airplane/"
-    "airplane_200traj_0421_bottom_cam_hist_umi_keys.yaml"
-)
-_DATA_CONFIG_PAYLOAD = yaml.safe_load(_DATA_CONFIG_PATH.read_text())
-if not isinstance(_DATA_CONFIG_PAYLOAD, dict) or not isinstance(
-    _DATA_CONFIG_PAYLOAD.get("data"),
-    dict,
-):
-    raise TypeError(f"{_DATA_CONFIG_PATH} must contain a data mapping")
-
-N2_TURBO_AIRPLANE_DATA = deepcopy(_DATA_CONFIG_PAYLOAD["data"])
-# One Launcher exports LFS_CACHE_PATH as the data-volume root, while the
-# legacy launcher exported its ``datasets`` child.
-for _dataset in N2_TURBO_AIRPLANE_DATA["datasets"]:
-    _dataset["dataset_paths"] = [
-        path if path.startswith("datasets/") else f"datasets/{path}"
-        for path in _dataset["dataset_paths"]
-    ]
-N2_TURBO_AIRPLANE_DATA.update(
-    {
+DATA_CONFIG = TrainingExperimentDataConfig(
+    data={
+        "datasets": [
+            {
+                "dataset_paths": [
+                    "datasets/xdof_yam_annotated_full/"
+                    "xdof.xdof_airplane_04_21_v6_200traj_2026-04-22_05-29-30_v4_USA"
+                ],
+                "mix_ratio": 1.0,
+                "embodiment_tag": "xdof_relative_eef_relative_joint_umi_keys_4views",
+            }
+        ],
+        "modality_configs": {
+            "xdof_relative_eef_relative_joint_umi_keys_4views": {
+                "video": {
+                    "delta_indices": [
+                        -24,
+                        -18,
+                        -12,
+                        -6,
+                        0,
+                        6,
+                        12,
+                        18,
+                        24,
+                        30,
+                        36,
+                        42,
+                        48,
+                    ]
+                },
+                "action": {"delta_indices": list(range(48))},
+            }
+        },
         "seed": 24,
         "mode": "single_turn",
         "allow_padding": True,
         "override_pretraining_statistics": True,
         "video_backend": "torchcodec",
         "dataloader_prefetch_factor": 8,
-    }
-)
-
-DATA_CONFIG = TrainingExperimentDataConfig(
-    data=N2_TURBO_AIRPLANE_DATA,
+    },
     launcher_data={"no_download_cache": True},
 )
 
