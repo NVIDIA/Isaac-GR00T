@@ -41,6 +41,10 @@ _TURBO_ROBOCASA_MODEL = deepcopy(BASE_TURBO_TRAINING_CONFIG.model)
 # RoboCasa provides 16 action steps. Keep the checkpoint-compatible 48-token
 # action head, but do not pad every training sample with 32 masked tokens.
 _TURBO_ROBOCASA_MODEL["action-cfg"]["max-action-horizon"] = 16
+# RoboCasa has exactly three real camera modalities. The inherited Airplane
+# profile uses four cameras, which makes the processor append a fully masked
+# zero view that still consumes VAE and transformer compute.
+_TURBO_ROBOCASA_MODEL["max_n_cameras"] = 3
 
 TRAINING_CONFIG = replace(
     _ROBOCASA365_TRAINING_CONFIG,
@@ -63,7 +67,7 @@ TRAINING_CONFIG = replace(
         # The async saver forks inside a Ray actor and has triggered
         # task_receiver objects_valid crashes; prefer resumable sync saves.
         use_async_checkpoint_save=False,
-        gradient_accumulation_steps=2,
+        gradient_accumulation_steps=1,
         optim="adamw_torch",
         log_distributed_grad_norm=False,
         straggler=replace(
@@ -76,7 +80,7 @@ TRAINING_CONFIG = replace(
         ddp_bucket_cap_mb=256,
     ),
     # Preserve RoboCasa-365's canonical global batch on four one-GPU stations:
-    # 4 GPUs x 64 samples/GPU x 2 gradient-accumulation steps.
+    # 4 GPUs x 128 samples/GPU x 1 gradient-accumulation step.
     global_batch_size=512,
     model_name=BASE_TURBO_TRAINING_CONFIG.model_name,
     model=_TURBO_ROBOCASA_MODEL,
@@ -85,12 +89,13 @@ TRAINING_CONFIG = replace(
 # One Launcher maps Colossus to the "gb300" compute-family key while enforcing
 # one GPU per station.
 COMPUTE_CONFIG = TrainingExperimentComputeConfig(
-    families={"gb300": ExperimentComputeConfig(per_device_batch_size=64)},
+    families={"gb300": ExperimentComputeConfig(per_device_batch_size=128)},
     env_vars={
         "GEAR_PRESERVE_CHECKPOINT_ROOT": "1",
         "GROOT_DISTRIBUTED_TIMEOUT_MINUTES": "30",
         "NCCL_SOCKET_NTHREADS": "4",
         "NCCL_NSOCKS_PERTHREAD": "4",
+        "TORCH_NCCL_HIGH_PRIORITY": "1",
     },
 )
 
