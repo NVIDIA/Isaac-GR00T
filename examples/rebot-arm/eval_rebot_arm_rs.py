@@ -36,11 +36,10 @@ import sys
 import time
 from typing import Any
 
+from gr00t.policy.server_client import MsgSerializer
 from lerobot.cameras.opencv import OpenCVCameraConfig
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot_robot_seeed_b601 import SeeedB601RSFollower, SeeedB601RSFollowerConfig
-import msgpack
-import msgpack_numpy as msgpack_numpy
 import numpy as np
 import zmq
 
@@ -109,17 +108,21 @@ RETURN_GRIPPER_SPEED = 8.0
 RETURN_HOLD_S = 2.0
 
 
+class UnsafeReturnStateError(RuntimeError):
+    """Raised after an unsafe return state causes an immediate torque-disable request."""
+
+
 class PolicyClient:
     """Lightweight GR00T ZeroMQ client.
 
-    This client intentionally avoids importing ``gr00t.policy.PolicyClient`` so the
-    robot-side LeRobot environment only needs msgpack and pyzmq, not the complete
-    GPU inference dependency stack.
+    This client intentionally avoids constructing ``gr00t.policy.PolicyClient``,
+    while reusing its hardened ``MsgSerializer`` so object-dtype ndarray payloads
+    are rejected before msgpack-numpy can invoke pickle.
 
     The wire protocol matches GR00T ``PolicyServer``:
     - request: {"endpoint": ..., "data": ...}
     - get_action response: [action_dict, info_dict]
-    - NumPy arrays are encoded with msgpack-numpy
+    - NumPy arrays are encoded with the shared pickle-free serializer boundary
     """
 
     def __init__(self, host: str, port: int, timeout_ms: int) -> None:
@@ -145,11 +148,11 @@ class PolicyClient:
 
     @staticmethod
     def _pack(value: Any) -> bytes:
-        return msgpack.packb(value, default=msgpack_numpy.encode, use_bin_type=True)
+        return MsgSerializer.to_bytes(value)
 
     @staticmethod
     def _unpack(value: bytes) -> Any:
-        return msgpack.unpackb(value, object_hook=msgpack_numpy.decode, raw=False)
+        return MsgSerializer.from_bytes(value)
 
     def call(self, endpoint: str, data: dict[str, Any] | None = None) -> Any:
         """Call a server endpoint and normalize timeout/server error handling."""
@@ -209,9 +212,7 @@ class AsyncPolicyWorker:
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gr00t-policy")
         self.client: PolicyClient | None = None
 
-    def _infer(
-        self, observation: dict[str, Any]
-    ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    def _infer(self, observation: dict[str, Any]) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
         if self.client is None:
             self.client = PolicyClient(self.host, self.port, self.timeout_ms)
         return self.client.get_action(observation)
@@ -348,6 +349,33 @@ def physical_state_to_command_state(physical_state: np.ndarray) -> np.ndarray:
     Trajectory limiting must compare positions in the same coordinate system.
     """
     return np.asarray(physical_state, dtype=np.float32) / JOINT_DIRECTIONS
+
+
+def validate_command_state(command: np.ndarray, *, field_name: str) -> np.ndarray:
+    """Validate a 7-D command-space state before it can drive the robot."""
+    state = np.asarray(command, dtype=np.float32)
+    expected_shape = (len(JOINT_KEYS),)
+    if state.shape != expected_shape:
+        raise ValueError(f"{field_name} must have shape {expected_shape}, got {state.shape}")
+    if not np.all(np.isfinite(state)):
+        raise ValueError(f"{field_name} contains non-finite values: {state}")
+
+    outside_limits = (state < COMMAND_LOWER) | (state > COMMAND_UPPER)
+    if np.any(outside_limits):
+        details = ", ".join(
+            f"{key}={float(value):.3f} not in [{float(lower):.3f}, {float(upper):.3f}]"
+            for key, value, lower, upper, outside in zip(
+                JOINT_KEYS,
+                state,
+                COMMAND_LOWER,
+                COMMAND_UPPER,
+                outside_limits,
+                strict=True,
+            )
+            if outside
+        )
+        raise ValueError(f"{field_name} is outside B601-RS command limits: {details}")
+    return state
 
 
 def smooth_action_segment(
@@ -542,11 +570,28 @@ def return_to_start_pose(
     if not robot.is_connected:
         raise RuntimeError("Cannot return home because the robot is not connected")
 
-    # Start the return from current CAN feedback, not the last model command.
-    current_observation = robot.get_observation()
-    current_command = physical_state_to_command_state(observation_state(current_observation))
-    target_command = physical_state_to_command_state(start_physical_state)
-    target_command = np.clip(target_command, COMMAND_LOWER, COMMAND_UPPER)
+    # Start the return from current CAN feedback, not the last model command. Never
+    # clip an invalid return state into a valid-looking command: corrupted feedback
+    # must fail closed before the first trajectory action is sent.
+    try:
+        current_observation = robot.get_observation()
+        current_command = validate_command_state(
+            physical_state_to_command_state(observation_state(current_observation)),
+            field_name="current return command",
+        )
+        target_command = validate_command_state(
+            physical_state_to_command_state(start_physical_state),
+            field_name="startup return command",
+        )
+    except (KeyError, TypeError, ValueError) as state_error:
+        message = f"Unsafe return state; skipping return motion: {state_error}"
+        try:
+            robot.disable_torque()
+        except Exception as disable_error:
+            message += f"; immediate torque-disable request also failed: {disable_error}"
+        else:
+            message += "; immediate torque disable was requested"
+        raise UnsafeReturnStateError(message) from state_error
 
     delta = target_command - current_command
     # Gripper command space is multiplied by 6 in the driver, so use a separate limit.
@@ -713,9 +758,14 @@ def main() -> int:
         for _ in range(3):
             observation = robot.get_observation()
         assert observation is not None
-        # Capture the startup pose before GR00T sends any action. Normal completion or
-        # the first Ctrl+C returns smoothly to this pose.
-        startup_state = observation_state(observation).copy()
+        # Validate the startup pose before retaining it for smoothing or a later
+        # return. Keep startup_state as None on failure so no return is attempted.
+        candidate_startup_state = observation_state(observation).copy()
+        validate_command_state(
+            physical_state_to_command_state(candidate_startup_state),
+            field_name="startup command",
+        )
+        startup_state = candidate_startup_state
 
         preview_observation = observation
         if not args.execute:
@@ -860,12 +910,17 @@ def main() -> int:
 
         print("\nEvaluation finished.")
         return 0
+    except UnsafeReturnStateError as unsafe_return_error:
+        print(f"\nEvaluation stopped: {unsafe_return_error}")
+        return 1
     except KeyboardInterrupt:
         print("\nCtrl+C received; no new policy actions will be requested.")
         # The first Ctrl+C returns smoothly. A second Ctrl+C interrupts the return
         # and proceeds directly to torque disable in finally.
         if args.execute and robot is not None and robot.is_connected and startup_state is not None:
-            print("Returning to the startup pose. Press Ctrl+C again to disable torque immediately.")
+            print(
+                "Returning to the startup pose. Press Ctrl+C again to disable torque immediately."
+            )
             try:
                 return_to_start_pose(
                     robot,
@@ -875,6 +930,8 @@ def main() -> int:
                     max_gripper_speed=RETURN_GRIPPER_SPEED,
                     hold_s=RETURN_HOLD_S,
                 )
+            except UnsafeReturnStateError as unsafe_return_error:
+                print(f"WARNING: {unsafe_return_error}")
             except KeyboardInterrupt:
                 print("\nSecond Ctrl+C received; aborting return and requesting torque disable.")
         return 130
