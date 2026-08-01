@@ -20,4 +20,11 @@ dependencies = [
     "motorbridge",
 ]
 
+[tool.setuptools]
+py-modules = [
+    "eval_rebot_arm_rs",
+    "eval_rebot_arm_dm",
+    "rebot_config",
+]
+
 # Please also manually install `uv pip install --no-deps -e ../../`

@@ -68,8 +68,8 @@ JOINT_DIRECTIONS = np.array([1.0, 1.0, -1.0, -1.0, -1.0, 1.0, 6.0], dtype=np.flo
 # For example, elbow_flex direction=-1 maps physical [0, 200] to command [-200, 0],
 # and gripper direction=6 maps physical [0, 270] to command [0, 45].
 # The driver applies the physical limits again as a second safety boundary.
-COMMAND_LOWER = np.array([-145.0, 0.0, -200.0, -90.0, -90.0, -90.0, 0.0], dtype=np.float32)
-COMMAND_UPPER = np.array([145.0, 170.0, 0.0, 80.0, 90.0, 90.0, 45.0], dtype=np.float32)
+COMMAND_LOWER = np.array([-145.0, 0.0, -200.0, -90.0, -90.0, -90.0, -1.0], dtype=np.float32)
+COMMAND_UPPER = np.array([145.0, 170.0, 1.0, 80.0, 90.0, 90.0, 45.0], dtype=np.float32)
 
 # Fixed control parameters validated on the real robot.
 CAMERA_WIDTH = 640

@@ -126,8 +126,8 @@ In a second terminal, run the eval script as the client.
 #### B601-DM Client
 
 ~~~bash
-cd <path-to-isaac-gr00t-repo>
-uv run python examples/rebot-arm/eval_rebot_arm_dm.py \
+cd <path-to-isaac-gr00t-repo>/examples/rebot-arm
+uv run python eval_rebot_arm_dm.py \
   --robot.type=seeed_b601_dm_follower \
   --robot.id=b601_dm_follower \
   --robot.port=/dev/ttyACM0 \
@@ -143,8 +143,8 @@ Adjust the serial port, CAN adapter, camera devices, and instruction for the act
 #### B601-RS Client
 
 ~~~bash
-cd <path-to-isaac-gr00t-repo>
-uv run python examples/rebot-arm/eval_rebot_arm_rs.py \
+cd <path-to-isaac-gr00t-repo>/examples/rebot-arm
+uv run python eval_rebot_arm_rs.py \
   --robot-port can0 \
   --robot-id follower1 \
   --front-camera /dev/video0 \
