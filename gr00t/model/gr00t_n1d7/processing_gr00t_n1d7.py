@@ -550,15 +550,14 @@ class Gr00tN1d7Processor(BaseProcessor):
                 video: [T, C, H, W]
         Returns: vlm_content format for collation
         """
-        # Convert images to PIL format
-        pil_images = [Image.fromarray(np.transpose(v, (1, 2, 0))) for v in images]
+        frames = [torch.as_tensor(v) for v in images]
 
         # Create conversation with images and text
         conversation = [
             {
                 "role": "user",
                 "content": [
-                    *[{"type": "image", "image": img} for img in pil_images],
+                    *[{"type": "image", "image": img} for img in frames],
                     {"type": "text", "text": language},
                 ],
             }
@@ -573,7 +572,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         return {
             "vlm_content": {
                 "text": text,
-                "images": pil_images,
+                "images": frames,
                 "conversation": conversation,
             }
         }
@@ -745,11 +744,9 @@ class Gr00tN1d7Processor(BaseProcessor):
             assert v.dtype == torch.uint8, f"{v} is not a uint8 tensor"
             assert v.shape[1] == 3, f"{v} is not a 3 channel tensor"
 
-        stacked_images = (
-            torch.stack([temporal_stacked_images[view] for view in image_keys], dim=1)
-            .flatten(0, 1)
-            .numpy()
-        )  # (T*V, C, H, W), processor expects numpy array
+        stacked_images = torch.stack(
+            [temporal_stacked_images[view] for view in image_keys], dim=1
+        ).flatten(0, 1)  # (T*V, C, H, W)
 
         vlm_inputs = self._apply_vlm_processing(stacked_images, language)
         return vlm_inputs

@@ -79,6 +79,7 @@ def sample_video_path() -> Path:
     return SAMPLE_VIDEO
 
 
+@pytest.mark.serial
 class TestTorchcodecRoundtrip:
     """Decode the sample fixture end-to-end through the public helpers."""
 
