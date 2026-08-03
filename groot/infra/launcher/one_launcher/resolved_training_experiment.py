@@ -16,6 +16,9 @@ import yaml
 from groot.infra.launcher.one_launcher.resolved_training_experiment_files import (
     ResolvedTrainingExperimentFiles,
 )
+from groot.infra.launcher.one_launcher.training_experiment_evaluation_config import (
+    TrainingExperimentEvaluationConfig,
+)
 from groot.infra.launcher.one_launcher.training_experiment_override import (
     TrainingExperimentOverride,
 )
@@ -24,7 +27,7 @@ from groot.infra.launcher.one_launcher.training_launch_compute_profile import (
 )
 from groot.infra.launcher.one_launcher.workflow_env import AUTHORITATIVE_WORKFLOW_ENV_NAMES
 
-_OVERRIDE_ROOTS = {"compute", "data", "training"}
+_OVERRIDE_ROOTS = {"compute", "data", "evaluation", "training"}
 _COMPUTE_SIZE_TARGETS = {
     "num_gpus": "num_gpus",
     "num_nodes": "num_nodes",
@@ -71,11 +74,14 @@ class ResolvedTrainingExperiment:
     data_cli_section: Mapping[str, Any] = field(default_factory=dict)
     env_vars: Mapping[str, str] = field(default_factory=dict)
     skypilot_queue: str | None = None
+    evaluation_section: Mapping[str, Any] | None = None
 
     def config_fingerprint(self) -> str:
         override_payload = self.override_payload()
         if override_payload["skypilot_queue"] is None:
             del override_payload["skypilot_queue"]
+        if override_payload["evaluation"] is None:
+            del override_payload["evaluation"]
         payload = {
             "name": self.name,
             "compute_type": self.compute_type,
@@ -128,6 +134,7 @@ class ResolvedTrainingExperiment:
             data_cli_section=self.mapping_value(payload, "data_cli"),
             training_section=training_section,
             model_section=self.mapping_value(payload, "model"),
+            evaluation_section=self.evaluation_values(payload),
             num_nodes=num_nodes,
             num_gpus=num_gpus,
             batch_size=batch_size,
@@ -143,6 +150,11 @@ class ResolvedTrainingExperiment:
             "data_cli": copy.deepcopy(dict(self.data_cli_section)),
             "training": copy.deepcopy(dict(self.training_section)),
             "model": copy.deepcopy(dict(self.model_section)),
+            "evaluation": (
+                copy.deepcopy(dict(self.evaluation_section))
+                if self.evaluation_section is not None
+                else None
+            ),
             "env_vars": copy.deepcopy(dict(self.env_vars)),
             "num_nodes": self.num_nodes,
             "num_gpus": self.num_gpus,
@@ -169,6 +181,20 @@ class ResolvedTrainingExperiment:
                         "--set data.launcher_data must target a nested launcher data value"
                     )
                 override.validate_cli_value()
+            return
+
+        if root == "evaluation":
+            if self.evaluation_section is None:
+                raise ValueError(f"Experiment {self.name!r} does not define an evaluation_config")
+            if len(override.path) != 2 or override.path[1] not in {
+                "task",
+                "num_trials",
+                "seed",
+            }:
+                raise ValueError(
+                    "Evaluation overrides must target evaluation.task, evaluation.num_trials, "
+                    "or evaluation.seed"
+                )
             return
 
         if root == "training":
@@ -214,6 +240,8 @@ class ResolvedTrainingExperiment:
             if override.path[1] == "model":
                 return ("model", *override.path[2:])
             return ("training", *override.path[1:])
+        if root == "evaluation":
+            return override.path
         compute_key = override.path[1]
         if compute_key == "env_vars":
             return ("env_vars", *override.path[2:])
@@ -334,6 +362,34 @@ class ResolvedTrainingExperiment:
                 environment[key] = str(value)
         return environment
 
+    def evaluation_values(self, payload: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        value = payload.get("evaluation")
+        if value is None:
+            return None
+        if not isinstance(value, Mapping):
+            raise ValueError(  # noqa: TRY004 - invalid user-supplied --set value
+                "Experiment override evaluation must remain a mapping"
+            )
+        unknown = set(value) - {"task", "num_trials", "seed"}
+        missing = {"task", "num_trials"} - set(value)
+        if unknown:
+            raise ValueError(
+                f"Experiment evaluation contains unknown fields: {', '.join(sorted(unknown))}"
+            )
+        if missing:
+            raise ValueError(
+                f"Experiment evaluation is missing fields: {', '.join(sorted(missing))}"
+            )
+        try:
+            config = TrainingExperimentEvaluationConfig(
+                task=value["task"],
+                num_trials=value["num_trials"],
+                seed=value.get("seed", 0),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid experiment evaluation override: {exc}") from exc
+        return {"task": config.task, "num_trials": config.num_trials, "seed": config.seed}
+
     def optional_string(self, payload: Mapping[str, Any], key: str) -> str | None:
         value = payload.get(key)
         if value is None:
@@ -363,7 +419,7 @@ class ResolvedTrainingExperiment:
         return files
 
     def summary(self, files: ResolvedTrainingExperimentFiles) -> Mapping[str, Any]:
-        return {
+        summary = {
             "experiment": self.name,
             "compute_type": self.compute_type,
             "num_nodes": self.num_nodes,
@@ -381,3 +437,6 @@ class ResolvedTrainingExperiment:
             "env_vars": dict(self.env_vars),
             "skypilot_queue": self.skypilot_queue,
         }
+        if self.evaluation_section is not None:
+            summary["evaluation"] = dict(self.evaluation_section)
+        return summary

@@ -11,5 +11,8 @@ EXPERIMENT = make_robocasa_single_task_experiment(
         "datasets/robocasa_benchmark/new-robocasa/robocasa-datasets/v1.0/"
         "pretrain/composite/StackCans/20250731/lerobot"
     ),
+    evaluation_task="StackCans",
+    evaluation_num_trials=20,
+    max_steps=1250,
     wandb_project="n2-turbo-robocasa-stack-cans-colossus",
 )

@@ -21,14 +21,18 @@ umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_SETUP_SCRIPT="${SCRIPT_DIR}/setup_bare_metal_gpu_host.sh"
-PODMAN_WRAPPER="${SCRIPT_DIR}/colossus_ray_podman.sh"
-PRUNE_SCRIPT="${SCRIPT_DIR}/colossus_ray_prune.sh"
+PODMAN_WRAPPER="${SCRIPT_DIR}/../colossus_ray_podman.sh"
+PRUNE_SCRIPT="${SCRIPT_DIR}/../colossus_ray_prune.sh"
+RAY_COMPAT_SCRIPT="${SCRIPT_DIR}/../../../groot/internal/infra/job/colossus_ray_compat/sitecustomize.py"
 
 IMAGE="${COLOSSUS_RAY_CONTROL_IMAGE:-rayproject/ray:2.48.0-py312-gpu}"
 GPU_TEST_IMAGE="${COLOSSUS_GPU_TEST_IMAGE:-docker.io/nvidia/cuda:13.0.1-base-ubuntu24.04}"
 ARTIFACT_IMAGE="${COLOSSUS_ARTIFACT_IMAGE:-python:3.12-slim-bookworm}"
+PROMETHEUS_IMAGE="${COLOSSUS_PROMETHEUS_IMAGE:-prom/prometheus:v3.5.0}"
+GRAFANA_IMAGE="${COLOSSUS_GRAFANA_IMAGE:-grafana/grafana:12.0.2}"
 COLOSSUS_POOL_ID="${COLOSSUS_POOL_ID:-gear-gb300-automation}"
 COLOSSUS_NODE_COUNT="${COLOSSUS_NODE_COUNT:-}"
+COLOSSUS_RESOURCE_GPU_COUNT="${COLOSSUS_RESOURCE_GPU_COUNT:-}"
 COLOSSUS_EXISTING_LEASE_ID="${COLOSSUS_EXISTING_LEASE_ID:-}"
 COLOSSUS_EXISTING_LEASE_NAME=""
 COLOSSUS_LEASE_DURATION="${COLOSSUS_LEASE_DURATION:-7d}"
@@ -38,10 +42,14 @@ COLOSSUS_PROVISION_MODE="${COLOSSUS_PROVISION_MODE:-CLEAN}"
 COLOSSUS_LEASE_READY_TIMEOUT="${COLOSSUS_LEASE_READY_TIMEOUT:-3600}"
 COLOSSUS_LEASE_POLL_INTERVAL="${COLOSSUS_LEASE_POLL_INTERVAL:-15}"
 KEEP_COLOSSUS_LEASES_ON_FAILURE="${KEEP_COLOSSUS_LEASES_ON_FAILURE:-0}"
+BEST_EFFORT_HOSTS="${BEST_EFFORT_HOSTS:-0}"
 COLOSSUS_LEASES_COMMITTED="0"
 SSL_CERT="${SSL_CERT:-/etc/ssl/groot-ray/fullchain.pem}"
 SSL_KEY="${SSL_KEY:-/etc/ssl/groot-ray/privkey.pem}"
+LOCAL_SSL_CERT="${LOCAL_SSL_CERT:-}"
+LOCAL_SSL_KEY="${LOCAL_SSL_KEY:-}"
 HEAD_DOMAIN=""
+HEAD_DOMAIN_EXPLICIT="0"
 JOIN_RAY_ADDRESS=""
 JOIN_RAY_HEAD_IP=""
 JOIN_RAY_HEAD_PORT=""
@@ -56,6 +64,12 @@ SYNC_POST_TRAINING_ARTIFACTS="${SYNC_POST_TRAINING_ARTIFACTS:-1}"
 GROOT_DATA_ROOT="${GROOT_DATA_ROOT:-/data/groot_ol}"
 MODEL_DEPS_URI="${MODEL_DEPS_URI:-s3://GearCheckpoints/model_deps}"
 POST_TRAINING_CHECKPOINT_URI="${POST_TRAINING_CHECKPOINT_URI:-${GROOT_OL_POST_TRAINING_CHECKPOINT_URI:-}}"
+POST_TRAINING_CHECKPOINT_DESTINATION="${POST_TRAINING_CHECKPOINT_DESTINATION:-post_training_golden_run/checkpoint-20000}"
+DATASET_ARCHIVE_URI="${DATASET_ARCHIVE_URI:-}"
+DATASET_ARCHIVE_SHA256="${DATASET_ARCHIVE_SHA256:-}"
+ROBOCASA_RUNTIME_ARCHIVE_URI="${ROBOCASA_RUNTIME_ARCHIVE_URI:-}"
+ROBOCASA_RUNTIME_ARCHIVE_SHA256="${ROBOCASA_RUNTIME_ARCHIVE_SHA256:-}"
+ARTIFACT_MAX_MIB_PER_SECOND="${ARTIFACT_MAX_MIB_PER_SECOND:-0}"
 BUCKET_ACCESS_KEY_ID_ENV="${BUCKET_ACCESS_KEY_ID_ENV:-BUCKET_ACCESS_KEY_ID}"
 BUCKET_SECRET_ACCESS_KEY_ENV="${BUCKET_SECRET_ACCESS_KEY_ENV:-BUCKET_SECRET_ACCESS_KEY}"
 BUCKET_ENDPOINT_URL_ENV="${BUCKET_ENDPOINT_URL_ENV:-BUCKET_ENDPOINT_URL}"
@@ -70,20 +84,30 @@ REBOOT_WAIT_TIMEOUT="${REBOOT_WAIT_TIMEOUT:-1800}"
 REBOOT_POLL_INTERVAL="${REBOOT_POLL_INTERVAL:-10}"
 HOST_SETUP_CONCURRENCY="${HOST_SETUP_CONCURRENCY:-8}"
 DATA_INTERFACE="${DATA_INTERFACE:-}"
+PREFERRED_ETHERNET_INTERFACE="${PREFERRED_ETHERNET_INTERFACE:-}"
+STATIC_DATA_IP_PREFIX="${STATIC_DATA_IP_PREFIX:-}"
 NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-}"
 GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-}"
 NCCL_IB_HCA="${NCCL_IB_HCA:-}"
 NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-}"
 REQUIRE_RDMA="${REQUIRE_RDMA:-0}"
+ETHERNET_ONLY="${ETHERNET_ONLY:-0}"
 TRANSPORT_VALIDATION_COMMAND="${TRANSPORT_VALIDATION_COMMAND:-}"
 TRANSPORT_VALIDATION_TIMEOUT="${TRANSPORT_VALIDATION_TIMEOUT:-300}"
 TRANSPORT_VALIDATION_IMAGE="${COLOSSUS_TRANSPORT_VALIDATION_IMAGE:-}"
+STATE_OUTPUT="${COLOSSUS_RAY_STATE_OUTPUT:-}"
+ACTIVE_RAY_HEAD_IP=""
+REMOTE_TLS_STAGING_ACTIVE="0"
+REMOTE_TLS_CERT_STAGING=""
+REMOTE_TLS_KEY_STAGING=""
 
 readonly HEAD_CONTAINER="groot-ray-head"
 readonly WORKER_CONTAINER="groot-ray-worker"
 readonly REMOTE_ROOT="/tmp/groot-ray-cluster"
 readonly RAY_PORT="6379"
 readonly TARGET_GPU_NAME="NVIDIA GB300"
+readonly SECONDARY_GPU_NAME_PATTERN="RTX PRO 2000"
+GPU_PROFILE="${GPU_PROFILE:-gb300}"
 
 TMP_DIR=""
 declare -a HOSTS=()
@@ -93,16 +117,29 @@ declare -a HOST_READY=()
 declare -a GPU_COUNTS=()
 declare -a NODE_IPS=()
 declare -a DATA_IPS=()
+declare -a DATA_INTERFACES=()
 declare -a FAILED_HOSTS=()
 declare -a HOST_SETUP_PIDS=()
 declare -a JOINED_WORKER_INDICES=()
 declare -a COLOSSUS_CANDIDATE_NAMES=()
 declare -a COLOSSUS_CANDIDATE_FQDNS=()
+declare -a COLOSSUS_EXCLUDED_RESOURCE_NAMES=()
 declare -a COLOSSUS_LEASE_IDS=()
 declare -a COLOSSUS_LEASE_NAMES=()
 
 log() {
   printf '[setup_ray_cluster] %s\n' "$*"
+}
+
+colossus_cli() {
+  # The Colossus CLI updates shared authentication/configuration state even
+  # for read operations. Parallel auto-research host setup otherwise races
+  # those updates and intermittently loses the configured API server.
+  local lock_file="${COLOSSUS_CLI_LOCK_FILE:-/tmp/groot-colossus-cli.lock}"
+  (
+    flock --exclusive 9
+    command colossus "$@"
+  ) 9>"${lock_file}"
 }
 
 die() {
@@ -114,13 +151,13 @@ usage() {
   cat <<EOF
 Usage:
   # Create a new Ray cluster:
-  ci/scripts/setup_ray_cluster.sh \\
+  ci/scripts/colossus/setup_ray_cluster.sh \\
     --nodes 2 \\
     --ray-auth-password-file /path/to/password \\
     --nvcr-token-file /path/to/nvcr-token
 
   # Add workers to an existing Ray cluster without changing its head:
-  ci/scripts/setup_ray_cluster.sh \\
+  ci/scripts/colossus/setup_ray_cluster.sh \\
     --nodes 2 \\
     --join-ray-address 10.0.0.10:6379 \\
     --nvcr-token-file /path/to/nvcr-token
@@ -128,6 +165,10 @@ Usage:
 Options:
   --nodes COUNT                 Number of Colossus hosts to reserve. The first lease is
                                 the Ray head unless --join-ray-address is set.
+  --resource-gpu-count COUNT    Require this physical GPU count in Colossus inventory.
+  --exclude-resource NAME       Never reserve this Colossus resource; may be repeated.
+  --best-effort-hosts           Continue with successfully reserved and SSH-ready hosts.
+  --gpu-profile PROFILE         gb300 or gb300-rtx-pro-2000. Default: ${GPU_PROFILE}
   --existing-lease-id ID        Reuse this active Colossus lease instead of reserving a
                                 host. Requires --nodes 1. The lease is never released by
                                 setup, including when setup fails.
@@ -150,6 +191,8 @@ Options:
                                 Default: ${ARTIFACT_IMAGE}
   --ssl-cert PATH               TLS certificate path on the head host. Default: ${SSL_CERT}
   --ssl-key PATH                TLS private key path on the head host. Default: ${SSL_KEY}
+  --ssl-cert-local PATH         Copy this local certificate to --ssl-cert on the head.
+  --ssl-key-local PATH          Copy this local key to --ssl-key on the head.
   --head-domain DOMAIN          Public HTTPS domain. Default: first leased host FQDN.
   --ray-auth-user USER          nginx basic-auth username for /ray/. Default: ${RAY_AUTH_USER}
   --ray-auth-password-file PATH Read basic-auth password from a local file.
@@ -165,6 +208,17 @@ Options:
                                 S3 prefix for the base post-training checkpoint to mirror to
                                 ${GROOT_DATA_ROOT}/checkpoints/post_training_golden_run/checkpoint-20000.
                                 Can also be set with GROOT_OL_POST_TRAINING_CHECKPOINT_URI.
+  --post-training-checkpoint-destination PATH
+                                Relative directory under data-root/checkpoints.
+  --dataset-archive-uri URI     Optional S3 tar archive extracted under data-root/datasets.
+  --dataset-archive-sha256 HEX  Required SHA-256 when --dataset-archive-uri is set.
+  --robocasa-runtime-archive-uri URI
+                                Optional S3 tar archive extracted under data-root/runtime.
+  --robocasa-runtime-archive-sha256 HEX
+                                Required SHA-256 when the runtime archive is set.
+  --artifact-max-mib-per-second RATE
+                                Limit each host's artifact download rate. Zero disables
+                                throttling. Default: ${ARTIFACT_MAX_MIB_PER_SECOND}.
   --bucket-access-key-id-env VAR
                                 Env var containing S3 access key. Default: ${BUCKET_ACCESS_KEY_ID_ENV}
   --bucket-secret-access-key-env VAR
@@ -178,6 +232,13 @@ Options:
   --reboot-poll-interval SECS   Seconds between SSH reboot polls. Default: ${REBOOT_POLL_INTERVAL}
   --host-setup-concurrency N    Maximum hosts to prepare concurrently. Default: ${HOST_SETUP_CONCURRENCY}
   --data-interface IFACE       Data-plane netdev used by Ray, NCCL bootstrap, and Gloo.
+  --prefer-ethernet-interface IFACE
+                                Prefer this connected non-mlx5 Ethernet netdev per host;
+                                fall back to the host's routed management interface when
+                                it is absent or has no carrier.
+  --static-data-ip-prefix A.B.C
+                                Configure the selected data interface as
+                                A.B.C.<host-derived>/24.
   --nccl-socket-ifname IFACE   NCCL socket netdev. Default: --data-interface value.
   --gloo-socket-ifname IFACE   Gloo socket netdev. Default: --data-interface value.
   --nccl-ib-hca HCA[:PORT]     Verbs HCA/port list for NCCL, for example mlx5_3:1.
@@ -185,6 +246,8 @@ Options:
   --nccl-ib-gid-index INDEX    RoCE GID index used by NCCL, for example 3.
   --require-rdma               Fail unless the selected HCA/GID and container RDMA path are usable.
   --allow-socket-transport     Permit legacy TCP-only operation. This is the default.
+  --ethernet-only              Require the Ray data interface to use a non-mlx5 Ethernet
+                                driver and set NCCL_IB_DISABLE=1.
   --transport-validation-command COMMAND
                                 Run COMMAND in a head-host Podman GPU container after all GPUs
                                 join Ray; a nonzero exit prevents cluster readiness.
@@ -194,12 +257,12 @@ Options:
                                 Bound the validation command. Default: ${TRANSPORT_VALIDATION_TIMEOUT}
   --dry-run                     Print the plan without changing any host.
                                 Pool discovery is read-only; no lease is created.
+  --state-output PATH           Write non-secret cluster/host state as JSON on success.
   -h, --help                    Show this help.
 
 GPU policy:
-  Every host must contain exactly one ${TARGET_GPU_NAME}. Only that GPU is
-  attached to scheduled Podman GPU workers, while Ray advertises one generic
-  GPU resource from its device-free control container.
+  gb300 exposes only the ${TARGET_GPU_NAME}. gb300-rtx-pro-2000 exposes an
+  ordered pair: Ray/CUDA slot 0 is GB300 and slot 1 is RTX PRO 2000.
 
 If both --ray-auth-password-stdin and --nvcr-token-stdin are used, pass two lines:
   first line = Ray basic-auth password, second line = NVCR token.
@@ -241,6 +304,7 @@ cleanup() {
   local status=$?
   trap - EXIT INT TERM
   terminate_host_setup_jobs
+  cleanup_remote_tls_staging
   if [[ "${status}" -ne 0 && -n "${JOIN_RAY_ADDRESS}" && "${#JOINED_WORKER_INDICES[@]}" -gt 0 ]]; then
     stop_joined_worker_containers
   fi
@@ -279,6 +343,25 @@ parse_args() {
       --nodes)
         require_value "$1" "${2:-}"
         COLOSSUS_NODE_COUNT="$2"
+        shift 2
+        ;;
+      --resource-gpu-count)
+        require_value "$1" "${2:-}"
+        COLOSSUS_RESOURCE_GPU_COUNT="$2"
+        shift 2
+        ;;
+      --exclude-resource)
+        require_value "$1" "${2:-}"
+        COLOSSUS_EXCLUDED_RESOURCE_NAMES+=("$2")
+        shift 2
+        ;;
+      --best-effort-hosts)
+        BEST_EFFORT_HOSTS="1"
+        shift
+        ;;
+      --gpu-profile)
+        require_value "$1" "${2:-}"
+        GPU_PROFILE="$2"
         shift 2
         ;;
       --existing-lease-id)
@@ -355,9 +438,20 @@ parse_args() {
         SSL_KEY="$2"
         shift 2
         ;;
+      --ssl-cert-local)
+        require_value "$1" "${2:-}"
+        LOCAL_SSL_CERT="$2"
+        shift 2
+        ;;
+      --ssl-key-local)
+        require_value "$1" "${2:-}"
+        LOCAL_SSL_KEY="$2"
+        shift 2
+        ;;
       --head-domain)
         require_value "$1" "${2:-}"
         HEAD_DOMAIN="$2"
+        HEAD_DOMAIN_EXPLICIT="1"
         shift 2
         ;;
       --ray-auth-user)
@@ -412,6 +506,36 @@ parse_args() {
         POST_TRAINING_CHECKPOINT_URI="$2"
         shift 2
         ;;
+      --post-training-checkpoint-destination)
+        require_value "$1" "${2:-}"
+        POST_TRAINING_CHECKPOINT_DESTINATION="$2"
+        shift 2
+        ;;
+      --dataset-archive-uri)
+        require_value "$1" "${2:-}"
+        DATASET_ARCHIVE_URI="$2"
+        shift 2
+        ;;
+      --dataset-archive-sha256)
+        require_value "$1" "${2:-}"
+        DATASET_ARCHIVE_SHA256="$2"
+        shift 2
+        ;;
+      --robocasa-runtime-archive-uri)
+        require_value "$1" "${2:-}"
+        ROBOCASA_RUNTIME_ARCHIVE_URI="$2"
+        shift 2
+        ;;
+      --robocasa-runtime-archive-sha256)
+        require_value "$1" "${2:-}"
+        ROBOCASA_RUNTIME_ARCHIVE_SHA256="$2"
+        shift 2
+        ;;
+      --artifact-max-mib-per-second)
+        require_value "$1" "${2:-}"
+        ARTIFACT_MAX_MIB_PER_SECOND="$2"
+        shift 2
+        ;;
       --bucket-access-key-id-env)
         require_value "$1" "${2:-}"
         BUCKET_ACCESS_KEY_ID_ENV="$2"
@@ -461,6 +585,16 @@ parse_args() {
         DATA_INTERFACE="$2"
         shift 2
         ;;
+      --prefer-ethernet-interface)
+        require_value "$1" "${2:-}"
+        PREFERRED_ETHERNET_INTERFACE="$2"
+        shift 2
+        ;;
+      --static-data-ip-prefix)
+        require_value "$1" "${2:-}"
+        STATIC_DATA_IP_PREFIX="$2"
+        shift 2
+        ;;
       --nccl-socket-ifname)
         require_value "$1" "${2:-}"
         NCCL_SOCKET_IFNAME="$2"
@@ -489,6 +623,11 @@ parse_args() {
         REQUIRE_RDMA="0"
         shift
         ;;
+      --ethernet-only)
+        ETHERNET_ONLY="1"
+        REQUIRE_RDMA="0"
+        shift
+        ;;
       --transport-validation-command)
         require_value "$1" "${2:-}"
         TRANSPORT_VALIDATION_COMMAND="$2"
@@ -507,6 +646,11 @@ parse_args() {
       --dry-run)
         DRY_RUN="1"
         shift
+        ;;
+      --state-output)
+        require_value "$1" "${2:-}"
+        STATE_OUTPUT="$2"
+        shift 2
         ;;
       -h|--help)
         usage
@@ -547,10 +691,32 @@ join_quoted() {
 }
 
 validate_args() {
+  [[ -r "${RAY_COMPAT_SCRIPT}" ]] \
+    || die "missing Colossus Ray Python compatibility shim: ${RAY_COMPAT_SCRIPT}"
   case "${COLOSSUS_NODE_COUNT}" in
     ''|*[!0-9]*) die "--nodes must be a positive integer" ;;
   esac
   (( COLOSSUS_NODE_COUNT > 0 )) || die "--nodes must be greater than 0"
+  if [[ -n "${COLOSSUS_RESOURCE_GPU_COUNT}" ]]; then
+    case "${COLOSSUS_RESOURCE_GPU_COUNT}" in
+      *[!0-9]*) die "--resource-gpu-count must be a positive integer" ;;
+    esac
+    (( COLOSSUS_RESOURCE_GPU_COUNT > 0 )) \
+      || die "--resource-gpu-count must be greater than 0"
+  fi
+  case "${BEST_EFFORT_HOSTS}" in
+    0|1) ;;
+    *) die "BEST_EFFORT_HOSTS must be 0 or 1" ;;
+  esac
+  case "${GPU_PROFILE}" in
+    gb300|gb300-rtx-pro-2000) ;;
+    *) die "--gpu-profile must be gb300 or gb300-rtx-pro-2000" ;;
+  esac
+  local excluded_resource
+  for excluded_resource in "${COLOSSUS_EXCLUDED_RESOURCE_NAMES[@]}"; do
+    [[ "${excluded_resource}" =~ ^[A-Za-z0-9._-]+$ ]] \
+      || die "--exclude-resource contains invalid characters: ${excluded_resource}"
+  done
   if [[ -n "${COLOSSUS_EXISTING_LEASE_ID}" ]]; then
     [[ "${COLOSSUS_EXISTING_LEASE_ID}" =~ ^[A-Za-z0-9-]+$ ]] \
       || die "--existing-lease-id contains invalid characters"
@@ -620,13 +786,25 @@ validate_args() {
     case "${SSL_CERT}${SSL_KEY}" in
       *[[:space:]]*) die "--ssl-cert and --ssl-key paths cannot contain whitespace" ;;
     esac
+    if [[ -n "${LOCAL_SSL_CERT}" || -n "${LOCAL_SSL_KEY}" ]]; then
+      [[ -r "${LOCAL_SSL_CERT}" ]] || die "cannot read local TLS certificate: ${LOCAL_SSL_CERT}"
+      [[ -r "${LOCAL_SSL_KEY}" ]] || die "cannot read local TLS private key: ${LOCAL_SSL_KEY}"
+    fi
   fi
   case "${GROOT_DATA_ROOT}" in
     ""|*[[:space:]]*) die "--groot-data-root must be non-empty and cannot contain whitespace" ;;
   esac
+  case "${POST_TRAINING_CHECKPOINT_DESTINATION}" in
+    ""|/*|*..*|*[!A-Za-z0-9._/-]*)
+      die "--post-training-checkpoint-destination must be a safe relative path"
+      ;;
+  esac
   case "${SYNC_POST_TRAINING_ARTIFACTS}" in
     0|1) ;;
     *) die "SYNC_POST_TRAINING_ARTIFACTS must be 0 or 1" ;;
+  esac
+  case "${ARTIFACT_MAX_MIB_PER_SECOND}" in
+    ''|*[!0-9]*) die "ARTIFACT_MAX_MIB_PER_SECOND must be a nonnegative integer" ;;
   esac
   if [[ "${SYNC_POST_TRAINING_ARTIFACTS}" == "1" ]]; then
     [[ "${MODEL_DEPS_URI}" == s3://* ]] || die "--model-deps-uri must be an s3:// URI"
@@ -634,6 +812,22 @@ validate_args() {
       [[ "${POST_TRAINING_CHECKPOINT_URI}" == s3://* ]] || die "--post-training-checkpoint-uri must be an s3:// URI"
     elif [[ "${DRY_RUN}" == "0" ]]; then
       die "provide --post-training-checkpoint-uri as an s3:// URI"
+    fi
+    if [[ -n "${DATASET_ARCHIVE_URI}" ]]; then
+      [[ "${DATASET_ARCHIVE_URI}" == s3://* ]] \
+        || die "--dataset-archive-uri must be an s3:// URI"
+      [[ "${DATASET_ARCHIVE_SHA256}" =~ ^[[:xdigit:]]{64}$ ]] \
+        || die "--dataset-archive-sha256 must contain 64 hexadecimal characters"
+    elif [[ -n "${DATASET_ARCHIVE_SHA256}" ]]; then
+      die "--dataset-archive-sha256 requires --dataset-archive-uri"
+    fi
+    if [[ -n "${ROBOCASA_RUNTIME_ARCHIVE_URI}" ]]; then
+      [[ "${ROBOCASA_RUNTIME_ARCHIVE_URI}" == s3://* ]] \
+        || die "--robocasa-runtime-archive-uri must be an s3:// URI"
+      [[ "${ROBOCASA_RUNTIME_ARCHIVE_SHA256}" =~ ^[[:xdigit:]]{64}$ ]] \
+        || die "--robocasa-runtime-archive-sha256 must contain 64 hexadecimal characters"
+    elif [[ -n "${ROBOCASA_RUNTIME_ARCHIVE_SHA256}" ]]; then
+      die "--robocasa-runtime-archive-sha256 requires --robocasa-runtime-archive-uri"
     fi
   fi
   case "${SSH_CONNECT_TIMEOUT}" in
@@ -661,12 +855,41 @@ validate_args() {
     0|1) ;;
     *) die "REQUIRE_RDMA must be 0 or 1" ;;
   esac
+  case "${ETHERNET_ONLY}" in
+    0|1) ;;
+    *) die "ETHERNET_ONLY must be 0 or 1" ;;
+  esac
+  if [[ "${ETHERNET_ONLY}" == "1" && "${REQUIRE_RDMA}" == "1" ]]; then
+    die "--ethernet-only cannot be combined with --require-rdma"
+  fi
   local interface
-  for interface in "${DATA_INTERFACE}" "${NCCL_SOCKET_IFNAME}" "${GLOO_SOCKET_IFNAME}"; do
+  for interface in \
+    "${DATA_INTERFACE}" \
+    "${PREFERRED_ETHERNET_INTERFACE}" \
+    "${NCCL_SOCKET_IFNAME}" \
+    "${GLOO_SOCKET_IFNAME}"
+  do
     if [[ -n "${interface}" && ! "${interface}" =~ ^[[:alnum:]_.:-]+$ ]]; then
       die "network interface names may contain only letters, digits, '.', '_', ':', and '-'"
     fi
   done
+  if [[ -n "${DATA_INTERFACE}" && -n "${PREFERRED_ETHERNET_INTERFACE}" ]]; then
+    die "--data-interface and --prefer-ethernet-interface are mutually exclusive"
+  fi
+  if [[ -n "${STATIC_DATA_IP_PREFIX}" ]]; then
+    [[ -n "${DATA_INTERFACE}" || -n "${PREFERRED_ETHERNET_INTERFACE}" ]] \
+      || die "--static-data-ip-prefix requires --data-interface or --prefer-ethernet-interface"
+    python3 - "${STATIC_DATA_IP_PREFIX}" <<'PY' \
+      || die "--static-data-ip-prefix must contain three IPv4 octets"
+import ipaddress
+import sys
+
+prefix = sys.argv[1]
+ipaddress.ip_network(f"{prefix}.0/24")
+if len(prefix.split(".")) != 3:
+    raise SystemExit(1)
+PY
+  fi
   if [[ -n "${NCCL_IB_HCA}" && ! "${NCCL_IB_HCA}" =~ ^mlx5_[0-9]+(:[0-9]+)?(,mlx5_[0-9]+(:[0-9]+)?)*$ ]]; then
     die "--nccl-ib-hca must be a comma-separated mlx5_N[:PORT] list"
   fi
@@ -696,6 +919,9 @@ validate_args() {
     fi
     [[ -n "${NVCR_TOKEN_SOURCE}" || -n "${NVCR_TOKEN}" ]] || die "provide an NVCR token via --nvcr-token-file/env/stdin or NVCR_TOKEN"
   fi
+  case "${STATE_OUTPUT}" in
+    *$'\n'*|*$'\r'*) die "--state-output cannot contain newlines" ;;
+  esac
 }
 
 resolve_secret_sources() {
@@ -746,7 +972,7 @@ resolve_secret_sources() {
 validate_colossus_pool_access() {
   local access_path="${TMP_DIR}/colossus-pool-access.json"
 
-  if ! colossus bm pool access --pool-name "${COLOSSUS_POOL_ID}" --json > "${access_path}"; then
+  if ! colossus_cli bm pool access --pool-name "${COLOSSUS_POOL_ID}" --json > "${access_path}"; then
     die "failed to check reserve permission for Colossus pool ${COLOSSUS_POOL_ID}"
   fi
   if ! python3 - "${access_path}" "${COLOSSUS_POOL_ID}" <<'PY'
@@ -768,7 +994,7 @@ write_colossus_lease_list() {
   local status="$1"
   local path="$2"
 
-  if colossus bm lease list --status "${status}" --json > "${path}"; then
+  if colossus_cli bm lease list --status "${status}" --json > "${path}"; then
     return 0
   fi
   # Colossus CLI 2.3 exits 1 for an empty result while still writing valid [] JSON.
@@ -788,9 +1014,12 @@ discover_colossus_candidates() {
   local active_path="${TMP_DIR}/colossus-active-leases.json"
   local pending_path="${TMP_DIR}/colossus-pending-leases.json"
   local assignments
+  local excluded_names
+
+  excluded_names="$(IFS=,; printf '%s' "${COLOSSUS_EXCLUDED_RESOURCE_NAMES[*]}")"
 
   validate_colossus_pool_access
-  if ! colossus bm resource list \
+  if ! colossus_cli bm resource list \
     --filters "poolId=${COLOSSUS_POOL_ID}" status=AVAILABLE gpuTag=GB300 \
     --authorized-to-reserve \
     --json > "${resources_path}"; then
@@ -809,13 +1038,25 @@ discover_colossus_candidates() {
       "${active_path}" \
       "${pending_path}" \
       "${COLOSSUS_POOL_ID}" \
-      "${COLOSSUS_OS}" <<'PY'
+      "${COLOSSUS_OS}" \
+      "${COLOSSUS_RESOURCE_GPU_COUNT}" \
+      "${excluded_names}" <<'PY'
 import json
 import re
 import shlex
 import sys
 
-resources_path, active_path, pending_path, pool_id, requested_os = sys.argv[1:]
+(
+    resources_path,
+    active_path,
+    pending_path,
+    pool_id,
+    requested_os,
+    gpu_count_text,
+    excluded_names_text,
+) = sys.argv[1:]
+required_gpu_count = int(gpu_count_text) if gpu_count_text else None
+excluded_names = set(filter(None, excluded_names_text.split(",")))
 
 
 def load_records(path):
@@ -847,11 +1088,14 @@ for resource in load_records(resources_path):
         continue
     if resource.get("gpuTag") != "GB300":
         continue
+    if required_gpu_count is not None and resource.get("gpuCount") != required_gpu_count:
+        continue
     name = resource.get("name")
     if (
         not isinstance(name, str)
         or re.fullmatch(r"[A-Za-z0-9._-]+", name) is None
         or name in busy_names
+        or name in excluded_names
     ):
         continue
     supported_os = resource.get("supportedOs")
@@ -874,7 +1118,12 @@ PY
   eval "${assignments}"
 
   if (( ${#COLOSSUS_CANDIDATE_NAMES[@]} < COLOSSUS_NODE_COUNT )); then
-    die "pool ${COLOSSUS_POOL_ID} has ${#COLOSSUS_CANDIDATE_NAMES[@]} unleased compatible host(s), but --nodes requested ${COLOSSUS_NODE_COUNT}"
+    if [[ "${BEST_EFFORT_HOSTS}" == "1" && "${#COLOSSUS_CANDIDATE_NAMES[@]}" -gt 0 ]]; then
+      log "pool ${COLOSSUS_POOL_ID} has only ${#COLOSSUS_CANDIDATE_NAMES[@]} compatible host(s); continuing best-effort"
+      COLOSSUS_NODE_COUNT="${#COLOSSUS_CANDIDATE_NAMES[@]}"
+    else
+      die "pool ${COLOSSUS_POOL_ID} has ${#COLOSSUS_CANDIDATE_NAMES[@]} unleased compatible host(s), but --nodes requested ${COLOSSUS_NODE_COUNT}"
+    fi
   fi
   log "found ${#COLOSSUS_CANDIDATE_NAMES[@]} unleased compatible host(s) in Colossus pool ${COLOSSUS_POOL_ID}"
 }
@@ -884,6 +1133,7 @@ prepare_dry_run_hosts() {
   USERS=()
   PASSWORDS=()
   DATA_IPS=()
+  DATA_INTERFACES=()
 
   local idx host
   for ((idx = 0; idx < COLOSSUS_NODE_COUNT; idx++)); do
@@ -895,6 +1145,7 @@ prepare_dry_run_hosts() {
     USERS+=("<assigned-by-colossus>")
     PASSWORDS+=("")
     DATA_IPS+=("")
+    DATA_INTERFACES+=("")
   done
 
   if [[ -z "${JOIN_RAY_ADDRESS}" && -z "${HEAD_DOMAIN}" ]]; then
@@ -907,7 +1158,7 @@ load_existing_colossus_host() {
   local existing_path="${TMP_DIR}/colossus-existing-lease.json"
   local assignments
   local -a command=(
-    colossus bm lease list
+    colossus_cli bm lease list
     --lease-id "${COLOSSUS_EXISTING_LEASE_ID}"
   )
 
@@ -960,6 +1211,7 @@ if (
 print(f"COLOSSUS_EXISTING_LEASE_NAME={shlex.quote(name)}")
 print(f"HOSTS+=({shlex.quote(host)})")
 print("DATA_IPS+=('')")
+print("DATA_INTERFACES+=('')")
 if include_credentials == "1":
     user = secrets.get("local_accountname")
     password = secrets.get("local_accountpassword")
@@ -1018,7 +1270,7 @@ append_colossus_lease_host() {
   local credentials_path="${TMP_DIR}/colossus-lease-${lease_id}-credentials.json"
   local assignments
 
-  if ! colossus bm lease list \
+  if ! colossus_cli bm lease list \
     --lease-id "${lease_id}" \
     --show-creds \
     --json > "${credentials_path}"; then
@@ -1063,6 +1315,7 @@ print(f"HOSTS+=({shlex.quote(host)})")
 print(f"USERS+=({shlex.quote(user)})")
 print(f"PASSWORDS+=({shlex.quote(password)})")
 print("DATA_IPS+=('')")
+print("DATA_INTERFACES+=('')")
 PY
   )"; then
     rm -f "${credentials_path}"
@@ -1076,7 +1329,7 @@ colossus_lease_status() {
   local lease_id="$1"
   local status_path="${TMP_DIR}/colossus-lease-${lease_id}-status.json"
 
-  if ! colossus bm lease list --lease-id "${lease_id}" --json > "${status_path}"; then
+  if ! colossus_cli bm lease list --lease-id "${lease_id}" --json > "${status_path}"; then
     return 1
   fi
   python3 - "${status_path}" "${lease_id}" <<'PY'
@@ -1117,7 +1370,8 @@ wait_for_colossus_lease() {
         log "${resource_name}: waiting for Colossus lease ${lease_id} (${status:-status unavailable})"
         ;;
       EXPIRED)
-        die "Colossus lease ${lease_id} for ${resource_name} expired during provisioning"
+        log "${resource_name}: Colossus lease ${lease_id} expired during provisioning"
+        return 1
         ;;
       *)
         log "${resource_name}: waiting for Colossus lease ${lease_id} (status ${status})"
@@ -1125,18 +1379,24 @@ wait_for_colossus_lease() {
     esac
     sleep "${COLOSSUS_LEASE_POLL_INTERVAL}"
   done
-  die "timed out after ${COLOSSUS_LEASE_READY_TIMEOUT}s waiting for Colossus lease ${lease_id} (${resource_name})"
+  log "${resource_name}: timed out after ${COLOSSUS_LEASE_READY_TIMEOUT}s waiting for Colossus lease ${lease_id}"
+  return 1
 }
 
 reserve_colossus_hosts() {
-  local idx name lease_id
+  local idx name lease_id status
   local create_path error_path
   local deadline
+  local -a credentialed_lease_ids=() credentialed_lease_names=()
+  local -a pending_lease_ids=() pending_lease_names=()
+  local -a next_pending_lease_ids=() next_pending_lease_names=()
+  local -a unready_lease_ids=() unready_lease_names=()
 
   HOSTS=()
   USERS=()
   PASSWORDS=()
   DATA_IPS=()
+  DATA_INTERFACES=()
   COLOSSUS_LEASE_IDS=()
   COLOSSUS_LEASE_NAMES=()
 
@@ -1148,7 +1408,7 @@ reserve_colossus_hosts() {
     create_path="${TMP_DIR}/colossus-create-${name}.json"
     error_path="${TMP_DIR}/colossus-create-${name}.stderr"
     log "${name}: requesting ${COLOSSUS_LEASE_DURATION} lease from ${COLOSSUS_POOL_ID}"
-    if ! colossus bm lease create \
+    if ! colossus_cli bm lease create \
       --duration "${COLOSSUS_LEASE_DURATION}" \
       --lease-justification "${COLOSSUS_LEASE_JUSTIFICATION}; ${name}" \
       --provision-mode "${COLOSSUS_PROVISION_MODE}" \
@@ -1170,16 +1430,75 @@ reserve_colossus_hosts() {
   done
 
   if (( ${#COLOSSUS_LEASE_IDS[@]} < COLOSSUS_NODE_COUNT )); then
-    die "created ${#COLOSSUS_LEASE_IDS[@]} of ${COLOSSUS_NODE_COUNT} requested Colossus leases"
+    if [[ "${BEST_EFFORT_HOSTS}" == "1" && "${#COLOSSUS_LEASE_IDS[@]}" -gt 0 ]]; then
+      log "created ${#COLOSSUS_LEASE_IDS[@]} of ${COLOSSUS_NODE_COUNT} requested leases; continuing best-effort"
+      COLOSSUS_NODE_COUNT="${#COLOSSUS_LEASE_IDS[@]}"
+    else
+      die "created ${#COLOSSUS_LEASE_IDS[@]} of ${COLOSSUS_NODE_COUNT} requested Colossus leases"
+    fi
   fi
 
+  # Poll the whole reservation batch round-robin against one shared deadline.
+  # Waiting on a broken first station must not prevent later stations whose
+  # credentials are already ready from joining a best-effort cluster.
+  pending_lease_ids=("${COLOSSUS_LEASE_IDS[@]}")
+  pending_lease_names=("${COLOSSUS_LEASE_NAMES[@]}")
   deadline=$((SECONDS + COLOSSUS_LEASE_READY_TIMEOUT))
-  for idx in "${!COLOSSUS_LEASE_IDS[@]}"; do
-    wait_for_colossus_lease \
-      "${COLOSSUS_LEASE_IDS[$idx]}" \
-      "${COLOSSUS_LEASE_NAMES[$idx]}" \
-      "${deadline}"
+  while (( ${#pending_lease_ids[@]} > 0 && SECONDS < deadline )); do
+    next_pending_lease_ids=()
+    next_pending_lease_names=()
+    for idx in "${!pending_lease_ids[@]}"; do
+      lease_id="${pending_lease_ids[$idx]}"
+      name="${pending_lease_names[$idx]}"
+      status="$(colossus_lease_status "${lease_id}" || true)"
+      if [[ "${status}" == "ACTIVE" ]] \
+          && append_colossus_lease_host "${lease_id}" "${name}"; then
+        credentialed_lease_ids+=("${lease_id}")
+        credentialed_lease_names+=("${name}")
+        log "${name}: Colossus lease ${lease_id} is active and credentials are ready"
+        continue
+      fi
+      if [[ "${status}" == "EXPIRED" ]]; then
+        log "${name}: Colossus lease ${lease_id} expired during provisioning"
+        unready_lease_ids+=("${lease_id}")
+        unready_lease_names+=("${name}")
+        continue
+      fi
+      log "${name}: waiting for Colossus lease ${lease_id} (${status:-status unavailable}; credentials pending)"
+      next_pending_lease_ids+=("${lease_id}")
+      next_pending_lease_names+=("${name}")
+    done
+    pending_lease_ids=("${next_pending_lease_ids[@]}")
+    pending_lease_names=("${next_pending_lease_names[@]}")
+    if (( ${#pending_lease_ids[@]} > 0 && SECONDS < deadline )); then
+      sleep "${COLOSSUS_LEASE_POLL_INTERVAL}"
+    fi
   done
+  unready_lease_ids+=("${pending_lease_ids[@]}")
+  unready_lease_names+=("${pending_lease_names[@]}")
+
+  if (( ${#unready_lease_ids[@]} > 0 )) && [[ "${BEST_EFFORT_HOSTS}" != "1" ]]; then
+    die "Colossus lease ${unready_lease_ids[0]} for ${unready_lease_names[0]} did not become credential-ready"
+  fi
+  for idx in "${!unready_lease_ids[@]}"; do
+    lease_id="${unready_lease_ids[$idx]}"
+    name="${unready_lease_names[$idx]}"
+    log "${name}: ignoring lease that did not become credential-ready"
+    if colossus_cli bm lease delete \
+      --lease-id "${lease_id}" \
+      --force \
+      --release-mode CLEAN \
+      --json >/dev/null; then
+      log "${name}: released unready Colossus lease ${lease_id}"
+    else
+      log "${name}: WARNING: failed to release unready Colossus lease ${lease_id}"
+    fi
+  done
+  COLOSSUS_LEASE_IDS=("${credentialed_lease_ids[@]}")
+  COLOSSUS_LEASE_NAMES=("${credentialed_lease_names[@]}")
+  COLOSSUS_NODE_COUNT="${#COLOSSUS_LEASE_IDS[@]}"
+  (( COLOSSUS_NODE_COUNT > 0 )) \
+    || die "no reserved host became credential-ready"
   if [[ -z "${JOIN_RAY_ADDRESS}" && -z "${HEAD_DOMAIN}" ]]; then
     HEAD_DOMAIN="${HOSTS[0]}"
   fi
@@ -1192,7 +1511,7 @@ release_colossus_leases() {
   for idx in "${!COLOSSUS_LEASE_IDS[@]}"; do
     lease_id="${COLOSSUS_LEASE_IDS[$idx]}"
     name="${COLOSSUS_LEASE_NAMES[$idx]:-unknown}"
-    if colossus bm lease delete \
+    if colossus_cli bm lease delete \
       --lease-id "${lease_id}" \
       --force \
       --release-mode CLEAN \
@@ -1214,6 +1533,12 @@ print_dry_run() {
     log "Colossus pool: ${COLOSSUS_POOL_ID}"
   fi
   log "requested nodes: ${COLOSSUS_NODE_COUNT}"
+  log "required physical GPU count: ${COLOSSUS_RESOURCE_GPU_COUNT:-<any>}"
+  log "best-effort hosts: ${BEST_EFFORT_HOSTS}"
+  log "GPU profile: ${GPU_PROFILE}"
+  if [[ "${#COLOSSUS_EXCLUDED_RESOURCE_NAMES[@]}" -gt 0 ]]; then
+    log "excluded resources: ${COLOSSUS_EXCLUDED_RESOURCE_NAMES[*]}"
+  fi
   log "lease duration: ${COLOSSUS_LEASE_DURATION}"
   log "lease OS: ${COLOSSUS_OS}"
   log "lease provision mode: ${COLOSSUS_PROVISION_MODE}"
@@ -1229,15 +1554,19 @@ print_dry_run() {
     log "head domain: ${HEAD_DOMAIN}"
     log "ssl cert on head: ${SSL_CERT}"
     log "ssl key on head: ${SSL_KEY}"
+    log "local TLS material: ${LOCAL_SSL_CERT:+configured}"
     log "nginx endpoint: https://${HEAD_DOMAIN}/ray/"
     log "ray auth user: ${RAY_AUTH_USER}"
   fi
   log "host setup concurrency: ${HOST_SETUP_CONCURRENCY}"
-  log "GPU isolation: one NVIDIA GB300 per Ray node"
+  log "GPU isolation/profile: ${GPU_PROFILE}"
   log "data interface: ${DATA_INTERFACE:-<automatic>}"
+  log "preferred non-mlx5 Ethernet interface: ${PREFERRED_ETHERNET_INTERFACE:-<disabled>}"
+  log "static data IP prefix: ${STATIC_DATA_IP_PREFIX:-<disabled>}"
   log "NCCL socket interface: ${NCCL_SOCKET_IFNAME:-<automatic>}"
   log "Gloo socket interface: ${GLOO_SOCKET_IFNAME:-<automatic>}"
   log "RDMA required: ${REQUIRE_RDMA}"
+  log "Ethernet only: ${ETHERNET_ONLY}"
   if [[ "${REQUIRE_RDMA}" == "1" ]]; then
     log "NCCL IB HCA: ${NCCL_IB_HCA}"
     log "NCCL IB GID index: ${NCCL_IB_GID_INDEX}"
@@ -1255,6 +1584,9 @@ print_dry_run() {
     log "post-training artifacts: enabled"
     log "model deps source: ${MODEL_DEPS_URI}"
     log "post-training checkpoint source: ${POST_TRAINING_CHECKPOINT_URI:-<required for real run>}"
+    log "post-training checkpoint destination: ${POST_TRAINING_CHECKPOINT_DESTINATION}"
+    log "dataset archive: ${DATASET_ARCHIVE_URI:-<disabled>}"
+    log "RoboCasa runtime archive: ${ROBOCASA_RUNTIME_ARCHIVE_URI:-<disabled>}"
     log "bucket credential env vars: ${BUCKET_ACCESS_KEY_ID_ENV}, ${BUCKET_SECRET_ACCESS_KEY_ENV}, ${BUCKET_ENDPOINT_URL_ENV}, ${BUCKET_REGION_ENV}"
   else
     log "post-training artifacts: disabled"
@@ -1277,6 +1609,7 @@ print_dry_run() {
 ssh_opts() {
   printf '%s\n' \
     "-o" "StrictHostKeyChecking=accept-new" \
+    "-o" "UserKnownHostsFile=${TMP_DIR}/ssh-known-hosts" \
     "-o" "ConnectTimeout=${SSH_CONNECT_TIMEOUT}" \
     "-o" "ServerAliveInterval=30" \
     "-o" "ServerAliveCountMax=4"
@@ -1310,6 +1643,21 @@ remote_sudo_bash_lc() {
   local command="$4"
   printf '%s\n' "${password}" \
     | remote_ssh "${host}" "${user}" "${password}" "sudo -S -p '' bash -lc $(shell_quote "${command}")"
+}
+
+cleanup_remote_tls_staging() {
+  if [[ "${REMOTE_TLS_STAGING_ACTIVE}" != "1" ]]; then
+    return
+  fi
+
+  if [[ "${#HOSTS[@]}" -gt 0 && "${#USERS[@]}" -gt 0 && "${#PASSWORDS[@]}" -gt 0 ]]; then
+    remote_ssh "${HOSTS[0]}" "${USERS[0]}" "${PASSWORDS[0]}" \
+      "rm -f -- $(shell_quote "${REMOTE_TLS_CERT_STAGING}") $(shell_quote "${REMOTE_TLS_KEY_STAGING}")" \
+      >/dev/null 2>&1 || true
+  fi
+  REMOTE_TLS_STAGING_ACTIVE="0"
+  REMOTE_TLS_CERT_STAGING=""
+  REMOTE_TLS_KEY_STAGING=""
 }
 
 remote_sudo_capture() {
@@ -1453,10 +1801,19 @@ nccl_ib_gid_index="${11}"
 require_rdma="${12}"
 target_gpu_name="${13}"
 gpu_test_image="${14}"
+gpu_profile="${15}"
+secondary_gpu_name_pattern="${16}"
+ethernet_only="${17}"
+head_domain="${18}"
 
 head_container="groot-ray-head"
 worker_container="groot-ray-worker"
-ray_tmp="/tmp/ray"
+host_ray_tmp="${data_root}/ray"
+# Keep Ray's temporary path identical in the control container and on the
+# host. Ray propagates this literal path into nested image_uri workers, whose
+# Podman bind sources are resolved by the host daemon rather than by the
+# control container.
+container_ray_tmp="${host_ray_tmp}"
 job_root="/data/groot-ol-jobs"
 podman_socket="/run/podman/podman.sock"
 podman_auth="/root/.config/containers/auth.json"
@@ -1466,10 +1823,25 @@ case "${require_rdma}" in
   0|1) ;;
   *) echo "invalid require_rdma=${require_rdma}" >&2; exit 1 ;;
 esac
-[[ "${gpu_count}" == "1" ]] || {
-  echo "expected exactly one GB300 GPU per Ray node, got gpu_count=${gpu_count}" >&2
-  exit 1
-}
+case "${ethernet_only}" in
+  0|1) ;;
+  *) echo "invalid ethernet_only=${ethernet_only}" >&2; exit 1 ;;
+esac
+case "${gpu_profile}" in
+  gb300)
+    [[ "${gpu_count}" == "1" ]] || {
+      echo "expected one exposed GPU for profile ${gpu_profile}, got ${gpu_count}" >&2
+      exit 1
+    }
+    ;;
+  gb300-rtx-pro-2000)
+    [[ "${gpu_count}" == "2" ]] || {
+      echo "expected two exposed GPUs for profile ${gpu_profile}, got ${gpu_count}" >&2
+      exit 1
+    }
+    ;;
+  *) echo "invalid gpu_profile=${gpu_profile}" >&2; exit 1 ;;
+esac
 [[ -n "${target_gpu_name}" ]] || {
   echo "target GPU model must be non-empty" >&2
   exit 1
@@ -1497,9 +1869,32 @@ gb300_gpu_uuid="$(printf '%s\n' "${gpu_inventory}" \
   echo "expected exactly one ${target_gpu_name} GPU in the host inventory" >&2
   exit 1
 }
-ray_num_gpus="1"
+rtx_gpu_uuid=""
+if [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
+  rtx_gpu_uuid="$(printf '%s\n' "${gpu_inventory}" \
+    | awk -F',' -v target="${secondary_gpu_name_pattern}" '
+          {
+            uuid=$1; name=$2
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", uuid)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
+            if (index(name, target) != 0) {
+              selected=uuid
+              count++
+            }
+          }
+          END { if (count == 1 && selected ~ /^GPU-[[:xdigit:]-]+$/) print selected }
+        ')"
+  [[ -n "${rtx_gpu_uuid}" && "${rtx_gpu_uuid}" != "${gb300_gpu_uuid}" ]] || {
+    echo "expected exactly one distinct ${secondary_gpu_name_pattern} GPU" >&2
+    exit 1
+  }
+fi
+ray_num_gpus="${gpu_count}"
 
-install -d -m 0755 /etc/cdi "${ray_tmp}" "${job_root}"
+install -d -m 0755 /etc/cdi "${host_ray_tmp}" "${job_root}" "${data_root}/runtime/python"
+install -m 0644 \
+  /tmp/groot-ray-cluster/colossus_ray_sitecustomize.py \
+  "${data_root}/runtime/python/sitecustomize.py"
 nvidia-ctk cdi generate \
   --device-name-strategy=uuid \
   --output=/etc/cdi/nvidia.yaml >/dev/null
@@ -1543,6 +1938,9 @@ os.chmod(temporary_path, mode)
 os.replace(temporary_path, path)
 PYTHON
 nvidia-ctk cdi list | grep -Fxq "nvidia.com/gpu=${gb300_gpu_uuid}"
+if [[ -n "${rtx_gpu_uuid}" ]]; then
+  nvidia-ctk cdi list | grep -Fxq "nvidia.com/gpu=${rtx_gpu_uuid}"
+fi
 systemctl enable --now podman.socket
 [[ -S "${podman_socket}" ]] || {
   echo "rootful Podman socket is unavailable: ${podman_socket}" >&2
@@ -1578,6 +1976,17 @@ if [[ -z "${gloo_socket_ifname}" ]]; then
 fi
 ip link show dev "${data_interface}" >/dev/null
 ip -o -4 addr show dev "${data_interface}" scope global | grep -q '[[:space:]]inet[[:space:]]'
+if [[ "${ethernet_only}" == "1" ]]; then
+  interface_driver="$(basename "$(readlink -f "/sys/class/net/${data_interface}/device/driver" 2>/dev/null || true)")"
+  [[ -n "${interface_driver}" ]] || {
+    echo "could not resolve driver for Ethernet interface ${data_interface}" >&2
+    exit 1
+  }
+  [[ "${interface_driver}" != "mlx5_core" ]] || {
+    echo "Ethernet-only mode rejects ConnectX interface ${data_interface}" >&2
+    exit 1
+  }
+fi
 
 declare -a uverbs_devices=()
 declare -A seen_uverbs=()
@@ -1621,6 +2030,8 @@ if [[ "${require_rdma}" == "1" ]]; then
     --env "NCCL_IB_HCA=${nccl_ib_hca}"
     --env "NCCL_IB_GID_INDEX=${nccl_ib_gid_index}"
   )
+else
+  network_env_args+=(--env "NCCL_IB_DISABLE=1")
 fi
 
 declare -a container_fips_args=()
@@ -1640,17 +2051,50 @@ fi
 
 common_ray_args=(
   "--node-ip-address=${node_ip}"
+  "--temp-dir=${container_ray_tmp}"
   "--node-manager-port=6380"
   "--object-manager-port=6381"
   "--runtime-env-agent-port=6382"
   "--dashboard-agent-grpc-port=6383"
   "--dashboard-agent-listen-port=52365"
+  "--metrics-export-port=8080"
   "--min-worker-port=20000"
-  "--max-worker-port=20100"
+  # A large persistent cluster can host many concurrent one-node jobs.  Give
+  # their drivers and workers enough distinct ports on the head raylet.
+  "--max-worker-port=20999"
   "--num-gpus=${ray_num_gpus}"
   "--disable-usage-stats"
   "--block"
 )
+if [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
+  # ray_start is passed through a second Bash parser below. Preserve literal
+  # quotes around the JSON so brace expansion cannot split it into two args.
+  common_ray_args+=("--resources='{\"GB300\":1,\"RTXPRO2000\":1}'")
+fi
+
+declare -a control_gpu_telemetry_args=()
+if [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
+  # Ray schedules the logical GPUs into sibling Podman containers. Give the
+  # control container utility-only access to the physical devices so its
+  # dashboard agent can read NVML telemetry without exposing CUDA compute.
+  control_gpu_telemetry_args+=(
+    --gpus 'all,"capabilities=utility"'
+    --env "NVIDIA_DRIVER_CAPABILITIES=utility"
+  )
+fi
+
+declare -a head_metrics_env_args=()
+if [[ "${role}" == "head" ]]; then
+  [[ -n "${head_domain}" ]] || {
+    echo "Ray head requires a public dashboard domain" >&2
+    exit 1
+  }
+  head_metrics_env_args+=(
+    --env "RAY_PROMETHEUS_HOST=http://127.0.0.1:9090"
+    --env "RAY_GRAFANA_HOST=http://127.0.0.1:3000"
+    --env "RAY_GRAFANA_IFRAME_HOST=https://${head_domain}/ray/grafana"
+  )
+fi
 
 if [[ "${role}" == "head" ]]; then
   container="${head_container}"
@@ -1695,8 +2139,8 @@ systemctl enable --now colossus-ray-prune.timer
 docker rm -f "${head_container}" "${worker_container}" >/dev/null 2>&1 || true
 # A reset starts a new Ray session. Remove stale sockets and old job/runtime-env
 # logs, which may contain serialized credentials from older Ray configurations.
-find "${ray_tmp}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-install -d -m 0755 "${ray_tmp}"
+find "${host_ray_tmp}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+install -d -m 0755 "${host_ray_tmp}"
 # Runtime-env INFO logs serialize env_vars, including job credentials. Keep
 # those node-local rather than forwarding them into user-visible job logs.
 docker run -d \
@@ -1709,6 +2153,8 @@ docker run -d \
   --ulimit memlock=-1 \
   --ulimit stack=67108864 \
   --ulimit nofile=65536:65536 \
+  "${control_gpu_telemetry_args[@]}" \
+  "${head_metrics_env_args[@]}" \
   "${network_env_args[@]}" \
   "${container_fips_args[@]}" \
   -e "CONTAINER_HOST=unix://${podman_socket}" \
@@ -1716,13 +2162,15 @@ docker run -d \
   -e "COLOSSUS_DATA_ROOT=${data_root}" \
   -e "COLOSSUS_JOB_ROOT=${job_root}" \
   -e "COLOSSUS_GPU_CDI_DEVICE=nvidia.com/gpu=${gb300_gpu_uuid}" \
+  -e "COLOSSUS_GPU_CDI_DEVICES=nvidia.com/gpu=${gb300_gpu_uuid}${rtx_gpu_uuid:+,nvidia.com/gpu=${rtx_gpu_uuid}}" \
+  -e "CUDA_VISIBLE_DEVICES=${gb300_gpu_uuid}${rtx_gpu_uuid:+,${rtx_gpu_uuid}}" \
   -e "COLOSSUS_RDMA_DEVICES=${rdma_devices}" \
   -e "COLOSSUS_FIPS_MASK=${container_fips_mask:-}" \
   -e "RAY_RUNTIME_ENV_LOG_TO_DRIVER_ENABLED=0" \
   -v "${podman_socket}:${podman_socket}" \
   -v "${podman_auth}:${podman_auth}:ro" \
   -v "${host_podman_wrapper}:/usr/local/bin/podman:ro" \
-  -v "${ray_tmp}:${ray_tmp}" \
+  -v "${host_ray_tmp}:${container_ray_tmp}" \
   -v "${data_root}:${data_root}" \
   -v "${job_root}:${job_root}" \
   -w /tmp \
@@ -1758,6 +2206,21 @@ visible_gpu_name="$(printf '%s' "${visible_gpu_name}" | sed 's/^[[:space:]]*//;s
   echo "Podman Ray job sees ${visible_gpu_name}, expected ${target_gpu_name}" >&2
   exit 1
 }
+if [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
+  visible_gpu="$(
+    timeout --kill-after=10s 120s docker exec \
+      -e CUDA_VISIBLE_DEVICES=1 \
+      "${container}" \
+      podman run --rm "${gpu_test_image}" \
+      nvidia-smi --query-gpu=uuid,name --format=csv,noheader
+  )"
+  visible_gpu_uuid="${visible_gpu%%,*}"
+  visible_gpu_uuid="${visible_gpu_uuid//[[:space:]]/}"
+  [[ "${visible_gpu_uuid}" == "${rtx_gpu_uuid}" ]] || {
+    echo "Podman Ray logical GPU 1 sees ${visible_gpu_uuid}, expected ${rtx_gpu_uuid}" >&2
+    exit 1
+  }
+fi
 
 if [[ "${require_rdma}" == "1" ]]; then
   docker exec -e CUDA_VISIBLE_DEVICES=0 "${container}" \
@@ -1802,14 +2265,25 @@ docker run --rm -i \
   --network host \
   -v "${data_root}:${data_root}" \
   "${container_fips_args[@]}" \
+  -e "GROOT_ARTIFACT_DOWNLOAD_OWNER=$(hostname)" \
   --env-file "${env_file}" \
   "${image}" \
   sh -c 'python -m pip install --quiet --no-cache-dir boto3 && exec python -' <<'PY'
 from __future__ import annotations
 
+import ctypes
+import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
 from urllib.parse import urlparse
 
 import boto3
@@ -1849,23 +2323,64 @@ def s3_client():
 
 
 def download_object(s3, bucket: str, key: str, target: Path, expected_size: int | None) -> None:
-    if target.exists() and target.stat().st_size > 0:
-        if expected_size is None or target.stat().st_size == expected_size:
+    if target.exists():
+        target_size = target.stat().st_size
+        if (expected_size is None and target_size > 0) or target_size == expected_size:
             return
-    log(f"downloading s3://{bucket}/{key} -> {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(f".{target.name}.tmp-{os.getpid()}")
-    response = s3.get_object(Bucket=bucket, Key=key)
-    with tmp.open("wb") as file:
+    if expected_size == 0:
+        # Hugging Face cache exports include real zero-byte lock objects. There
+        # is no response body to resume, and a partial file does not exist yet.
+        target.touch()
+        return
+    # /data may be shared by several Colossus hosts. Including the physical
+    # host in the resumable partial prevents concurrent setup processes from
+    # moving one another's temporary file out from underneath an active
+    # download.
+    owner = "".join(
+        char if char.isalnum() or char in "-_" else "_"
+        for char in required_env("GROOT_ARTIFACT_DOWNLOAD_OWNER")
+    )
+    partial = target.with_name(f".{target.name}.{owner}.partial")
+    resume_offset = partial.stat().st_size if partial.exists() else 0
+    if expected_size is not None and resume_offset > expected_size:
+        partial.write_bytes(b"")
+        resume_offset = 0
+    if expected_size is not None and resume_offset == expected_size:
+        partial.replace(target)
+        return
+
+    request = {"Bucket": bucket, "Key": key}
+    if resume_offset:
+        request["Range"] = f"bytes={resume_offset}-"
+        log(f"resuming s3://{bucket}/{key} at byte {resume_offset} -> {target}")
+    else:
+        log(f"downloading s3://{bucket}/{key} -> {target}")
+    response = s3.get_object(**request)
+    if resume_offset and not str(response.get("ContentRange", "")).startswith(
+        f"bytes {resume_offset}-"
+    ):
+        raise OSError(f"S3 server did not honor resume offset {resume_offset} for {key}")
+    max_mib_per_second = int(os.environ.get("GROOT_ARTIFACT_MAX_MIB_PER_SECOND", "0"))
+    max_bytes_per_second = max_mib_per_second * 1024 * 1024
+    started = time.monotonic()
+    downloaded = 0
+    with partial.open("ab" if resume_offset else "wb") as file:
         for chunk in response["Body"].iter_chunks(chunk_size=16 * 1024 * 1024):
             if chunk:
                 file.write(chunk)
-    tmp.replace(target)
-    if expected_size is not None and target.stat().st_size != expected_size:
+                downloaded += len(chunk)
+                if max_bytes_per_second:
+                    target_elapsed = downloaded / max_bytes_per_second
+                    delay = target_elapsed - (time.monotonic() - started)
+                    if delay > 0:
+                        time.sleep(delay)
+    if expected_size is not None and partial.stat().st_size != expected_size:
         raise OSError(
             f"Downloaded size mismatch for s3://{bucket}/{key}: "
-            f"expected {expected_size}, got {target.stat().st_size}"
+            f"expected {expected_size}, got {partial.stat().st_size}"
         )
+    partial.replace(target)
 
 
 def sync_prefix(s3, source_uri: str, target: Path, required_files: tuple[str, ...] = ()) -> None:
@@ -1902,10 +2417,206 @@ def sync_file(s3, source_uri: str, target: Path) -> None:
     download_object(s3, bucket, key, target, int(response["ContentLength"]))
 
 
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(64 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def artifact_target_lock_path(target: Path) -> Path:
+    return target.with_name(f".{target.name}.groot-artifact.lock")
+
+
+def atomic_publish_directory(prepared: Path, target: Path) -> None:
+    """Publish a complete directory without exposing a missing/partial target."""
+    if not target.exists():
+        prepared.replace(target)
+        return
+    if target.is_symlink() or not target.is_dir():
+        raise OSError(f"Artifact target must be a real directory: {target}")
+
+    # Linux renameat2(RENAME_EXCHANGE) swaps two populated directories in one
+    # VFS operation. Afterward `prepared` names the old target, which the
+    # caller removes while the target-scoped lock is still held.
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise OSError("Atomic artifact directory exchange requires renameat2")
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        -100,  # AT_FDCWD
+        os.fsencode(prepared),
+        -100,
+        os.fsencode(target),
+        2,  # RENAME_EXCHANGE
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(
+            error_number,
+            f"Could not atomically replace artifact directory {target}",
+        )
+
+
+def _stage_archive_locked(
+    s3,
+    source_uri: str,
+    expected_sha256: str,
+    target: Path,
+) -> None:
+    marker = target / ".groot_archive_source"
+    expected_marker = f"{source_uri}\n{expected_sha256.lower()}\n"
+    archive = target.parent / ".artifact-cache" / PurePosixPath(source_uri).name
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = archive.with_name(f".{archive.name}.lock")
+    with lock_path.open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        # Recheck after taking the shared-filesystem lock because another host
+        # may have completed extraction while this process was waiting.
+        if marker.is_file() and marker.read_text() == expected_marker:
+            log(f"exists: {target}")
+            return
+        sync_file(s3, source_uri, archive)
+        actual_sha256 = sha256(archive)
+        if actual_sha256.lower() != expected_sha256.lower():
+            log(
+                f"discarding corrupt cached archive {archive}: "
+                f"expected {expected_sha256}, got {actual_sha256}"
+            )
+            archive.unlink(missing_ok=True)
+            sync_file(s3, source_uri, archive)
+            actual_sha256 = sha256(archive)
+        if actual_sha256.lower() != expected_sha256.lower():
+            archive.unlink(missing_ok=True)
+            raise OSError(
+                f"Archive checksum mismatch for {source_uri}: "
+                f"expected {expected_sha256}, got {actual_sha256}"
+            )
+        prepared = Path(
+            tempfile.mkdtemp(
+                prefix=f".{target.name}.extract-",
+                dir=target.parent,
+            )
+        )
+        try:
+            log(f"extracting {archive} -> {prepared}")
+            with tarfile.open(archive) as contents:
+                contents.extractall(prepared, filter="data")
+            (prepared / marker.name).write_text(expected_marker)
+            atomic_publish_directory(prepared, target)
+        finally:
+            # After an exchange this name holds the old target. On extraction
+            # failure it holds the incomplete new target. Neither may linger.
+            if prepared.exists():
+                shutil.rmtree(prepared)
+
+
+def stage_archive(s3, source_uri: str, expected_sha256: str, target: Path) -> None:
+    if not source_uri:
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with artifact_target_lock_path(target).open("a+") as target_lock:
+        fcntl.flock(target_lock.fileno(), fcntl.LOCK_EX)
+        _stage_archive_locked(s3, source_uri, expected_sha256, target)
+
+
+def patch_robocasa_python312(runtime: Path) -> None:
+    replacements = {
+        "robocasa/utils/visuals_utls.py": {
+            "from dataclasses import dataclass": "from dataclasses import dataclass, field",
+            "rgba_a: np.ndarray = np.array([0, 0, 0, 1])": (
+                "rgba_a: np.ndarray = field(default_factory=lambda: np.array([0, 0, 0, 1]))"
+            ),
+            "rgba_b: np.ndarray = np.array([1, 1, 1, 1])": (
+                "rgba_b: np.ndarray = field(default_factory=lambda: np.array([1, 1, 1, 1]))"
+            ),
+        },
+        "robocasa/utils/scene/configs.py": {
+            "from dataclasses import dataclass": "from dataclasses import dataclass, field",
+            "x_range: np.ndarray = np.zeros(2)": (
+                "x_range: np.ndarray = field(default_factory=lambda: np.zeros(2))"
+            ),
+            "y_range: np.ndarray = np.zeros(2)": (
+                "y_range: np.ndarray = field(default_factory=lambda: np.zeros(2))"
+            ),
+            "rotation: np.ndarray = np.zeros(2)": (
+                "rotation: np.ndarray = field(default_factory=lambda: np.zeros(2))"
+            ),
+            "reference_pos: np.ndarray = np.zeros(3)": (
+                "reference_pos: np.ndarray = field(default_factory=lambda: np.zeros(3))"
+            ),
+        },
+    }
+    for relative, substitutions in replacements.items():
+        path = runtime / relative
+        if not path.is_file():
+            continue
+        text = path.read_text()
+        for source, replacement in substitutions.items():
+            if source in text and replacement not in text:
+                text = text.replace(source, replacement)
+        path.write_text(text)
+
+
+def install_robocasa_python_dependencies(runtime: Path) -> None:
+    target = runtime / "python"
+    marker = target / ".groot_robocasa_dependencies"
+    expected = "mink==0.0.10\ndaqp==0.8.7\nmujoco==3.3.1\n"
+    if marker.is_file() and marker.read_text() == expected:
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "--no-cache-dir",
+            "--no-deps",
+            "--target",
+            str(target),
+            "mink==0.0.10",
+            "daqp==0.8.7",
+            "mujoco==3.3.1",
+        ],
+        check=True,
+    )
+    marker.write_text(expected)
+
+
+def stage_robocasa_runtime(
+    s3,
+    source_uri: str,
+    expected_sha256: str,
+    runtime: Path,
+) -> None:
+    """Stage and postprocess one runtime under a single target-scoped lock."""
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    with artifact_target_lock_path(runtime).open("a+") as target_lock:
+        fcntl.flock(target_lock.fileno(), fcntl.LOCK_EX)
+        # Both markers are rechecked only after the target lock is held, so
+        # concurrent setup processes cannot extract, patch, or pip-install
+        # into this runtime simultaneously.
+        _stage_archive_locked(s3, source_uri, expected_sha256, runtime)
+        patch_robocasa_python312(runtime)
+        install_robocasa_python_dependencies(runtime)
+
+
 def main() -> None:
     root = Path(required_env("GROOT_DATA_ROOT"))
     model_deps = required_env("GROOT_MODEL_DEPS_URI").rstrip("/")
     post_training_checkpoint = required_env("GROOT_POST_TRAINING_CHECKPOINT_URI")
+    checkpoint_destination = required_env("GROOT_POST_TRAINING_CHECKPOINT_DESTINATION")
     s3 = s3_client()
 
     sync_prefix(
@@ -1928,13 +2639,110 @@ def main() -> None:
     sync_prefix(
         s3,
         post_training_checkpoint,
-        root / "checkpoints/post_training_golden_run/checkpoint-20000",
+        root / "checkpoints" / checkpoint_destination,
     )
+    stage_archive(
+        s3,
+        os.environ.get("GROOT_DATASET_ARCHIVE_URI", "").strip(),
+        os.environ.get("GROOT_DATASET_ARCHIVE_SHA256", "").strip(),
+        root
+        / "datasets/robocasa_benchmark/new-robocasa/robocasa-datasets/v1.0/pretrain",
+    )
+    runtime_uri = os.environ.get("GROOT_ROBOCASA_RUNTIME_ARCHIVE_URI", "").strip()
+    if runtime_uri:
+        stage_robocasa_runtime(
+            s3,
+            runtime_uri,
+            os.environ.get("GROOT_ROBOCASA_RUNTIME_ARCHIVE_SHA256", "").strip(),
+            root / "runtime",
+        )
     log("post-training artifacts are ready")
 
 
 main()
 PY
+EOF
+
+  cat > "${TMP_DIR}/remote_ray_metrics.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+domain="$1"
+prometheus_image="$2"
+grafana_image="$3"
+data_root="$4"
+
+host_ray_tmp="${data_root}/ray"
+container_ray_tmp="${host_ray_tmp}"
+prometheus_container="groot-ray-prometheus"
+grafana_container="groot-ray-grafana"
+
+for _ in $(seq 1 120); do
+  session_target="$(readlink "${host_ray_tmp}/session_latest" 2>/dev/null || true)"
+  session_name="${session_target##*/}"
+  prometheus_config="${host_ray_tmp}/${session_name}/metrics/prometheus/prometheus.yml"
+  grafana_config="${host_ray_tmp}/${session_name}/metrics/grafana/grafana.ini"
+  if [[ -n "${session_name}" && -r "${prometheus_config}" && -r "${grafana_config}" ]]; then
+    break
+  fi
+  sleep 1
+done
+[[ -r "${prometheus_config}" ]] || {
+  echo "missing Ray-generated Prometheus config: ${prometheus_config}" >&2
+  exit 1
+}
+[[ -r "${grafana_config}" ]] || {
+  echo "missing Ray-generated Grafana config: ${grafana_config}" >&2
+  exit 1
+}
+
+docker volume create groot-ray-prometheus-data >/dev/null
+docker volume create groot-ray-grafana-data >/dev/null
+docker rm -f "${prometheus_container}" "${grafana_container}" >/dev/null 2>&1 || true
+
+docker run -d \
+  --name "${prometheus_container}" \
+  --restart unless-stopped \
+  --network host \
+  --log-opt max-size=50m \
+  --log-opt max-file=3 \
+  -v "${host_ray_tmp}:${container_ray_tmp}:ro" \
+  -v groot-ray-prometheus-data:/prometheus \
+  "${prometheus_image}" \
+  --config.file="${container_ray_tmp}/session_latest/metrics/prometheus/prometheus.yml" \
+  --storage.tsdb.path=/prometheus \
+  --web.enable-lifecycle \
+  --web.listen-address=127.0.0.1:9090 >/dev/null
+
+docker run -d \
+  --name "${grafana_container}" \
+  --restart unless-stopped \
+  --network host \
+  --log-opt max-size=50m \
+  --log-opt max-file=3 \
+  -e "GF_SERVER_HTTP_ADDR=127.0.0.1" \
+  -e "GF_SERVER_ROOT_URL=https://${domain}/ray/grafana/" \
+  -e "GF_SERVER_SERVE_FROM_SUB_PATH=true" \
+  -e "GF_SECURITY_ALLOW_EMBEDDING=true" \
+  -e "GF_AUTH_ANONYMOUS_ENABLED=true" \
+  -e "GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer" \
+  -e "GF_PATHS_PROVISIONING=${container_ray_tmp}/session_latest/metrics/grafana/provisioning" \
+  -v "${host_ray_tmp}:${container_ray_tmp}:ro" \
+  -v groot-ray-grafana-data:/var/lib/grafana \
+  "${grafana_image}" \
+  --config="${container_ray_tmp}/session_latest/metrics/grafana/grafana.ini" >/dev/null
+
+for _ in $(seq 1 120); do
+  if curl --fail --silent --show-error http://127.0.0.1:9090/-/ready >/dev/null \
+      && curl --fail --silent --show-error http://127.0.0.1:3000/api/health >/dev/null; then
+    exit 0
+  fi
+  sleep 2
+done
+
+docker logs --tail 200 "${prometheus_container}" >&2 || true
+docker logs --tail 200 "${grafana_container}" >&2 || true
+exit 1
 EOF
 
   cat > "${TMP_DIR}/remote_nginx_ray.sh" <<'EOF'
@@ -1996,6 +2804,42 @@ server {
 
     location = /ray {
         return 301 /ray/;
+    }
+
+    location = /ray/grafana {
+        return 301 /ray/grafana/;
+    }
+
+    location /ray/grafana/ {
+        auth_basic "GR00T Ray";
+        auth_basic_user_file /etc/nginx/htpasswd-groot-ray;
+
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header Authorization "";
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Existing heads may predate RAY_GRAFANA_IFRAME_HOST. Rewrite only the
+    # health response's loopback iframe URL so the browser stays on the
+    # authenticated, same-origin Grafana proxy. New heads already return this
+    # public URL directly from Ray.
+    location = /ray/api/grafana_health {
+        auth_basic "GR00T Ray";
+        auth_basic_user_file /etc/nginx/htpasswd-groot-ray;
+
+        proxy_pass http://127.0.0.1:8265/api/grafana_health;
+        proxy_set_header Host \$host;
+        proxy_set_header Accept-Encoding "";
+        sub_filter_once on;
+        sub_filter_types application/json;
+        sub_filter 'http://localhost:3000' 'https://${domain}/ray/grafana';
+        sub_filter 'http://127.0.0.1:3000' 'https://${domain}/ray/grafana';
     }
 
     location /ray/ {
@@ -2065,6 +2909,7 @@ EOF
   chmod +x \
     "${TMP_DIR}/remote_ray_container.sh" \
     "${TMP_DIR}/remote_post_training_artifacts.sh" \
+    "${TMP_DIR}/remote_ray_metrics.sh" \
     "${TMP_DIR}/remote_nginx_ray.sh"
 }
 
@@ -2110,6 +2955,12 @@ PY
       printf 'GROOT_DATA_ROOT=%s\n' "${GROOT_DATA_ROOT}"
       printf 'GROOT_MODEL_DEPS_URI=%s\n' "${MODEL_DEPS_URI}"
       printf 'GROOT_POST_TRAINING_CHECKPOINT_URI=%s\n' "${POST_TRAINING_CHECKPOINT_URI}"
+      printf 'GROOT_POST_TRAINING_CHECKPOINT_DESTINATION=%s\n' "${POST_TRAINING_CHECKPOINT_DESTINATION}"
+      printf 'GROOT_DATASET_ARCHIVE_URI=%s\n' "${DATASET_ARCHIVE_URI}"
+      printf 'GROOT_DATASET_ARCHIVE_SHA256=%s\n' "${DATASET_ARCHIVE_SHA256}"
+      printf 'GROOT_ROBOCASA_RUNTIME_ARCHIVE_URI=%s\n' "${ROBOCASA_RUNTIME_ARCHIVE_URI}"
+      printf 'GROOT_ROBOCASA_RUNTIME_ARCHIVE_SHA256=%s\n' "${ROBOCASA_RUNTIME_ARCHIVE_SHA256}"
+      printf 'GROOT_ARTIFACT_MAX_MIB_PER_SECOND=%s\n' "${ARTIFACT_MAX_MIB_PER_SECOND}"
     } > "${TMP_DIR}/data-credentials.env"
     chmod 0600 "${TMP_DIR}/data-credentials.env"
   else
@@ -2132,11 +2983,13 @@ copy_common_remote_files() {
   remote_scp_to "${host}" "${user}" "${password}" "${HOST_SETUP_SCRIPT}" "${REMOTE_ROOT}/setup_bare_metal_gpu_host.sh" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${PODMAN_WRAPPER}" "${REMOTE_ROOT}/colossus_ray_podman.sh" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${PRUNE_SCRIPT}" "${REMOTE_ROOT}/colossus_ray_prune.sh" || return 1
+  remote_scp_to "${host}" "${user}" "${password}" "${RAY_COMPAT_SCRIPT}" "${REMOTE_ROOT}/colossus_ray_sitecustomize.py" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/remote_ray_container.sh" "${REMOTE_ROOT}/remote_ray_container.sh" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/remote_post_training_artifacts.sh" "${REMOTE_ROOT}/remote_post_training_artifacts.sh" || return 1
+  remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/remote_ray_metrics.sh" "${REMOTE_ROOT}/remote_ray_metrics.sh" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/nvcr-token" "${REMOTE_ROOT}/nvcr-token" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/data-credentials.env" "${REMOTE_ROOT}/data-credentials.env" || return 1
-  remote_ssh "${host}" "${user}" "${password}" "chmod 700 $(shell_quote "${REMOTE_ROOT}") && chmod 600 $(shell_quote "${REMOTE_ROOT}/nvcr-token") $(shell_quote "${REMOTE_ROOT}/data-credentials.env") && chmod +x $(shell_quote "${REMOTE_ROOT}/setup_bare_metal_gpu_host.sh") $(shell_quote "${REMOTE_ROOT}/colossus_ray_podman.sh") $(shell_quote "${REMOTE_ROOT}/colossus_ray_prune.sh") $(shell_quote "${REMOTE_ROOT}/remote_ray_container.sh") $(shell_quote "${REMOTE_ROOT}/remote_post_training_artifacts.sh")" || return 1
+  remote_ssh "${host}" "${user}" "${password}" "chmod 700 $(shell_quote "${REMOTE_ROOT}") && chmod 600 $(shell_quote "${REMOTE_ROOT}/nvcr-token") $(shell_quote "${REMOTE_ROOT}/data-credentials.env") && chmod +x $(shell_quote "${REMOTE_ROOT}/setup_bare_metal_gpu_host.sh") $(shell_quote "${REMOTE_ROOT}/colossus_ray_podman.sh") $(shell_quote "${REMOTE_ROOT}/colossus_ray_prune.sh") $(shell_quote "${REMOTE_ROOT}/remote_ray_container.sh") $(shell_quote "${REMOTE_ROOT}/remote_post_training_artifacts.sh") $(shell_quote "${REMOTE_ROOT}/remote_ray_metrics.sh")" || return 1
 }
 
 run_host_setup() {
@@ -2177,6 +3030,48 @@ sync_post_training_artifacts() {
   remote_sudo_script "${host}" "${user}" "${password}" \
     "${REMOTE_ROOT}/remote_post_training_artifacts.sh" \
     "${ARTIFACT_IMAGE}" "${GROOT_DATA_ROOT}" "${REMOTE_ROOT}/data-credentials.env"
+}
+
+configure_static_data_interface() {
+  local idx="$1"
+  local host="${HOSTS[$idx]}"
+  local user="${USERS[$idx]}"
+  local password="${PASSWORDS[$idx]}"
+  local resource_name="${host%%.*}"
+  local interface="${DATA_INTERFACE:-${PREFERRED_ETHERNET_INTERFACE}}"
+  local numeric_suffix last_octet data_ip quoted_interface
+
+  DATA_INTERFACES[$idx]=""
+  DATA_IPS[$idx]=""
+  [[ -n "${interface}" ]] || return 0
+  quoted_interface="$(shell_quote "${interface}")"
+
+  if [[ -n "${PREFERRED_ETHERNET_INTERFACE}" ]]; then
+    # ConnectX management is the only cabled interface on much of the current
+    # fleet. Prefer normal Ethernet whenever it is actually usable, but do not
+    # reject a host merely because that optional port is uncabled.
+    if ! remote_sudo_bash_lc "${host}" "${user}" "${password}" \
+      "test -d /sys/class/net/${quoted_interface}; ip link set dev ${quoted_interface} up; sleep 2; test \"\$(cat /sys/class/net/${quoted_interface}/carrier)\" = 1; driver=\$(basename \"\$(readlink -f /sys/class/net/${quoted_interface}/device/driver)\"); test -n \"\${driver}\"; test \"\${driver}\" != mlx5_core"; then
+      log "${host}: ${interface} is absent, uncabled, or mlx5; falling back to routed management TCP"
+      return 0
+    fi
+    log "${host}: selected connected non-mlx5 Ethernet interface ${interface}"
+  fi
+
+  DATA_INTERFACES[$idx]="${interface}"
+  [[ -n "${STATIC_DATA_IP_PREFIX}" ]] || return 0
+
+  [[ "${resource_name}" =~ -([0-9]+)$ ]] || {
+    log "${host}: cannot derive a static data IP from the resource name"
+    return 1
+  }
+  numeric_suffix="$((10#${BASH_REMATCH[1]}))"
+  last_octet="$((numeric_suffix % 250 + 1))"
+  data_ip="${STATIC_DATA_IP_PREFIX}.${last_octet}"
+  log "${host}: configuring ${interface} as ${data_ip}/24"
+  remote_sudo_bash_lc "${host}" "${user}" "${password}" \
+    "ip link set dev ${quoted_interface} up; sleep 2; test \"\$(cat /sys/class/net/${quoted_interface}/carrier)\" = 1; ip address replace $(shell_quote "${data_ip}/24") dev ${quoted_interface}; install -d -m 0755 /etc/netplan; printf '%s\n' 'network:' '  version: 2' '  ethernets:' '    ${interface}:' '      dhcp4: false' '      optional: true' '      addresses:' '        - ${data_ip}/24' > /etc/netplan/90-groot-ray-ethernet.yaml; chmod 0600 /etc/netplan/90-groot-ray-ethernet.yaml"
+  DATA_IPS[$idx]="${data_ip}"
 }
 
 remote_nvidia_numa_param() {
@@ -2253,6 +3148,11 @@ setup_one_host() {
     return 1
   fi
 
+  if ! configure_static_data_interface "${idx}"; then
+    log "${host}: normal Ethernet data interface is unavailable"
+    return 1
+  fi
+
   if ! sync_post_training_artifacts "${idx}"; then
     return 1
   fi
@@ -2271,21 +3171,37 @@ setup_one_host() {
     return 1
   }
   if ! printf '%s\n' "${gpu_inventory}" \
-    | awk -F',' -v target="${TARGET_GPU_NAME}" '
+    | awk -F',' \
+        -v target="${TARGET_GPU_NAME}" \
+        -v secondary="${SECONDARY_GPU_NAME_PATTERN}" \
+        -v profile="${GPU_PROFILE}" '
         {
           uuid=$1; name=$2
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", uuid)
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
+          if (uuid ~ /^GPU-[[:xdigit:]-]+$/) total++
           if (name == target && uuid ~ /^GPU-[[:xdigit:]-]+$/) {
-            count++
+            primary_count++
+          }
+          if (index(name, secondary) != 0 && uuid ~ /^GPU-[[:xdigit:]-]+$/) {
+            secondary_count++
           }
         }
-        END { exit !(count == 1) }
+        END {
+          if (profile == "gb300-rtx-pro-2000") {
+            exit !(total == 2 && primary_count == 1 && secondary_count == 1)
+          }
+          exit !(primary_count == 1)
+        }
       '; then
-    log "${host}: expected exactly one healthy ${TARGET_GPU_NAME}"
+    log "${host}: GPU inventory does not match profile ${GPU_PROFILE}"
     return 1
   fi
-  gpu_count="1"
+  if [[ "${GPU_PROFILE}" == "gb300-rtx-pro-2000" ]]; then
+    gpu_count="2"
+  else
+    gpu_count="1"
+  fi
 
   remote_sudo_bash_lc "${host}" "${user}" "${password}" \
     "docker pull $(shell_quote "${IMAGE}") >/dev/null && docker image inspect $(shell_quote "${IMAGE}") >/dev/null" || {
@@ -2295,7 +3211,7 @@ setup_one_host() {
 
   HOST_READY[$idx]="1"
   GPU_COUNTS[$idx]="${gpu_count}"
-  log "${host}: ready with one isolated ${TARGET_GPU_NAME}"
+  log "${host}: ready with ${gpu_count} GPU(s) for profile ${GPU_PROFILE}"
 }
 
 host_setup_child_cleanup() {
@@ -2318,7 +3234,7 @@ host_setup_child_cleanup() {
 }
 
 collect_host_setup_results() {
-  local idx pid host result_path log_path gpu_count wait_status
+  local idx pid host result_path log_path gpu_count data_ip data_interface wait_status
   while [[ "$#" -gt 0 ]]; do
     idx="$1"
     pid="$2"
@@ -2335,11 +3251,13 @@ collect_host_setup_results() {
     forget_host_setup_pid "${pid}"
 
     if [[ "${wait_status}" -eq 0 && -r "${result_path}" ]]; then
-      gpu_count="$(tr -d '[:space:]' < "${result_path}")"
+      IFS='|' read -r gpu_count data_ip data_interface < "${result_path}" || true
       if [[ "${gpu_count}" =~ ^[0-9]+$ && "${gpu_count}" -gt 0 ]]; then
         HOST_READY[$idx]="1"
         GPU_COUNTS[$idx]="${gpu_count}"
-        log "${host}: ready with ${gpu_count} GPU(s)"
+        DATA_IPS[$idx]="${data_ip:-}"
+        DATA_INTERFACES[$idx]="${data_interface:-}"
+        log "${host}: ready with ${gpu_count} GPU(s), data interface ${data_interface:-routed-management}"
         rm -f "${result_path}" "${log_path}"
         continue
       fi
@@ -2386,7 +3304,11 @@ setup_hosts() {
     (
       trap 'host_setup_child_cleanup "${idx}" "${semaphore_fd}" "$?"' EXIT
       setup_one_host "${idx}"
-      printf '%s\n' "${GPU_COUNTS[$idx]}" > "${result_path}"
+      printf '%s|%s|%s\n' \
+        "${GPU_COUNTS[$idx]}" \
+        "${DATA_IPS[$idx]:-}" \
+        "${DATA_INTERFACES[$idx]:-}" \
+        > "${result_path}"
     ) > "${log_path}" 2>&1 &
     child_pid="$!"
     HOST_SETUP_PIDS+=("${child_pid}")
@@ -2398,31 +3320,87 @@ setup_hosts() {
   exec {semaphore_fd}>&-
 }
 
+retain_ready_hosts() {
+  local idx lease_id name
+  local -a ready_hosts=() ready_users=() ready_passwords=() ready_data_ips=()
+  local -a ready_data_interfaces=()
+  local -a ready_gpu_counts=() ready_lease_ids=() ready_lease_names=()
+
+  for idx in "${!HOSTS[@]}"; do
+    if [[ "${HOST_READY[$idx]:-0}" == "1" ]]; then
+      ready_hosts+=("${HOSTS[$idx]}")
+      ready_users+=("${USERS[$idx]}")
+      ready_passwords+=("${PASSWORDS[$idx]}")
+      ready_data_ips+=("${DATA_IPS[$idx]:-}")
+      ready_data_interfaces+=("${DATA_INTERFACES[$idx]:-}")
+      ready_gpu_counts+=("${GPU_COUNTS[$idx]}")
+      if [[ -n "${COLOSSUS_LEASE_IDS[$idx]:-}" ]]; then
+        ready_lease_ids+=("${COLOSSUS_LEASE_IDS[$idx]}")
+        ready_lease_names+=("${COLOSSUS_LEASE_NAMES[$idx]}")
+      fi
+      continue
+    fi
+
+    lease_id="${COLOSSUS_LEASE_IDS[$idx]:-}"
+    name="${COLOSSUS_LEASE_NAMES[$idx]:-${HOSTS[$idx]}}"
+    if [[ -n "${lease_id}" ]]; then
+      log "${name}: releasing lease for a host that did not become SSH/setup ready"
+      if ! colossus_cli bm lease delete \
+        --lease-id "${lease_id}" \
+        --force \
+        --release-mode CLEAN \
+        --json >/dev/null; then
+        log "${name}: WARNING: failed to release Colossus lease ${lease_id}"
+      fi
+    fi
+  done
+
+  (( ${#ready_hosts[@]} > 0 )) || die "no reserved host became SSH/setup ready"
+  HOSTS=("${ready_hosts[@]}")
+  USERS=("${ready_users[@]}")
+  PASSWORDS=("${ready_passwords[@]}")
+  DATA_IPS=("${ready_data_ips[@]}")
+  DATA_INTERFACES=("${ready_data_interfaces[@]}")
+  GPU_COUNTS=("${ready_gpu_counts[@]}")
+  HOST_READY=()
+  for idx in "${!HOSTS[@]}"; do
+    HOST_READY+=("1")
+  done
+  COLOSSUS_LEASE_IDS=("${ready_lease_ids[@]}")
+  COLOSSUS_LEASE_NAMES=("${ready_lease_names[@]}")
+  COLOSSUS_NODE_COUNT="${#HOSTS[@]}"
+  FAILED_HOSTS=()
+  if [[ -z "${JOIN_RAY_ADDRESS}" && "${HEAD_DOMAIN_EXPLICIT}" != "1" ]]; then
+    HEAD_DOMAIN="${HOSTS[0]}"
+  fi
+}
+
 resolve_configured_data_ip() {
   local idx="$1"
   local host="${HOSTS[$idx]}"
   local user="${USERS[$idx]}"
   local password="${PASSWORDS[$idx]}"
   local explicit_ip="${DATA_IPS[$idx]:-}"
+  local data_interface="${DATA_INTERFACES[$idx]:-${DATA_INTERFACE}}"
   local ip=""
   local addr_command="ip -o -4 addr show scope global"
 
-  if [[ -n "${DATA_INTERFACE}" ]]; then
-    addr_command="ip -o -4 addr show dev $(shell_quote "${DATA_INTERFACE}") scope global"
+  if [[ -n "${data_interface}" ]]; then
+    addr_command="ip -o -4 addr show dev $(shell_quote "${data_interface}") scope global"
   fi
   if [[ -n "${explicit_ip}" ]]; then
     if ! remote_sudo_capture "${host}" "${user}" "${password}" \
       "${addr_command} | awk '{split(\$4, parts, \"/\"); print parts[1]}'" \
       | grep -Fxq "${explicit_ip}"; then
-      die "configured data IP ${explicit_ip} is not assigned to ${host}${DATA_INTERFACE:+ on ${DATA_INTERFACE}}"
+      die "configured data IP ${explicit_ip} is not assigned to ${host}${data_interface:+ on ${data_interface}}"
     fi
     printf '%s\n' "${explicit_ip}"
     return 0
   fi
-  if [[ -n "${DATA_INTERFACE}" ]]; then
+  if [[ -n "${data_interface}" ]]; then
     ip="$(remote_cluster_ip "${host}" "${user}" "${password}" \
       "${addr_command} | awk '{split(\$4, parts, \"/\"); print parts[1]}'" || true)"
-    [[ -n "${ip}" ]] || die "could not resolve an IPv4 address on ${host}:${DATA_INTERFACE}"
+    [[ -n "${ip}" ]] || die "could not resolve an IPv4 address on ${host}:${data_interface}"
     printf '%s\n' "${ip}"
     return 0
   fi
@@ -2435,7 +3413,7 @@ resolve_head_ip() {
   local password="${PASSWORDS[0]}"
   local ip=""
 
-  if [[ -n "${DATA_IPS[0]:-}" || -n "${DATA_INTERFACE}" ]]; then
+  if [[ -n "${DATA_IPS[0]:-}" || -n "${DATA_INTERFACES[0]:-${DATA_INTERFACE}}" ]]; then
     resolve_configured_data_ip "0"
     return
   fi
@@ -2458,7 +3436,7 @@ resolve_node_ip() {
   local user="${USERS[$idx]}"
   local password="${PASSWORDS[$idx]}"
   local ip=""
-  if [[ -n "${DATA_IPS[$idx]:-}" || -n "${DATA_INTERFACE}" ]]; then
+  if [[ -n "${DATA_IPS[$idx]:-}" || -n "${DATA_INTERFACES[$idx]:-${DATA_INTERFACE}}" ]]; then
     NODE_IPS[$idx]="$(resolve_configured_data_ip "${idx}")"
     return
   fi
@@ -2493,14 +3471,41 @@ start_ray_container() {
   local password="${PASSWORDS[$idx]}"
   local node_ip="${NODE_IPS[$idx]}"
   local gpu_count="${GPU_COUNTS[$idx]}"
+  local data_interface="${DATA_INTERFACES[$idx]:-${DATA_INTERFACE}}"
+  local nccl_socket_ifname="${NCCL_SOCKET_IFNAME:-${data_interface}}"
+  local gloo_socket_ifname="${GLOO_SOCKET_IFNAME:-${data_interface}}"
 
   log "${host}: starting Ray ${role} container on ${node_ip}"
   remote_sudo_script "${host}" "${user}" "${password}" \
     "${REMOTE_ROOT}/remote_ray_container.sh" \
     "${role}" "${IMAGE}" "${head_address}" "${node_ip}" "${gpu_count}" "${GROOT_DATA_ROOT}" \
-    "${DATA_INTERFACE}" "${NCCL_SOCKET_IFNAME}" "${GLOO_SOCKET_IFNAME}" \
+    "${data_interface}" "${nccl_socket_ifname}" "${gloo_socket_ifname}" \
     "${NCCL_IB_HCA}" "${NCCL_IB_GID_INDEX}" "${REQUIRE_RDMA}" "${TARGET_GPU_NAME}" \
-    "${GPU_TEST_IMAGE}"
+    "${GPU_TEST_IMAGE}" "${GPU_PROFILE}" "${SECONDARY_GPU_NAME_PATTERN}" "${ETHERNET_ONLY}" \
+    "${HEAD_DOMAIN}"
+}
+
+configure_ray_firewall() {
+  local idx="$1"
+  local route_target="$2"
+  local host="${HOSTS[$idx]}"
+  local user="${USERS[$idx]}"
+  local password="${PASSWORDS[$idx]}"
+  local data_interface="${DATA_INTERFACES[$idx]:-${DATA_INTERFACE}}"
+
+  log "${host}: allowing fixed Ray TCP ports from its directly connected cluster subnet"
+  remote_sudo_bash_lc "${host}" "${user}" "${password}" \
+    "if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
+      interface=$(shell_quote "${data_interface}")
+      if [[ -z \"\${interface}\" ]]; then
+        interface=\$(ip -4 route get $(shell_quote "${route_target}") | awk '{for (i=1; i<=NF; i++) if (\$i==\"dev\") {print \$(i+1); exit}}')
+      fi
+      cidr=\$(ip -4 route show dev \"\${interface}\" proto kernel scope link | awk '\$1 ~ /^[0-9]+\\./ {print \$1; exit}')
+      [[ -n \"\${cidr}\" ]] || { echo \"could not resolve cluster CIDR on \${interface}\" >&2; exit 1; }
+      for port in 6379 6380:6383 8080 10001 20000:20999 52365; do
+        ufw allow from \"\${cidr}\" to any port \"\${port}\" proto tcp comment 'GR00T Ray cluster'
+      done
+    fi"
 }
 
 wait_for_head() {
@@ -2557,11 +3562,15 @@ verify_existing_ray_head_reachable() {
 
 wait_for_joined_workers() {
   local expected_ips
+  local expected_node_gpus="1"
   local host="${HOSTS[0]}"
   local user="${USERS[0]}"
   local password="${PASSWORDS[0]}"
 
   expected_ips="$(IFS=,; printf '%s' "${NODE_IPS[*]}")"
+  if [[ "${GPU_PROFILE}" == "gb300-rtx-pro-2000" ]]; then
+    expected_node_gpus="2"
+  fi
   log "${host}: waiting for ${#NODE_IPS[@]} new worker(s) to appear in ${JOIN_RAY_ADDRESS}"
   remote_sudo_bash_lc "${host}" "${user}" "${password}" \
     "for i in \$(seq 1 60); do joined=\$(timeout --kill-after=5s 15s docker exec -e RAY_ADDRESS=$(shell_quote "${JOIN_RAY_ADDRESS}") -e EXPECTED_NODE_IPS=$(shell_quote "${expected_ips}") -i ${WORKER_CONTAINER} python - <<'PY' 2>/dev/null | awk '/^[01]$/ {value=\$1} END {print value}' || true
@@ -2576,7 +3585,15 @@ nodes = {
     if node.get('Alive')
 }
 ready = all(
-    ip in nodes and float(nodes[ip].get('Resources', {}).get('GPU', 0)) >= 1
+    ip in nodes
+    and float(nodes[ip].get('Resources', {}).get('GPU', 0)) >= ${expected_node_gpus}
+    and (
+        '${GPU_PROFILE}' != 'gb300-rtx-pro-2000'
+        or (
+            float(nodes[ip].get('Resources', {}).get('GB300', 0)) >= 1
+            and float(nodes[ip].get('Resources', {}).get('RTXPRO2000', 0)) >= 1
+        )
+    )
     for ip in expected
 )
 print(1 if ready else 0)
@@ -2591,15 +3608,23 @@ wait_for_cluster_gpus() {
   local user="${USERS[0]}"
   local password="${PASSWORDS[0]}"
 
-  log "${host}: waiting for Ray cluster to report ${expected_gpus} GB300-backed GPU(s)"
+  log "${host}: waiting for Ray cluster to report ${expected_gpus} profile-backed GPU(s)"
   remote_sudo_bash_lc "${host}" "${user}" "${password}" \
     "for i in \$(seq 1 60); do actual=\$(docker exec -i ${HEAD_CONTAINER} python - <<'PY' 2>/dev/null | awk '/^[0-9]+$/ {value=\$1} END {print value}' || true
 import ray
 ray.init(address='auto', logging_level='ERROR')
 resources = ray.cluster_resources()
-print(int(resources.get('GPU', 0)))
+gpu = int(resources.get('GPU', 0))
+if '${GPU_PROFILE}' == 'gb300-rtx-pro-2000':
+    ready = (
+        int(resources.get('GB300', 0)) * 2 == gpu
+        and int(resources.get('RTXPRO2000', 0)) * 2 == gpu
+    )
+    print(gpu if ready else -1)
+else:
+    print(gpu)
 PY
-); if [[ \"\${actual}\" =~ ^[0-9]+$ && \"\${actual}\" -eq ${expected_gpus} ]]; then exit 0; fi; sleep 2; done; docker exec ${HEAD_CONTAINER} ray status; exit 1"
+); if [[ \"\${actual}\" =~ ^[0-9]+$ && \"\${actual}\" -ge ${expected_gpus} ]]; then exit 0; fi; sleep 2; done; docker exec ${HEAD_CONTAINER} ray status; exit 1"
 }
 
 run_transport_validation() {
@@ -2629,6 +3654,24 @@ configure_nginx_on_head() {
   local user="${USERS[0]}"
   local password="${PASSWORDS[0]}"
 
+  if [[ -n "${LOCAL_SSL_CERT}" ]]; then
+    log "${host}: installing caller-provided TLS certificate and key"
+    REMOTE_TLS_CERT_STAGING="${REMOTE_ROOT}/ray-tls-cert-${TMP_DIR##*/}.pem"
+    REMOTE_TLS_KEY_STAGING="${REMOTE_ROOT}/ray-tls-key-${TMP_DIR##*/}.pem"
+    # Arm local cleanup before the first upload so failures or caught signals
+    # cannot strand caller-provided key material before the remote trap starts.
+    REMOTE_TLS_STAGING_ACTIVE="1"
+    remote_scp_to "${host}" "${user}" "${password}" \
+      "${LOCAL_SSL_CERT}" "${REMOTE_TLS_CERT_STAGING}"
+    remote_scp_to "${host}" "${user}" "${password}" \
+      "${LOCAL_SSL_KEY}" "${REMOTE_TLS_KEY_STAGING}"
+    remote_ssh "${host}" "${user}" "${password}" \
+      "chmod 600 $(shell_quote "${REMOTE_TLS_CERT_STAGING}") $(shell_quote "${REMOTE_TLS_KEY_STAGING}")"
+    remote_sudo_bash_lc "${host}" "${user}" "${password}" \
+      "cleanup_tls_staging() { rm -f -- $(shell_quote "${REMOTE_TLS_CERT_STAGING}") $(shell_quote "${REMOTE_TLS_KEY_STAGING}"); }; trap cleanup_tls_staging EXIT; install -D -m 0644 $(shell_quote "${REMOTE_TLS_CERT_STAGING}") $(shell_quote "${SSL_CERT}") && install -D -m 0600 $(shell_quote "${REMOTE_TLS_KEY_STAGING}") $(shell_quote "${SSL_KEY}")"
+    cleanup_remote_tls_staging
+  fi
+
   log "${host}: configuring nginx basic-auth proxy at https://${HEAD_DOMAIN}/ray/"
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/remote_nginx_ray.sh" "${REMOTE_ROOT}/remote_nginx_ray.sh"
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/ray-auth-password" "${REMOTE_ROOT}/ray-auth-password"
@@ -2638,6 +3681,17 @@ configure_nginx_on_head() {
     "${HEAD_DOMAIN}" "${SSL_CERT}" "${SSL_KEY}" "${RAY_AUTH_USER}" "${REMOTE_ROOT}/ray-auth-password"
 }
 
+start_ray_metrics_on_head() {
+  local host="${HOSTS[0]}"
+  local user="${USERS[0]}"
+  local password="${PASSWORDS[0]}"
+
+  log "${host}: starting localhost-only Prometheus and Grafana sidecars"
+  remote_sudo_script "${host}" "${user}" "${password}" \
+    "${REMOTE_ROOT}/remote_ray_metrics.sh" \
+    "${HEAD_DOMAIN}" "${PROMETHEUS_IMAGE}" "${GRAFANA_IMAGE}" "${GROOT_DATA_ROOT}"
+}
+
 start_ray_cluster() {
   if [[ "${HOST_READY[0]:-0}" != "1" ]]; then
     die "head host ${HOSTS[0]} is not ready; refusing to promote another host"
@@ -2645,18 +3699,25 @@ start_ray_cluster() {
 
   local head_ip
   head_ip="$(resolve_head_ip)"
+  ACTIVE_RAY_HEAD_IP="${head_ip}"
   log "head Ray address: ${head_ip}:${RAY_PORT}"
 
   local idx
   for idx in "${!HOSTS[@]}"; do
     if [[ "${HOST_READY[$idx]:-0}" == "1" ]]; then
       resolve_node_ip "${idx}" "${head_ip}"
+      if [[ "${idx}" == "0" ]]; then
+        configure_ray_firewall "${idx}" "1.1.1.1"
+      else
+        configure_ray_firewall "${idx}" "${head_ip}"
+      fi
     fi
   done
 
   start_ray_container "0" "head" "${head_ip}:${RAY_PORT}"
   wait_for_head
   configure_nginx_on_head
+  start_ray_metrics_on_head
 
   for idx in "${!HOSTS[@]}"; do
     if [[ "${idx}" == "0" ]]; then
@@ -2681,12 +3742,15 @@ start_ray_cluster() {
 start_ray_workers() {
   local idx
 
-  verify_existing_ray_head_reachable
+  ACTIVE_RAY_HEAD_IP="${JOIN_RAY_HEAD_IP}"
+
   for idx in "${!HOSTS[@]}"; do
     if [[ "${HOST_READY[$idx]:-0}" == "1" ]]; then
       resolve_node_ip "${idx}" "${JOIN_RAY_HEAD_IP}"
+      configure_ray_firewall "${idx}" "${JOIN_RAY_HEAD_IP}"
     fi
   done
+  verify_existing_ray_head_reachable
 
   for idx in "${!HOSTS[@]}"; do
     if [[ "${HOST_READY[$idx]:-0}" == "1" ]]; then
@@ -2709,6 +3773,71 @@ start_ray_workers() {
     "docker exec ${WORKER_CONTAINER} ray status --address=$(shell_quote "${JOIN_RAY_ADDRESS}")"
 }
 
+write_cluster_state() {
+  [[ -n "${STATE_OUTPUT}" ]] || return 0
+  local hosts node_ips data_interfaces lease_ids lease_names
+  hosts="$(IFS=,; printf '%s' "${HOSTS[*]}")"
+  node_ips="$(IFS=,; printf '%s' "${NODE_IPS[*]}")"
+  data_interfaces="$(IFS=,; printf '%s' "${DATA_INTERFACES[*]}")"
+  lease_ids="$(IFS=,; printf '%s' "${COLOSSUS_LEASE_IDS[*]}")"
+  lease_names="$(IFS=,; printf '%s' "${COLOSSUS_LEASE_NAMES[*]}")"
+  python3 - \
+    "${STATE_OUTPUT}" \
+    "${ACTIVE_RAY_HEAD_IP}" \
+    "${RAY_PORT}" \
+    "${HEAD_DOMAIN}" \
+    "${GPU_PROFILE}" \
+    "${hosts}" \
+    "${node_ips}" \
+    "${data_interfaces}" \
+    "${lease_ids}" \
+    "${lease_names}" \
+    "${COLOSSUS_EXISTING_LEASE_ID}" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+(
+    output,
+    head_ip,
+    ray_port,
+    head_domain,
+    gpu_profile,
+    hosts,
+    node_ips,
+    data_interfaces,
+    lease_ids,
+    lease_names,
+    existing_lease_id,
+) = sys.argv[1:]
+
+
+def split(value: str) -> list[str]:
+    return [item for item in value.split(",") if item]
+
+
+payload = {
+    "head_ip": head_ip,
+    "ray_address": f"{head_ip}:{ray_port}",
+    "head_domain": head_domain,
+    "gpu_profile": gpu_profile,
+    "hosts": split(hosts),
+    "node_ips": split(node_ips),
+    "data_interfaces": data_interfaces.split(","),
+    "created_lease_ids": split(lease_ids),
+    "created_lease_names": split(lease_names),
+    "existing_lease_id": existing_lease_id,
+}
+path = Path(output)
+path.parent.mkdir(parents=True, exist_ok=True)
+temporary = path.with_name(f".{path.name}.tmp")
+temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+temporary.replace(path)
+PY
+  chmod 0600 "${STATE_OUTPUT}"
+  log "wrote cluster state to ${STATE_OUTPUT}"
+}
+
 main() {
   trap cleanup EXIT
   trap 'exit 130' INT
@@ -2716,7 +3845,7 @@ main() {
 
   parse_args "$@"
   validate_args
-  require_cmd colossus python3
+  require_cmd colossus flock python3
   TMP_DIR="$(mktemp -d)"
   if [[ -n "${COLOSSUS_EXISTING_LEASE_ID}" ]]; then
     load_existing_colossus_host "0"
@@ -2742,19 +3871,26 @@ main() {
     USERS=()
     PASSWORDS=()
     DATA_IPS=()
+    DATA_INTERFACES=()
     load_existing_colossus_host "1"
   else
     reserve_colossus_hosts
   fi
   setup_hosts
   if [[ "${#FAILED_HOSTS[@]}" -gt 0 ]]; then
-    die "host setup failed for ${FAILED_HOSTS[*]}; refusing to start a partial Ray cluster"
+    if [[ "${BEST_EFFORT_HOSTS}" == "1" && -z "${COLOSSUS_EXISTING_LEASE_ID}" ]]; then
+      log "host setup failed for ${FAILED_HOSTS[*]}; retaining only ready hosts"
+      retain_ready_hosts
+    else
+      die "host setup failed for ${FAILED_HOSTS[*]}; refusing to start a partial Ray cluster"
+    fi
   fi
   if [[ -n "${JOIN_RAY_ADDRESS}" ]]; then
     start_ray_workers
   else
     start_ray_cluster
   fi
+  write_cluster_state
   COLOSSUS_LEASES_COMMITTED="1"
 
   if [[ -n "${JOIN_RAY_ADDRESS}" ]]; then

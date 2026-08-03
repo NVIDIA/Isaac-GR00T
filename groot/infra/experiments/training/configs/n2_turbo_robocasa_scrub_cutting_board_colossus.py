@@ -11,5 +11,8 @@ EXPERIMENT = make_robocasa_single_task_experiment(
         "datasets/robocasa_benchmark/new-robocasa/robocasa-datasets/v1.0/"
         "pretrain/composite/ScrubCuttingBoard/20250805/lerobot"
     ),
+    evaluation_task="ScrubCuttingBoard",
+    evaluation_num_trials=20,
+    max_steps=750,
     wandb_project="n2-turbo-robocasa-scrub-cutting-board-colossus",
 )

@@ -12,7 +12,11 @@ set -euo pipefail
 remote="${COLOSSUS_PODMAN_REMOTE:-/usr/bin/podman}"
 data_root="${COLOSSUS_DATA_ROOT:?COLOSSUS_DATA_ROOT is required}"
 job_root="${COLOSSUS_JOB_ROOT:?COLOSSUS_JOB_ROOT is required}"
-gpu_device="${COLOSSUS_GPU_CDI_DEVICE:?COLOSSUS_GPU_CDI_DEVICE is required}"
+gpu_devices="${COLOSSUS_GPU_CDI_DEVICES:-${COLOSSUS_GPU_CDI_DEVICE:-}}"
+[[ -n "${gpu_devices}" ]] || {
+  echo "COLOSSUS_GPU_CDI_DEVICES or COLOSSUS_GPU_CDI_DEVICE is required" >&2
+  exit 1
+}
 
 [[ -x "${remote}" ]] || {
   echo "Colossus Podman remote client is not executable: ${remote}" >&2
@@ -49,6 +53,16 @@ declare -a injected=(
   --volume "${job_root}:${job_root}"
 )
 
+if [[ -d "${data_root}/runtime/robocasa" ]]; then
+  injected+=(--volume "${data_root}/runtime/robocasa:/opt/grootrobocasa/robocasa")
+fi
+if [[ -d "${data_root}/runtime/robosuite" ]]; then
+  injected+=(--volume "${data_root}/runtime/robosuite:/opt/grootrobosuite/robosuite:ro")
+fi
+if [[ -d "${data_root}/ckpts" ]]; then
+  injected+=(--volume "${data_root}/ckpts:/data/model_deps:ro")
+fi
+
 if [[ -n "${COLOSSUS_FIPS_MASK:-}" ]]; then
   injected+=(--volume "${COLOSSUS_FIPS_MASK}:/proc/sys/crypto/fips_enabled:ro")
 fi
@@ -59,27 +73,84 @@ fi
 # image entrypoint; Ray supplies an explicit Python entrypoint to real workers.
 ray_worker=0
 worker_probe=0
+job_expected_gpu_count=""
+heterogeneous_evaluation=0
 for argument in "${forwarded[@]}"; do
   if [[ "${argument}" == *"import ray._private.workers.default_worker"* ]]; then
     worker_probe=1
     injected+=(--entrypoint /usr/bin/env)
   elif [[ "${argument}" == */ray/_private/workers/default_worker.py ]]; then
     ray_worker=1
+  elif [[ "${argument}" == EXPECTED_NUM_GPUS=* ]]; then
+    job_expected_gpu_count="${argument#EXPECTED_NUM_GPUS=}"
+  elif [[ "${argument}" == GROOT_OL_COLOSSUS_HETEROGENEOUS_EVALUATION=1 ]]; then
+    heterogeneous_evaluation=1
   fi
 done
+if [[ "${worker_probe}" == "1" ]]; then
+  # Ray captures this command's stdout as the default_worker.py path. On a
+  # cold node, Podman otherwise prefixes that path with its implicit image-pull
+  # progress and Ray later tries to execute the whole transcript as a filename.
+  # --quiet suppresses only Podman's pull status, not the container's stdout.
+  injected+=(--quiet)
+fi
 
 cuda_visible_devices="${CUDA_VISIBLE_DEVICES:-}"
 # Ray assigns CUDA_VISIBLE_DEVICES inside default_worker.py, after Podman has
-# already created the container. Attach the node's sole physical GPU to every
-# real Ray worker container and let Ray's resource assignment control process
-# visibility. The import-only image probe remains device-free.
+# already created the container. Attach the node's ordered physical GPU set to
+# every real Ray worker container and let Ray's logical resource assignment
+# control process visibility. The import-only image probe remains device-free.
 if [[ "${worker_probe}" != "1" ]] && {
   [[ "${ray_worker}" == "1" ]] ||
     [[ -n "${cuda_visible_devices}" && "${cuda_visible_devices}" != "NoDevFiles" ]]
 }; then
+  IFS=',' read -r -a ordered_gpu_devices <<< "${gpu_devices}"
+  [[ "${#ordered_gpu_devices[@]}" -gt 0 ]] || {
+    echo "No ordered CDI GPU devices were configured" >&2
+    exit 1
+  }
+  declare -a selected_gpu_indices=()
+  if [[ "${ray_worker}" != "1" && "${cuda_visible_devices}" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+    IFS=',' read -r -a selected_gpu_indices <<< "${cuda_visible_devices}"
+  elif [[ "${ray_worker}" == "1" && "${job_expected_gpu_count}" == "1" \
+    && "${heterogeneous_evaluation}" != "1" ]]; then
+    # One Launcher propagates the total requested GPU count into every Ray
+    # runtime container. A one-GPU job should see only the first ordered slot
+    # (GB300), even though Ray's image plugin creates the container before the
+    # Python worker can apply its logical resource assignment.
+    selected_gpu_indices=(0)
+  else
+    # Evaluation-config jobs need both devices attached before default_worker
+    # starts. Ray later narrows CUDA_VISIBLE_DEVICES to logical slot 0 for the
+    # GB300 policy/trainer actor and slot 1 for the RTX simulator actor.
+    selected_gpu_indices=("${!ordered_gpu_devices[@]}")
+  fi
+  cuda_device_uuids=""
+  for index in "${selected_gpu_indices[@]}"; do
+    [[ "${index}" =~ ^[0-9]+$ && "${index}" -lt "${#ordered_gpu_devices[@]}" ]] || {
+      echo "Requested CUDA device index ${index} is outside the configured CDI set" >&2
+      exit 1
+    }
+    [[ -n "${ordered_gpu_devices[$index]}" ]] || {
+      echo "Empty CDI GPU device at ordered index ${index}" >&2
+      exit 1
+    }
+    injected+=(--device "${ordered_gpu_devices[$index]}")
+    gpu_uuid="${ordered_gpu_devices[$index]#nvidia.com/gpu=}"
+    [[ "${gpu_uuid}" == GPU-* ]] || {
+      echo "CDI GPU device does not contain a GPU UUID: ${ordered_gpu_devices[$index]}" >&2
+      exit 1
+    }
+    cuda_device_uuids+="${cuda_device_uuids:+,}${gpu_uuid}"
+  done
   injected+=(
-    --device "${gpu_device}"
-    --env "CUDA_VISIBLE_DEVICES=0"
+    # UUID visibility makes CUDA enumerate the logical Ray slots in this exact
+    # order even when /dev/nvidia* retains a different host-physical order.
+    --env "CUDA_VISIBLE_DEVICES=${cuda_device_uuids}"
+    --env "MUJOCO_GL=egl"
+    --env "PYOPENGL_PLATFORM=egl"
+    --env "NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics"
+    --env "PYTHONPATH=${data_root}/runtime/python:/opt/grootrobosuite:/opt/grootrobocasa:${PYTHONPATH:-}"
     --ulimit "memlock=-1"
     --ulimit "stack=67108864"
   )

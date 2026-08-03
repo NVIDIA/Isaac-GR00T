@@ -18,6 +18,9 @@ from groot.infra.launcher.one_launcher.training_experiment_compute_config import
 from groot.infra.launcher.one_launcher.training_experiment_data_config import (
     TrainingExperimentDataConfig,
 )
+from groot.infra.launcher.one_launcher.training_experiment_evaluation_config import (
+    TrainingExperimentEvaluationConfig,
+)
 from groot.infra.launcher.one_launcher.training_experiment_training_config import (
     TrainingExperimentTrainingConfig,
 )
@@ -31,6 +34,7 @@ class TrainingExperiment:
     data_config: TrainingExperimentDataConfig
     training_config: TrainingExperimentTrainingConfig
     compute_config: TrainingExperimentComputeConfig
+    evaluation_config: TrainingExperimentEvaluationConfig | None = None
 
     def resolve(
         self,
@@ -60,6 +64,7 @@ class TrainingExperiment:
             data_cli_section=self.data_cli_section(),
             training_section=self.training_section(global_batch_size),
             model_section=self.model_section(),
+            evaluation_section=self.evaluation_section(),
             num_nodes=compute_profile.num_nodes_for_num_gpus(num_gpus),
             num_gpus=num_gpus,
             batch_size=compute_family.per_device_batch_size,
@@ -86,6 +91,11 @@ class TrainingExperiment:
             {"name": self.training_config.model_name},
             self.training_config.model,
         )
+
+    def evaluation_section(self) -> Mapping[str, Any] | None:
+        if self.evaluation_config is None:
+            return None
+        return self.serializable_value(self.evaluation_config)
 
     def dataclass_overrides(self, instance: Any) -> Mapping[str, Any]:
         if not dataclasses.is_dataclass(instance):

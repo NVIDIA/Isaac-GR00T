@@ -24,15 +24,15 @@
 #   - install and configure NVIDIA Container Toolkit for Docker
 #
 # Usage:
-#   sudo ci/scripts/setup_bare_metal_gpu_host.sh
+#   sudo ci/scripts/colossus/setup_bare_metal_gpu_host.sh
 #
 # Common overrides:
-#   NVIDIA_DRIVER_BRANCH=580 sudo ci/scripts/setup_bare_metal_gpu_host.sh
-#   NVIDIA_DRIVER_FLAVOR=server-open sudo ci/scripts/setup_bare_metal_gpu_host.sh
-#   NVIDIA_DRIVER_PACKAGE=nvidia-driver-595-server-open sudo ci/scripts/setup_bare_metal_gpu_host.sh
-#   sudo ci/scripts/setup_bare_metal_gpu_host.sh --validate-groot-image --nvcr-token-file /root/.nvcr-token
-#   printf '%s' "${NVCR_TOKEN}" | sudo ci/scripts/setup_bare_metal_gpu_host.sh --validate-groot-image --nvcr-token-stdin
-#   ALLOW_UNSAFE_NVIDIA_SMI=1 sudo -E ci/scripts/setup_bare_metal_gpu_host.sh --validate-groot-image
+#   NVIDIA_DRIVER_BRANCH=580 sudo ci/scripts/colossus/setup_bare_metal_gpu_host.sh
+#   NVIDIA_DRIVER_FLAVOR=server-open sudo ci/scripts/colossus/setup_bare_metal_gpu_host.sh
+#   NVIDIA_DRIVER_PACKAGE=nvidia-driver-595-server-open sudo ci/scripts/colossus/setup_bare_metal_gpu_host.sh
+#   sudo ci/scripts/colossus/setup_bare_metal_gpu_host.sh --validate-groot-image --nvcr-token-file /root/.nvcr-token
+#   printf '%s' "${NVCR_TOKEN}" | sudo ci/scripts/colossus/setup_bare_metal_gpu_host.sh --validate-groot-image --nvcr-token-stdin
+#   ALLOW_UNSAFE_NVIDIA_SMI=1 sudo -E ci/scripts/colossus/setup_bare_metal_gpu_host.sh --validate-groot-image
 
 set -euo pipefail
 
@@ -77,7 +77,7 @@ curl_with_retry() {
 usage() {
   cat <<EOF
 Usage:
-  sudo ci/scripts/setup_bare_metal_gpu_host.sh [options]
+  sudo ci/scripts/colossus/setup_bare_metal_gpu_host.sh [options]
 
 Options:
   --validate-groot-image       Run Docker GPU validation with ${GROOT_CI_TRAIN_IMAGE}.
@@ -379,7 +379,7 @@ persist_nvidia_module_options() {
 
   local managed_config
   managed_config="$(cat <<'EOF'
-# Managed by ci/scripts/setup_bare_metal_gpu_host.sh.
+# Managed by ci/scripts/colossus/setup_bare_metal_gpu_host.sh.
 # GB300 workaround: avoid nvidia-smi hangs in nv_remove_numa_memory/raw_q_flush.
 options nvidia NVreg_EnableUserNUMAManagement=0
 EOF

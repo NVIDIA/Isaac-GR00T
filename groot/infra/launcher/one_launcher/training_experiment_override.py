@@ -44,6 +44,8 @@ class TrainingExperimentOverride:
         elif path[0] == "data" and len(path) > 1:
             if path[1].replace("-", "_") == "launcher_data":
                 path = ("data", "launcher_data", *path[2:])
+        elif path[0] == "evaluation":
+            path = ("evaluation", *(part.replace("-", "_") for part in path[1:]))
         try:
             value = yaml.safe_load(raw_value)
         except yaml.YAMLError as exc:
