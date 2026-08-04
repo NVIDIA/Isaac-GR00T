@@ -34,6 +34,9 @@ from gr00t.data.types import MessageType, ModalityConfig, VLAStepData
 from .policy import BasePolicy, PolicyWrapper
 
 
+SPEED_RL_FEATURE_LAYER = "action_head.dit.last_block.pre_output_norm.final_denoise"
+
+
 def _rec_to_dtype(x: Any, dtype: torch.dtype) -> Any:
     """Recursively convert all floating point tensors in a nested structure to the given dtype.
 
@@ -87,6 +90,8 @@ class Gr00tPolicy(BasePolicy):
         *,
         device: int | str,
         strict: bool = True,
+        speed_rl_features: bool = False,
+        speed_rl_model_id: str | None = None,
     ):
         """Initialize the Gr00t Policy.
 
@@ -96,6 +101,8 @@ class Gr00tPolicy(BasePolicy):
             model_path: Path to the pretrained model checkpoint directory
             device: Device to run the model on (e.g., 'cuda:0', 0, 'cpu')
             strict: Whether to enforce strict input validation (default: True)
+            speed_rl_features: Export action-aligned DiT features in policy info.
+            speed_rl_model_id: Stable identifier stored in the Speed-RL checkpoint contract.
         """
         # Import this to register all models.
         import gr00t.model  # noqa: F401
@@ -110,6 +117,10 @@ class Gr00tPolicy(BasePolicy):
         model.eval()  # Set model to evaluation mode
         model.to(device=device, dtype=torch.bfloat16)
         self.model = model
+        self.speed_rl_features = bool(speed_rl_features)
+        self.speed_rl_model_id = str(speed_rl_model_id or model_dir.name).strip()
+        if self.speed_rl_features and not self.speed_rl_model_id:
+            raise ValueError("speed_rl_model_id must be non-empty when Speed-RL is enabled")
 
         # Load the processor for input/output transformation.
         # Training saves processor files under a "processor/" subdirectory, but
@@ -413,8 +424,10 @@ class Gr00tPolicy(BasePolicy):
         collated_inputs = _rec_to_dtype(collated_inputs, dtype=torch.bfloat16)
 
         # Step 4: Run model inference to predict actions
+        model_options = dict(options or {})
+        model_options["return_speed_rl_features"] = self.speed_rl_features
         with torch.inference_mode():
-            model_pred = self.model.get_action(**collated_inputs)
+            model_pred = self.model.get_action(**collated_inputs, options=model_options)
         normalized_action = model_pred["action_pred"].float()
 
         # Step 5: Decode actions from normalized space back to physical units
@@ -429,7 +442,29 @@ class Gr00tPolicy(BasePolicy):
         casted_action = {
             key: value.astype(np.float32) for key, value in unnormalized_action.items()
         }
-        return casted_action, {}
+        info: dict[str, Any] = {}
+        if self.speed_rl_features:
+            if "speed_rl_action_features" not in model_pred:
+                raise RuntimeError(
+                    "The loaded model did not return speed_rl_action_features; "
+                    "Speed-RL requires the N1.7 action-head feature export"
+                )
+            action_features = model_pred["speed_rl_action_features"].detach().float().cpu().numpy()
+            if action_features.ndim != 3:
+                raise RuntimeError(
+                    "Speed-RL action features must have shape (K, H, D), "
+                    f"got {action_features.shape}"
+                )
+            if action_features.shape[:2] != normalized_action.shape[:2]:
+                raise RuntimeError(
+                    "Speed-RL feature/action alignment failed: "
+                    f"features={action_features.shape[:2]}, actions={tuple(normalized_action.shape[:2])}"
+                )
+            info["speed_rl"] = {
+                "action_features": np.ascontiguousarray(action_features, dtype=np.float32),
+                "contract": self.get_speed_rl_contract(),
+            }
+        return casted_action, info
 
     def check_action(self, action: dict[str, Any]) -> None:
         """Validate that the action has the correct structure and types.
@@ -478,6 +513,22 @@ class Gr00tPolicy(BasePolicy):
 
     def get_modality_config(self) -> dict[str, ModalityConfig]:
         return self.modality_configs
+
+    def get_speed_rl_contract(self) -> dict[str, Any]:
+        if not self.speed_rl_features:
+            raise RuntimeError("Speed-RL feature export is disabled on this policy server")
+        action_head = getattr(self.model, "action_head", None)
+        dit = None if action_head is None else getattr(action_head, "model", None)
+        feature_dim = None if dit is None else getattr(dit, "inner_dim", None)
+        if not isinstance(feature_dim, int) or feature_dim < 1:
+            raise RuntimeError("Could not determine the N1.7 DiT Speed-RL feature dimension")
+        return {
+            "version": 1,
+            "model_id": self.speed_rl_model_id,
+            "layer": SPEED_RL_FEATURE_LAYER,
+            "feature_dim": feature_dim,
+            "dtype": "float32",
+        }
 
     def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
         """Reset the policy to its initial state.
