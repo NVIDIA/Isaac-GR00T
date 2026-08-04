@@ -95,7 +95,11 @@ if __name__ == "__main__":
     else:
         config.model.extra_augmentation_config = None
 
-    config.model.load_bf16 = False
+    # Load the bf16 Cosmos checkpoint directly in bf16 instead of materializing it
+    # in fp32. Trainable backbone params are cast back to fp32 by Qwen3Backbone when
+    # backbone_trainable_params_fp32 is set (that cast is gated on load_bf16), so
+    # optimizer master weights keep full precision; only frozen params stay bf16.
+    config.model.load_bf16 = True
     config.model.reproject_vision = False
     config.model.model_name = "nvidia/Cosmos-Reason2-2B"
     config.model.backbone_trainable_params_fp32 = True
@@ -103,7 +107,7 @@ if __name__ == "__main__":
 
     config.training.experiment_name = ft_config.experiment_name
     config.training.start_from_checkpoint = ft_config.base_model_path
-    config.training.optim = "adamw_torch"
+    config.training.optim = "adamw_torch_fused"
     config.training.global_batch_size = ft_config.global_batch_size
     config.training.dataloader_num_workers = ft_config.dataloader_num_workers
     config.training.learning_rate = ft_config.learning_rate
