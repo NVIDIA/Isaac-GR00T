@@ -109,6 +109,29 @@ class Gr00tN1d7Config(PretrainedConfig):
     noise_s: float = 0.999
     num_timestep_buckets: int = 1000
 
+    # RECAP: advantage-conditioned flow matching. Our addition on top of upstream
+    # GR00T N1.7, which ships plain flow matching only.
+    #
+    # Plain flow matching trains p(actions | observation), so the head imitates the
+    # *average* demonstration -- clean grasps and fumbled ones alike. RECAP conditions the
+    # same head on a quality label instead: p(actions | observation, advantage).
+    #
+    # The label starts as a scalar advantage per action chunk, A = Q(s, chunk) - V(s):
+    # how much better that chunk was than what the policy typically does from that state.
+    # We sort the dataset by it and cut it into `num_advantage_bins` equally populated
+    # quality buckets -- those are the bins. With 8 bins, bin 0 is the worst-scoring
+    # eighth of the chunks and bin 7 the best-scoring eighth. Each bin owns one learned
+    # embedding row, fed to the DiT as an extra conditioning token.
+    #
+    # So during training a clean grasp arrives tagged bin 7 and a fumbled one bin 0: the
+    # bad data still trains the model, it just gets filed under a different token instead
+    # of dragging the average down. At inference we always request the top bin
+    # (num_advantage_bins - 1), which is what makes the policy emit the good mode.
+    #
+    # Advantages are supplied already normalized to a percentile rank in [0, 1], so the
+    # buckets are plain uniform cuts -- see Gr00tN1d7ActionHead._advantage_bins.
+    num_advantage_bins: int = 8
+
     # Training parameters
     tune_projector: bool = True
     tune_diffusion_model: bool = True

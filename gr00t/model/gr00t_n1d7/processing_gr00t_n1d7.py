@@ -698,6 +698,12 @@ class Gr00tN1d7Processor(BaseProcessor):
         if action_mask is not None:
             transformed_inputs["action_mask"] = action_mask
         transformed_inputs["embodiment_id"] = self.embodiment_id_mapping[embodiment_tag.value]
+        # RECAP quality label for this action chunk, as a percentile rank in [0, 1]. Written
+        # by the offline labeling pass that scores rollouts with the value function; absent
+        # for plain unlabeled demos, which the action head then treats as top quality.
+        # Like embodiment_id this is a scalar, and the collator stacks it into (B,).
+        if "advantage" in content.metadata:
+            transformed_inputs["advantage"] = np.float32(content.metadata["advantage"])
         return transformed_inputs
 
     def _get_vlm_inputs(

@@ -81,6 +81,20 @@ class Gr00tN1d7ActionHead(nn.Module):
             output_dim=self.action_dim,
         )
 
+        # RECAP: one learned vector per quality bin. Bin 0 is the worst-scoring slice of
+        # the training data, bin num_advantage_bins - 1 the best. The row is prepended to
+        # the DiT input sequence as a conditioning token, which is what makes the velocity
+        # field depend on the requested quality level.
+        #
+        # nn.Embedding defaults to N(0, 1) rows, which would enter the sequence far louder
+        # than its neighbours (state/action features are LayerNorm'd to ~unit scale) and
+        # dominate attention before it means anything. Re-init small so the token starts
+        # out saying nothing and the DiT learns to read it -- same std the sibling
+        # position_embedding below uses.
+        self.num_advantage_bins = config.num_advantage_bins
+        self.advantage_embedding = nn.Embedding(self.num_advantage_bins, self.input_embedding_dim)
+        nn.init.normal_(self.advantage_embedding.weight, mean=0.0, std=0.02)
+
         self.vlln = (
             nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
         )
@@ -130,6 +144,7 @@ class Gr00tN1d7ActionHead(nn.Module):
             self.state_encoder.requires_grad_(False)
             self.action_encoder.requires_grad_(False)
             self.action_decoder.requires_grad_(False)
+            self.advantage_embedding.requires_grad_(False)
             if self.config.add_pos_embed:
                 self.position_embedding.requires_grad_(False)
         if not tune_diffusion_model:
@@ -159,6 +174,7 @@ class Gr00tN1d7ActionHead(nn.Module):
                 self.state_encoder.eval()
                 self.action_encoder.eval()
                 self.action_decoder.eval()
+                self.advantage_embedding.eval()
                 if self.config.add_pos_embed:
                     self.position_embedding.eval()
             if not self.tune_diffusion_model:
@@ -166,6 +182,27 @@ class Gr00tN1d7ActionHead(nn.Module):
             if not self.tune_vlln:
                 self.vlln.eval()
                 self.vl_self_attention.eval()
+
+    def _advantage_bins(self, advantage: torch.Tensor) -> torch.Tensor:
+        """Map continuous advantage labels (B,) to quality bin indices (B,).
+
+        Labels arrive as percentile ranks in [0, 1] -- the labeling pass ranks every
+        chunk in the dataset by its advantage and divides by the chunk count -- so the
+        bins are plain uniform cuts and come out equally populated. 0.0 lands in bin 0
+        (worst), 1.0 in the top bin.
+        """
+        bins = (advantage.detach().float().flatten() * self.num_advantage_bins).long()
+        # advantage == 1.0 would otherwise index one past the last bin.
+        return bins.clamp(0, self.num_advantage_bins - 1)
+
+    def _advantage_token(self, bin_index: torch.Tensor) -> torch.Tensor:
+        """Look up the conditioning token (B, 1, input_embedding_dim) for bin indices (B,)."""
+        return self.advantage_embedding(bin_index).unsqueeze(1)
+
+    @property
+    def best_advantage_bin(self) -> int:
+        """Top quality bin -- the one we request at inference."""
+        return self.num_advantage_bins - 1
 
     def sample_time(self, batch_size, device, dtype):
         sample = self.beta_dist.sample([batch_size]).to(device, dtype=dtype)
@@ -244,8 +281,25 @@ class Gr00tN1d7ActionHead(nn.Module):
             pos_embs = self.position_embedding(pos_ids).unsqueeze(0)
             action_features = action_features + pos_embs
 
-        # Join vision, language, state and action embedding along sequence dimension.
-        sa_embs = torch.cat((state_features, action_features), dim=1)
+        # RECAP: bin this chunk's advantage and prepend its token to the sequence, so the
+        # velocity the DiT learns is conditioned on how good the chunk was. A fumbled
+        # grasp carries a low bin and still trains the model -- it just teaches the low
+        # bin instead of dragging the single unconditional average down.
+        if "advantage" in action_input:
+            advantage_bins = self._advantage_bins(action_input.advantage)
+        else:
+            # Unlabeled data (plain teleop demos, no value function scored them yet) is
+            # treated as top quality. Training on only such data is standard flow matching
+            # with a constant extra token.
+            advantage_bins = torch.full(
+                (actions.shape[0],), self.best_advantage_bin, dtype=torch.long, device=device
+            )
+        advantage_token = self._advantage_token(advantage_bins).to(state_features.dtype)
+
+        # Join advantage, vision, language, state and action embedding along sequence dimension.
+        # The token goes in *front* so the action slice below (which counts from the end of
+        # the sequence) is unaffected.
+        sa_embs = torch.cat((advantage_token, state_features, action_features), dim=1)
         vl_attn_mask = backbone_output.backbone_attention_mask
 
         if self.config.use_alternate_vl_dit:
@@ -355,6 +409,19 @@ class Gr00tN1d7ActionHead(nn.Module):
         dt = 1.0 / self.num_inference_timesteps
         vel_strength = torch.ones_like(actions)
 
+        # RECAP: this is where the whole thing pays off. Training saw every quality level,
+        # but here we ask only for the top bin, so the denoising trajectory is pulled
+        # toward the good mode of the data instead of its average. The token is constant
+        # across the denoising steps, so build it once outside the loop.
+        # options["advantage_bin"] overrides it, which is handy for sweeping bins to check
+        # the conditioning actually took (bin 0 should look visibly worse than bin 7).
+        requested_bin = self.best_advantage_bin
+        if options is not None and "advantage_bin" in options:
+            requested_bin = int(options["advantage_bin"])
+        advantage_token = self._advantage_token(
+            torch.full((batch_size,), requested_bin, dtype=torch.long, device=device)
+        ).to(vl_embeds.dtype)
+
         if "action" in action_input:
             # If action in input when doing get action, it means we want to use RTC.
             # action_horizon is the action horizon of the input action.
@@ -409,8 +476,9 @@ class Gr00tN1d7ActionHead(nn.Module):
                 pos_embs = self.position_embedding(pos_ids).unsqueeze(0)
                 action_features = action_features + pos_embs
 
-            # Join vision, language, state and action embedding along sequence dimension.
-            sa_embs = torch.cat((state_features, action_features), dim=1)
+            # Join advantage, vision, language, state and action embedding along sequence
+            # dimension -- same layout as training, token first.
+            sa_embs = torch.cat((advantage_token, state_features, action_features), dim=1)
 
             # Run model forward.
             if self.config.use_alternate_vl_dit:
