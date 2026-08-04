@@ -37,8 +37,7 @@ $SUDO apt-get install -y --no-install-recommends \
     libavcodec-dev \
     libavformat-dev \
     libavutil-dev \
-    libswresample-dev \
-    pkg-config
+    libswresample-dev
 
 # CUDA toolkit — required by deepspeed (needs CUDA_HOME / nvcc to check op compatibility)
 # Skip if already installed
