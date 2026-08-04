@@ -438,6 +438,8 @@ class Gr00tN1d7ActionHead(nn.Module):
                 )
             if capture_hidden_state:
                 model_output, hidden_states = model_result
+                # Speed-RL feature A: final-denoise action tokens from the last DiT block,
+                # captured before norm_out, timestep modulation, and proj_out_2.
                 speed_rl_action_features = hidden_states[-1][:, -self.action_horizon :].float()
             else:
                 model_output = model_result
