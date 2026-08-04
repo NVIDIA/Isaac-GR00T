@@ -22,6 +22,7 @@ import time
 
 from loguru import logger
 import numpy as np
+import structlog
 import torch.distributed as dist
 from torch.utils.data import IterableDataset, get_worker_info
 
@@ -327,15 +328,6 @@ class ShardedMixtureDataset(IterableDataset):
 
         # Configure processor and datasets with merged statistics
         self.global_stats = stats_by_emb
-        for emb, modalities in stats_by_emb.items():
-            for mod, joint_groups in modalities.items():
-                for joint_group, stats in joint_groups.items():
-                    if "min" in stats and "max" in stats:
-                        lo, hi = np.min(stats["min"]), np.max(stats["max"])
-                        logger.info(
-                            f"merge_statistics | {emb} / {mod} / {joint_group}: "
-                            f"range=[{lo:.4f}, {hi:.4f}]"
-                        )
         self.processor.set_statistics(
             self.global_stats, override=self.override_pretraining_statistics
         )
@@ -484,8 +476,10 @@ class ShardedMixtureDataset(IterableDataset):
         """Submit the next shard build into the prefetch queue."""
         dataset_index, shard_index, dataset_path = self._next_shard_pair()
         # Capture the current context so structlog contextvars (worker_type,
-        # rank, etc.) propagate into the worker thread.
-        ctx = contextvars.copy_context()
+        # rank, etc.) propagate into the worker thread. Bind epoch_index here
+        # so get_shard can include it in VLAStepDataId.
+        with structlog.contextvars.bound_contextvars(epoch_index=self.epoch):
+            ctx = contextvars.copy_context()
         fut = self._executor.submit(ctx.run, self.datasets[dataset_index].get_shard, shard_index)
         self._prefetch_queue.append((fut, dataset_path, shard_index, time.time()))
 
@@ -527,7 +521,7 @@ class ShardedMixtureDataset(IterableDataset):
             self._raise_empty_worker_schedule()
         self.curr_shard_index = -1
         if self.worker_id in (0, None) and self.rank == 0:
-            logger.info(
+            logger.info(  # noqa: F821
                 f"[shard-prefetch] depth={depth} workers={workers} "
                 f"(schedule_len={len(self.worker_shard_sampling_schedule)})"
             )
@@ -574,7 +568,7 @@ class ShardedMixtureDataset(IterableDataset):
             # Immediately refill so the pipeline stays `depth` deep while we serve.
             self._submit_shard()
 
-            logger.info(
+            logger.info(  # noqa: F821
                 f"Rank {self.rank}, Worker {self.worker_id}: "
                 f"Wait for shard {shard_index} in dataset {dataset_path} "
                 f"in {wait_end - wait_start:.2f} seconds, shard_len={len(self.curr_shard)}, "
@@ -655,7 +649,7 @@ class ShardedMixtureDataset(IterableDataset):
             dataset_path = getattr(
                 self.datasets[dataset_index], "dataset_path", f"idx={dataset_index}"
             )
-            logger.info(
+            logger.info(  # noqa: F821
                 f"Rank {self.rank}, Worker {self.worker_id}: "
                 f"Wait for shard {shard_index} in dataset {dataset_path} "
                 f"in {wait_end - wait_start:.2f} seconds, shard_len={len(self.curr_shard)}"
@@ -704,7 +698,9 @@ class ShardedMixtureDataset(IterableDataset):
         ]
         # Submit background loading job. Capture the current context so structlog
         # contextvars (worker_type, rank, etc.) propagate into the worker thread.
-        ctx = contextvars.copy_context()
+        # Bind epoch_index so get_shard can include it in VLAStepDataId.
+        with structlog.contextvars.bound_contextvars(epoch_index=self.epoch):
+            ctx = contextvars.copy_context()
         self._cache_job = self._executor.submit(
             ctx.run, self.datasets[next_dataset_idx].get_shard, next_shard_idx
         )
@@ -748,13 +744,13 @@ class ShardedMixtureDataset(IterableDataset):
 
     def print_dataset_statistics(self):
         """Print formatted dataset statistics for debugging and monitoring."""
-        logger.info("=" * 100)
-        logger.info("ShardedMixtureDataset Statistics")
-        logger.info("=" * 100)
+        logger.info("=" * 100)  # noqa: F821
+        logger.info("ShardedMixtureDataset Statistics")  # noqa: F821
+        logger.info("=" * 100)  # noqa: F821
 
         # Print header
-        logger.info(f"{'Dataset Path':<60} {'Length':<10} {'Mix Ratio':<12}")
-        logger.info("-" * 100)
+        logger.info(f"{'Dataset Path':<60} {'Length':<10} {'Mix Ratio':<12}")  # noqa: F821
+        logger.info("-" * 100)  # noqa: F821
 
         # Print dataset details
         for i, ds in enumerate(self.datasets):
@@ -766,15 +762,15 @@ class ShardedMixtureDataset(IterableDataset):
             length = len(ds)
             mix_ratio = self.weights[i] * 100
 
-            logger.info(f"{dataset_path:<60} {length:<10,} {mix_ratio:<12.2f}")
+            logger.info(f"{dataset_path:<60} {length:<10,} {mix_ratio:<12.2f}")  # noqa: F821
 
         # Print additional metadata
         embodiments = {
             ds.embodiment_tag.value for ds in self.datasets if hasattr(ds, "embodiment_tag")  # type: ignore[attr-defined]
         }
-        logger.info(f"Embodiments: {', '.join(sorted(embodiments))}")
-        logger.info(f"Number of datasets: {len(self.datasets)}")
-        logger.info("=" * 100)
+        logger.info(f"Embodiments: {', '.join(sorted(embodiments))}")  # noqa: F821
+        logger.info(f"Number of datasets: {len(self.datasets)}")  # noqa: F821
+        logger.info("=" * 100)  # noqa: F821
 
     def get_initial_actions(self):
         """Collect initial actions from all datasets.

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python  # noqa: EXE001
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -35,19 +35,19 @@ import json
 import logging
 from pathlib import Path
 import time
-import structlog
 from typing import Any, cast
 
 import botocore.exceptions
 import numpy as np
 import polars as pl
 import pyarrow as pa
+import structlog
 
-from groot.core.utils.distributed import worker_logging
-from groot.core.utils.io import video as video_utils
 from groot.core.data import types as data_types
 from groot.core.data.hydrator import client_protocol, exceptions, service
 from groot.core.data.hydrator import types as hydrator_types
+from groot.core.utils.distributed import worker_logging
+from groot.core.utils.io import video as video_utils
 from groot.core.utils.state_action import initial_actions
 
 logger = logging.getLogger(__name__)
@@ -335,13 +335,9 @@ class LeRobotEpisodeLoader:
         if col_dtype == pl.String:
             return pl.col(original_key).alias(alias)
         if col_dtype.base_type() in (pl.List, pl.Array) and col_dtype.inner == pl.String:
-            return (
-                pl.col(original_key).cast(pl.List(pl.String)).list.first().alias(alias)
-            )
+            return pl.col(original_key).cast(pl.List(pl.String)).list.first().alias(alias)
         return (
-            pl.col(original_key)
-            .replace_strict(self.tasks_map, return_dtype=pl.String)
-            .alias(alias)
+            pl.col(original_key).replace_strict(self.tasks_map, return_dtype=pl.String).alias(alias)
         )
 
     def _load_parquet_data(self, episode_index: int) -> pl.DataFrame:
@@ -364,7 +360,7 @@ class LeRobotEpisodeLoader:
                 result = self._hydrator.hydrate(full)
             except (FileNotFoundError, OSError, exceptions.HydratorFileNotFoundError) as e:
                 raise FileNotFoundError(f"Parquet not found: {full}") from e
-            assert isinstance(result, (pa.Table, pl.DataFrame)), (
+            assert isinstance(result, (pa.Table, pl.DataFrame)), (  # noqa: UP038
                 f"hydrate(.parquet) must return pyarrow.Table or polars.DataFrame, "
                 f"got {type(result).__name__}"
             )
@@ -650,7 +646,7 @@ class LeRobotEpisodeLoader:
             episode_df = self.filter(episode_df, filter_meta)
 
         structlog.get_logger().debug(
-            "get_item_completed",
+            "episode_loader_getitem_completed",
             episode_id=int(episode_id),
             num_frames=int(actual_length),
             parquet_ms=parquet_ms,
@@ -658,6 +654,12 @@ class LeRobotEpisodeLoader:
             duration_ms=round((time.perf_counter() - getitem_t0) * 1000, 2),
         )
         return episode_df
+
+    def get_num_cameras(self) -> int:
+        """Return the number of camera views configured for loading."""
+        if "video" not in self.modality_configs:
+            return 0
+        return len(self.modality_configs["video"].modality_keys)
 
     def get_initial_actions(self):
         """Load initial actions for policy initialization if available.

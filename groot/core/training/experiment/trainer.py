@@ -536,6 +536,7 @@ class GR00TTrainer(Trainer):
         if self._training_enable_struct_logs and self._training_log_dir is not None:
             structlog.contextvars.bind_contextvars(rank=self.args.process_index)
             structlog.get_logger().info("training_actor_ready", rank=self.args.process_index)
+            print(f"Struct log dir: {self._training_log_dir}")
 
         # Straggler detection config
         self._straggler_initialized = False
@@ -1837,6 +1838,8 @@ class GR00TTrainer(Trainer):
             )
 
         print("Creating custom train dataloader")
+        if self._data_loading_log_dir:
+            print(f"Data loading struct log dir: {self._data_loading_log_dir}")
         data_collator = self.data_collator
         data_collator = self._get_collator_with_removed_columns(
             data_collator, description="training"
@@ -2211,12 +2214,16 @@ class GR00TTrainer(Trainer):
         """
         structlog.contextvars.bind_contextvars(global_step=self.state.global_step)
         t0 = time.perf_counter()
-        batch_samples, num_items = super().get_batch_samples(epoch_iterator, num_batches, device)
+        with self.timer.with_label("data_loading_stall_seconds"):
+            batch_samples, num_items = super().get_batch_samples(
+                epoch_iterator, num_batches, device
+            )
         stall_ms = round((time.perf_counter() - t0) * 1000, 2)
 
         # get_datapoint_ids walks every batch in batch_samples in one pass, so
         # we call it once here and serialize to dicts for structlog.
         ids = self.get_datapoint_ids(batch_samples)
+
         structlog.get_logger().info(
             "get_batch_samples",
             data_loading_stall_ms=stall_ms,

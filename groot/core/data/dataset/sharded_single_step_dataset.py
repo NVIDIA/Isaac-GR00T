@@ -135,9 +135,7 @@ def extract_step_data_batch(
         for key in list(r.keys()):
             if key.startswith("_padded_mask_"):
                 metadata[key] = r[key]
-        metadata["reward"] = np.asarray(
-            float(step_indices[i]) / max(n_rows, 1), dtype=np.float32
-        )
+        metadata["reward"] = np.asarray(float(step_indices[i]) / max(n_rows, 1), dtype=np.float32)
 
         vla_steps.append(
             types.VLAStepData(
@@ -476,7 +474,7 @@ class ShardedSingleStepDataset(types.ShardedDataset):
             try:
                 from groot.core.data.packds import deltacat_sql_loader as _dsl
 
-                _shard_timing = _dsl._shard_timing_enabled()
+                _shard_timing = _dsl._shard_timing_enabled()  # noqa: SLF001
             except Exception:  # noqa: BLE001
                 _dsl = None
                 _shard_timing = False
@@ -486,17 +484,23 @@ class ShardedSingleStepDataset(types.ShardedDataset):
             ep_indices = [ep_idx for (ep_idx, _) in episodes]
             # Prefetch all video files for this shard so downloads run async before we touch each episode
             self.episode_loader.register_video_files_for_episodes(ep_indices)
-
+            _get_num_cameras = getattr(self.episode_loader, "get_num_cameras", None)
+            num_cameras = _get_num_cameras() if _get_num_cameras is not None else 0
             datapoints = []
+            total_frames = 0
+            total_episode_length = 0
             for sample_idx, (ep_idx, step_indices) in enumerate(episodes):
+                episode_length = self.episode_loader.get_episode_length(ep_idx)
                 with bound_contextvars(
                     sample_idx=sample_idx,
                     episode_index=ep_idx,
-                    episode_length=self.episode_loader.get_episode_length(ep_idx),
+                    episode_length=episode_length,
+                    num_cameras=num_cameras,
                 ):
                     sample_t0 = time.perf_counter()
                     try:
                         episode_data = self.episode_loader[ep_idx]
+                        total_episode_length += episode_length
                     except RuntimeError as e:
                         raise RuntimeError(
                             f"Failed to load episode {ep_idx} from dataset {self.dataset_path}: {e}"
@@ -525,18 +529,21 @@ class ShardedSingleStepDataset(types.ShardedDataset):
                                 dataset_idx=self.dataset_index,
                                 episode_idx=ep_idx,
                                 step_idx=step_index,
+                                epoch_index=structlog.contextvars.get_contextvars().get(
+                                    "epoch_index", 0
+                                ),
+                                shard_index=idx,
                             )
                             vla_step_data.metadata[types.VLAStepDataId.STEP_DATA_ID_KEY] = (
                                 step_data_id
                             )
                             datapoint_t0 = time.perf_counter()
+                            total_frames += vla_step_data.num_frames
                             datapoints.append(self._get_datapoint_from_step_data(vla_step_data))
                             structlog.get_logger().debug(
                                 "get_datapoint_completed",
                                 num_frames=vla_step_data.num_frames,
-                                duration_ms=round(
-                                    (time.perf_counter() - datapoint_t0) * 1000, 2
-                                ),
+                                duration_ms=round((time.perf_counter() - datapoint_t0) * 1000, 2),
                             )
                     structlog.get_logger().debug(
                         "get_sample_completed",
@@ -550,11 +557,14 @@ class ShardedSingleStepDataset(types.ShardedDataset):
             structlog.get_logger().info(
                 "get_shard_completed",
                 shard_length=self.shard_lengths[idx],
+                total_frames=total_frames,
+                total_episode_length=total_episode_length,
                 duration_ms=round((time.perf_counter() - start_t) * 1000, 2),
+                num_cameras=num_cameras,
             )
             if _shard_timing and _dsl is not None:
                 _snap = _dsl.timing_snapshot_reset()
-                print(
+                print(  # noqa: T201
                     f"[shard-timing] episodes={len(ep_indices)} "
                     f"steps={self.shard_lengths[idx]} "
                     f"wall={time.perf_counter() - start_t:.1f}s "

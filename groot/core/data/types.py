@@ -103,12 +103,13 @@ class VLAStepDataId:
     dataset_idx: int = 0
     episode_idx: int = 0
     step_idx: int = 0
+    epoch_index: int = 0
+    shard_index: int = 0
 
 
 @dataclass
 class VLAStepData:
-    """
-    Represents a single step of VLA (Vision-Language-Action) data.
+    """Represents a single step of VLA (Vision-Language-Action) data.
 
     This is the core data structure returned by datasets, containing raw observation
     and action data that will be processed by the SequenceVLAProcessor.
@@ -184,16 +185,16 @@ class ModalityConfig:
     """
 
     delta_indices: list[int]
-    """Delta indices to sample relative to the current index. The returned data will correspond to the original data at a sampled base index + delta indices."""
+    """Delta indices to sample relative to the current index. The returned data will correspond to the original data at a sampled base index + delta indices."""  # noqa: E501
     modality_keys: list[str]
     """The keys to load for the modality in the dataset."""
 
     normalization_mode: dict[str, str | None] | None = None
-    """Per-key normalization mode (e.g. {"eef_9d": "sin_cos", "hand": None}). None falls back to min/max for all keys."""
+    """Per-key normalization mode (e.g. {"eef_9d": "sin_cos", "hand": None}). None falls back to min/max for all keys."""  # noqa: E501
     action_configs: Annotated[list[ActionConfig] | None, tyro.conf.Suppress] = None
     """Action configs for each modality key. Suppressed from CLI as it's set programmatically."""
     normalize_rotation: bool = True
-    """If False, skip rotation normalization for 9D EEF actions (xyz + rot6d). Default True for backward compatibility."""
+    """If False, skip rotation normalization for 9D EEF actions (xyz + rot6d). Default True for backward compatibility."""  # noqa: E501
     exclude_state: bool = False
     """If True, exclude the state from the modality."""
 
@@ -216,11 +217,11 @@ class ModalityConfig:
         if self.action_configs is not None:
             assert len(self.action_configs) == len(
                 self.modality_keys
-            ), f"Number of action configs ({len(self.action_configs)}) must match number of modality keys ({len(self.modality_keys)})"
+            ), f"Number of action configs ({len(self.action_configs)}) must match number of modality keys ({len(self.modality_keys)})"  # noqa: E501
             parsed_action_configs = []
             for action_config in self.action_configs:
                 if isinstance(action_config, dict):
-                    action_config = ActionConfig(
+                    action_config = ActionConfig(  # noqa: PLW2901
                         rep=self._parse_enum(ActionRepresentation, action_config["rep"]),
                         type=self._parse_enum(ActionType, action_config["type"]),
                         format=self._parse_enum(ActionFormat, action_config["format"]),
@@ -234,7 +235,6 @@ class OnlineDataFilter(ABC):
     @abstractmethod
     def __call__(self, df: EpisodeData, meta: dict | None = None) -> EpisodeData:
         """Filter the data."""
-        pass
 
 
 class VLATokenizer(ABC):
@@ -248,7 +248,6 @@ class VLATokenizer(ABC):
     @abstractmethod
     def encode(self, data: dict[str, np.ndarray], embodiment_tag: str) -> str:
         """Encode continuous data to string representation."""
-        pass
 
     def decode(self, text: str, embodiment_tag: str) -> dict[str, np.ndarray]:
         """Decode string representation back to continuous data."""
@@ -257,12 +256,10 @@ class VLATokenizer(ABC):
     @abstractmethod
     def set_statistics(self, statistics: dict[str, Any], override: bool = False) -> None:
         """Set normalization statistics."""
-        pass
 
     @abstractmethod
     def get_statistics(self) -> dict[str, Any]:
         """Get normalization statistics."""
-        pass
 
     def train(self):
         self.training = True
@@ -282,8 +279,7 @@ class VLATokenizer(ABC):
 
 class BaseProcessor(ProcessorMixin):
     def __call__(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        """
-        Process a list of messages and return a dictionary of model inputs.
+        """Process a list of messages and return a dictionary of model inputs.
 
         Args:
             messages (list[dict[str, Any]]): List of messages to process.
@@ -304,7 +300,7 @@ class BaseProcessor(ProcessorMixin):
         >>> ]
         >>> model_input = processor(messages)
         >>> print(model_input)
-        """
+        """  # noqa: E501
         raise NotImplementedError("Subclasses must implement __call__")
 
     def decode_action(
@@ -323,7 +319,6 @@ class BaseProcessor(ProcessorMixin):
     @abstractmethod
     def set_statistics(self, statistics: dict[str, Any], override: bool = False) -> None:
         """Set normalization statistics."""
-        pass
 
     def train(self):
         self.training = True
@@ -338,7 +333,7 @@ class BaseProcessor(ProcessorMixin):
             dict[str, dict[str, ModalityConfig]]: The modality configurations, where
                 modality_configs[embodiment_tag][modality] = ModalityConfig
         """
-        return getattr(self, "modality_configs")
+        return self.modality_configs
 
 
 class ShardedDataset(ABC):
@@ -348,28 +343,25 @@ class ShardedDataset(ABC):
     @abstractmethod
     def __len__(self) -> int:
         """Return the number of shards."""
-        pass
 
     @abstractmethod
     def get_shard_length(self, idx: int) -> int:
         """Get the length of the shard at index idx."""
-        pass
 
     @abstractmethod
     def get_shard(self, idx: int) -> list:
         """Get the shard at index idx."""
-        pass
 
     def set_processor(self, processor: BaseProcessor):
         self.processor = processor
 
     def get_dataset_statistics(self) -> dict[str, Any]:
         """Get the dataset statistics. This is only required for dataloaders for robtics datasets."""
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def set_dataset_statistics(self, statistics: dict[str, Any]) -> None:
         """Install dataset statistics that were computed outside the dataset."""
-        raise NotImplementedError()
+        raise NotImplementedError
 
 
 # # Example chat formats (processor input)
