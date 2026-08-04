@@ -43,6 +43,14 @@ class Subtask:
     session_ended: bool
 
 
+@dataclass(slots=True)
+class Prediction:
+    """Server reply to a stateless predict: one action, and whether it fell back."""
+
+    action: str | None
+    used_fallback: bool
+
+
 class AgentClient:
     """ZMQ REQ client for the agent server (one REQ socket per request)."""
 
@@ -121,6 +129,43 @@ class AgentClient:
         )
         return Subtask(text=reply.get("subtask"), session_ended=bool(reply.get("session_ended")))
 
+    def predict(
+        self,
+        *,
+        goal: str,
+        system_prompt: str,
+        robot_description: str,
+        images: list[Image],
+        candidates: list[str] | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> Prediction:
+        """One stateless action, no session.
+
+        The agent server exposes this alongside reset/step for callers that need
+        a single action rather than a closed-loop subtask stream (e.g. the G1
+        navigation waypoint bridge, which asks for one image point per goal).
+        """
+        request: dict[str, object] = {
+            "cmd": "predict",
+            "goal": goal,
+            "system_prompt": system_prompt,
+            "robot_description": robot_description,
+            "images": [self._jpeg(img) for img in images],
+        }
+        # Omit optional keys when unset so the server keeps its own defaults.
+        if candidates:
+            request["candidates"] = list(candidates)
+        if max_tokens is not None:
+            request["max_tokens"] = int(max_tokens)
+        if temperature is not None:
+            request["temperature"] = float(temperature)
+        reply = self._rpc(request)
+        return Prediction(
+            action=reply.get("action"),
+            used_fallback=bool(reply.get("used_fallback")),
+        )
+
     def close(self, *, session_id: str) -> None:
         try:
             self._rpc({"cmd": "close", "session_id": session_id})
@@ -130,4 +175,4 @@ class AgentClient:
             pass
 
 
-__all__ = ["AgentClient", "Subtask"]
+__all__ = ["AgentClient", "Prediction", "Subtask"]
