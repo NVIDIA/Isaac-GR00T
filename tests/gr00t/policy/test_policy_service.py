@@ -56,6 +56,15 @@ class MockPolicy:
             )
         }
 
+    def get_speed_rl_contract(self):
+        return {
+            "version": 1,
+            "model_id": "mock-n1.7",
+            "layer": "mock.action_tokens",
+            "feature_dim": 64,
+            "dtype": "float32",
+        }
+
     def check_observation(self, observation):
         pass
 
@@ -126,6 +135,12 @@ class TestPolicyServerClient:
         assert "state" in config
         assert isinstance(config["state"], ModalityConfig)
         assert config["state"].modality_keys == ["joint_pos"]
+
+    def test_get_speed_rl_contract(self, server_client):
+        client, _, _ = server_client
+        contract = client.call_endpoint("get_speed_rl_contract", requires_input=False)
+        assert contract["model_id"] == "mock-n1.7"
+        assert contract["feature_dim"] == 64
 
     def test_kill_server(self):
         """Test that kill_server stops the server loop."""
