@@ -14,6 +14,10 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 ARCH=$(uname -m)
+case "$ARCH" in
+    aarch64 | arm64) ARCH=aarch64 ;;
+    x86_64 | amd64) ARCH=x86_64 ;;
+esac
 
 # ──────────────────────────────────────────────────────────────────────────────
 # System dependencies

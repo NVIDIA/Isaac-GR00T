@@ -28,8 +28,8 @@ source .venv/bin/activate
 ```
 
 On `aarch64`, run `install_deps.sh` before any standalone `uv sync`. The installer retrieves
-the repository's Git LFS `torchcodec` wheel and falls back to building it from source if the
-LFS object is unavailable or the checkout contains only an LFS pointer.
+the pinned `torchcodec` wheel, verifies its SHA-256 checksum, and falls back to building it from
+source if the wheel is unavailable or the checkout contains only a Git LFS pointer.
 
 The checkpoint processor loads assets from the gated
 `nvidia/Cosmos-Reason2-2B` Hugging Face repository. Accept its access terms in the browser,

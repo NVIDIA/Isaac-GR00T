@@ -131,6 +131,8 @@ TORCHCODEC_SOURCE_VERSION="$(printf "%s" "$TORCHCODEC_VERSION" | sed -E 's/a[0-9
 
 TORCHCODEC_WHEEL="$(wheel_path_for "torchcodec" "$TORCHCODEC_VERSION")"
 TORCHCODEC_PATH="scripts/deployment/dgpu/wheels/$(basename "$TORCHCODEC_WHEEL")"
+TORCHCODEC_WHEEL_URL="${DGPU_TORCHCODEC_WHEEL_URL:-https://media.githubusercontent.com/media/NVIDIA/Isaac-GR00T/1a1837f20538b7d7e21f977a11a5aee14f99803c/$TORCHCODEC_PATH}"
+TORCHCODEC_WHEEL_SHA256="3c5bf377f922d2126041b3c49846504083a015d44979ca594e368ccc8c4c0814"
 
 echo "Expected dGPU aarch64 wheels from dependency pins:"
 echo "  torchcodec==$TORCHCODEC_VERSION -> $TORCHCODEC_PATH"
@@ -141,10 +143,13 @@ if [ "${DGPU_WHEEL_BOOTSTRAP_VALIDATE_ONLY:-0}" = "1" ]; then
     exit 0
 fi
 
-if [ "$(uname -m)" != "aarch64" ]; then
-    echo "dGPU wheel bootstrap is only needed on aarch64; skipping."
-    exit 0
-fi
+case "$(uname -m)" in
+    aarch64 | arm64) ;;
+    *)
+        echo "dGPU wheel bootstrap is only needed on aarch64; skipping."
+        exit 0
+        ;;
+esac
 
 wheel_is_valid() {
     python3 - "$1" <<'PY'
@@ -157,6 +162,27 @@ raise SystemExit(0 if wheel.is_file() and zipfile.is_zipfile(wheel) else 1)
 PY
 }
 
+download_torchcodec_wheel() {
+    if ! command -v curl &> /dev/null; then
+        return 1
+    fi
+
+    download_path=$(mktemp "$WHEEL_DIR/.torchcodec-download.XXXXXX")
+    echo "Downloading the pinned aarch64 torchcodec wheel..."
+    if curl --location --fail --retry 5 --retry-delay 2 \
+        --output "$download_path" "$TORCHCODEC_WHEEL_URL" \
+        && printf '%s  %s\n' "$TORCHCODEC_WHEEL_SHA256" "$download_path" | sha256sum --check --status \
+        && wheel_is_valid "$download_path"; then
+        mv -- "$download_path" "$TORCHCODEC_WHEEL"
+        echo "Downloaded and verified: $TORCHCODEC_WHEEL"
+        return 0
+    fi
+
+    echo "WARNING: Direct torchcodec wheel download or checksum verification failed." >&2
+    rm -f -- "$download_path"
+    return 1
+}
+
 if wheel_is_valid "$TORCHCODEC_WHEEL"; then
     echo "Matching dGPU aarch64 torchcodec wheel already exists; skipping source build."
     exit 0
@@ -164,6 +190,9 @@ fi
 if [ -f "$TORCHCODEC_WHEEL" ]; then
     echo "Removing invalid torchcodec wheel placeholder: $TORCHCODEC_WHEEL"
     rm -f -- "$TORCHCODEC_WHEEL"
+fi
+if download_torchcodec_wheel; then
+    exit 0
 fi
 
 if ! command -v uv &> /dev/null; then
