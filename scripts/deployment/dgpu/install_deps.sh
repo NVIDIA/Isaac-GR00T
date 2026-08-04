@@ -82,15 +82,15 @@ fi
 cd "$REPO_ROOT"
 
 if [ "$ARCH" = "aarch64" ]; then
-    echo "Preparing the aarch64 torchcodec wheel..."
     git lfs install --local
     if ! git lfs pull \
         --include="scripts/deployment/dgpu/wheels/torchcodec-*.whl" \
         --exclude=""; then
         echo "WARNING: Git LFS wheel download failed; falling back to a source build." >&2
     fi
-    bash "$SCRIPT_DIR/bootstrap_wheels.sh"
 fi
+echo "Preparing the aarch64 torchcodec wheel required by uv resolution..."
+bash "$SCRIPT_DIR/bootstrap_wheels.sh"
 
 echo "Running uv sync..."
 uv sync

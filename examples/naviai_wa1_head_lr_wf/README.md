@@ -27,9 +27,10 @@ bash scripts/deployment/dgpu/install_deps.sh
 source .venv/bin/activate
 ```
 
-On `aarch64`, run `install_deps.sh` before any standalone `uv sync`. The installer retrieves
-the pinned `torchcodec` wheel, verifies its SHA-256 checksum, and falls back to building it from
-source if the wheel is unavailable or the checkout contains only a Git LFS pointer.
+Run `install_deps.sh` before any standalone `uv sync`. Uv validates both declared dGPU
+architectures even on an x86 host, so the installer first retrieves the pinned aarch64
+`torchcodec` wheel and verifies its SHA-256 checksum. On aarch64, it can fall back to a source
+build if the wheel is unavailable or the checkout contains only a Git LFS pointer.
 
 The checkpoint processor loads assets from the gated
 `nvidia/Cosmos-Reason2-2B` Hugging Face repository. Accept its access terms in the browser,

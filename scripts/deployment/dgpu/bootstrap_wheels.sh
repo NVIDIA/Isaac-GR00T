@@ -143,12 +143,10 @@ if [ "${DGPU_WHEEL_BOOTSTRAP_VALIDATE_ONLY:-0}" = "1" ]; then
     exit 0
 fi
 
-case "$(uname -m)" in
-    aarch64 | arm64) ;;
-    *)
-        echo "dGPU wheel bootstrap is only needed on aarch64; skipping."
-        exit 0
-        ;;
+ARCH=$(uname -m)
+case "$ARCH" in
+    aarch64 | arm64) ARCH=aarch64 ;;
+    x86_64 | amd64) ARCH=x86_64 ;;
 esac
 
 wheel_is_valid() {
@@ -193,6 +191,11 @@ if [ -f "$TORCHCODEC_WHEEL" ]; then
 fi
 if download_torchcodec_wheel; then
     exit 0
+fi
+if [ "$ARCH" != "aarch64" ]; then
+    echo "ERROR: Could not download the required aarch64 torchcodec wheel." >&2
+    echo "Source fallback is unavailable on host architecture: $ARCH" >&2
+    exit 1
 fi
 
 if ! command -v uv &> /dev/null; then
