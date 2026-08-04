@@ -33,7 +33,6 @@ PY
 }
 
 PY_VERSION="$(resolve_python_version)"
-PYTHON_BIN="python${PY_VERSION}"
 CP_TAG="cp${PY_VERSION/./}"
 
 resolve_dependency_version() {
@@ -147,9 +146,24 @@ if [ "$(uname -m)" != "aarch64" ]; then
     exit 0
 fi
 
-if [ -f "$TORCHCODEC_WHEEL" ]; then
+wheel_is_valid() {
+    python3 - "$1" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+wheel = pathlib.Path(sys.argv[1])
+raise SystemExit(0 if wheel.is_file() and zipfile.is_zipfile(wheel) else 1)
+PY
+}
+
+if wheel_is_valid "$TORCHCODEC_WHEEL"; then
     echo "Matching dGPU aarch64 torchcodec wheel already exists; skipping source build."
     exit 0
+fi
+if [ -f "$TORCHCODEC_WHEEL" ]; then
+    echo "Removing invalid torchcodec wheel placeholder: $TORCHCODEC_WHEEL"
+    rm -f -- "$TORCHCODEC_WHEEL"
 fi
 
 if ! command -v uv &> /dev/null; then
@@ -163,7 +177,7 @@ TMP_BUILD_DIRS=()
 trap 'rm -rf "$BUILD_VENV"; for _d in "${TMP_BUILD_DIRS[@]:-}"; do rm -rf "$_d"; done' EXIT
 
 rm -rf "$BUILD_VENV"
-"$PYTHON_BIN" -m venv "$BUILD_VENV"
+uv venv --python "$PY_VERSION" "$BUILD_VENV"
 
 uv_pip_install_retry() {
     for attempt in 1 2 3 4 5; do
@@ -206,7 +220,7 @@ export NVCC_THREADS="${NVCC_THREADS:-1}"
 export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-$(nproc)}"
 
 build_torchcodec() {
-    if [ -f "$TORCHCODEC_WHEEL" ]; then
+    if wheel_is_valid "$TORCHCODEC_WHEEL"; then
         echo "torchcodec wheel already exists: $TORCHCODEC_WHEEL"
         return
     fi
@@ -224,7 +238,7 @@ build_torchcodec() {
         --wheel-dir "$WHEEL_DIR" \
         /tmp/torchcodec
 
-    if [ ! -f "$TORCHCODEC_WHEEL" ]; then
+    if ! wheel_is_valid "$TORCHCODEC_WHEEL"; then
         echo "ERROR: torchcodec source build did not produce expected wheel:" >&2
         echo "  $TORCHCODEC_WHEEL" >&2
         echo "Available torchcodec wheels:" >&2

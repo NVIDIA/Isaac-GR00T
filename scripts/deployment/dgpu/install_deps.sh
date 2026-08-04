@@ -19,11 +19,22 @@ ARCH=$(uname -m)
 # System dependencies
 # ──────────────────────────────────────────────────────────────────────────────
 
-# FFmpeg runtime libs — required by torchcodec at runtime
+# FFmpeg runtime/build libs — required by torchcodec on aarch64
 # libaio-dev — required by deepspeed async I/O ops
+# git-lfs — retrieves the repository-provided aarch64 torchcodec wheel
 echo "Installing system dependencies..."
 $SUDO apt-get update -qq
-$SUDO apt-get install -y --no-install-recommends ffmpeg libaio-dev
+$SUDO apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    ffmpeg \
+    git-lfs \
+    libaio-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswresample-dev \
+    pkg-config
 
 # CUDA toolkit — required by deepspeed (needs CUDA_HOME / nvcc to check op compatibility)
 # Skip if already installed
@@ -67,7 +78,18 @@ fi
 
 cd "$REPO_ROOT"
 
-echo "Running uv sync (torch==2.7.1+cu128 from pytorch-cu128 index)..."
+if [ "$ARCH" = "aarch64" ]; then
+    echo "Preparing the aarch64 torchcodec wheel..."
+    git lfs install --local
+    if ! git lfs pull \
+        --include="scripts/deployment/dgpu/wheels/torchcodec-*.whl" \
+        --exclude=""; then
+        echo "WARNING: Git LFS wheel download failed; falling back to a source build." >&2
+    fi
+    bash "$SCRIPT_DIR/bootstrap_wheels.sh"
+fi
+
+echo "Running uv sync..."
 uv sync
 
 echo "Installing package in editable mode..."
