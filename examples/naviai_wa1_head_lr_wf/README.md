@@ -32,6 +32,11 @@ architectures even on an x86 host, so the installer first retrieves the pinned a
 `torchcodec` wheel and verifies its SHA-256 checksum. On aarch64, it can fall back to a source
 build if the wheel is unavailable or the checkout contains only a Git LFS pointer.
 
+The default server installation skips `flash-attn` because its prebuilt wheels are hosted on
+GitHub Release storage, which is unavailable on some cloud networks. The checkpoint automatically
+falls back to PyTorch SDPA with the same action and feature contract. To request FlashAttention on
+a network that can access GitHub Release assets, run `INSTALL_FLASH_ATTN=1` before the installer.
+
 The checkpoint processor loads assets from the gated
 `nvidia/Cosmos-Reason2-2B` Hugging Face repository. Accept its access terms in the browser,
 then authenticate once on the cloud machine:

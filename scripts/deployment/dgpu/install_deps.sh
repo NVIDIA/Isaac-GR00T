@@ -93,10 +93,12 @@ echo "Preparing the aarch64 torchcodec wheel required by uv resolution..."
 bash "$SCRIPT_DIR/bootstrap_wheels.sh"
 
 echo "Running uv sync..."
-uv sync
-
-echo "Installing package in editable mode..."
-uv pip install -e .
+if [ "${INSTALL_FLASH_ATTN:-0}" = "1" ]; then
+    uv sync
+else
+    echo "Skipping flash-attn; GR00T inference will use PyTorch SDPA."
+    uv sync --no-install-package flash-attn
+fi
 
 echo ""
 echo "Install complete! Activate with:"
