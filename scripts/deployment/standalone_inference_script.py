@@ -133,7 +133,15 @@ class TensorRTDiTWrapper:
         self.context = self.engine.create_execution_context()
         logging.info(f"TensorRT engine loaded: {engine_path}")
 
-    def __call__(self, sa_embs, vl_embs, timestep, image_mask=None, backbone_attention_mask=None):
+    def __call__(
+        self,
+        sa_embs,
+        vl_embs,
+        timestep,
+        image_mask=None,
+        backbone_attention_mask=None,
+        hidden_attention_mask=None,
+    ):
         """Forward pass through TensorRT DiT."""
         # Setup context bindings
         sa_embs = sa_embs.to(f"cuda:{self.device}").contiguous()
@@ -144,6 +152,8 @@ class TensorRTDiTWrapper:
             image_mask = image_mask.to(f"cuda:{self.device}").contiguous()
         if backbone_attention_mask is not None:
             backbone_attention_mask = backbone_attention_mask.to(f"cuda:{self.device}").contiguous()
+        if hidden_attention_mask is not None:
+            hidden_attention_mask = hidden_attention_mask.to(f"cuda:{self.device}").contiguous()
 
         self.context.set_input_shape("sa_embs", sa_embs.shape)
         self.context.set_input_shape("vl_embs", vl_embs.shape)
@@ -152,6 +162,8 @@ class TensorRTDiTWrapper:
             self.context.set_input_shape("image_mask", image_mask.shape)
         if backbone_attention_mask is not None:
             self.context.set_input_shape("backbone_attention_mask", backbone_attention_mask.shape)
+        if hidden_attention_mask is not None:
+            self.context.set_input_shape("hidden_attention_mask", hidden_attention_mask.shape)
 
         self.context.set_tensor_address("sa_embs", sa_embs.data_ptr())
         self.context.set_tensor_address("vl_embs", vl_embs.data_ptr())
@@ -161,6 +173,10 @@ class TensorRTDiTWrapper:
         if backbone_attention_mask is not None:
             self.context.set_tensor_address(
                 "backbone_attention_mask", backbone_attention_mask.data_ptr()
+            )
+        if hidden_attention_mask is not None:
+            self.context.set_tensor_address(
+                "hidden_attention_mask", hidden_attention_mask.data_ptr()
             )
 
         # Output in BF16 (matches ONNX export and engine precision)
@@ -189,6 +205,7 @@ def replace_dit_with_tensorrt(policy: Gr00tPolicy | Any, trt_engine_path: str, d
         return_all_hidden_states=False,
         image_mask=None,
         backbone_attention_mask=None,
+        hidden_attention_mask=None,
     ):
         """
         TensorRT wrapper matching DiT forward signature.
@@ -205,6 +222,7 @@ def replace_dit_with_tensorrt(policy: Gr00tPolicy | Any, trt_engine_path: str, d
             timestep=timestep,
             image_mask=image_mask,
             backbone_attention_mask=backbone_attention_mask,
+            hidden_attention_mask=hidden_attention_mask,
         )
 
         # DiT returns (output, all_hidden_states) when return_all_hidden_states=True

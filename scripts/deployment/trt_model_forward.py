@@ -56,6 +56,7 @@ import os
 import sys
 
 from gr00t.deployment.modes import InferenceMode
+from gr00t.model.gr00t_n1d7.gr00t_n1d7 import _expand_action_mask
 import torch
 from transformers.feature_extraction_utils import BatchFeature
 
@@ -524,6 +525,20 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
             device=device,
         )
 
+    action_mask = _expand_action_mask(action_input.get("action_mask"), actions)
+    action_token_mask = None
+    hidden_attention_mask = None
+    if action_mask is not None:
+        actions = actions * action_mask
+        action_token_mask = action_mask.any(dim=-1)
+        hidden_attention_mask = torch.cat(
+            (
+                torch.ones(state_features.shape[:2], device=device, dtype=torch.bool),
+                action_token_mask,
+            ),
+            dim=1,
+        )
+
     num_steps = self.num_inference_timesteps
     dt = 1.0 / num_steps
 
@@ -537,6 +552,8 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
         )
 
         # Action Encoder TRT
+        if action_mask is not None:
+            actions = actions * action_mask
         self.action_encoder_engine.set_runtime_tensor_shape("actions", actions.shape)
         self.action_encoder_engine.set_runtime_tensor_shape("timesteps", timesteps_tensor.shape)
         self.action_encoder_engine.set_runtime_tensor_shape("embodiment_id", embodiment_id.shape)
@@ -549,6 +566,10 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
             pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
             pos_embs = self.position_embedding(pos_ids).unsqueeze(0).to(engine_dtype)
             action_features = action_features + pos_embs
+        if action_token_mask is not None:
+            action_features = action_features * action_token_mask.unsqueeze(-1).to(
+                dtype=action_features.dtype
+            )
 
         # Concatenate state + action embeddings
         sa_embs = torch.cat((state_features, action_features), dim=1).to(engine_dtype)
@@ -572,6 +593,12 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
             self.dit_engine.set_runtime_tensor_shape("backbone_attention_mask", bb_mask.shape)
             dit_kwargs["backbone_attention_mask"] = bb_mask
 
+        if hidden_attention_mask is not None:
+            self.dit_engine.set_runtime_tensor_shape(
+                "hidden_attention_mask", hidden_attention_mask.shape
+            )
+            dit_kwargs["hidden_attention_mask"] = hidden_attention_mask
+
         model_output = self.dit_engine(sa_embs, vl_embs, timesteps_tensor, **dit_kwargs)["output"]
 
         # Action Decoder TRT
@@ -579,9 +606,13 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
         self.action_decoder_engine.set_runtime_tensor_shape("embodiment_id", embodiment_id.shape)
         pred = self.action_decoder_engine(model_output, embodiment_id)["output"]
         pred_velocity = pred[:, -self.action_horizon :]
+        if action_mask is not None:
+            pred_velocity = pred_velocity * action_mask
 
         # Euler integration
         actions = actions + dt * pred_velocity
+        if action_mask is not None:
+            actions = actions * action_mask
 
     return BatchFeature(data={"action_pred": actions})
 
@@ -927,12 +958,31 @@ def _setup_dit_only(policy, trt_engine_path):
             device=device,
         )
 
+        action_mask = _expand_action_mask(
+            action_input.get("action_mask") if action_input is not None else None,
+            actions,
+        )
+        action_token_mask = None
+        hidden_attention_mask = None
+        if action_mask is not None:
+            actions = actions * action_mask
+            action_token_mask = action_mask.any(dim=-1)
+            hidden_attention_mask = torch.cat(
+                (
+                    torch.ones(state_features.shape[:2], device=device, dtype=torch.bool),
+                    action_token_mask,
+                ),
+                dim=1,
+            )
+
         dt = 1.0 / action_head.num_inference_timesteps
 
         for t in range(action_head.num_inference_timesteps):
             t_cont = t / float(action_head.num_inference_timesteps)
             t_discretized = int(t_cont * action_head.num_timestep_buckets)
 
+            if action_mask is not None:
+                actions = actions * action_mask
             timesteps_tensor = torch.full(
                 size=(batch_size,), fill_value=t_discretized, device=device
             )
@@ -942,6 +992,10 @@ def _setup_dit_only(policy, trt_engine_path):
                 pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
                 pos_embs = action_head.position_embedding(pos_ids).unsqueeze(0)
                 action_features = action_features + pos_embs
+            if action_token_mask is not None:
+                action_features = action_features * action_token_mask.unsqueeze(-1).to(
+                    dtype=action_features.dtype
+                )
 
             sa_embs = torch.cat((state_features, action_features), dim=1).to(engine_dtype)
 
@@ -969,13 +1023,23 @@ def _setup_dit_only(policy, trt_engine_path):
                 )
                 dit_kwargs["backbone_attention_mask"] = bb_mask
 
+            if hidden_attention_mask is not None:
+                action_head.dit_engine.set_runtime_tensor_shape(
+                    "hidden_attention_mask", hidden_attention_mask.shape
+                )
+                dit_kwargs["hidden_attention_mask"] = hidden_attention_mask
+
             model_output = action_head.dit_engine(
                 sa_embs, vl_embs_trt, timesteps_trt, **dit_kwargs
             )["output"]
 
             pred = action_head.action_decoder(model_output, embodiment_id)
             pred_velocity = pred[:, -action_head.action_horizon :]
+            if action_mask is not None:
+                pred_velocity = pred_velocity * action_mask
             actions = actions + dt * pred_velocity
+            if action_mask is not None:
+                actions = actions * action_mask
 
         return BatchFeature(
             data={
