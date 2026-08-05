@@ -75,6 +75,10 @@ ray_worker=0
 worker_probe=0
 job_expected_gpu_count=""
 heterogeneous_evaluation=0
+explicit_msc_config=0
+explicit_aws_access_key=0
+explicit_aws_secret_key=0
+gear_data_credentials=""
 for argument in "${forwarded[@]}"; do
   if [[ "${argument}" == *"import ray._private.workers.default_worker"* ]]; then
     worker_probe=1
@@ -85,8 +89,67 @@ for argument in "${forwarded[@]}"; do
     job_expected_gpu_count="${argument#EXPECTED_NUM_GPUS=}"
   elif [[ "${argument}" == GROOT_OL_COLOSSUS_HETEROGENEOUS_EVALUATION=1 ]]; then
     heterogeneous_evaluation=1
+  elif [[ "${argument}" == MSC_CONFIG=* ]]; then
+    explicit_msc_config=1
+  elif [[ "${argument}" == AWS_ACCESS_KEY_ID=* ]]; then
+    explicit_aws_access_key=1
+  elif [[ "${argument}" == AWS_SECRET_ACCESS_KEY=* ]]; then
+    explicit_aws_secret_key=1
+  elif [[ "${argument}" == GEAR_DATA_CREDENTIALS=* ]]; then
+    gear_data_credentials="${argument#GEAR_DATA_CREDENTIALS=}"
   fi
 done
+if [[ -n "${gear_data_credentials}" ]] && {
+  [[ "${explicit_aws_access_key}" != "1" ]] || [[ "${explicit_aws_secret_key}" != "1" ]]
+}; then
+  # One Launcher also supports credentials stored only in
+  # ~/.gear/data_credentials. Ray forwards that file as base64 so workers can
+  # materialize it; derive missing AWS variables from the same payload without
+  # putting credential values in the shared MSC profile or on the host.
+  declare -a derived_aws_credentials=()
+  while IFS= read -r -d '' credential; do
+    derived_aws_credentials+=("${credential}")
+  done < <(
+    GEAR_DATA_CREDENTIALS="${gear_data_credentials}" python3 - <<'PY' 2>/dev/null
+import base64
+import json
+import os
+import sys
+
+encoded = os.environ["GEAR_DATA_CREDENTIALS"]
+credentials = json.loads(base64.b64decode(encoded, validate=True))
+profile = credentials.get("default") if isinstance(credentials, dict) else None
+if not isinstance(profile, dict):
+    raise SystemExit(1)
+for environment_name, profile_name in (
+    ("AWS_ACCESS_KEY_ID", "aws_access_key_id"),
+    ("AWS_SECRET_ACCESS_KEY", "aws_secret_access_key"),
+):
+    value = profile.get(profile_name)
+    if not isinstance(value, str) or not value or any(char in value for char in "\x00\r\n"):
+        raise SystemExit(1)
+    sys.stdout.buffer.write(f"{environment_name}={value}".encode() + b"\x00")
+PY
+  )
+  for credential in "${derived_aws_credentials[@]}"; do
+    case "${credential}" in
+      AWS_ACCESS_KEY_ID=*)
+        [[ "${explicit_aws_access_key}" == "1" ]] || injected+=(--env "${credential}")
+        ;;
+      AWS_SECRET_ACCESS_KEY=*)
+        [[ "${explicit_aws_secret_key}" == "1" ]] || injected+=(--env "${credential}")
+        ;;
+    esac
+  done
+fi
+msc_config="${COLOSSUS_MSC_CONFIG:-${data_root}/config/msc/config.json}"
+if [[ "${explicit_msc_config}" != "1" && -f "${msc_config}" ]]; then
+  # The cluster bootstrap installs a non-secret profile whose credential values
+  # are environment-variable references. Ray supplies those credential
+  # variables per job; this only makes the shared profile discoverable inside
+  # image_uri workers, including evaluation-only workers on a cold node.
+  injected+=(--env "MSC_CONFIG=${msc_config}")
+fi
 if [[ "${worker_probe}" == "1" ]]; then
   # Ray captures this command's stdout as the default_worker.py path. On a
   # cold node, Podman otherwise prefixes that path with its implicit image-pull

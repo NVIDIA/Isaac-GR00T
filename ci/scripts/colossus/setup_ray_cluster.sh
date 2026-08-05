@@ -2963,9 +2963,46 @@ PY
       printf 'GROOT_ARTIFACT_MAX_MIB_PER_SECOND=%s\n' "${ARTIFACT_MAX_MIB_PER_SECOND}"
     } > "${TMP_DIR}/data-credentials.env"
     chmod 0600 "${TMP_DIR}/data-credentials.env"
+    python3 - \
+      "${bucket_endpoint_url}" \
+      "${BUCKET_REGION_VALUE}" \
+      > "${TMP_DIR}/msc-config.json" <<'PY'
+import json
+import sys
+
+endpoint_url, region = sys.argv[1:]
+config = {
+    "profiles": {
+        "GearCheckpoints": {
+            "storage_provider": {
+                "type": "s8k",
+                "options": {
+                    "region_name": region,
+                    "base_path": "GearCheckpoints",
+                    "endpoint_url": endpoint_url,
+                    "rust_client": {},
+                },
+            },
+            "credentials_provider": {
+                "type": "S3Credentials",
+                "options": {
+                    "access_key": "${AWS_ACCESS_KEY_ID}",
+                    "secret_key": "${AWS_SECRET_ACCESS_KEY}",
+                },
+            },
+        }
+    }
+}
+json.dump(config, sys.stdout, indent=2)
+sys.stdout.write("\n")
+PY
+    # This profile contains no credential values: MSC expands the two
+    # environment references from each job's existing runtime credentials.
+    chmod 0644 "${TMP_DIR}/msc-config.json"
   else
     : > "${TMP_DIR}/data-credentials.env"
     chmod 0600 "${TMP_DIR}/data-credentials.env"
+    rm -f "${TMP_DIR}/msc-config.json"
   fi
 }
 
@@ -2990,6 +3027,12 @@ copy_common_remote_files() {
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/nvcr-token" "${REMOTE_ROOT}/nvcr-token" || return 1
   remote_scp_to "${host}" "${user}" "${password}" "${TMP_DIR}/data-credentials.env" "${REMOTE_ROOT}/data-credentials.env" || return 1
   remote_ssh "${host}" "${user}" "${password}" "chmod 700 $(shell_quote "${REMOTE_ROOT}") && chmod 600 $(shell_quote "${REMOTE_ROOT}/nvcr-token") $(shell_quote "${REMOTE_ROOT}/data-credentials.env") && chmod +x $(shell_quote "${REMOTE_ROOT}/setup_bare_metal_gpu_host.sh") $(shell_quote "${REMOTE_ROOT}/colossus_ray_podman.sh") $(shell_quote "${REMOTE_ROOT}/colossus_ray_prune.sh") $(shell_quote "${REMOTE_ROOT}/remote_ray_container.sh") $(shell_quote "${REMOTE_ROOT}/remote_post_training_artifacts.sh") $(shell_quote "${REMOTE_ROOT}/remote_ray_metrics.sh")" || return 1
+  if [[ -s "${TMP_DIR}/msc-config.json" ]]; then
+    remote_scp_to "${host}" "${user}" "${password}" \
+      "${TMP_DIR}/msc-config.json" "${REMOTE_ROOT}/msc-config.json" || return 1
+    remote_sudo_bash_lc "${host}" "${user}" "${password}" \
+      "install -d -m 0755 $(shell_quote "${GROOT_DATA_ROOT}/config/msc") && install -m 0444 $(shell_quote "${REMOTE_ROOT}/msc-config.json") $(shell_quote "${GROOT_DATA_ROOT}/config/msc/config.json")" || return 1
+  fi
 }
 
 run_host_setup() {
