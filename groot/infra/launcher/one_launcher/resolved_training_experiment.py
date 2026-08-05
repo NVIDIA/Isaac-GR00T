@@ -78,11 +78,11 @@ class ResolvedTrainingExperiment:
     skypilot_queue: str | None = None
     evaluation_section: Mapping[str, Any] | None = None
 
-    def config_fingerprint(self) -> str:
+    def config_fingerprint(self, *, include_evaluation: bool = True) -> str:
         override_payload = self.override_payload()
         if override_payload["skypilot_queue"] is None:
             del override_payload["skypilot_queue"]
-        if override_payload["evaluation"] is None:
+        if not include_evaluation or override_payload["evaluation"] is None:
             del override_payload["evaluation"]
         payload = {
             "name": self.name,
@@ -191,13 +191,16 @@ class ResolvedTrainingExperiment:
             if self.evaluation_section is None:
                 raise ValueError(f"Experiment {self.name!r} does not define an evaluation_config")
             if len(override.path) != 2 or override.path[1] not in {
+                "local_checkpoint",
                 "task",
                 "num_trials",
+                "remote_checkpoint",
                 "seed",
             }:
                 raise ValueError(
                     "Evaluation overrides must target evaluation.task, evaluation.num_trials, "
-                    "or evaluation.seed"
+                    "evaluation.seed, evaluation.local_checkpoint, or "
+                    "evaluation.remote_checkpoint"
                 )
             return
 
@@ -209,8 +212,7 @@ class ResolvedTrainingExperiment:
             if override.path[1] in _TRAINING_PATHS_FOR_COMPUTE_FIELDS:
                 compute_path = _TRAINING_PATHS_FOR_COMPUTE_FIELDS[override.path[1]]
                 raise ValueError(
-                    f"Use --set compute.{compute_path}=... instead of "
-                    f"training.{override.path[1]}"
+                    f"Use --set compute.{compute_path}=... instead of training.{override.path[1]}"
                 )
             override.validate_cli_value()
             return
@@ -374,7 +376,13 @@ class ResolvedTrainingExperiment:
             raise ValueError(  # noqa: TRY004 - invalid user-supplied --set value
                 "Experiment override evaluation must remain a mapping"
             )
-        unknown = set(value) - {"task", "num_trials", "seed"}
+        unknown = set(value) - {
+            "local_checkpoint",
+            "task",
+            "num_trials",
+            "remote_checkpoint",
+            "seed",
+        }
         missing = {"task", "num_trials"} - set(value)
         if unknown:
             raise ValueError(
@@ -389,10 +397,22 @@ class ResolvedTrainingExperiment:
                 task=value["task"],
                 num_trials=value["num_trials"],
                 seed=value.get("seed", 0),
+                local_checkpoint=value.get("local_checkpoint"),
+                remote_checkpoint=value.get("remote_checkpoint"),
             )
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid experiment evaluation override: {exc}") from exc
-        return {"task": config.task, "num_trials": config.num_trials, "seed": config.seed}
+        return {
+            key: item
+            for key, item in {
+                "task": config.task,
+                "num_trials": config.num_trials,
+                "seed": config.seed,
+                "local_checkpoint": config.local_checkpoint,
+                "remote_checkpoint": config.remote_checkpoint,
+            }.items()
+            if item is not None
+        }
 
     def optional_string(self, payload: Mapping[str, Any], key: str) -> str | None:
         value = payload.get(key)

@@ -13,6 +13,15 @@ EXPERIMENT = make_robocasa_single_task_experiment(
     ),
     evaluation_task="ScrubCuttingBoard",
     evaluation_num_trials=20,
+    evaluation_local_checkpoint=(
+        "/data/groot_ol/shared/checkpoints/agent007/"
+        "train_eval_n2_turbo_robocasa_scrub_cutting_board_colossus_colossus_640cdb7948/"
+        "checkpoint-750"
+    ),
+    evaluation_remote_checkpoint=(
+        "msc://GearCheckpoints/trinity-ckpt-repository/agent007/"
+        "colossus-auto-research-cache/scrub-cutting-board/640cdb7948/checkpoint-750"
+    ),
     max_steps=750,
     wandb_project="n2-turbo-robocasa-scrub-cutting-board-colossus",
 )

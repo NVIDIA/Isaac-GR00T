@@ -96,7 +96,11 @@ class TrainingExperiment:
     def evaluation_section(self) -> Mapping[str, Any] | None:
         if self.evaluation_config is None:
             return None
-        return self.serializable_value(self.evaluation_config)
+        return {
+            key: value
+            for key, value in self.serializable_value(self.evaluation_config).items()
+            if value is not None
+        }
 
     def dataclass_overrides(self, instance: Any) -> Mapping[str, Any]:
         if not dataclasses.is_dataclass(instance):

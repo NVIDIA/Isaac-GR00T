@@ -13,6 +13,15 @@ EXPERIMENT = make_robocasa_single_task_experiment(
     ),
     evaluation_task="StackCans",
     evaluation_num_trials=20,
+    evaluation_local_checkpoint=(
+        "/data/groot_ol/shared/checkpoints/agent007/"
+        "train_eval_n2_turbo_robocasa_stack_cans_colossus_colossus_97d632d6b7/"
+        "checkpoint-1250"
+    ),
+    evaluation_remote_checkpoint=(
+        "msc://GearCheckpoints/trinity-ckpt-repository/agent007/"
+        "colossus-auto-research-cache/stack-cans/97d632d6b7/checkpoint-1250"
+    ),
     max_steps=1250,
     wandb_project="n2-turbo-robocasa-stack-cans-colossus",
 )

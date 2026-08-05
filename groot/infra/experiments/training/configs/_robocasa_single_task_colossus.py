@@ -99,6 +99,8 @@ def make_robocasa_single_task_experiment(
     evaluation_task: str,
     evaluation_num_trials: int,
     evaluation_seed: int = 0,
+    evaluation_local_checkpoint: str | None = None,
+    evaluation_remote_checkpoint: str | None = None,
     max_steps: int = SINGLE_TASK_MAX_STEPS,
     wandb_project: str,
 ) -> TrainingExperiment:
@@ -128,5 +130,7 @@ def make_robocasa_single_task_experiment(
             task=evaluation_task,
             num_trials=evaluation_num_trials,
             seed=evaluation_seed,
+            local_checkpoint=evaluation_local_checkpoint,
+            remote_checkpoint=evaluation_remote_checkpoint,
         ),
     )
