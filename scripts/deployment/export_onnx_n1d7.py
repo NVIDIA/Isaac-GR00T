@@ -181,6 +181,7 @@ class DiTInputCapture:
         self.timestep = None
         self.image_mask = None
         self.backbone_attention_mask = None
+        self.hidden_attention_mask = None
 
     def hook_fn(self, module, args, kwargs):
         """Pre-forward hook to capture inputs."""
@@ -194,6 +195,9 @@ class DiTInputCapture:
             bb_mask = kwargs.get("backbone_attention_mask")
             if bb_mask is not None:
                 self.backbone_attention_mask = bb_mask.detach().cpu().clone()
+            hidden_mask = kwargs.get("hidden_attention_mask")
+            if hidden_mask is not None:
+                self.hidden_attention_mask = hidden_mask.detach().cpu().clone()
 
             self.captured = True
             logger.info("  Captured DiT inputs:")
@@ -204,6 +208,23 @@ class DiTInputCapture:
                 logger.info(f"    image_mask: {self.image_mask.shape}")
             if self.backbone_attention_mask is not None:
                 logger.info(f"    backbone_attention_mask: {self.backbone_attention_mask.shape}")
+            if self.hidden_attention_mask is not None:
+                logger.info(f"    hidden_attention_mask: {self.hidden_attention_mask.shape}")
+
+
+class _DiTExportWrapper(torch.nn.Module):
+    """Map the masks present in a captured DiT call back to keyword arguments."""
+
+    def __init__(self, dit, mask_names):
+        super().__init__()
+        self.dit = dit
+        self.mask_names = mask_names
+
+    def forward(self, sa_embs, vl_embs, timestep, *mask_values):
+        if len(mask_values) != len(self.mask_names):
+            raise ValueError(f"Expected {len(self.mask_names)} DiT masks, got {len(mask_values)}")
+        kwargs = dict(zip(self.mask_names, mask_values))
+        return self.dit(sa_embs, vl_embs, timestep, **kwargs)
 
 
 class ViTInputCapture:
@@ -1119,7 +1140,7 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
     Input: sa_embs [B, sa_seq_len, input_embedding_dim],
            vl_embs [B, vl_seq_len, backbone_embedding_dim],
            timestep [B], image_mask [B, vl_seq_len],
-           backbone_attention_mask [B, vl_seq_len]
+           backbone_attention_mask [B, vl_seq_len], hidden_attention_mask [B, sa_seq_len]
     Output: [B, sa_seq_len, hidden_size]
     """
     logger.info("\n" + "=" * 80)
@@ -1145,6 +1166,7 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
     input_names = ["sa_embs", "vl_embs", "timestep"]
     has_image_mask = captured_inputs.image_mask is not None
     has_backbone_mask = captured_inputs.backbone_attention_mask is not None
+    has_hidden_mask = captured_inputs.hidden_attention_mask is not None
 
     if has_image_mask:
         im_shape = (batch_size,) + captured_inputs.image_mask.shape[1:]
@@ -1157,6 +1179,12 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
         backbone_attention_mask = torch.ones(bm_shape, dtype=torch.bool, device="cuda")
         export_inputs.append(backbone_attention_mask)
         input_names.append("backbone_attention_mask")
+
+    if has_hidden_mask:
+        hm_shape = (batch_size,) + captured_inputs.hidden_attention_mask.shape[1:]
+        hidden_attention_mask = torch.ones(hm_shape, dtype=torch.bool, device="cuda")
+        export_inputs.append(hidden_attention_mask)
+        input_names.append("hidden_attention_mask")
 
     logger.info("  Export input shapes:")
     for name, tensor in zip(input_names, export_inputs):
@@ -1173,24 +1201,8 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
     # DiT module uses keyword args: `dit.forward(hidden_states=....)`
     # The DiTWrapper handles this translation
     # Wrapper to convert positional args -> keyword args for DiT
-    class DiTWrapper(torch.nn.Module):
-        def __init__(self, dit, use_image_mask, use_backbone_mask):
-            super().__init__()
-            self.dit = dit
-            self.use_image_mask = use_image_mask
-            self.use_backbone_mask = use_backbone_mask
-
-        def forward(
-            self, sa_embs, vl_embs, timestep, image_mask=None, backbone_attention_mask=None
-        ):
-            kwargs = {}
-            if self.use_image_mask and image_mask is not None:
-                kwargs["image_mask"] = image_mask
-            if self.use_backbone_mask and backbone_attention_mask is not None:
-                kwargs["backbone_attention_mask"] = backbone_attention_mask
-            return self.dit(sa_embs, vl_embs, timestep, **kwargs)
-
-    wrapped_model = DiTWrapper(dit_model, has_image_mask, has_backbone_mask)
+    mask_names = input_names[3:]
+    wrapped_model = _DiTExportWrapper(dit_model, mask_names)
     wrapped_model.eval()
 
     # vl_seq_len varies with input text length — mark it dynamic so the TRT engine

@@ -528,17 +528,23 @@ class Gr00tN1d7Processor(BaseProcessor):
         )
         transformed_observation["embodiment_id"] = embodiment_id
 
-        # Action mask: shape (B, max_action_horizon), 1 in the valid horizon window
+        # Mask both the valid horizon and embodiment-specific action dimensions.
         action_config = modality_config["action"]
         action_horizon = len(action_config.delta_indices)
+        action_dim = self.state_action_processor.get_action_dim(embodiment_tag.value)
         assert action_horizon <= self.max_action_horizon, (
             f"Action horizon {action_horizon} (from delta_indices) exceeds"
             f" max_action_horizon {self.max_action_horizon}. Increase model config"
             f" action_horizon to >= {action_horizon}."
         )
-        action_mask = torch.zeros((B, self.max_action_horizon), dtype=torch.float32)
-        if action_horizon > 0:
-            action_mask[:, :action_horizon] = 1.0
+        assert action_dim <= self.max_action_dim, (
+            f"Action dimension {action_dim} exceeds max_action_dim {self.max_action_dim}."
+        )
+        action_mask = torch.zeros(
+            (B, self.max_action_horizon, self.max_action_dim), dtype=torch.float32
+        )
+        if action_horizon > 0 and action_dim > 0:
+            action_mask[:, :action_horizon, :action_dim] = 1.0
         transformed_observation["action_mask"] = action_mask
 
         return BatchFeature(transformed_observation)

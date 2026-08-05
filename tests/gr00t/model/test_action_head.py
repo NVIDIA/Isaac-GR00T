@@ -21,6 +21,7 @@ and feed it synthetic backbone output tensors.
 """
 
 import math
+from unittest.mock import patch
 
 from gr00t.configs.model.gr00t_n1d7 import Gr00tN1d7Config
 from gr00t.model.gr00t_n1d7.gr00t_n1d7 import Gr00tN1d7ActionHead
@@ -123,6 +124,47 @@ class TestActionHeadForward:
         out = head.forward(_make_backbone_output(config), _make_action_input(config))
         assert torch.isfinite(out["loss"])
 
+    def test_padded_noise_does_not_change_valid_loss(self, action_head):
+        head, config = action_head
+        first_backbone = _make_backbone_output(config)
+        second_backbone = BatchFeature(
+            data={key: value.clone() for key, value in first_backbone.items()}
+        )
+        first_input = _make_action_input(config)
+        first_input["action_mask"].zero_()
+        first_input["action_mask"][:, :2, :5] = 1
+        second_input = BatchFeature(data={key: value.clone() for key, value in first_input.items()})
+
+        first_noise = torch.randn_like(first_input["action"])
+        second_noise = first_noise.clone()
+        invalid = first_input["action_mask"] == 0
+        second_noise[invalid] = torch.randn_like(second_noise[invalid]) * 1_000
+        sample_time = torch.full((first_input["action"].shape[0],), 0.4)
+
+        with (
+            patch(
+                "gr00t.model.gr00t_n1d7.gr00t_n1d7.torch.randn",
+                return_value=first_noise,
+            ),
+            patch.object(head, "sample_time", return_value=sample_time),
+        ):
+            first_output = head.forward(first_backbone, first_input)
+        with (
+            patch(
+                "gr00t.model.gr00t_n1d7.gr00t_n1d7.torch.randn",
+                return_value=second_noise,
+            ),
+            patch.object(head, "sample_time", return_value=sample_time),
+        ):
+            second_output = head.forward(second_backbone, second_input)
+
+        valid = first_input["action_mask"].bool()
+        torch.testing.assert_close(
+            first_output["action_loss"][valid], second_output["action_loss"][valid]
+        )
+        assert torch.count_nonzero(first_output["action_loss"][~valid]) == 0
+        assert torch.count_nonzero(second_output["action_loss"][~valid]) == 0
+
 
 class TestActionHeadGetAction:
     """Test inference (denoising loop)."""
@@ -151,6 +193,18 @@ class TestActionHeadGetAction:
             action_input,
         )
         assert out["action_pred"].shape[0] == 1
+
+    def test_get_action_keeps_padding_zero(self, action_head):
+        head, config = action_head
+        action_input = _make_action_input(config)
+        del action_input["action"]
+        action_input["action_mask"].zero_()
+        action_input["action_mask"][:, :2, :5] = 1
+
+        out = head.get_action(_make_backbone_output(config), action_input)
+
+        invalid = action_input["action_mask"] == 0
+        assert torch.count_nonzero(out["action_pred"][invalid]) == 0
 
 
 class TestActionHeadEncodeFeatures:
