@@ -6,8 +6,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+DEFAULT_OSMO_EXEC_TIMEOUT = "30d"
+
 
 @dataclass(frozen=True)
 class ExperimentComputeConfig:
     per_device_batch_size: int
     skypilot_queue: str | None = None
+    osmo_exec_timeout: str = DEFAULT_OSMO_EXEC_TIMEOUT

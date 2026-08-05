@@ -72,6 +72,7 @@ class TrainingExperiment:
             gradient_accumulation_steps=gradient_accumulation_steps,
             env_vars=self.compute_config.env_section(),
             skypilot_queue=compute_family.skypilot_queue,
+            osmo_exec_timeout=compute_family.osmo_exec_timeout,
         )
 
     def data_section(self) -> Mapping[str, Any]:

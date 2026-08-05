@@ -35,6 +35,7 @@ _COMPUTE_SIZE_TARGETS = {
 }
 _COMPUTE_SCALAR_TARGETS = {
     **_COMPUTE_SIZE_TARGETS,
+    "osmo_exec_timeout": "osmo_exec_timeout",
     "skypilot_queue": "skypilot_queue",
 }
 _TRAINING_PATHS_FOR_COMPUTE_FIELDS = {
@@ -71,6 +72,7 @@ class ResolvedTrainingExperiment:
     batch_size: int
     global_batch_size: int
     gradient_accumulation_steps: int
+    osmo_exec_timeout: str
     data_cli_section: Mapping[str, Any] = field(default_factory=dict)
     env_vars: Mapping[str, str] = field(default_factory=dict)
     skypilot_queue: str | None = None
@@ -142,6 +144,7 @@ class ResolvedTrainingExperiment:
             gradient_accumulation_steps=gradient_accumulation_steps,
             env_vars=self.environment_values(payload),
             skypilot_queue=self.optional_string(payload, "skypilot_queue"),
+            osmo_exec_timeout=self.required_string(payload, "osmo_exec_timeout"),
         )
 
     def override_payload(self) -> MutableMapping[str, Any]:
@@ -161,6 +164,7 @@ class ResolvedTrainingExperiment:
             "batch_size": self.batch_size,
             "global_batch_size": self.global_batch_size,
             "gradient_accumulation_steps": self.gradient_accumulation_steps,
+            "osmo_exec_timeout": self.osmo_exec_timeout,
             "skypilot_queue": self.skypilot_queue,
         }
 
@@ -398,6 +402,12 @@ class ResolvedTrainingExperiment:
             raise ValueError(f"Experiment override compute.{key} must be a non-empty string")
         return value
 
+    def required_string(self, payload: Mapping[str, Any], key: str) -> str:
+        value = payload.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"Experiment override compute.{key} must be a non-empty string")
+        return value
+
     def write_configs(self, output_root: Path) -> ResolvedTrainingExperimentFiles:
         output_dir = output_root / self.name / self.compute_type
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -427,6 +437,7 @@ class ResolvedTrainingExperiment:
             "batch_size": self.batch_size,
             "global_batch_size": self.global_batch_size,
             "gradient_accumulation_steps": self.gradient_accumulation_steps,
+            "osmo_exec_timeout": self.osmo_exec_timeout,
             "data_config": str(files.data_config),
             "training_config": str(files.training_config),
             "full_config": str(files.full_config),
