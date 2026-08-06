@@ -1,0 +1,23 @@
+{
+  "model": {
+    "action-cfg": {
+      "state-dropout-prob": 0.5
+    }
+  },
+  "schema": "n2-turbo-robocasa-proxy-recipe-v1",
+  "training": {
+    "learning_rate": 0.00005,
+    "lr_scheduler_type": "cosine",
+    "max_grad_norm": 1.0,
+    "muon_impl": "dist",
+    "muon_lr": 0.005,
+    "optim": "adamw_torch",
+    "use_legacy_wd_application": false,
+    "use_muon": false,
+    "warmup_ratio": 0.05,
+    "warmup_steps": 0,
+    "weight_decay": 0.00001,
+    "wsd_decay_type": "cosine",
+    "wsd_stable_ratio": 0.8
+  }
+}
