@@ -79,6 +79,7 @@ explicit_msc_config=0
 explicit_aws_access_key=0
 explicit_aws_secret_key=0
 gear_data_credentials=""
+has_auto_remove=0
 for argument in "${forwarded[@]}"; do
   if [[ "${argument}" == *"import ray._private.workers.default_worker"* ]]; then
     worker_probe=1
@@ -97,8 +98,16 @@ for argument in "${forwarded[@]}"; do
     explicit_aws_secret_key=1
   elif [[ "${argument}" == GEAR_DATA_CREDENTIALS=* ]]; then
     gear_data_credentials="${argument#GEAR_DATA_CREDENTIALS=}"
+  elif [[ "${argument}" == "--rm" ]]; then
+    has_auto_remove=1
   fi
 done
+if [[ "${has_auto_remove}" != "1" ]]; then
+  # Ray 2.48's image_uri worker command omits --rm. Remove each runtime
+  # container as soon as its worker exits instead of accumulating stale
+  # containers indefinitely on a persistent station.
+  injected+=(--rm)
+fi
 if [[ -n "${gear_data_credentials}" ]] && {
   [[ "${explicit_aws_access_key}" != "1" ]] || [[ "${explicit_aws_secret_key}" != "1" ]]
 }; then
