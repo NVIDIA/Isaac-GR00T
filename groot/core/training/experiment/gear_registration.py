@@ -58,6 +58,9 @@ PRESERVE_CHECKPOINT_ROOT_ENV = "GEAR_PRESERVE_CHECKPOINT_ROOT"
 PRESERVE_OUTPUT_DIR_ENV = "GEAR_PRESERVE_OUTPUT_DIR"
 TRAINING_OUTPUT_DIR_ENV = "TRAINING_OUTPUT_DIR"
 DASHBOARD_LFS_CHECKPOINT_PATH_ENV = "GEAR_LFS_CHECKPOINT_PATH"
+RESUME_CHECKPOINT_PATH_ENV = "GROOT_OL_RESUME_CHECKPOINT_PATH"
+RESUME_DECIDED_ENV = "GROOT_OL_RESUME_DECIDED"
+RESUME_REQUIRED_ENV = "GROOT_OL_RESUME_REQUIRED"
 # Production API. ``GEAR_DASHBOARD_API_URL`` overrides this -- point it at
 # ``DEV_API_URL`` (or any other host) for development and integration testing
 # so local runs never write to the prod experiments table by accident.
@@ -95,6 +98,27 @@ def resolve_training_output_dir(
     if preserve_checkpoint_root_enabled(env):
         return configured_output_dir
     return env.get(DASHBOARD_LFS_CHECKPOINT_PATH_ENV, "").strip() or configured_output_dir
+
+
+def one_launcher_resume_checkpoint() -> str | bool:
+    """Return an exact validated checkpoint, or legacy latest-checkpoint discovery."""
+    resume_decided = os.environ.get(RESUME_DECIDED_ENV, "").lower() in ("1", "true", "yes")
+    if not resume_decided:
+        return True
+    checkpoint_path = os.environ.get(RESUME_CHECKPOINT_PATH_ENV, "").strip()
+    if checkpoint_path:
+        return checkpoint_path
+    return False
+
+
+def dashboard_checkpoint_path_to_msc_url(checkpoint_path: str | None) -> str:
+    """Convert a Dashboard checkpoint root to the URL expected by MSC uploads."""
+    if not checkpoint_path:
+        return ""
+    checkpoint_path = checkpoint_path.strip()
+    if not checkpoint_path or "://" in checkpoint_path:
+        return checkpoint_path
+    return f"msc://{checkpoint_path}"
 
 
 def _get_api_url() -> str:

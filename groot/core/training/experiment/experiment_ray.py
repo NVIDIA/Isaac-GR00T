@@ -34,6 +34,8 @@ from groot.core.data.dataset.build_artifacts import DatasetBuildArtifacts
 from groot.core.training.configs import base_config
 from groot.core.training.experiment import experiment, memory_monitor
 from groot.core.training.experiment.gear_registration import (
+    RESUME_CHECKPOINT_PATH_ENV,
+    RESUME_DECIDED_ENV,
     preserve_checkpoint_root_enabled,
     resolve_training_output_dir,
 )
@@ -72,6 +74,8 @@ _PROPAGATED_WORKER_ENV_VARS = (
     "TRAINING_OUTPUT_DIR",
     "TRAINING_MSC_CHECKPOINT_URL",
     "GEAR_PRESERVE_CHECKPOINT_ROOT",
+    RESUME_CHECKPOINT_PATH_ENV,
+    RESUME_DECIDED_ENV,
 )
 
 
