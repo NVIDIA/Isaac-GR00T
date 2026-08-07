@@ -62,8 +62,6 @@ from groot.core.training.experiment.callbacks.msc_checkpoint import MSCCheckpoin
 from groot.core.training.experiment.callbacks.validation_loss import ValidationLossCallback
 from groot.core.training.experiment.gear_registration import (
     append_training_run_status_event,
-    dashboard_checkpoint_path_to_msc_url,
-    one_launcher_resume_checkpoint,
     preserve_checkpoint_root_enabled,
     register_experiment,
     resolve_training_output_dir,
@@ -104,6 +102,24 @@ from groot.core.version import VERSION
 
 TorchrunBackend = Literal["nccl", "gloo"]
 _TORCHRUN_BACKENDS = get_args(TorchrunBackend)
+
+
+def dashboard_checkpoint_path_to_msc_url(checkpoint_path: str | None) -> str:
+    """Convert a dashboard checkpoint root to an MSC URL for checkpoint upload.
+
+    Dashboard registration returns roots like
+    ``GearCheckpoints/trinity-ckpt-repository/00075_golden_run``. Training
+    uploads need ``msc://GearCheckpoints/trinity-ckpt-repository/00075_golden_run``.
+    Already-qualified paths such as ``s3://...`` or ``msc://...`` are left as-is.
+    """
+    if not checkpoint_path:
+        return ""
+    checkpoint_path = checkpoint_path.strip()
+    if not checkpoint_path:
+        return ""
+    if "://" in checkpoint_path:
+        return checkpoint_path
+    return f"msc://{checkpoint_path}"
 
 
 def _resolve_torchrun_backend(config: Config) -> TorchrunBackend:
@@ -1556,7 +1572,7 @@ def run(
                     profile_memory=profile_memory,
                 )
             )
-            trainer.train(resume_from_checkpoint=one_launcher_resume_checkpoint())
+            trainer.train(resume_from_checkpoint=True)
 
             # Wait for upload thread to complete before exiting
             if msc_profile_url and upload_thread_ref[0] is not None:
@@ -1568,7 +1584,7 @@ def run(
                     )
         else:
             # No profiling - just train normally
-            trainer.train(resume_from_checkpoint=one_launcher_resume_checkpoint())
+            trainer.train(resume_from_checkpoint=True)
 
         # Save final model
         if config.training.save_final_model:
