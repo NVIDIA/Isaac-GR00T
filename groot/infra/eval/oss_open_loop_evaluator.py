@@ -26,8 +26,10 @@ from pathlib import Path
 import re
 from typing import Any
 
+from groot.core.utils.storage.msc import HF_MODEL_URI_PREFIX
+from groot.core.utils.storage.msc import resolve_model_path as resolve_portable_model_path
 from groot.infra.eval.eval_report import EvalReport
-from groot.infra.eval.hf_artifact_cache import HfArtifactCache, SnapshotDownloadFn
+from groot.infra.eval.hf_artifact_cache import HfArtifactCache
 from groot.infra.eval.hf_model_uri import HfModelUri
 from groot.infra.eval.metric_summary import MetricSummary
 from groot.infra.eval.oss_open_loop_eval_config import (
@@ -47,43 +49,37 @@ class OssOpenLoopEvaluator:
     )
     CHECKPOINT_RE = re.compile(r"^checkpoint-(\d+)$")
 
-    def __init__(
-        self,
-        config: OssOpenLoopEvalConfig,
-        snapshot_download_fn: SnapshotDownloadFn | None = None,
-    ):
+    def __init__(self, config: OssOpenLoopEvalConfig):
         self.config = config
-        self.snapshot_download_fn = snapshot_download_fn
         self.cache = HfArtifactCache.init_from_config(config)
 
     def resolve_model_path(self) -> Path:
-        if self.config.model_path:
-            return Path(self.config.model_path).expanduser()
-
-        model_uri = self.config.model_uri or os.environ.get("FINAL_CHECKPOINT_PATH")
-        if model_uri:
-            artifact = HfModelUri.init_from_uri(model_uri)
+        checkpoint = self.config.checkpoint or os.environ.get("FINAL_CHECKPOINT_PATH")
+        if checkpoint:
+            if not checkpoint.startswith(HF_MODEL_URI_PREFIX):
+                return Path(checkpoint).expanduser()
+            artifact = HfModelUri.init_from_uri(checkpoint)
         else:
             repo_id = os.environ.get("GOLDEN_RUN_FINAL_MODEL_REPO_ID")
             if not repo_id:
                 raise ValueError(
-                    "Set --model-path, --model-uri, FINAL_CHECKPOINT_PATH, or "
-                    "GOLDEN_RUN_FINAL_MODEL_REPO_ID"
+                    "Set --checkpoint, FINAL_CHECKPOINT_PATH, or GOLDEN_RUN_FINAL_MODEL_REPO_ID"
                 )
             artifact = HfModelUri(
                 repo_id=repo_id,
                 revision=os.environ.get("GOLDEN_RUN_FINAL_MODEL_REVISION", "main"),
                 checkpoint_name=self.checkpoint_name(),
             )
+            checkpoint = f"{HF_MODEL_URI_PREFIX}{artifact.repo_id}@{artifact.revision}/{artifact.checkpoint_name}"
 
-        root = self.cache.download(
-            repo_id=artifact.repo_id,
-            repo_type="model",
-            revision=artifact.revision,
-            local_dir=self.cache.model_root(artifact.repo_id, artifact.revision),
-            snapshot_download_fn=self.snapshot_download_fn,
+        preferred = Path(
+            resolve_portable_model_path(
+                checkpoint,
+                "checkpoint",
+                cache_root=self.config.cache_root,
+            )
         )
-        return self.resolve_loadable_checkpoint(root, artifact.checkpoint_name)
+        return self.resolve_loadable_checkpoint(preferred.parent, artifact.checkpoint_name)
 
     def resolve_loadable_checkpoint(self, root: Path, checkpoint_name: str) -> Path:
         preferred = root / checkpoint_name
@@ -136,19 +132,21 @@ class OssOpenLoopEvaluator:
             return Path(self.config.dataset_path).expanduser()
 
         repo_id = self.config.dataset_repo_id or os.environ.get("GOLDEN_RUN_DATASET_REPO_ID")
-        local_name = self.config.dataset_local_name or os.environ.get("GOLDEN_RUN_DATASET_LOCAL_NAME")
+        local_name = self.config.dataset_local_name or os.environ.get(
+            "GOLDEN_RUN_DATASET_LOCAL_NAME"
+        )
         if not repo_id or not local_name:
             raise ValueError(
                 "Set --dataset-path or both GOLDEN_RUN_DATASET_REPO_ID and "
                 "GOLDEN_RUN_DATASET_LOCAL_NAME"
             )
-        revision = self.config.dataset_revision or os.environ.get("GOLDEN_RUN_DATASET_REVISION", "main")
+        revision = self.config.dataset_revision or os.environ.get(
+            "GOLDEN_RUN_DATASET_REVISION", "main"
+        )
         return self.cache.download(
             repo_id=repo_id,
             repo_type="dataset",
             revision=revision,
-            local_dir=self.cache.dataset_root(repo_id, revision, local_name),
-            snapshot_download_fn=self.snapshot_download_fn,
         )
 
     def resolve_artifacts(self) -> ResolvedArtifacts:
@@ -245,7 +243,10 @@ class OssOpenLoopEvaluator:
     def validate_results(self, results: dict[str, MetricSummary]) -> None:
         for label, summary in results.items():
             self.check_finite_metrics(label, summary)
-            if self.config.max_mse is not None and summary.average.get("mse", 0.0) > self.config.max_mse:
+            if (
+                self.config.max_mse is not None
+                and summary.average.get("mse", 0.0) > self.config.max_mse
+            ):
                 raise RuntimeError(
                     f"{label} average mse {summary.average['mse']:.6f} exceeds "
                     f"--max-mse {self.config.max_mse:.6f}"

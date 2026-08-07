@@ -27,6 +27,7 @@ from typing import TextIO
 
 from typing_extensions import Self
 
+from groot.core.data import schema
 from groot.infra.eval.oss_open_loop_eval_config import OssOpenLoopEvalConfig
 
 
@@ -74,9 +75,10 @@ class PolicyServerProcess:
         self._wait_until_ready()
 
     def server_embodiment_tag(self) -> str:
-        if self.config.embodiment_tag.isupper():
-            return self.config.embodiment_tag
-        return self.config.embodiment_tag.upper()
+        try:
+            return schema.EmbodimentTag[self.config.embodiment_tag].name
+        except KeyError:
+            return schema.EmbodimentTag(self.config.embodiment_tag).name
 
     def stop(self) -> None:
         from groot.core.policy.server_client import PolicyClient

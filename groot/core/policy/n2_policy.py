@@ -191,7 +191,17 @@ class Gr00tN2Policy(Gr00tPolicy):
         # Import to register the N2 model (pipeline setup runs AutoModel
         # registration as a side effect).
         import groot.core.training.models.n2
-        import groot.core.training.models.rl  # noqa: F401  GrootN2RL AutoModel registration
+
+        # Internal builds include this package for GrootN2RL AutoModel registration,
+        # while the curated OSS package intentionally excludes RL models. Suppress
+        # only the missing OSS package; missing RL dependencies must still fail.
+        # TODO(ryhalabi): Remove this conditional import once internal and OSS model  # noqa: TD003
+        # use the same dependency-safe registration entry point.
+        try:
+            import groot.core.training.models.rl  # noqa: F401
+        except ModuleNotFoundError as exc:
+            if exc.name != "groot.core.training.models.rl":
+                raise
 
         # Skip Gr00tPolicy.__init__ (it assumes action_head exists) — do the
         # essential setup directly.

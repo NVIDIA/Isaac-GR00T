@@ -39,13 +39,15 @@ OSS post-train work.
 Run from the OSS package root:
 
 ```bash
-uv run python -m groot.infra.oss train n2_yam_simulation_stack_bowls
+uv run python -m groot.infra.oss train n2_yam_simulation_stack_bowls \
+  --dataset-path /path/to/lerobot_dataset
 ```
 
 Run local post-train followed by evaluation:
 
 ```bash
-uv run python -m groot.infra.oss train-eval n2_yam_simulation_stack_bowls
+uv run python -m groot.infra.oss train-eval n2_yam_simulation_stack_bowls \
+  --dataset-path /path/to/lerobot_dataset
 ```
 
 Run evaluation for an existing checkpoint:
@@ -56,22 +58,17 @@ uv run python -m groot.infra.oss eval n2_yam_simulation_stack_bowls --checkpoint
 
 If the user does not specify an experiment, use the default configured by the skill.
 
-## Required Environment
+## Required Inputs
 
-Local training requires model dependency paths:
-
-```bash
-export COSMOS_MODEL_PATH=<local-cosmos-tokenizer-path>
-export DIFFUSION_TRANSFORMER_PATH=<local-transformer-path>
-export VAE_PATH=<local-vae-path>
-```
-
-Set `HF_TOKEN` or a Hugging Face token alias if the configured artifacts require
+Local training requires a LeRobot dataset supplied with `--dataset-path` (or an
+explicit `data.datasets.*.dataset_paths` override via `--set`). Model
+dependencies use the default `hf://model/...` URIs; set `HF_TOKEN`,
+`HUGGING_FACE_HUB_TOKEN`, or `HUGGINGFACE_TOKEN` if those artifacts require
 authentication.
 
 ## Expected Agent Flow
 
-1. Confirm the user wants a local run and has the required local paths or HF access.
+1. Confirm the user wants a local run and has a dataset path and required HF access.
 2. Use `--dry-run` first when setup is unclear.
 3. Run the shared `python -m groot.infra.oss` CLI from the OSS package root.
 4. Report the local command, output checkpoint or eval JSON path, and first actionable failure if one occurs.

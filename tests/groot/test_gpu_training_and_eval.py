@@ -4,278 +4,381 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 from pathlib import Path
-import shlex
-import shutil
-import subprocess
-import sys
-import time
 
 import pytest
 
-_RUN_ENV_VAR = "GROOT_OSS_GPU_FUNCTIONAL_TESTS"
-_EXPERIMENT = "n2_yam_simulation_stack_bowls"
-_DEFAULT_PRETRAIN_CHECKPOINT = (
-    "/mnt/amlfs-07/shared/checkpoints/ruijiez/"
-    "n2_yam_pretrain-bidrectional-full-200k-source/checkpoint-200000"
-)
-_DEFAULT_DATASET_PATH = "/mnt/amlfs-01/shared/datasets/yam_workstation_stack_bowls_20260430_170700"
-_DEFAULT_COSMOS_MODEL_PATH = "/mnt/amlfs-02/shared/ckpts/cosmos25/cosmos_reason1/"
-_DEFAULT_DIFFUSION_TRANSFORMER_PATH = (
-    "/mnt/amlfs-02/shared/ckpts/cosmos25/Cosmos-Predict2.5-2B-diffusers/transformer"
-)
-_DEFAULT_VAE_PATH = "/mnt/amlfs-02/shared/ckpts/Wan2.1-I2V-14B-480P/Wan2.1_VAE.pth"
+from groot.infra import oss
 
-# TODO(cuonguyen): Re-enable after OSS model loading moves from S3/mounted
-# artifact paths to Hugging Face so this job can run without internal mounts.
-pytestmark = [
-    pytest.mark.gpu,
-    pytest.mark.skip(
-        reason="TODO: re-enable when OSS model loading uses Hugging Face artifacts",
-    ),
-    pytest.mark.skipif(
-        os.environ.get(_RUN_ENV_VAR) != "1",
-        reason=f"set {_RUN_ENV_VAR}=1 to run functional OSS GPU smoke tests",
-    ),
-]
+_EXPERIMENT = oss.OSS_TRAINING_EXPERIMENT
+_PRETRAIN_CHECKPOINT = "hf://model/org/repo@commit-sha/base_200k"
+_CHECKPOINT_SENTINEL = 7.0
+
+pytestmark = pytest.mark.gpu
 
 
-@pytest.mark.gpu
-def test_oss_training_gpu_smoke(tmp_path: Path) -> None:
-    """Run a small real OSS training job on the GPU runner."""
-    package_root = _package_root()
+def test_oss_training_and_open_loop_eval_gpu_smoke(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Run real OSS training/eval with synthetic model dependencies and a fixture dataset."""
+    import torch
+
+    assert torch.cuda.is_available(), "OSS GPU smoke requires torch.cuda.is_available()"
+    hf_calls = _install_external_artifact_fakes(monkeypatch, tmp_path)
+    dataset_path = _dataset_fixture()
     output_dir = tmp_path / "train-output"
-    env = _base_env(output_dir=output_dir)
-    _require_gpu_runtime()
-    _require_paths(
-        env,
-        "PRETRAIN_CHECKPOINT",
-        "LFS_CACHE_PATH",
-        "COSMOS_MODEL_PATH",
-        "DIFFUSION_TRANSFORMER_PATH",
-        "VAE_PATH",
+    max_steps = os.environ.get("OSS_GPU_TRAIN_MAX_STEPS", "2")
+    resolved = _resolve_fixture_training(
+        output_dir=output_dir,
+        dataset_path=dataset_path,
+        max_steps=max_steps,
     )
 
-    max_steps = env["OSS_GPU_TRAIN_MAX_STEPS"]
-    _start_ray(env, package_root)
-    try:
-        _run(
+    _assert_resolved_training_command(resolved, output_dir, max_steps, dataset_path)
+    _run_training_in_process(resolved, monkeypatch)
+    assert any(
+        kind == "snapshot"
+        and call["repo_id"] == "org/repo"
+        and "base_200k/**" in call.get("allow_patterns", ())
+        for kind, call in hf_calls
+    ), "GPU smoke did not exercise real HF checkpoint resolution"
+    _assert_training_checkpoint(output_dir, max_steps, expected_sentinel=_CHECKPOINT_SENTINEL)
+    _run_open_loop_eval(
+        output_dir / f"checkpoint-{max_steps}",
+        dataset_path,
+        tmp_path,
+        monkeypatch,
+    )
+
+
+def _resolve_fixture_training(
+    *,
+    output_dir: Path,
+    dataset_path: Path,
+    max_steps: str,
+) -> oss.ResolvedOssTrain:
+    return oss.resolve_train(
+        oss._parse_args(  # noqa: SLF001 - exercise the same resolved command as the CLI.
             [
-                sys.executable,
-                "-m",
-                "groot.infra.oss",
                 "train",
-                env["OSS_GPU_EXPERIMENT"],
+                _EXPERIMENT,
                 "--compute-type",
-                env["OSS_GPU_COMPUTE_TYPE"],
+                os.environ.get("OSS_GPU_COMPUTE_TYPE", "gb300"),
                 "--max-steps",
                 max_steps,
                 "--num-gpus",
-                env["OSS_GPU_TRAIN_NUM_GPUS"],
+                os.environ.get("OSS_GPU_TRAIN_NUM_GPUS", "1"),
                 "--batch-size",
-                env["OSS_GPU_TRAIN_BATCH_SIZE"],
+                os.environ.get("OSS_GPU_TRAIN_BATCH_SIZE", "1"),
                 "--output-dir",
                 str(output_dir),
+                "--pretrain-checkpoint",
+                _PRETRAIN_CHECKPOINT,
+                "--dataset-path",
+                str(dataset_path),
+                "--set",
+                "data.num_shards_per_epoch=1",
+                "--set",
+                "data.episode_sampling_rate=0.05",
+                "--set",
+                "data.shard_size=64",
+                "--set",
+                "data.video_backend=mock",
                 "--set",
                 f"training.save_steps={max_steps}",
-            ],
-            cwd=package_root,
-            env=env,
-            timeout=int(env["OSS_GPU_TRAIN_TIMEOUT_SECONDS"]),
+                "--set",
+                "training.save_total_limit=1",
+                "--set",
+                "training.use_wandb=false",
+                "--set",
+                "training.enable_profiling=false",
+                "--set",
+                "training.msc_profile_url=''",
+                "--set",
+                "training.dataloader_num_workers=0",
+                "--set",
+                "training.dataloader_pin_memory=false",
+                "--set",
+                "training.use_async_checkpoint_save=false",
+                "--set",
+                "training.torch_compile=false",
+                "--set",
+                "training.straggler.enabled=false",
+            ]
         )
+    )
+
+
+def _run_training_in_process(
+    resolved: oss.ResolvedOssTrain,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from groot.core.training.experiment import experiment_ray
+
+    for key, value in resolved.env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("SKIP_EXPERIMENT_REGISTRATION", "1")
+    for key in (
+        "ACCELERATE_TORCH_DEVICE",
+        "LOCAL_RANK",
+        "MASTER_ADDR",
+        "MASTER_PORT",
+        "RANK",
+        "RAY_ADDRESS",
+        "WORLD_SIZE",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    config = _parse_experiment_ray_config(resolved.command)
+    try:
+        experiment_ray.train_func(config)
     finally:
-        _run(["ray", "stop", "--force"], cwd=package_root, env=env, check=False)
+        with contextlib.suppress(ImportError):
+            import torch
 
-    _assert_training_checkpoint(output_dir, max_steps)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
 
-@pytest.mark.gpu
-def test_oss_open_loop_eval_gpu_smoke(tmp_path: Path) -> None:
-    """Run the real OSS policy-server open-loop evaluator on the GPU runner."""
-    package_root = _package_root()
-    env = _base_env(output_dir=tmp_path / "unused-train-output")
-    _require_gpu_runtime()
-    checkpoint = _eval_checkpoint(env)
-    dataset_path = _eval_dataset_path(env)
-    _require_paths(env, "COSMOS_MODEL_PATH", "DIFFUSION_TRANSFORMER_PATH", "VAE_PATH")
-    _require_path("OSS eval checkpoint", checkpoint)
-    _require_path("OSS eval dataset", dataset_path)
+def _parse_experiment_ray_config(command: list[str]):
+    import tyro
 
-    output_json = tmp_path / "oss_policy_server_eval.json"
-    _run(
+    from groot.core.training.configs import base_config
+
+    args = command[3:]
+    config = tyro.cli(
+        base_config.Config,
+        default=base_config.get_default_config(),
+        description=__doc__,
+        args=args,
+    )
+    if config.load_config_path:
+        config_path = Path(config.load_config_path)
+        assert config_path.exists(), f"Config path does not exist: {config_path}"
+        config = config.load(config_path)
+        config.load_config_path = None
+        config = tyro.cli(base_config.Config, default=config, description=__doc__, args=args)
+    return config
+
+
+def _run_open_loop_eval(
+    checkpoint: Path,
+    dataset_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_json = tmp_path / "oss_policy_eval.json"
+    monkeypatch.setenv("GROOT_N2_CODEC_ROUNDTRIP", "none")
+    args = oss._parse_args(  # noqa: SLF001 - reuse the OSS eval CLI parser.
         [
-            sys.executable,
-            "-m",
-            "groot.infra.oss",
             "eval",
-            env["OSS_GPU_EXPERIMENT"],
+            _EXPERIMENT,
             "--checkpoint",
-            checkpoint,
+            str(checkpoint),
             "--dataset-path",
-            dataset_path,
+            str(dataset_path),
             "--traj-ids",
-            env["OSS_GPU_EVAL_TRAJ_IDS"],
+            os.environ.get("OSS_GPU_EVAL_TRAJ_IDS", "0"),
             "--steps",
-            env["OSS_GPU_EVAL_STEPS"],
+            os.environ.get("OSS_GPU_EVAL_STEPS", "1"),
             "--action-horizon",
-            env["OSS_GPU_EVAL_ACTION_HORIZON"],
+            os.environ.get("OSS_GPU_EVAL_ACTION_HORIZON", "2"),
             "--denoising-steps",
-            env["OSS_GPU_EVAL_DENOISING_STEPS"],
+            os.environ.get("OSS_GPU_EVAL_DENOISING_STEPS", "2"),
             "--server-parity-tolerance",
-            env["OSS_GPU_EVAL_SERVER_PARITY_TOLERANCE"],
+            os.environ.get("OSS_GPU_EVAL_SERVER_PARITY_TOLERANCE", "0.02"),
             "--output-json",
             str(output_json),
-        ],
-        cwd=package_root,
-        env=env,
-        timeout=int(env["OSS_GPU_EVAL_TIMEOUT_SECONDS"]),
+            "--local-only",
+        ]
     )
-    assert output_json.exists(), f"open-loop eval did not write {output_json}"
+    config = oss._eval_config(args)  # noqa: SLF001 - exercise the OSS eval config path.
+    config.video_backend = "mock"  # type: ignore[assignment]
+    status = oss._run_eval(config, dry_run=False)  # noqa: SLF001
+
+    assert status == 0
+    report = json.loads(output_json.read_text(encoding="utf-8"))
+    assert report["model_path"] == str(checkpoint)
+    assert report["dataset_path"] == str(dataset_path)
+    assert "local" in report["results"]
 
 
-def _base_env(*, output_dir: Path) -> dict[str, str]:
-    env = dict(os.environ)
-    env.setdefault("OSS_GPU_EXPERIMENT", _EXPERIMENT)
-    env.setdefault("OSS_GPU_COMPUTE_TYPE", env.get("CLUSTER_TYPE", "gb300"))
-    env.setdefault("OSS_GPU_TRAIN_NUM_GPUS", env.get("NUM_GPUS", "1"))
-    env.setdefault("OSS_GPU_TRAIN_BATCH_SIZE", env.get("BATCH_SIZE", "1"))
-    env.setdefault("OSS_GPU_TRAIN_MAX_STEPS", env.get("MAX_STEPS", "2"))
-    env.setdefault("OSS_GPU_TRAIN_TIMEOUT_SECONDS", "5400")
-    env.setdefault("OSS_GPU_EVAL_TRAJ_IDS", os.environ.get("OPEN_LOOP_EVAL_TRAJ_IDS", "0"))
-    env.setdefault("OSS_GPU_EVAL_STEPS", os.environ.get("OPEN_LOOP_EVAL_STEPS", "30"))
-    env.setdefault(
-        "OSS_GPU_EVAL_ACTION_HORIZON",
-        os.environ.get("OPEN_LOOP_EVAL_ACTION_HORIZON", "30"),
+def _assert_resolved_training_command(
+    resolved: oss.ResolvedOssTrain,
+    output_dir: Path,
+    max_steps: str,
+    dataset_path: Path,
+) -> None:
+    command = resolved.command
+    assert command[:3] == ["python", "-m", "groot.core.training.experiment.experiment_ray"]
+    assert "--training.output_dir" in command
+    assert command[command.index("--training.output_dir") + 1] == str(output_dir)
+    assert "--training.max_steps" in command
+    assert command[command.index("--training.max_steps") + 1] == max_steps
+    assert "--data.datasets.0.dataset_paths" not in command
+    assert "--load_config_path" in command
+    data_config = Path(command[command.index("--load_config_path") + 1])
+    data_config_text = data_config.read_text(encoding="utf-8")
+    assert str(dataset_path) in data_config_text
+    assert "video_backend: mock" in data_config_text
+    assert "--model.tokenizer_path" in command
+    assert command[command.index("--model.tokenizer_path") + 1] == oss.OSS_COSMOS_MODEL_URI
+    assert "--model.vae-cfg.vae_pretrained_path" in command
+    assert command[command.index("--model.vae-cfg.vae_pretrained_path") + 1] == oss.OSS_VAE_URI
+    assert "--training.start_from_checkpoint" in command
+    assert command[command.index("--training.start_from_checkpoint") + 1] == _PRETRAIN_CHECKPOINT
+    assert "--training.msc_profile_url" in command
+    assert command[command.index("--training.msc_profile_url") + 1] == ""
+    assert resolved.env["NUM_GPUS"] == os.environ.get("OSS_GPU_TRAIN_NUM_GPUS", "1")
+    assert resolved.env["BATCH_SIZE"] == os.environ.get("OSS_GPU_TRAIN_BATCH_SIZE", "1")
+
+
+def _dataset_fixture() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "tests/groot/core/training/experiment/dataloader/fixtures/backpack_2ep"
+        if candidate.is_dir():
+            return candidate
+    message = "local backpack_2ep LeRobot fixture is unavailable"
+    if os.environ.get("CI"):
+        raise AssertionError(message)
+    pytest.skip(message)
+
+
+def _install_external_artifact_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> list[tuple[str, dict]]:
+    """Replace only heavyweight external model artifacts, not image dependencies."""
+    monkeypatch.setenv("NO_ALBUMENTATIONS_UPDATE", "1")
+    from groot.core.training.models.n2 import model as model_module
+    from groot.core.training.models.n2 import processor as processor_module
+
+    monkeypatch.setattr(model_module, "CosmosTextEncoder", _mock_cosmos_text_encoder_class())
+    monkeypatch.setattr(processor_module, "HuggingfaceTokenizer", _MockHuggingfaceTokenizer)
+
+    hf_calls = _install_fake_hf_resolver(monkeypatch, tmp_path)
+
+    from groot.infra.eval.oss_open_loop_evaluator import OssOpenLoopEvaluator
+
+    monkeypatch.setattr(
+        OssOpenLoopEvaluator,
+        "ensure_dreamcosmos_model_deps",
+        lambda *_args, **_kwargs: None,
     )
-    env.setdefault(
-        "OSS_GPU_EVAL_DENOISING_STEPS",
-        os.environ.get("OPEN_LOOP_EVAL_DENOISING_STEPS", "4"),
-    )
-    env.setdefault(
-        "OSS_GPU_EVAL_SERVER_PARITY_TOLERANCE",
-        os.environ.get("OPEN_LOOP_EVAL_SERVER_PARITY_TOLERANCE", "0.02"),
-    )
-    env.setdefault("OSS_GPU_EVAL_TIMEOUT_SECONDS", "5400")
-    env.setdefault("CLUSTER_TYPE", env["OSS_GPU_COMPUTE_TYPE"])
-    env.setdefault("NUM_NODES", "1")
-    env["NUM_GPUS"] = env["OSS_GPU_TRAIN_NUM_GPUS"]
-    env["BATCH_SIZE"] = env["OSS_GPU_TRAIN_BATCH_SIZE"]
-    env["MAX_STEPS"] = env["OSS_GPU_TRAIN_MAX_STEPS"]
-    env.setdefault("DATALOADER_NUM_WORKERS", "2")
-    env.setdefault("JOB_NAME", f"oss_gpu_smoke_{os.environ.get('CI_COMMIT_SHORT_SHA', 'manual')}")
-    env.setdefault("USER_SLUG", "ci")
-    env.setdefault("TRAINING_OUTPUT_DIR", str(output_dir))
-    env.setdefault("HF_HUB_OFFLINE", "1")
-    env.setdefault("GIT_LFS_SKIP_SMUDGE", "1")
-    env.setdefault("OTEL_SDK_DISABLED", "true")
-    env.setdefault("WANDB_API_KEY", "disabled")
-    env.setdefault("WANDB_MODE", "disabled")
-    env.setdefault("NCCL_DEBUG", "WARNING")
-    env.setdefault("NCCL_TIMEOUT", "600")
-    env.setdefault("DECORD_EOF_RETRY_MAX", "20480")
-    env.setdefault("AWS_ENDPOINT_URL", "https://pdx.s8k.io")
-    env.setdefault("S3_ENDPOINT_URL", "https://pdx.s8k.io")
-    env.setdefault("PRETRAIN_CHECKPOINT", _DEFAULT_PRETRAIN_CHECKPOINT)
-    env.setdefault("LFS_CACHE_PATH", "/mnt/amlfs-01/shared")
-    env.setdefault("COSMOS_MODEL_PATH", _DEFAULT_COSMOS_MODEL_PATH)
-    env.setdefault("DIFFUSION_TRANSFORMER_PATH", _DEFAULT_DIFFUSION_TRANSFORMER_PATH)
-    env.setdefault("VAE_PATH", _DEFAULT_VAE_PATH)
-    return env
+    return hf_calls
 
 
-def _eval_checkpoint(env: dict[str, str]) -> str:
-    return (
-        env.get("OSS_GPU_EVAL_CHECKPOINT")
-        or env.get("OPEN_LOOP_EVAL_MODEL_PATH")
-        or env.get("FINAL_CHECKPOINT_PATH")
-        or env["PRETRAIN_CHECKPOINT"]
-    )
-
-
-def _eval_dataset_path(env: dict[str, str]) -> str:
-    return (
-        env.get("OSS_GPU_EVAL_DATASET_PATH")
-        or env.get("OPEN_LOOP_EVAL_DATASET_PATH")
-        or _DEFAULT_DATASET_PATH
-    )
-
-
-def _start_ray(env: dict[str, str], cwd: Path) -> None:
-    if shutil.which("ray") is None:
-        pytest.fail("ray executable is required for OSS GPU training smoke")
-    _run(["ray", "stop", "--force"], cwd=cwd, env=env, check=False)
-    _run(
-        [
-            "ray",
-            "start",
-            "--head",
-            f"--num-gpus={env['OSS_GPU_TRAIN_NUM_GPUS']}",
-            f"--num-cpus={env.get('OSS_GPU_RAY_NUM_CPUS', str(os.cpu_count() or 1))}",
-            "--disable-usage-stats",
-            "--include-dashboard=False",
-        ],
-        cwd=cwd,
-        env=env,
-        timeout=120,
-    )
-    env["RAY_ADDRESS"] = "auto"
-    time.sleep(5)
-
-
-def _require_gpu_runtime() -> None:
+def _mock_cosmos_text_encoder_class():
     import torch
+    from torch import nn
 
-    if not torch.cuda.is_available():
-        pytest.fail("functional OSS GPU smoke requires torch.cuda.is_available()")
+    class MockCosmosTextEncoder(nn.Module):
+        def __init__(self, *_args, **_kwargs):
+            super().__init__()
+            self.max_seq_len = int(os.environ.get("OSS_GPU_MOCK_TEXT_SEQ_LEN", "512"))
+            self.output_dim = int(os.environ.get("OSS_GPU_MOCK_TEXT_EMBED_DIM", "100352"))
+            self._device_anchor = nn.Parameter(
+                torch.zeros((), dtype=torch.bfloat16),
+                requires_grad=False,
+            )
+
+        def prepare_input_ids(self, prompts):
+            return torch.zeros(
+                len(prompts),
+                self.max_seq_len,
+                dtype=torch.long,
+                device=self._device_anchor.device,
+            )
+
+        def forward(self, input_ids):
+            batch_size, seq_len = input_ids.shape
+            return torch.zeros(
+                batch_size,
+                seq_len,
+                self.output_dim,
+                device=input_ids.device,
+                dtype=torch.bfloat16,
+            )
+
+    return MockCosmosTextEncoder
 
 
-def _require_paths(env: dict[str, str], *names: str) -> None:
-    missing = [
-        f"{name}={env.get(name, '')}"
-        for name in names
-        if not env.get(name) or not Path(env[name]).expanduser().exists()
-    ]
-    if missing:
-        pytest.fail("missing required OSS GPU smoke path(s): " + ", ".join(missing))
+class _MockHuggingfaceTokenizer:
+    def __init__(self, _path: str, seq_len: int, **_kwargs):
+        self.seq_len = seq_len
+
+    def __call__(self, sequence, **_kwargs):
+        import torch
+
+        return torch.zeros(len(sequence), self.seq_len, dtype=torch.long)
+
+    def save_pretrained(self, *_args, **_kwargs):
+        return ()
 
 
-def _require_path(label: str, value: str) -> None:
-    if not Path(value).expanduser().exists():
-        pytest.fail(f"{label} does not exist: {value}")
+def _install_fake_hf_resolver(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> list[tuple[str, dict]]:
+    """Exercise the real HF URI resolver against a local fake Hub snapshot."""
+    import huggingface_hub
+
+    cache_root = tmp_path / "hf-cache"
+    calls: list[tuple[str, dict]] = []
+
+    def fake_snapshot_download(**kwargs):
+        calls.append(("snapshot", kwargs))
+        repo_id = kwargs["repo_id"].replace("/", "--")
+        snapshot = cache_root / f"models--{repo_id}" / "snapshots" / "commit-sha"
+        for pattern in kwargs.get("allow_patterns") or ():
+            if pattern.endswith("/**"):
+                artifact = pattern.removesuffix("/**")
+                artifact_dir = snapshot / artifact
+                artifact_dir.mkdir(parents=True, exist_ok=True)
+                if artifact == "base_200k":
+                    from safetensors.torch import save_file
+                    import torch
+
+                    save_file(
+                        {
+                            "text_encoder._device_anchor": torch.tensor(
+                                _CHECKPOINT_SENTINEL,
+                                dtype=torch.bfloat16,
+                            )
+                        },
+                        artifact_dir / "model.safetensors",
+                    )
+        if not kwargs.get("allow_patterns"):
+            snapshot.mkdir(parents=True, exist_ok=True)
+        return str(snapshot)
+
+    monkeypatch.setenv("GROOT_HF_ARTIFACT_CACHE_ROOT", str(cache_root))
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_snapshot_download)
+    return calls
 
 
-def _assert_training_checkpoint(output_dir: Path, max_steps: str) -> None:
+def _assert_training_checkpoint(
+    output_dir: Path,
+    max_steps: str,
+    *,
+    expected_sentinel: float,
+) -> None:
+    from safetensors import safe_open
+
     checkpoint = output_dir / f"checkpoint-{max_steps}"
     assert output_dir.is_dir(), f"training did not create output directory: {output_dir}"
     assert checkpoint.is_dir(), f"training did not create final checkpoint: {checkpoint}"
-    assert any(path.is_file() for path in checkpoint.rglob("*")), (
-        f"training checkpoint is empty: {checkpoint}"
-    )
-
-
-def _run(
-    args: list[str],
-    *,
-    cwd: Path,
-    env: dict[str, str],
-    timeout: int | None = None,
-    check: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    print(f"[oss-gpu-smoke] $ {shlex.join(args)}", flush=True)
-    return subprocess.run(
-        args,
-        cwd=cwd,
-        env=env,
-        check=check,
-        text=True,
-        timeout=timeout,
-    )
-
-
-def _package_root() -> Path:
-    return next(
-        parent
-        for parent in Path(__file__).resolve().parents
-        if (parent / "pyproject.toml").exists()
-    )
+    assert any(
+        path.is_file() for path in checkpoint.rglob("*")
+    ), f"training checkpoint is empty: {checkpoint}"
+    for shard in checkpoint.glob("model*.safetensors"):
+        with safe_open(shard, framework="pt", device="cpu") as state_dict:
+            available_keys = state_dict.keys()
+            if "text_encoder._device_anchor" in available_keys:
+                actual = state_dict.get_tensor("text_encoder._device_anchor").item()
+                assert actual == expected_sentinel
+                return
+    raise AssertionError("training checkpoint did not preserve the synthetic sentinel weight")

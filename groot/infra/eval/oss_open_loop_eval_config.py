@@ -19,7 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-DEFAULT_CACHE_ROOT = "/tmp/groot_hf_artifacts"  # noqa: S108
+from groot.core.utils.storage.msc import DEFAULT_HF_ARTIFACT_CACHE_ROOT
+
+DEFAULT_CACHE_ROOT = DEFAULT_HF_ARTIFACT_CACHE_ROOT
 DEFAULT_CHECKPOINT_NAME = "checkpoint-100"
 DEFAULT_RESULT_PATH = "/tmp/groot_oss_open_loop_eval.json"  # noqa: S108
 DEFAULT_SERVER_LOG_PATH = "/tmp/groot_oss_policy_server.log"  # noqa: S108
@@ -29,11 +31,8 @@ DEFAULT_SERVER_LOG_PATH = "/tmp/groot_oss_policy_server.log"  # noqa: S108
 class OssOpenLoopEvalConfig:
     """Configuration for OSS post-training checkpoint evaluation."""
 
-    model_path: str | None = None
-    """Local checkpoint directory. If set, no model artifact is downloaded."""
-
-    model_uri: str | None = None
-    """HF checkpoint URI: hf://model/<repo>@<revision>/<checkpoint>."""
+    checkpoint: str | None = None
+    """Local checkpoint directory or hf://model/<repo>@<revision>/<checkpoint> URI."""
 
     dataset_path: str | None = None
     """Local LeRobot dataset directory. If set, no dataset artifact is downloaded."""
@@ -51,7 +50,7 @@ class OssOpenLoopEvalConfig:
     """Checkpoint subdirectory for GOLDEN_RUN_FINAL_MODEL_* defaults."""
 
     cache_root: str | None = None
-    """HF artifact cache root. Defaults to GROOT_HF_ARTIFACT_CACHE_ROOT or /tmp."""
+    """HF artifact cache root. Defaults to GROOT_HF_ARTIFACT_CACHE_ROOT or /tmp/groot_hf_artifacts."""
 
     output_json: str = DEFAULT_RESULT_PATH
     """Where to write the JSON evaluation report."""

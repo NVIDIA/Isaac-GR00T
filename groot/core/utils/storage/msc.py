@@ -32,6 +32,9 @@ except ImportError:
     msc = None
     ExecutionMode = None
 
+HF_MODEL_URI_PREFIX = "hf://model/"
+DEFAULT_HF_ARTIFACT_CACHE_ROOT = "/tmp/groot_hf_artifacts"
+
 
 def _msc_telemetry_stack_ready() -> bool:
     """Return True only if MSC's ``_otlp_mtls_vault`` telemetry stack can initialize.
@@ -632,16 +635,96 @@ def _resolve_cached_hf_snapshot(path: str) -> str | None:
     return None
 
 
-def resolve_model_path(path: str, param_name: str = "path") -> str:
-    """Resolve a model path from msc://, s3://, local, or HF Hub name.
+def hf_token() -> str:
+    return (
+        os.environ.get("HF_TOKEN")
+        or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+        or os.environ.get("HUGGINGFACE_TOKEN")
+        or ""
+    )
+
+
+def parse_hf_model_uri(path: str) -> tuple[str, str, str]:
+    """Parse a Hugging Face model URI into its repository, revision, and artifact path.
+
+    The accepted format is
+    ``hf://model/<org>/<repo>@<revision>/<optional-artifact-path>``. The
+    revision is required, while the artifact path may be omitted to address the
+    repository root.
+
+    For example, ``hf://model/org/repo@abc123/checkpoint-100`` returns
+    ``("org/repo", "abc123", "checkpoint-100")``.
+
+    Raises:
+        ValueError: If the URI has the wrong prefix or omits the organization,
+            repository, or revision.
+    """
+    if not path.startswith(HF_MODEL_URI_PREFIX):
+        raise ValueError(f"HF model URI must start with {HF_MODEL_URI_PREFIX!r}: {path}")
+    body = path[len(HF_MODEL_URI_PREFIX) :]
+    parts = body.split("/", maxsplit=2)
+    if len(parts) < 2 or not parts[0] or not parts[1]:
+        raise ValueError("HF model URI must use hf://model/<org>/<repo>@<revision>/<optional-path>")
+    repo_name, at, revision = parts[1].partition("@")
+    if not repo_name or not at or not revision:
+        raise ValueError(f"HF model URI must include <org>/<repo>@<revision>: {path}")
+    repo_id = f"{parts[0]}/{repo_name}"
+    return repo_id, revision, parts[2].strip("/") if len(parts) == 3 else ""
+
+
+def _resolve_hf_model_uri(path: str, *, cache_root: str | Path | None = None) -> str:
+    repo_id, revision, artifact_path = parse_hf_model_uri(path)
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:
+        raise RuntimeError(
+            "huggingface_hub is required to resolve HF model URIs. "
+            f"Install huggingface-hub or use a local path instead: {path}"
+        ) from exc
+
+    cache_root_path = Path(
+        cache_root
+        or os.environ.get("GROOT_HF_ARTIFACT_CACHE_ROOT")
+        or DEFAULT_HF_ARTIFACT_CACHE_ROOT
+    )
+    cache_root_path.mkdir(parents=True, exist_ok=True)
+    token = hf_token() or None
+
+    download_kwargs = {
+        "repo_id": repo_id,
+        "repo_type": "model",
+        "revision": revision,
+        "cache_dir": str(cache_root_path),
+        "token": token,
+    }
+    if artifact_path:
+        download_kwargs["allow_patterns"] = (artifact_path, f"{artifact_path}/**")
+    snapshot = Path(snapshot_download(**download_kwargs))
+    resolved = snapshot / artifact_path if artifact_path else snapshot
+
+    if not resolved.exists():
+        raise FileNotFoundError(f"HF model artifact does not exist after download: {path}")
+    return str(resolved)
+
+
+def resolve_model_path(
+    path: str,
+    param_name: str = "path",
+    *,
+    cache_root: str | Path | None = None,
+) -> str:
+    """Resolve a model path from msc://, s3://, hf://model, local, or HF Hub name.
 
     - msc:// or s3:// URLs: downloaded via MSC to MSC_CACHE_PATH.
+    - hf://model URLs: downloaded from Hugging Face to GROOT_HF_ARTIFACT_CACHE_ROOT.
     - Absolute local paths: validated to exist.
     - HF Hub names: resolved to an existing local cache snapshot when available,
       otherwise returned as-is.
     """
     if not path:
         return path
+    if path.startswith(HF_MODEL_URI_PREFIX):
+        return _resolve_hf_model_uri(path, cache_root=cache_root)
     if path.startswith("msc://") or path.startswith("s3://"):
         cache_dir = os.environ.get("MSC_CACHE_PATH")
         if not cache_dir:

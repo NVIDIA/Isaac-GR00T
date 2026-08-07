@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# OSS package CPU unit and mocked functional tests.
+# OSS package CPU unit and GPU functional tests.
 
 test.oss.cpu:
   extends: .minimal
@@ -83,11 +83,13 @@ test.oss.gpu:
     - cpu/arm64
     - gpu/gb300
   variables:
-    GROOT_OSS_GPU_FUNCTIONAL_TESTS: "1"
     OSS_GPU_COMPUTE_TYPE: "gb300"
     OSS_GPU_TRAIN_NUM_GPUS: "1"
     OSS_GPU_TRAIN_BATCH_SIZE: "1"
     OSS_GPU_TRAIN_MAX_STEPS: "2"
+    OSS_GPU_EVAL_STEPS: "1"
+    OSS_GPU_EVAL_ACTION_HORIZON: "2"
+    OSS_GPU_EVAL_DENOISING_STEPS: "2"
   rules: *oss_test_rules
 
   before_script: *oss_package_before_script

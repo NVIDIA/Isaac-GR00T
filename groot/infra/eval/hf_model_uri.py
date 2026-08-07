@@ -28,14 +28,10 @@ class HfModelUri:
 
     @classmethod
     def init_from_uri(cls, uri: str) -> HfModelUri:
-        prefix = "hf://model/"
-        if not uri.startswith(prefix):
-            raise ValueError(f"model URI must start with {prefix!r}: {uri}")
-        body = uri[len(prefix) :]
-        repo_id, at, revision_and_checkpoint = body.partition("@")
-        if not at or not repo_id or not revision_and_checkpoint:
-            raise ValueError(f"model URI must include <repo>@<revision>: {uri}")
-        revision, sep, checkpoint_name = revision_and_checkpoint.partition("/")
-        if not sep or not checkpoint_name:
+        # Keep the public OSS CLI importable with base dependencies only.
+        from groot.core.utils.storage.msc import parse_hf_model_uri
+
+        repo_id, revision, checkpoint_name = parse_hf_model_uri(uri)
+        if not checkpoint_name:
             raise ValueError(f"model URI must include a checkpoint path: {uri}")
         return cls(repo_id=repo_id, revision=revision, checkpoint_name=checkpoint_name)

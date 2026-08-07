@@ -27,6 +27,7 @@ from groot.core.training.models.base.model_pipeline import ModelPipeline
 from groot.core.training.models.n2.model import GrootN2
 from groot.core.training.models.n2.processor import GrootN2Processor
 from groot.core.training.models.registry import register_model
+from groot.core.utils.storage.msc import resolve_model_path
 
 
 class GrootN2Pipeline(ModelPipeline):
@@ -65,6 +66,7 @@ class GrootN2Pipeline(ModelPipeline):
         start_ckpt = self.config.training.start_from_checkpoint
 
         if start_ckpt is not None:
+            start_ckpt = resolve_model_path(start_ckpt, "training.start_from_checkpoint")
             # Posttraining: construct model with CLI config (correct shapes from
             # the start — avoids DeepSpeed/CUDA graph issues from post-hoc overrides),
             # then load checkpoint weights.
@@ -87,8 +89,8 @@ class GrootN2Pipeline(ModelPipeline):
                 if old_embed.shape[0] < mc.max_n_cameras:
                     # Grow (e.g. 3 -> 4): keep learned views, init new ones as their mean.
                     new_embed = model.video_tokenizer.view_embed.weight.data.clone()
-                    new_embed[:old_embed.shape[0]] = old_embed
-                    new_embed[old_embed.shape[0]:] = old_embed.mean(dim=0)
+                    new_embed[: old_embed.shape[0]] = old_embed
+                    new_embed[old_embed.shape[0] :] = old_embed.mean(dim=0)
                     state_dict[vkey] = new_embed
                     logging.info(
                         f"[GrootN2] Extended view_embed: {old_embed.shape[0]} -> {mc.max_n_cameras} "
@@ -109,7 +111,9 @@ class GrootN2Pipeline(ModelPipeline):
             if missing:
                 logging.warning(f"[GrootN2] Missing keys ({len(missing)}): {missing[:5]}...")
             if unexpected:
-                logging.warning(f"[GrootN2] Unexpected keys ({len(unexpected)}): {unexpected[:5]}...")
+                logging.warning(
+                    f"[GrootN2] Unexpected keys ({len(unexpected)}): {unexpected[:5]}..."
+                )
 
             if hasattr(mc, "action_cfg") and mc.action_cfg:
                 model.attention_mask_pattern = mc.action_cfg.get("attention_mask_pattern", None)
@@ -118,15 +122,29 @@ class GrootN2Pipeline(ModelPipeline):
             # Pretraining: fresh init + load base pretrained components
             model = self.model_class(mc)
 
-            if mc.diffusion_model_cfg and mc.diffusion_model_cfg.get("diffusion_model_pretrained_path"):
-                model.load_cosmos_pretrained(mc.diffusion_model_cfg["diffusion_model_pretrained_path"])
+            if mc.diffusion_model_cfg and mc.diffusion_model_cfg.get(
+                "diffusion_model_pretrained_path"
+            ):
+                model.load_cosmos_pretrained(
+                    resolve_model_path(
+                        mc.diffusion_model_cfg["diffusion_model_pretrained_path"],
+                        "model.diffusion_model_cfg.diffusion_model_pretrained_path",
+                    )
+                )
 
             if mc.vae_cfg and mc.vae_cfg.get("vae_pretrained_path"):
                 vae_target = model.vae.model
-                if hasattr(vae_target, "_orig_mod"):
-                    vae_target = vae_target._orig_mod
+                vae_target = getattr(vae_target, "_orig_mod", vae_target)
+                vae_path = resolve_model_path(
+                    mc.vae_cfg["vae_pretrained_path"],
+                    "model.vae_cfg.vae_pretrained_path",
+                )
                 vae_target.load_state_dict(
-                    torch.load(mc.vae_cfg["vae_pretrained_path"], map_location="cuda"), assign=True
+                    torch.load(
+                        vae_path,
+                        map_location="cuda",
+                    ),
+                    assign=True,
                 )
 
         total = sum(p.numel() for p in model.parameters())

@@ -44,6 +44,7 @@ from groot.core.training.models.n2.components.text_processor import (
     process_text,
     process_text_negative,
 )
+from groot.core.utils.storage.msc import resolve_model_path
 
 ### Mapping from embodiment tag to projector index.
 EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
@@ -231,8 +232,9 @@ class GrootN2Processor(BaseProcessor):
         )
 
         # Tokenizer
+        tokenizer_runtime_path = resolve_model_path(tokenizer_path, "processor.tokenizer_path")
         self.tokenizer = HuggingfaceTokenizer(
-            tokenizer_path, seq_len=max_language_length, trust_remote_code=True
+            tokenizer_runtime_path, seq_len=max_language_length, trust_remote_code=True
         )
         self._collator = self.data_collator_class(tokenizer=self.tokenizer)
 

@@ -12,7 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Cosmos Predict 2.5 text encoder
+"""Cosmos Predict 2.5 text encoder.
+
 - Cosmos Reason 1.1 7B model
 - use transformers library to load model and encode prompt
 """
@@ -21,19 +22,24 @@ import torch
 from torch import nn
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
+from groot.core.utils.storage.msc import resolve_model_path
+
 
 class CosmosTextEncoder(nn.Module):
-
     def __init__(self, text_encoder_pretrained_path: str):
         super().__init__()
-        self.text_encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        runtime_path = resolve_model_path(
             text_encoder_pretrained_path,
+            "model.text_encoder_cfg.text_encoder_pretrained_path",
+        )
+        self.text_encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            runtime_path,
             torch_dtype=torch.bfloat16,
             device_map=None,
             low_cpu_mem_usage=True,
             attn_implementation="sdpa",
         )
-        self.tokenizer = AutoProcessor.from_pretrained(text_encoder_pretrained_path)
+        self.tokenizer = AutoProcessor.from_pretrained(runtime_path)
         self.max_seq_len = 512
         self.system_prompt = (
             "You are a helpful assistant who will provide prompts to an image generator."

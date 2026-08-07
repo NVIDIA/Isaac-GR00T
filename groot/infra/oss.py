@@ -16,11 +16,14 @@ import argparse
 from collections.abc import Sequence
 from dataclasses import dataclass
 import getpass
+import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
+from groot.core.data import schema
 from groot.infra.eval.oss_open_loop_eval_config import OssOpenLoopEvalConfig
 from groot.infra.eval.oss_open_loop_evaluator import OssOpenLoopEvaluator
 from groot.infra.launcher.one_launcher.experiment_ray_train import ExperimentRayTrainCommand
@@ -28,6 +31,22 @@ from groot.infra.launcher.one_launcher.training_experiment_resolver import (
     DEFAULT_EXPERIMENT_DIR,
     TrainingExperimentResolver,
 )
+
+OSS_TRAINING_EXPERIMENT = "n2_yam_simulation_stack_bowls"
+OSS_COSMOS_MODEL_URI = (
+    "hf://model/nvidia/Cosmos-Reason1-7B@375e24000b24baed78f4618d3dd779e47cd96323"
+)
+OSS_DIFFUSION_TRANSFORMER_URI = (
+    "hf://model/nvidia/Cosmos-Predict2.5-2B@0d37c7498f54cee3c599d438d895a0a4a8608064/transformer"
+)
+OSS_VAE_URI = (
+    "hf://model/Wan-AI/Wan2.1-I2V-14B-480P@6b73f84e66371cdfe870c72acd6826e1d61cf279/"
+    "Wan2.1_VAE.pth"
+)
+OSS_PRETRAIN_CHECKPOINT_URI = (
+    "hf://model/nvidia/GR00T2Internal@4fe662abaf302ee46916881c447377da8c4bd15a/base_200k"
+)
+OSS_TRAINING_EXPERIMENTS = (OSS_TRAINING_EXPERIMENT,)
 
 
 # TODO(cuonguyen): Consolidate this OSS train path with `uv ol train` once the  # noqa: TD003
@@ -41,6 +60,17 @@ class ResolvedOssTrain:
     env: dict[str, str]
     output_dir: Path
     final_checkpoint: Path
+
+
+@dataclass(frozen=True)
+class OssPolicyServerConfig:
+    checkpoint: str
+    cache_root: str | None
+    host: str
+    port: int
+    embodiment_tag: str
+    device: str
+    denoising_steps: int
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -58,6 +88,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return train_status
         checkpoint = args.checkpoint or str(resolved.final_checkpoint)
         return _run_eval(_eval_config(args, checkpoint=checkpoint), dry_run=False)
+    if args.command == "policy-server":
+        return _run_policy_server(_policy_server_config(args), dry_run=args.dry_run)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 
@@ -104,7 +136,7 @@ def resolve_train(args: argparse.Namespace) -> ResolvedOssTrain:
 
 def _run_train(resolved: ResolvedOssTrain, *, dry_run: bool) -> int:
     if dry_run:
-        _emit(" ".join(resolved.command))
+        _emit(shlex.join(resolved.command))
         _emit(f"JOB_NAME={resolved.env['JOB_NAME']}")
         _emit(f"USER_SLUG={resolved.env['USER_SLUG']}")
         _emit(f"BATCH_SIZE={resolved.env['BATCH_SIZE']}")
@@ -119,8 +151,7 @@ def _run_train(resolved: ResolvedOssTrain, *, dry_run: bool) -> int:
 
 def _run_eval(config: OssOpenLoopEvalConfig, *, dry_run: bool) -> int:
     if dry_run:
-        _emit(f"model_path={config.model_path or ''}")
-        _emit(f"model_uri={config.model_uri or ''}")
+        _emit(f"checkpoint={config.checkpoint or ''}")
         _emit(f"dataset_path={config.dataset_path or ''}")
         _emit(f"output_json={config.output_json}")
         _emit(f"traj_ids={','.join(str(item) for item in config.traj_ids)}")
@@ -129,24 +160,79 @@ def _run_eval(config: OssOpenLoopEvalConfig, *, dry_run: bool) -> int:
     return 0
 
 
+def _run_policy_server(config: OssPolicyServerConfig, *, dry_run: bool) -> int:
+    if dry_run:
+        _emit(f"checkpoint={config.checkpoint}")
+        _emit(f"cache_root={config.cache_root or ''}")
+        _emit(f"address=tcp://{config.host}:{config.port}")
+        _emit(f"embodiment_tag={config.embodiment_tag}")
+        _emit(f"device={config.device}")
+        _emit(f"denoising_steps={config.denoising_steps}")
+        return 0
+
+    artifact_config = OssOpenLoopEvalConfig(
+        checkpoint=config.checkpoint,
+        cache_root=config.cache_root,
+    )
+    model_path = OssOpenLoopEvaluator(artifact_config).resolve_model_path()
+    _run_gr00t_policy_server(model_path, config)
+    return 0
+
+
+def _run_gr00t_policy_server(model_path: str | Path, config: OssPolicyServerConfig) -> None:
+    from groot.core.policy import run_gr00t_server
+
+    run_gr00t_server.main(
+        run_gr00t_server.ServerConfig(
+            model_path=str(model_path),
+            embodiment_tag=_server_embodiment_tag(config.embodiment_tag),
+            host=config.host,
+            port=config.port,
+            device=config.device,
+            num_inference_timesteps=config.denoising_steps,
+        )
+    )
+
+
+def _server_embodiment_tag(embodiment_tag: str) -> schema.EmbodimentTag:
+    try:
+        return schema.EmbodimentTag[embodiment_tag]
+    except KeyError:
+        return schema.EmbodimentTag(embodiment_tag)
+
+
 def _emit(line: str) -> None:
     sys.stdout.write(f"{line}\n")
 
 
 def _oss_train_overrides(args: argparse.Namespace) -> tuple[str, ...]:
-    overrides = list(args.config_overrides)
-    overrides.extend(
-        [
-            "training.upload_checkpoints=false",
-            "training.upload_every=null",
-            "training.model.tokenizer_path='{COSMOS_MODEL_PATH}'",
-            ("training.model.diffusion_model_cfg.diffusion_model_pretrained_path='{DIFFUSION_TRANSFORMER_PATH}'"),
-            "training.model.text_encoder_cfg.text_encoder_pretrained_path='{COSMOS_MODEL_PATH}'",
-            "training.model.vae_cfg.vae_pretrained_path='{VAE_PATH}'",
-        ]
-    )
+    user_overrides = list(args.config_overrides)
+    if args.dataset_path:
+        user_overrides.append(f"data.datasets.0.dataset_paths={json.dumps([args.dataset_path])}")
+    elif not _has_dataset_path_override(user_overrides):
+        raise SystemExit(
+            "--dataset-path is required for OSS training unless data dataset paths "
+            "are provided with --set."
+        )
+    defaults = {
+        "training.upload_checkpoints": "false",
+        "training.upload_every": "null",
+        "training.msc_profile_url": "''",
+        "training.experiment_tracking": "disabled",
+        "training.model.tokenizer_path": f"'{OSS_COSMOS_MODEL_URI}'",
+        "training.model.diffusion_model_cfg.diffusion_model_pretrained_path": (
+            f"'{OSS_DIFFUSION_TRANSFORMER_URI}'"
+        ),
+        "training.model.text_encoder_cfg.text_encoder_pretrained_path": (
+            f"'{OSS_COSMOS_MODEL_URI}'"
+        ),
+        "training.model.vae_cfg.vae_pretrained_path": f"'{OSS_VAE_URI}'",
+        "training.start_from_checkpoint": f"'{OSS_PRETRAIN_CHECKPOINT_URI}'",
+    }
+    overrides = [f"{key}={value}" for key, value in defaults.items()]
     if not os.environ.get("WANDB_API_KEY"):
         overrides.append("training.use_wandb=false")
+    overrides.extend(user_overrides)
     if args.max_steps is not None:
         overrides.append(f"training.max_steps={args.max_steps}")
     if args.num_gpus is not None:
@@ -156,25 +242,32 @@ def _oss_train_overrides(args: argparse.Namespace) -> tuple[str, ...]:
     if args.output_dir:
         overrides.append(f"training.output_dir={args.output_dir}")
     if args.pretrain_checkpoint:
-        overrides.append(f"training.start_from_checkpoint={args.pretrain_checkpoint}")
-    elif os.environ.get("PRETRAIN_CHECKPOINT"):
-        overrides.append("training.start_from_checkpoint='{PRETRAIN_CHECKPOINT}'")
+        overrides.append(f"training.start_from_checkpoint='{args.pretrain_checkpoint}'")
     return tuple(overrides)
 
 
-def _eval_config(args: argparse.Namespace, *, checkpoint: str | None = None) -> OssOpenLoopEvalConfig:
+def _override_key(override: str) -> str:
+    return override.split("=", maxsplit=1)[0].strip()
+
+
+def _has_dataset_path_override(overrides: Sequence[str]) -> bool:
+    for override in overrides:
+        key = _override_key(override)
+        if key == "data.dataset_path":
+            return True
+        if key.startswith("data.datasets.") and key.endswith((".dataset_path", ".dataset_paths")):
+            return True
+    return False
+
+
+def _eval_config(
+    args: argparse.Namespace, *, checkpoint: str | None = None
+) -> OssOpenLoopEvalConfig:
     checkpoint = checkpoint or args.checkpoint
     if not checkpoint:
         raise SystemExit("--checkpoint is required for eval")
-    model_path = None
-    model_uri = None
-    if checkpoint.startswith("hf://model/"):
-        model_uri = checkpoint
-    else:
-        model_path = checkpoint
     return OssOpenLoopEvalConfig(
-        model_path=model_path,
-        model_uri=model_uri,
+        checkpoint=checkpoint,
         dataset_path=args.dataset_path,
         output_json=args.output_json,
         traj_ids=args.traj_ids,
@@ -186,24 +279,48 @@ def _eval_config(args: argparse.Namespace, *, checkpoint: str | None = None) -> 
     )
 
 
+def _policy_server_config(args: argparse.Namespace) -> OssPolicyServerConfig:
+    return OssPolicyServerConfig(
+        checkpoint=args.checkpoint,
+        cache_root=args.cache_root or None,
+        host=args.host,
+        port=args.port,
+        embodiment_tag=args.embodiment_tag,
+        device=args.device,
+        denoising_steps=args.denoising_steps,
+    )
+
+
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m groot.infra.oss")
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_train_parser(subparsers.add_parser("train", help="Run OSS post-training locally."))
     _add_eval_parser(subparsers.add_parser("eval", help="Run OSS open-loop evaluation."))
+    _add_policy_server_parser(
+        subparsers.add_parser("policy-server", help="Run an OSS GR00T policy server.")
+    )
     train_eval = subparsers.add_parser(
         "train-eval",
         help="Run OSS post-training and then open-loop evaluation.",
     )
     _add_train_parser(train_eval)
-    _add_eval_options(train_eval, checkpoint_required=False)
+    _add_eval_options(train_eval, checkpoint_required=False, include_dataset_path=False)
     return parser.parse_args(argv)
 
 
 def _add_train_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("experiment", help="One-launcher experiment name.")
+    parser.add_argument(
+        "experiment",
+        choices=OSS_TRAINING_EXPERIMENTS,
+        help="OSS one-launcher experiment name.",
+    )
     parser.add_argument("--compute-type", default="h100")
     parser.add_argument("--experiment-dir", type=Path, default=DEFAULT_EXPERIMENT_DIR)
+    parser.add_argument(
+        "--dataset-path",
+        default="",
+        help="Local LeRobot dataset path to use for OSS training.",
+    )
     parser.add_argument("--pretrain-checkpoint", default="")
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--max-steps", type=int)
@@ -221,14 +338,35 @@ def _add_train_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_eval_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("experiment", help="One-launcher experiment name.")
+    parser.add_argument(
+        "experiment",
+        choices=OSS_TRAINING_EXPERIMENTS,
+        help="OSS one-launcher experiment name.",
+    )
     _add_eval_options(parser, checkpoint_required=True)
     parser.add_argument("--dry-run", action="store_true")
 
 
-def _add_eval_options(parser: argparse.ArgumentParser, *, checkpoint_required: bool) -> None:
+def _add_policy_server_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=5555)
+    parser.add_argument("--embodiment-tag", default="xdof_relative_eef_relative_joint")
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--denoising-steps", type=int, default=4)
+    parser.add_argument("--cache-root", default="")
+    parser.add_argument("--dry-run", action="store_true")
+
+
+def _add_eval_options(
+    parser: argparse.ArgumentParser,
+    *,
+    checkpoint_required: bool,
+    include_dataset_path: bool = True,
+) -> None:
     parser.add_argument("--checkpoint", required=checkpoint_required, default="")
-    parser.add_argument("--dataset-path", default="")
+    if include_dataset_path:
+        parser.add_argument("--dataset-path", default="")
     parser.add_argument("--output-json", default="/tmp/groot_oss_open_loop_eval.json")  # noqa: S108
     parser.add_argument("--traj-ids", nargs="+", type=int, default=[0])
     parser.add_argument("--steps", type=int, default=200)
