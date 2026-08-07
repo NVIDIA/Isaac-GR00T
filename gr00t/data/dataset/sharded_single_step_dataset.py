@@ -22,6 +22,7 @@ from gr00t.data.interfaces import ShardedDataset
 from gr00t.data.types import EmbodimentTag, MessageType, ModalityConfig, VLAStepData
 
 from .lerobot_episode_loader import LeRobotEpisodeLoader
+from .lerobot_episode_loader_faster import LeRobotEpisodeLoaderFaster
 
 
 def extract_step_data(
@@ -108,6 +109,8 @@ class ShardedSingleStepDataset(ShardedDataset):
         episode_sampling_rate: Fraction of episode timesteps to use (for efficiency)
         seed: Random seed for reproducible sharding and sampling
         allow_padding: Whether to allow padding of indices to valid range [0, max_length - 1]
+        use_faster_episode_loader: Whether to enable sparse video loading based on
+            shard step indices
 
     Example:
         >>> dataset = ShardedSingleStepDataset(
@@ -135,6 +138,7 @@ class ShardedSingleStepDataset(ShardedDataset):
         episode_sampling_rate: float = 0.1,
         seed: int = 42,
         allow_padding: bool = False,
+        use_faster_episode_loader: bool = False,
     ):
         """Initialize single-step dataset with sharding configuration."""
         super().__init__(dataset_path)
@@ -144,12 +148,16 @@ class ShardedSingleStepDataset(ShardedDataset):
         self.episode_sampling_rate = episode_sampling_rate
         self.seed = seed
         self.allow_padding = allow_padding
+        self.use_faster_episode_loader = use_faster_episode_loader
         self.processor = None
         self.rng = np.random.default_rng(seed)
         action_delta_indices = modality_configs["action"].delta_indices
         self.action_horizon = max(action_delta_indices) - min(action_delta_indices) + 1
 
-        self.episode_loader = LeRobotEpisodeLoader(
+        episode_loader_cls = (
+            LeRobotEpisodeLoaderFaster if use_faster_episode_loader else LeRobotEpisodeLoader
+        )
+        self.episode_loader = episode_loader_cls(
             dataset_path=dataset_path,
             modality_configs=modality_configs,
         )
@@ -288,8 +296,16 @@ class ShardedSingleStepDataset(ShardedDataset):
         episodes = self.sharded_episodes[idx]
         datapoints = []
         for ep_idx, step_indices in episodes:
-            # Load episode data once per episode in shard
-            episode_data = self.episode_loader[ep_idx]
+            if self.use_faster_episode_loader:
+                # [speed up] Let the faster loader decode only the video frames
+                # needed by this shard's step indices for the current episode.
+                episode_data = self.episode_loader(
+                    ep_idx,
+                    step_indices,
+                    allow_padding=self.allow_padding,
+                )
+            else:
+                episode_data = self.episode_loader[ep_idx]
             for step_index in step_indices:
                 datapoints.append(self.get_datapoint(episode_data, step_index))
         return datapoints
