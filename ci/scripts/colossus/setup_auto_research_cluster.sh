@@ -13,11 +13,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RAY_SETUP="${SCRIPT_DIR}/setup_ray_cluster.sh"
 
 readonly POOL_ID="${COLOSSUS_POOL_ID:-gear-gb300-automation}"
-readonly LEASE_DURATION="${COLOSSUS_LEASE_DURATION:-7d}"
+readonly LEASE_DURATION="${COLOSSUS_LEASE_DURATION:-180d}"
 readonly LEASE_JUSTIFICATION="GR00T auto research Ray cluster"
-readonly REUSABLE_JUSTIFICATION_PREFIX="GR00T Colossus Ray cluster development and testing"
-readonly CHECKPOINT_URI="${GROOT_OL_POST_TRAINING_CHECKPOINT_URI:-s3://GearCheckpoints/trinity-ckpt-repository/jingwang_n2_cosmosnano_megasoup-action_loss_megasoup_0710_g1_patched/checkpoint-200000}"
-readonly CHECKPOINT_DESTINATION="jingwang_n2_cosmosnano_megasoup-action_loss_megasoup_0710_g1_patched/checkpoint-200000"
+readonly CHECKPOINT_URI="${GROOT_OL_POST_TRAINING_CHECKPOINT_URI:-s3://GearCheckpoints/trinity-ckpt-repository/amaddukuri_n2_posttrain_0528_230150_min_wam_robocasa365_pretrain_human300/checkpoint-80000}"
+readonly CHECKPOINT_DESTINATION="robocasa_benchmark/new-robocasa/midtrained_checkpoints/n2_posttrain_0528_230150_min_wam_robocasa365_pretrain_human300/checkpoint-80000"
 readonly DATASET_URI="s3://GrootDatasets/robocasa_benchmark/new-robocasa/robocasa-datasets/v1.0/archives/pretrain-112958637747-227001.tar"
 readonly DATASET_SHA256="0de7d998712edee3f0503de858defefb25cf9877d19ecacbcf94122abf8a290e"
 readonly RUNTIME_URI="s3://GrootDatasets/robocasa_benchmark/runtime-assets/20260731/robocasa365-runtime.tar"
@@ -25,8 +24,9 @@ readonly RUNTIME_SHA256="f03046021b5fff6d07888aaed17ef52e2dbe231de12703fb2f7003b
 readonly STATE_OUTPUT="${AUTO_RESEARCH_STATE_OUTPUT:-${PWD}/auto-research-colossus-cluster.json}"
 readonly SETUP_CONCURRENCY="${AUTO_RESEARCH_SETUP_CONCURRENCY:-24}"
 readonly USE_DEDICATED_ETHERNET="${AUTO_RESEARCH_USE_DEDICATED_ETHERNET:-0}"
-readonly FORCE_MANAGEMENT_NETWORK="${AUTO_RESEARCH_FORCE_MANAGEMENT_NETWORK:-0}"
+readonly FORCE_MANAGEMENT_NETWORK="${AUTO_RESEARCH_FORCE_MANAGEMENT_NETWORK:-1}"
 readonly ARTIFACT_MAX_MIB_PER_SECOND="${AUTO_RESEARCH_ARTIFACT_MAX_MIB_PER_SECOND:-32}"
+readonly PREFERRED_HEAD_RESOURCE="${AUTO_RESEARCH_HEAD_RESOURCE:-pmgb300ws-0205}"
 
 # These leases are shared with humans and remain excluded even if inventory
 # status or justification changes later.
@@ -221,18 +221,18 @@ Configuration environment:
                                    Set to 1 to require eno3 on every host instead of
                                    the default per-host prefer-with-fallback policy.
   AUTO_RESEARCH_FORCE_MANAGEMENT_NETWORK
-                                   Internal retry switch used after eno3 cross-host
-                                   reachability fails.
+                                   Set to 1 to use routed management TCP on the
+                                   connected ConnectX-6 interface (default: 1).
   AUTO_RESEARCH_ARTIFACT_MAX_MIB_PER_SECOND
                                    Per-host S3 staging cap (default: 32 MiB/s).
-  COLOSSUS_LEASE_DURATION          Duration for new leases (default: 7d).
+  AUTO_RESEARCH_HEAD_RESOURCE     Prefer this active reusable host as the Ray head.
+                                   Default: ${PREFERRED_HEAD_RESOURCE}.
+  COLOSSUS_LEASE_DURATION          Duration for new leases (default: 180d,
+                                   the current Colossus maximum).
 
 The script must run under the Colossus service account. It reuses active
-two-GPU leases whose justification starts with
-"${REUSABLE_JUSTIFICATION_PREFIX}" or
-"${LEASE_JUSTIFICATION}", but never touches CI leases, the existing four-node
-persistent Ray cluster, the explicit human-shared exclusions, or one-GPU
-resources. Unreachable hosts are skipped.
+service-owned two-GPU leases, but never touches CI leases, the explicit
+human-shared exclusions, or one-GPU resources. Unreachable hosts are skipped.
 EOF
 }
 
@@ -264,6 +264,8 @@ validate_inputs() {
   esac
   (( ARTIFACT_MAX_MIB_PER_SECOND > 0 )) \
     || die "AUTO_RESEARCH_ARTIFACT_MAX_MIB_PER_SECOND must be greater than 0"
+  [[ "${PREFERRED_HEAD_RESOURCE}" =~ ^[A-Za-z0-9._-]+$ ]] \
+    || die "AUTO_RESEARCH_HEAD_RESOURCE must be a Colossus resource name"
 
   local identity
   identity="$(colossus_cli whoami 2>/dev/null | sed -n 's/^Current User: //p')"
@@ -291,15 +293,14 @@ load_inventory() {
     || die "could not list Colossus leases"
   assignments="$(python3 - \
     "${inventory_file}" \
-    "${REUSABLE_JUSTIFICATION_PREFIX}" \
-    "${LEASE_JUSTIFICATION}" \
+    "${PREFERRED_HEAD_RESOURCE}" \
     "$(IFS=,; printf '%s' "${EXCLUDED_RESOURCES[*]}")" <<'PY'
 import json
 import re
 import shlex
 import sys
 
-inventory_file, prefix, auto_research_justification, excluded_text = sys.argv[1:]
+inventory_file, preferred_head, excluded_text = sys.argv[1:]
 excluded = set(filter(None, excluded_text.split(",")))
 with open(inventory_file) as source:
     records = json.load(source)
@@ -308,15 +309,22 @@ for record in records:
     entity = record.get("entity_details") or {}
     lease = record.get("lease_details") or {}
     name = entity.get("name", "")
-    justification = entity.get("leaseJustification") or lease.get("leaseJustification") or ""
-    lease_id = lease.get("id") or entity.get("leaseId") or ""
-    if str(lease.get("status", "")).upper() != "ACTIVE":
-        continue
-    is_reusable = (
-        justification.startswith(prefix)
-        or justification.startswith(auto_research_justification)
+    justification = (
+        entity.get("leaseJustification")
+        or lease.get("leasingJustification")
+        or lease.get("leaseJustification")
+        or ""
     )
-    if entity.get("gpuCount") != 2 or not is_reusable:
+    lease_id = lease.get("id") or entity.get("leaseId") or ""
+    owner = (lease.get("owner") or {}).get("userName") or entity.get("leasee") or ""
+    if (
+        str(lease.get("status", "")).upper() != "ACTIVE"
+        or str(entity.get("status", "")).upper() != "RESERVED"
+    ):
+        continue
+    is_service_owned = isinstance(owner, str) and owner.startswith("nvssa-")
+    is_ci = justification.startswith("Dedicated GR00T GitLab CI")
+    if entity.get("gpuCount") != 2 or not is_service_owned or is_ci:
         continue
     if name in excluded:
         continue
@@ -329,7 +337,9 @@ print("REUSABLE_LEASE_IDS=()")
 print("REUSABLE_RESOURCE_NAMES=()")
 print("REUSABLE_FQDNS=()")
 print("REUSABLE_IPS=()")
-for name, lease_id, fqdn, ip_address in sorted(candidates):
+for name, lease_id, fqdn, ip_address in sorted(
+    candidates, key=lambda values: (values[0] != preferred_head, values[0])
+):
     print(f"REUSABLE_LEASE_IDS+=({shlex.quote(lease_id)})")
     print(f"REUSABLE_RESOURCE_NAMES+=({shlex.quote(name)})")
     print(f"REUSABLE_FQDNS+=({shlex.quote(fqdn)})")
@@ -660,12 +670,13 @@ main() {
   available="$(available_two_gpu_count)"
   log "eligible reusable two-GPU leases: ${#REUSABLE_LEASE_IDS[@]}"
   log "currently available two-GPU resources: ${available}"
+  log "preferred Ray head: ${PREFERRED_HEAD_RESOURCE}"
   log "explicitly excluded resources: ${EXCLUDED_RESOURCES[*]}"
   log "new lease justification: ${LEASE_JUSTIFICATION}"
   if [[ "${USE_DEDICATED_ETHERNET}" == "1" ]]; then
     log "network policy: dedicated eno3 Ethernet; ConnectX/mlx5 rejected"
   elif [[ "${FORCE_MANAGEMENT_NETWORK}" == "1" ]]; then
-    log "network policy: routed management TCP fallback after eno3 cross-host reachability failed; no RDMA"
+    log "network policy: routed management TCP over the connected ConnectX-6 interface; no RDMA"
   else
     log "network policy: prefer connected non-mlx5 eno3 per host; use routed management TCP only when unavailable; no RDMA"
   fi

@@ -77,6 +77,7 @@ _PROPAGATED_WORKER_ENV_VARS = (
     RESUME_CHECKPOINT_PATH_ENV,
     RESUME_DECIDED_ENV,
 )
+_COLOSSUS_TRAINING_CUDA_DEVICE_ENV = "GROOT_OL_COLOSSUS_TRAINING_CUDA_DEVICE"
 
 
 def _collect_worker_env_vars() -> dict[str, str]:
@@ -90,6 +91,20 @@ def _build_ray_init_runtime_env() -> dict | None:
     if runtime_pip:
         runtime_env["pip"] = shlex.split(runtime_pip)
     return runtime_env or None
+
+
+def _bind_colossus_training_cuda_device() -> str:
+    """Bind a heterogeneous Colossus trainer to bootstrap-ordered GB300 slot 0."""
+    device = os.environ.get(_COLOSSUS_TRAINING_CUDA_DEVICE_ENV, "").strip()
+    if not device:
+        return ""
+    # The Colossus Podman wrapper binds this UUID at container creation and
+    # asks Ray not to rewrite it. Reapply it only when CUDA is still cold; if a
+    # dependency initialized CUDA during actor import, the name check in
+    # setup_env_vars verifies that the wrapper's early binding already won.
+    if not torch.cuda.is_initialized():
+        os.environ["CUDA_VISIBLE_DEVICES"] = device
+    return device
 
 
 def train_func(cfg, dataset_build_artifacts=None):
@@ -172,7 +187,8 @@ class TorchTrainer:
                     num_cpus=bundle.get("CPU", 0),
                     num_gpus=bundle.get("GPU", 0),  # CPU-only bundles omit GPU
                     scheduling_strategy=scheduling_strategies.PlacementGroupSchedulingStrategy(
-                        placement_group=self.placement_group
+                        placement_group=self.placement_group,
+                        placement_group_bundle_index=i,
                     ),
                 ).remote(
                     training_fn,
@@ -330,7 +346,13 @@ class _TrainingWorker:
         os.environ["LOCAL_RANK"] = str(0)
         os.environ["WORLD_SIZE"] = str(world_size)
 
+        colossus_training_cuda_device = _bind_colossus_training_cuda_device()
+
         device = train_loop_utils.get_device()
+        if colossus_training_cuda_device:
+            gpu_name = torch.cuda.get_device_name(device)
+            if gpu_name != "NVIDIA GB300":
+                raise RuntimeError(f"Colossus training requires NVIDIA GB300, got {gpu_name}")
         os.environ["ACCELERATE_TORCH_DEVICE"] = str(device)
 
     def train(self):

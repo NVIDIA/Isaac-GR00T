@@ -3545,7 +3545,10 @@ configure_ray_firewall() {
       fi
       cidr=\$(ip -4 route show dev \"\${interface}\" proto kernel scope link | awk '\$1 ~ /^[0-9]+\\./ {print \$1; exit}')
       [[ -n \"\${cidr}\" ]] || { echo \"could not resolve cluster CIDR on \${interface}\" >&2; exit 1; }
-      for port in 6379 6380:6383 8080 10001 20000:20999 52365; do
+      # PyTorch c10d asks the kernel for a free rendezvous port, so allow the
+      # Linux ephemeral range in addition to Ray's fixed worker ports. Scope
+      # every rule to the directly connected ConnectX cluster subnet.
+      for port in 6379 6380:6383 8080 10001 20000:20999 32768:60999 52365; do
         ufw allow from \"\${cidr}\" to any port \"\${port}\" proto tcp comment 'GR00T Ray cluster'
       done
     fi"

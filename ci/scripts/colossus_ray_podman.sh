@@ -172,16 +172,30 @@ if [[ "${worker_probe}" != "1" ]] && {
     echo "No ordered CDI GPU devices were configured" >&2
     exit 1
   }
+  if [[ "${ray_worker}" == "1" ]]; then
+    # Ray's generic GPU allocator can return either logical slot from a
+    # heterogeneous node, especially while replacing a failed actor. Preserve
+    # the bootstrap-validated GB300 UUID separately so the training worker can
+    # bind CUDA to physical slot 0 before it initializes torch. Evaluation
+    # actors keep using Ray's normal slot assignment.
+    gb300_gpu_uuid="${ordered_gpu_devices[0]#nvidia.com/gpu=}"
+    [[ "${gb300_gpu_uuid}" == GPU-* ]] || {
+      echo "Ordered GB300 CDI device does not contain a GPU UUID: ${ordered_gpu_devices[0]}" >&2
+      exit 1
+    }
+    injected+=(--env "GROOT_OL_COLOSSUS_TRAINING_CUDA_DEVICE=${gb300_gpu_uuid}")
+  fi
   declare -a selected_gpu_indices=()
   if [[ "${ray_worker}" != "1" && "${cuda_visible_devices}" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
     IFS=',' read -r -a selected_gpu_indices <<< "${cuda_visible_devices}"
-  elif [[ "${ray_worker}" == "1" && "${job_expected_gpu_count}" == "1" \
-    && "${heterogeneous_evaluation}" != "1" ]]; then
-    # One Launcher propagates the total requested GPU count into every Ray
-    # runtime container. A one-GPU job should see only the first ordered slot
-    # (GB300), even though Ray's image plugin creates the container before the
-    # Python worker can apply its logical resource assignment.
+  elif [[ "${ray_worker}" == "1" && "${heterogeneous_evaluation}" != "1" ]]; then
+    # Training always uses one GB300 per station, even when the distributed
+    # job requests several stations. Ray's generic GPU allocator is not aware
+    # that logical slot 0 and slot 1 are different models, so preserve the
+    # bootstrap-validated UUID and prevent default_worker.py from replacing it
+    # with a generic logical ID before torch imports initialize CUDA.
     selected_gpu_indices=(0)
+    injected+=(--env "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1")
   else
     # Evaluation-config jobs need both devices attached before default_worker
     # starts. Ray later narrows CUDA_VISIBLE_DEVICES to logical slot 0 for the

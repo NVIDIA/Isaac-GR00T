@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Evaluate a SteamInMicrowave-trained checkpoint on WaffleReheat."""
+"""Evaluate an Auto Research SteamInMicrowave checkpoint on WaffleReheat."""
 
 from dataclasses import replace
 
