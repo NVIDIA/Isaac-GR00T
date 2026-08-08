@@ -713,7 +713,7 @@ main() {
   log "Ray Jobs endpoint: https://${HEAD_DOMAIN}/ray/"
   log "state: ${STATE_OUTPUT}"
   log "logs: ${LOG_DIR}"
-  log "One Launcher: uv run ol tev -e n2_turbo_robocasa_stack_cans_colossus -ct colossus"
+  log "One Launcher: uv run ol train --experiment n2_robocasa_stack_cans_colossus --compute-type colossus"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
