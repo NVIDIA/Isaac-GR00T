@@ -810,6 +810,11 @@ class Gr00tN1d7Processor(BaseProcessor):
         transformers_loading_kwargs = kwargs.pop(
             "transformers_loading_kwargs", {"trust_remote_code": True}
         )
+        # setup.py also spreads that dict at the call site so the hub keys below arrive
+        # as top-level kwargs; trust_remote_code rides along and belongs with the dict.
+        transformers_loading_kwargs.setdefault(
+            "trust_remote_code", kwargs.pop("trust_remote_code", True)
+        )
         hub_keys = (
             "_commit_hash",
             "cache_dir",
@@ -875,6 +880,11 @@ class Gr00tN1d7Processor(BaseProcessor):
                 # config fields straight through.
                 if override is not None:
                     processor_kwargs[key] = override
+            if kwargs:
+                raise TypeError(
+                    f"Unrecognised processor kwargs: {sorted(kwargs)}. "
+                    f"Accepted: {sorted(override_keys)}"
+                )
         return cls(**processor_kwargs, transformers_loading_kwargs=transformers_loading_kwargs)
 
 

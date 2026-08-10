@@ -177,6 +177,19 @@ def test_from_pretrained_honours_constructor_kwarg(name):
     assert getattr(_load_processor(**overrides), name) == value
 
 
+def test_from_pretrained_rejects_unrecognised_kwarg():
+    """A misspelled or unplumbed argument must not read as 'leave the default'."""
+    with pytest.raises(TypeError, match="use_percentile"):
+        _load_processor(use_percentile=True)
+
+
+def test_from_pretrained_accepts_spread_transformers_loading_kwargs():
+    """setup.py passes the dict and spreads it, so trust_remote_code arrives twice."""
+    loading = {"trust_remote_code": True, "local_files_only": True}
+
+    assert _load_processor(transformers_loading_kwargs=loading, **loading) is not None
+
+
 def _make_step_data(proc_config) -> VLAStepData:
     """Create synthetic VLAStepData matching the fixture config."""
     import json as _json
