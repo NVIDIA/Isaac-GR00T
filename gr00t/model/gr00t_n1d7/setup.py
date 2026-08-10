@@ -174,7 +174,6 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 crop_fraction=self.model_config.crop_fraction,
                 letter_box_transform=letter_box_transform,
                 transformers_loading_kwargs=self.transformers_loading_kwargs,
-                use_alternate_vl_dit=self.model_config.use_alternate_vl_dit,
                 use_relative_action=self.model_config.use_relative_action,
                 # State augmentation overrides
                 exclude_state=self.model_config.exclude_state,
