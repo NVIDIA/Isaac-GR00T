@@ -32,7 +32,7 @@ from groot.infra.launcher.one_launcher.training_experiment_resolver import (
     TrainingExperimentResolver,
 )
 
-OSS_TRAINING_EXPERIMENT = "n2_yam_simulation_stack_bowls"
+OSS_TRAINING_EXPERIMENT = "n2_oss_pretrain"
 OSS_COSMOS_MODEL_URI = (
     "hf://model/nvidia/Cosmos-Reason1-7B@375e24000b24baed78f4618d3dd779e47cd96323"
 )
@@ -46,7 +46,6 @@ OSS_VAE_URI = (
 OSS_PRETRAIN_CHECKPOINT_URI = (
     "hf://model/nvidia/GR00T2Internal@4fe662abaf302ee46916881c447377da8c4bd15a/base_200k"
 )
-OSS_TRAINING_EXPERIMENTS = (OSS_TRAINING_EXPERIMENT,)
 
 
 # TODO(cuonguyen): Consolidate this OSS train path with `uv ol train` once the  # noqa: TD003
@@ -309,11 +308,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def _add_train_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "experiment",
-        choices=OSS_TRAINING_EXPERIMENTS,
-        help="OSS one-launcher experiment name.",
-    )
+    parser.set_defaults(experiment=OSS_TRAINING_EXPERIMENT)
     parser.add_argument("--compute-type", default="h100")
     parser.add_argument("--experiment-dir", type=Path, default=DEFAULT_EXPERIMENT_DIR)
     parser.add_argument(
@@ -338,11 +333,7 @@ def _add_train_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_eval_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "experiment",
-        choices=OSS_TRAINING_EXPERIMENTS,
-        help="OSS one-launcher experiment name.",
-    )
+    parser.set_defaults(experiment=OSS_TRAINING_EXPERIMENT)
     _add_eval_options(parser, checkpoint_required=True)
     parser.add_argument("--dry-run", action="store_true")
 

@@ -13,7 +13,6 @@ import pytest
 
 from groot.infra import oss
 
-_EXPERIMENT = oss.OSS_TRAINING_EXPERIMENT
 _PRETRAIN_CHECKPOINT = "hf://model/org/repo@commit-sha/base_200k"
 _CHECKPOINT_SENTINEL = 7.0
 
@@ -65,7 +64,6 @@ def _resolve_fixture_training(
         oss._parse_args(  # noqa: SLF001 - exercise the same resolved command as the CLI.
             [
                 "train",
-                _EXPERIMENT,
                 "--compute-type",
                 os.environ.get("OSS_GPU_COMPUTE_TYPE", "gb300"),
                 "--max-steps",
@@ -80,6 +78,17 @@ def _resolve_fixture_training(
                 _PRETRAIN_CHECKPOINT,
                 "--dataset-path",
                 str(dataset_path),
+                "--set",
+                "training.model.action-cfg.action-horizon=40",
+                "--set",
+                "training.model.action-cfg.max-action-horizon=40",
+                "--set",
+                "training.model.action-cfg.num-embodiments=1",
+                "--set",
+                (
+                    "data.modality_configs.xdof_relative_eef_relative_joint."
+                    f"action.delta_indices={json.dumps(list(range(40)))}"
+                ),
                 "--set",
                 "data.num_shards_per_epoch=1",
                 "--set",
@@ -175,7 +184,6 @@ def _run_open_loop_eval(
     args = oss._parse_args(  # noqa: SLF001 - reuse the OSS eval CLI parser.
         [
             "eval",
-            _EXPERIMENT,
             "--checkpoint",
             str(checkpoint),
             "--dataset-path",

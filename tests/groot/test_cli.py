@@ -40,7 +40,6 @@ def test_oss_train_dry_run_uses_one_launcher(monkeypatch, capsys, tmp_path: Path
     status = oss.main(
         [
             "train",
-            "n2_yam_simulation_stack_bowls",
             "--dataset-path",
             str(dataset_path),
             "--compute-type",
@@ -61,7 +60,7 @@ def test_oss_train_dry_run_uses_one_launcher(monkeypatch, capsys, tmp_path: Path
     command = shlex.split(output.splitlines()[0])
     assert status == 0
     assert "python -m groot.core.training.experiment.experiment_ray" in output
-    assert "n2_yam_simulation_stack_bowls/h100/data.yaml" in output
+    assert f"{oss.OSS_TRAINING_EXPERIMENT}/h100/data.yaml" in output
     assert "--training.no-upload_checkpoints" in output
     assert "--training.num_gpus 8" in output
     assert f"--model.tokenizer_path {oss.OSS_COSMOS_MODEL_URI}" in output
@@ -83,7 +82,6 @@ def test_oss_train_user_overrides_follow_defaults_for_last_wins_resolution(
     args = oss._parse_args(  # noqa: SLF001
         [
             "train",
-            oss.OSS_TRAINING_EXPERIMENT,
             "--dataset-path",
             str(tmp_path / "dataset"),
             "--set",
@@ -119,7 +117,6 @@ def test_oss_train_invokes_experiment_ray_without_running_gpu_backend(
     status = oss.main(
         [
             "train",
-            "n2_yam_simulation_stack_bowls",
             "--compute-type",
             "h100",
             "--dataset-path",
@@ -179,7 +176,6 @@ def test_oss_train_allows_explicit_pretrain_checkpoint_override(
     status = oss.main(
         [
             "train",
-            "n2_yam_simulation_stack_bowls",
             "--dataset-path",
             str(dataset_path),
             "--pretrain-checkpoint",
@@ -203,7 +199,6 @@ def test_oss_train_preserves_user_model_and_checkpoint_overrides(
     args = oss._parse_args(  # noqa: SLF001 - exercise the public CLI parser.
         [
             "train",
-            "n2_yam_simulation_stack_bowls",
             "--dataset-path",
             str(tmp_path / "dataset"),
             "--set",
@@ -267,7 +262,6 @@ def test_oss_train_allows_experiment_dir_override(
     args = oss._parse_args(  # noqa: SLF001 - exercise the public CLI parser.
         [
             "train",
-            "n2_yam_simulation_stack_bowls",
             "--experiment-dir",
             str(custom_experiment_dir),
             "--dataset-path",
@@ -286,7 +280,7 @@ def test_oss_train_requires_dataset_path_or_dataset_override(monkeypatch) -> Non
     _set_training_env(monkeypatch)
 
     with pytest.raises(SystemExit, match="--dataset-path is required"):
-        oss.main(["train", "n2_yam_simulation_stack_bowls", "--dry-run"])
+        oss.main(["train", "--dry-run"])
 
 
 def test_oss_train_accepts_documented_dataset_override(
@@ -299,7 +293,6 @@ def test_oss_train_accepts_documented_dataset_override(
     args = oss._parse_args(  # noqa: SLF001 - exercise the public CLI parser.
         [
             "train",
-            "n2_yam_simulation_stack_bowls",
             "--set",
             f"data.datasets.0.dataset_paths={json.dumps([str(dataset_path)])}",
             "--dry-run",
@@ -311,7 +304,7 @@ def test_oss_train_accepts_documented_dataset_override(
     _assert_config_contains_dataset_path(resolved.command, dataset_path)
 
 
-def test_oss_train_rejects_non_public_experiment() -> None:
+def test_oss_train_rejects_experiment_positional() -> None:
     with pytest.raises(SystemExit):
         oss.main(["train", "n2_robocasa365", "--dry-run"])
 
@@ -321,7 +314,6 @@ def test_oss_eval_dry_run_uses_open_loop_eval_config(capsys, tmp_path: Path) -> 
     status = oss.main(
         [
             "eval",
-            "n2_yam_simulation_stack_bowls",
             "--checkpoint",
             "hf://model/org/repo@main/checkpoint-100",
             "--dataset-path",
@@ -358,7 +350,6 @@ def test_oss_eval_invokes_open_loop_evaluator_without_running_gpu_backend(
     status = oss.main(
         [
             "eval",
-            "n2_yam_simulation_stack_bowls",
             "--checkpoint",
             str(checkpoint),
             "--dataset-path",
@@ -545,7 +536,6 @@ def test_oss_train_eval_passes_trained_checkpoint_to_eval_without_gpu_backend(
     status = oss.main(
         [
             "train-eval",
-            "n2_yam_simulation_stack_bowls",
             "--compute-type",
             "h100",
             "--max-steps",
@@ -577,7 +567,7 @@ def test_oss_infra_symlinks_expose_only_temporary_data_credentials() -> None:
     assert (package_root / "groot/infra/launcher").is_symlink()
     assert (package_root / "groot/infra/experiments").is_dir()
     public_configs = package_root / "groot/infra/experiments/training/configs"
-    assert (public_configs / "n2_yam_simulation_stack_bowls.py").is_symlink()
+    assert (public_configs / f"{oss.OSS_TRAINING_EXPERIMENT}.py").is_symlink()
     assert (public_configs / "_n2_base_compute_config.py").is_symlink()
     assert (public_configs / "_n2_base_data_config.py").is_symlink()
     assert (public_configs / "_n2_base_training_config.py").is_symlink()

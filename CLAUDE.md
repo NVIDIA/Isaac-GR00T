@@ -39,21 +39,21 @@ OSS post-train work.
 Run from the OSS package root:
 
 ```bash
-uv run python -m groot.infra.oss train n2_yam_simulation_stack_bowls \
+uv run python -m groot.infra.oss train \
   --dataset-path /path/to/lerobot_dataset
 ```
 
 Run local post-train followed by evaluation:
 
 ```bash
-uv run python -m groot.infra.oss train-eval n2_yam_simulation_stack_bowls \
+uv run python -m groot.infra.oss train-eval \
   --dataset-path /path/to/lerobot_dataset
 ```
 
 Run evaluation for an existing checkpoint:
 
 ```bash
-uv run python -m groot.infra.oss eval n2_yam_simulation_stack_bowls --checkpoint <hf-uri-or-local-path>
+uv run python -m groot.infra.oss eval --checkpoint <hf-uri-or-local-path>
 ```
 
 If the user does not specify an experiment, use the default configured by the skill.

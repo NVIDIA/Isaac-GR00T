@@ -89,11 +89,10 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["groot*", "skills", "skills.autoresearch*"]
+include = ["groot*"]
 
 [tool.setuptools.package-data]
 groot = ["**/*.yaml", "core/training/configs/deepspeed/zero2_config.json"]
-"skills.autoresearch" = ["**/*.yaml"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }

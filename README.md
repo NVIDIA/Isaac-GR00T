@@ -3,34 +3,27 @@
 This package exposes OSS-local post-training, open-loop evaluation, and policy
 serving through `python -m groot.infra.oss`.
 
-## AutoDebug
-
-AutoDebug reproduces a GR00T problem, tests focused explanations, writes a fix package
-for a separate coding agent, and independently verifies the returned commit. Start with
-[the AutoDebug guide](.agents/autodebug.md).
-
 ## Train
 
 Run from the OSS package root with a local LeRobot dataset:
 
 ```bash
-uv run python -m groot.infra.oss train n2_yam_simulation_stack_bowls \
+uv run python -m groot.infra.oss train \
   --dataset-path /path/to/lerobot_dataset
 ```
 
 For a smaller local smoke run:
 
 ```bash
-uv run python -m groot.infra.oss train n2_yam_simulation_stack_bowls \
+uv run python -m groot.infra.oss train \
   --dataset-path /path/to/lerobot_dataset \
   --num-gpus 8 \
   --batch-size 4 \
   --max-steps 2
 ```
 
-The OSS CLI takes the one-launcher experiment name directly. The documented OSS
-training path exposes only `n2_yam_simulation_stack_bowls`. OSS training
-requires `--dataset-path` unless you intentionally override
+The OSS CLI defaults to its public N2 training experiment, so no experiment
+name is required. OSS training requires `--dataset-path` unless you intentionally override
 `data.datasets.*.dataset_paths` with `--set`.
 
 ## Evaluate
@@ -38,7 +31,7 @@ requires `--dataset-path` unless you intentionally override
 Run open-loop evaluation for an existing checkpoint:
 
 ```bash
-uv run python -m groot.infra.oss eval n2_yam_simulation_stack_bowls \
+uv run python -m groot.infra.oss eval \
   --checkpoint <hf-uri-or-local-path> \
   --dataset-path /path/to/lerobot_dataset
 ```
@@ -46,7 +39,7 @@ uv run python -m groot.infra.oss eval n2_yam_simulation_stack_bowls \
 Run post-training followed by evaluation:
 
 ```bash
-uv run python -m groot.infra.oss train-eval n2_yam_simulation_stack_bowls \
+uv run python -m groot.infra.oss train-eval \
   --dataset-path /path/to/lerobot_dataset
 ```
 
@@ -93,7 +86,7 @@ dependency.
 The OSS package links reusable launcher and evaluation code only:
 
 - `groot.infra.launcher`
-- `groot.infra.experiments.training.configs.n2_yam_simulation_stack_bowls`
+- `groot.infra.experiments.training.configs.n2_oss_pretrain`
 - `groot.infra.experiments.training.configs._n2_base_*`
 - `groot.infra.experiments.training.configs._n2_model_config`
 - `groot.infra.eval`
