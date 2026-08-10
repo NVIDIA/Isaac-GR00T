@@ -105,6 +105,78 @@ def test_from_pretrained_passes_hub_kwargs_to_cached_file(tmp_path):
         }
 
 
+# Values that differ from tests/fixtures/processor_config/processor_config.json, so a
+# dropped override is indistinguishable from a no-op only if the test is wrong.
+OVERRIDE_VALUES = {
+    "apply_sincos_state_encoding": False,
+    "clip_outliers": False,
+    "color_jitter_params": {"brightness": 0.1},
+    "crop_fraction": 0.75,
+    "exclude_state": True,
+    "extra_augmentation_config": {"background_noise_transforms": []},
+    "formalize_language": False,
+    "image_crop_size": 224,
+    "image_target_size": 224,
+    "letter_box_transform": True,
+    "max_action_dim": 132,
+    "max_action_horizon": 64,
+    "max_state_dim": 132,
+    "model_name": "nvidia/Cosmos-Reason1-7B",
+    "model_type": "qwen_vl",
+    "random_rotation_angle": 5,
+    "shortest_image_edge": 320,
+    "state_dropout_prob": 0.5,
+    "use_albumentations": False,
+    "use_mean_std": True,
+    "use_percentiles": True,
+    "use_relative_action": False,
+}
+
+# The torchvision path the fixture falls back to needs explicit sizes.
+COMPANION_KWARGS = {"use_albumentations": {"image_crop_size": 224, "image_target_size": 224}}
+
+# Not scalar overrides: merged per embodiment, or loaded from sibling files.
+STRUCTURAL_KWARGS = {
+    "modality_configs",
+    "statistics",
+    "embodiment_id_mapping",
+    "transformers_loading_kwargs",
+}
+
+
+def _load_processor(**kwargs):
+    from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor
+
+    mock_vlm = MagicMock()
+    mock_vlm.apply_chat_template.return_value = "mock text"
+    mock_vlm.tokenizer.padding_side = "left"
+    with patch(
+        "gr00t.model.gr00t_n1d7.processing_gr00t_n1d7.build_processor",
+        return_value=mock_vlm,
+    ):
+        return Gr00tN1d7Processor.from_pretrained(FIXTURE_DIR, **kwargs)
+
+
+def test_override_values_cover_every_constructor_kwarg():
+    """A new __init__ argument must come with an override case, not silent coverage loss."""
+    import inspect
+
+    from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor
+
+    params = set(inspect.signature(Gr00tN1d7Processor.__init__).parameters) - {"self"}
+    assert params == set(OVERRIDE_VALUES) | STRUCTURAL_KWARGS
+
+
+@pytest.mark.parametrize("name", sorted(OVERRIDE_VALUES))
+def test_from_pretrained_honours_constructor_kwarg(name):
+    """setup.py sends these to from_pretrained on the path every finetune takes."""
+    value = OVERRIDE_VALUES[name]
+    assert getattr(_load_processor(), name) != value, f"{name} fixture value must differ"
+
+    overrides = {name: value, **COMPANION_KWARGS.get(name, {})}
+    assert getattr(_load_processor(**overrides), name) == value
+
+
 def _make_step_data(proc_config) -> VLAStepData:
     """Create synthetic VLAStepData matching the fixture config."""
     import json as _json
