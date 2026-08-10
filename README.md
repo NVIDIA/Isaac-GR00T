@@ -3,6 +3,12 @@
 This package exposes OSS-local post-training, open-loop evaluation, and policy
 serving through `python -m groot.infra.oss`.
 
+## AutoDebug
+
+AutoDebug reproduces a GR00T problem, tests focused explanations, writes a fix package
+for a separate coding agent, and independently verifies the returned commit. Start with
+[the AutoDebug guide](.agents/autodebug.md).
+
 ## Train
 
 Run from the OSS package root with a local LeRobot dataset:

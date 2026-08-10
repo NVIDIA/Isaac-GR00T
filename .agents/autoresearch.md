@@ -31,8 +31,8 @@ Apply high reasoning effort to research tasks.
 
 ## Configured skills
 
-Use these skills, available under `.claude/skills/` (symlink to the repo `skills/`):
+Use these skills from the repository's `skills/` directory:
 
 - `insights`
-- `evaluation`
-- `post-train`
+- `oss`
+- `autoresearch`

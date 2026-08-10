@@ -1,0 +1,13 @@
+environment:
+  ENABLE_TENSORRT: "True"
+
+model_path: /mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl_full/baseline/training
+dataset_path: /mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl/datasets/eval
+output_json: /mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl_full/baseline/eval/results.json
+save_plot_dir: /mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl_full/baseline/eval/plots
+traj_ids: [0]
+steps: 10
+action_horizon: 30
+denoising_steps: 4
+video_backend: decord
+local_only: true
