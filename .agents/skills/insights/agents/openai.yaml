@@ -1,0 +1,4 @@
+version: 1
+display_name: "GR00T Insights"
+short_description: "Retrieve published GR00T knowledge"
+default_prompt: "Use $insights to retrieve scoped GR00T findings and their supporting chunks, cite stable record IDs, and keep prior knowledge separate from current repository evidence."

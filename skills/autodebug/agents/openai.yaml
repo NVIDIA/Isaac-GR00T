@@ -1,0 +1,4 @@
+version: 1
+display_name: "GR00T AutoDebug"
+short_description: "Defend a GR00T root-cause diagnosis"
+default_prompt: "Use $autodebug on my granted compute to retrieve relevant published insights, diagnose this GR00T problem with recorded checks, defend any root-cause claim, and verify a downstream fix when one is implemented."

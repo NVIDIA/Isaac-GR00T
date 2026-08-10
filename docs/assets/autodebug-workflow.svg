@@ -1,0 +1,121 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="1900" viewBox="0 0 920 1900" role="img" aria-labelledby="title description">
+  <title id="title">GR00T AutoDebug workflow</title>
+  <desc id="description">A vertical workflow from report intake through reproduction, boundary isolation, hypothesis testing, root-cause defense, diagnosis, optional downstream implementation, and independent verification.</desc>
+  <defs>
+    <style>
+      .background { fill: #f7f9fc; }
+      .title { fill: #172033; font: 700 34px Arial, sans-serif; }
+      .subtitle { fill: #526078; font: 20px Arial, sans-serif; }
+      .card { fill: #ffffff; stroke: #4263a6; stroke-width: 3; }
+      .optional { fill: #f5f0ff; stroke: #7652a8; stroke-width: 3; }
+      .number { fill: #31559a; font: 700 26px Arial, sans-serif; }
+      .heading { fill: #172033; font: 700 24px Arial, sans-serif; }
+      .body { fill: #36445d; font: 19px Arial, sans-serif; }
+      .note { fill: #fff8e7; stroke: #b7791f; stroke-width: 2; }
+      .note-text { fill: #6d4b11; font: 18px Arial, sans-serif; }
+      .arrow { stroke: #5a6b88; stroke-width: 4; fill: none; marker-end: url(#arrowhead); }
+      .return { stroke: #b45353; stroke-width: 3; fill: none; stroke-dasharray: 9 7; marker-end: url(#returnhead); }
+      .section { fill: #7652a8; font: 700 22px Arial, sans-serif; letter-spacing: 1px; }
+      .result { fill: #eaf7ee; stroke: #2f855a; stroke-width: 3; }
+      .result-text { fill: #22543d; font: 700 22px Arial, sans-serif; }
+    </style>
+    <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#5a6b88"/>
+    </marker>
+    <marker id="returnhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#b45353"/>
+    </marker>
+  </defs>
+
+  <rect class="background" width="920" height="1900"/>
+  <text class="title" x="460" y="58" text-anchor="middle">GR00T AutoDebug</text>
+  <text class="subtitle" x="460" y="94" text-anchor="middle">Evidence-led diagnosis with optional fix verification</text>
+
+  <rect class="card" x="110" y="135" width="700" height="140" rx="18"/>
+  <text class="number" x="145" y="180">1</text>
+  <text class="heading" x="195" y="180">Receive the report and evidence</text>
+  <text class="body" x="195" y="220">
+    <tspan x="195" dy="0">Freeze the report, revision, evidence, and compute.</tspan>
+    <tspan x="195" dy="30">Retrieve related Insights and solved cases.</tspan>
+  </text>
+
+  <path class="arrow" d="M460 275 L460 330"/>
+
+  <rect class="card" x="110" y="335" width="700" height="140" rx="18"/>
+  <text class="number" x="145" y="380">2</text>
+  <text class="heading" x="195" y="380">Reproduce the exact reported failure</text>
+  <text class="body" x="195" y="420">
+    <tspan x="195" dy="0">Run the smallest check in the diagnosis checkout.</tspan>
+    <tspan x="195" dy="30">Repeat it in a clean copy of the baseline revision.</tspan>
+  </text>
+
+  <rect class="note" x="520" y="500" width="290" height="92" rx="15"/>
+  <text class="note-text" x="665" y="528" text-anchor="middle">If reproduction fails:</text>
+  <text class="note-text" x="665" y="555" text-anchor="middle">record the missing item,</text>
+  <text class="note-text" x="665" y="582" text-anchor="middle">then resume when it arrives.</text>
+  <path class="return" d="M810 546 C865 546 865 405 812 405"/>
+
+  <path class="arrow" d="M460 475 L460 615"/>
+
+  <rect class="card" x="110" y="620" width="700" height="140" rx="18"/>
+  <text class="number" x="145" y="665">3</text>
+  <text class="heading" x="195" y="665">Find the first failing boundary</text>
+  <text class="body" x="195" y="705">
+    <tspan x="195" dy="0">Compare expected and observed signals across the system.</tspan>
+    <tspan x="195" dy="30">The first divergence selects the next test.</tspan>
+  </text>
+
+  <path class="arrow" d="M460 760 L460 815"/>
+
+  <rect class="card" x="110" y="820" width="700" height="140" rx="18"/>
+  <text class="number" x="145" y="865">4</text>
+  <text class="heading" x="195" y="865">Test one explanation</text>
+  <text class="body" x="195" y="905">
+    <tspan x="195" dy="0">Change one factor and keep the rest fixed.</tspan>
+    <tspan x="195" dy="30">Record the command, output, and hypothesis outcome.</tspan>
+  </text>
+
+  <path class="arrow" d="M460 960 L460 1015"/>
+
+  <rect class="card" x="110" y="1020" width="700" height="140" rx="18"/>
+  <text class="number" x="145" y="1065">5</text>
+  <text class="heading" x="195" y="1065">Challenge the candidate cause</text>
+  <text class="body" x="195" y="1105">
+    <tspan x="195" dy="0">Run a different control or counterfactual.</tspan>
+    <tspan x="195" dy="30">Test whether the candidate's causal prediction holds.</tspan>
+  </text>
+
+  <path class="return" d="M108 1090 C35 1090 35 690 108 690"/>
+  <text class="note-text" x="48" y="900" transform="rotate(-90 48 900)" text-anchor="middle">Rejected or inconclusive: test the next explanation</text>
+
+  <path class="arrow" d="M460 1160 L460 1215"/>
+
+  <rect class="card" x="110" y="1220" width="700" height="150" rx="18"/>
+  <text class="number" x="145" y="1265">6</text>
+  <text class="heading" x="195" y="1265">Report the diagnosis</text>
+  <text class="body" x="195" y="1305">
+    <tspan x="195" dy="0">Return a verified root cause and recommended action,</tspan>
+    <tspan x="195" dy="30">or an inconclusive record and the best next evidence.</tspan>
+  </text>
+
+  <text class="section" x="460" y="1440" text-anchor="middle">OPTIONAL IMPLEMENTATION AND VERIFICATION</text>
+  <path class="arrow" d="M460 1370 L460 1470"/>
+
+  <rect class="optional" x="110" y="1475" width="700" height="125" rx="18"/>
+  <text class="heading" x="160" y="1525">A separate coding agent implements the change</text>
+  <text class="body" x="160" y="1565">It works in another Git worktree and returns a commit.</text>
+
+  <path class="arrow" d="M460 1600 L460 1650"/>
+
+  <rect class="optional" x="110" y="1655" width="700" height="125" rx="18"/>
+  <text class="heading" x="160" y="1705">AutoDebug independently verifies the commit</text>
+  <text class="body" x="160" y="1745">Clean baseline fails; implementation and regressions pass.</text>
+
+  <path class="arrow" d="M460 1780 L460 1820"/>
+  <rect class="result" x="280" y="1825" width="360" height="58" rx="29"/>
+  <text class="result-text" x="460" y="1862" text-anchor="middle">Resolved: verified fix recorded</text>
+</svg>

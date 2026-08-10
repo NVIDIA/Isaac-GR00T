@@ -652,14 +652,6 @@ class EmbodimentTag(Enum):
     Use only with datasets collected with ``--require-tactile-full``.
     """
 
-    # ------------- Tianji Embodiments -------------
-    REAL_TIANJI_SHARPA_RELATIVE_EEF = "real_tianji_sharpa_relative_eef"
-    """
-    Tianji M6 + Sharpa hands with relative EEF, stereo ego pair + two wrist views.
-    62D state/action (2x wrist EEF xyz+rot6d + 2x 22-DoF Sharpa hands). Shares the
-    Sharpa projector with the dexmate/r1_pro family.
-    """
-
     # ------------- Real G1 Embodiments -------------
     REAL_G1_RELATIVE_EEF_ABSOLUTE_JOINTS = "real_g1_relative_eef_absolute_joints"
     """

@@ -5663,65 +5663,6 @@ MODALITY_CONFIGS = {
             modality_keys=["annotation.human.task_description"],
         ),
     },
-    "real_tianji_sharpa_relative_eef": {
-        # 3 cameras (ego + L/R wrist) — matches the deploy contract in
-        # mapping/tianji_sharpa.yaml. The data's 4th camera (ego_view_right) is
-        # recorded but unused; declaring it here would push the view count past
-        # --model.max_n_cameras and hard-crash at processor.py:761.
-        "video": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=[
-                "ego_view_res320x240_freq30",
-                "left_wrist_view_res320x240_freq30",
-                "right_wrist_view_res320x240_freq30",
-            ],
-        ),
-        "state": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=[
-                "left_wrist_eef",
-                "right_wrist_eef",
-                "left_hand_joints",
-                "right_hand_joints",
-            ],
-            exclude_state=False,
-        ),
-        "action": ModalityConfig(
-            delta_indices=list(range(0, 48)),
-            modality_keys=[
-                "left_wrist_eef",
-                "right_wrist_eef",
-                "left_hand_joints",
-                "right_hand_joints",
-            ],
-            normalize_rotation=True,
-            action_configs=[
-                ActionConfig(
-                    rep=ActionRepresentation.RELATIVE,
-                    type=ActionType.EEF,
-                    format=ActionFormat.XYZ_ROT6D,
-                ),
-                ActionConfig(
-                    rep=ActionRepresentation.RELATIVE,
-                    type=ActionType.EEF,
-                    format=ActionFormat.XYZ_ROT6D,
-                ),
-                ActionConfig(
-                    rep=ActionRepresentation.ABSOLUTE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                ),
-                ActionConfig(
-                    rep=ActionRepresentation.ABSOLUTE,
-                    type=ActionType.NON_EEF,
-                    format=ActionFormat.DEFAULT,
-                ),
-            ],
-        ),
-        "language": ModalityConfig(
-            delta_indices=[0], modality_keys=["annotation.human.coarse_action"]
-        ),
-    },
 }
 
 

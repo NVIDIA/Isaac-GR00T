@@ -1,0 +1,4 @@
+interface:
+  display_name: "AutoResearch"
+  short_description: "Set up, validate, and operate AutoResearch studies"
+  default_prompt: "Use $autoresearch to validate my config and run or resume this AutoResearch study safely."

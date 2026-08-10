@@ -1,0 +1,4 @@
+interface:
+  display_name: "AutoResearch Visualizer"
+  short_description: "Visualize AutoResearch studies as interactive HTML"
+  default_prompt: "Use $visualize-autoresearch to render this AutoResearch state.json as an interactive HTML report."

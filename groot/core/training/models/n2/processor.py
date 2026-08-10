@@ -70,7 +70,6 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "xdof_relative_eef_relative_joint_umi_keys": 0,
     "xdof_relative_eef_relative_joint_umi_keys_4views": 0,
     "real_dexmate_sharpa_relative_eef": 2,
-    "real_tianji_sharpa_relative_eef": 2,  # Shares the Sharpa projector
     "real_dexmate_sharpa_relative_eef_relative_joint": 2,
     # New controller has a substantially different action distribution from the
     # old controller, so it gets its own projector index instead of sharing 2.

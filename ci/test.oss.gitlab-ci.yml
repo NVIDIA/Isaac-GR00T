@@ -39,8 +39,8 @@ test.oss.cpu:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$POSTMERGE_TESTS == "true"'
 
-  before_script:
-    - &oss_package_before_script |
+  before_script: &oss_package_before_script
+    - |
       if [ -z "${OSS_PACKAGE_DIR:-}" ]; then
         if [ -d "$CI_PROJECT_DIR/oss" ]; then
           export OSS_PACKAGE_DIR=oss
@@ -92,20 +92,7 @@ test.oss.gpu:
     OSS_GPU_EVAL_DENOISING_STEPS: "2"
   rules: *oss_test_rules
 
-  before_script:
-    - |
-      unset OPENSSL_FORCE_FIPS_MODE OPENSSL_FIPS_MODE_SWITCH_PATH
-      if [ "$(head -c 1 /proc/sys/crypto/fips_enabled 2>/dev/null || true)" = "1" ]; then
-        echo "Masking runner host FIPS mode for the non-FIPS OSS training image"
-        printf '0\n' > /tmp/groot-ci-fips-disabled
-        chmod 0444 /tmp/groot-ci-fips-disabled
-        if ! mount --bind /tmp/groot-ci-fips-disabled /proc/sys/crypto/fips_enabled; then
-          echo "Failed to mask inherited runner FIPS mode" >&2
-          exit 1
-        fi
-        test "$(head -c 1 /proc/sys/crypto/fips_enabled)" = "0"
-      fi
-    - *oss_package_before_script
+  before_script: *oss_package_before_script
 
   script:
     - |
