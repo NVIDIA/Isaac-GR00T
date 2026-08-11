@@ -100,6 +100,9 @@ torch = { index = "pytorch-cu128" }
 torchcodec = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
 
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch==2.7.1"]
+
 [[tool.uv.index]]
 name = "pypi"
 url = "https://pypi.python.org/simple"
