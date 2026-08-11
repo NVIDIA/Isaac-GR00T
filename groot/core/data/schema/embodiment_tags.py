@@ -660,6 +660,19 @@ class EmbodimentTag(Enum):
     Sharpa projector with the dexmate/r1_pro family.
     """
 
+    REAL_TIANJI_SHARPA_RELATIVE_EEF_WITH_TACTILE = "real_tianji_sharpa_relative_eef_with_tactile"
+    """
+    Tianji Sharpa with relative EEF and tactile_f6 sensor readings in state:
+    10 fingers x 6-DoF readings (60 dims) appended to the standard state.
+
+    This is the tag the CONVERTER writes into ``meta/info.json`` for every tianji
+    dataset (the `_with_tactile` suffix is what enables the F6 + deform streams), so
+    it must exist for conversion to run and for existing tianji checkpoints to be
+    servable -- ``run_gr00t_server.py`` types ``--embodiment-tag`` as this enum.
+    It intentionally has no MODALITY_CONFIGS entry yet: nothing trains under it
+    (the vanilla configs select the 62D subset by named key from the same data).
+    """
+
     # ------------- Real G1 Embodiments -------------
     REAL_G1_RELATIVE_EEF_ABSOLUTE_JOINTS = "real_g1_relative_eef_absolute_joints"
     """
