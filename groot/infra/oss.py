@@ -108,8 +108,6 @@ def resolve_train(args: argparse.Namespace) -> ResolvedOssTrain:
     env.setdefault("USER_SLUG", getpass.getuser())
     env["BATCH_SIZE"] = str(resolved.batch_size)
     env["NUM_GPUS"] = str(resolved.num_gpus)
-    # Local OSS workers must reuse the complete environment that launched Ray.
-    env["RAY_ENABLE_UV_RUN_RUNTIME_ENV"] = "0"
     env.setdefault("TRAINING_OUTPUT_ROOT", "/tmp/groot_outputs")  # noqa: S108
     env.setdefault("GROOT_CHECKPOINT_ROOT", os.environ.get("GROOT_CHECKPOINT_ROOT", ""))
 
@@ -207,22 +205,14 @@ def _emit(line: str) -> None:
 
 
 def _oss_train_overrides(args: argparse.Namespace) -> tuple[str, ...]:
-    user_overrides: list[str] = []
+    user_overrides = list(args.config_overrides)
     if args.dataset_path:
-        public_dataset = [
-            {
-                "dataset_paths": [args.dataset_path],
-                "mix_ratio": 1.0,
-                "embodiment_tag": args.embodiment_tag,
-            }
-        ]
-        user_overrides.append(f"data.datasets={json.dumps(public_dataset)}")
-    elif not _has_dataset_path_override(args.config_overrides):
+        user_overrides.append(f"data.datasets.0.dataset_paths={json.dumps([args.dataset_path])}")
+    elif not _has_dataset_path_override(user_overrides):
         raise SystemExit(
-            "--dataset-path is required for OSS training unless the complete "
-            "data.datasets list is provided with --set."
+            "--dataset-path is required for OSS training unless data dataset paths "
+            "are provided with --set."
         )
-    user_overrides.extend(args.config_overrides)
     defaults = {
         "training.upload_checkpoints": "false",
         "training.upload_every": "null",
@@ -260,7 +250,13 @@ def _override_key(override: str) -> str:
 
 
 def _has_dataset_path_override(overrides: Sequence[str]) -> bool:
-    return any(_override_key(override) == "data.datasets" for override in overrides)
+    for override in overrides:
+        key = _override_key(override)
+        if key == "data.dataset_path":
+            return True
+        if key.startswith("data.datasets.") and key.endswith((".dataset_path", ".dataset_paths")):
+            return True
+    return False
 
 
 def _eval_config(
@@ -276,8 +272,6 @@ def _eval_config(
         traj_ids=args.traj_ids,
         steps=args.steps,
         action_horizon=args.action_horizon,
-        video_backend=args.video_backend,
-        embodiment_tag=args.embodiment_tag,
         denoising_steps=args.denoising_steps,
         server_parity_tolerance=args.server_parity_tolerance,
         local_only=args.local_only,
@@ -309,12 +303,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Run OSS post-training and then open-loop evaluation.",
     )
     _add_train_parser(train_eval)
-    _add_eval_options(
-        train_eval,
-        checkpoint_required=False,
-        include_dataset_path=False,
-        include_embodiment_tag=False,
-    )
+    _add_eval_options(train_eval, checkpoint_required=False, include_dataset_path=False)
     return parser.parse_args(argv)
 
 
@@ -326,11 +315,6 @@ def _add_train_parser(parser: argparse.ArgumentParser) -> None:
         "--dataset-path",
         default="",
         help="Local LeRobot dataset path to use for OSS training.",
-    )
-    parser.add_argument(
-        "--embodiment-tag",
-        required=True,
-        help="Dataset embodiment tag used for data loading and N2 action/state head selection.",
     )
     parser.add_argument("--pretrain-checkpoint", default="")
     parser.add_argument("--output-dir", default="")
@@ -370,7 +354,6 @@ def _add_eval_options(
     *,
     checkpoint_required: bool,
     include_dataset_path: bool = True,
-    include_embodiment_tag: bool = True,
 ) -> None:
     parser.add_argument("--checkpoint", required=checkpoint_required, default="")
     if include_dataset_path:
@@ -379,13 +362,6 @@ def _add_eval_options(
     parser.add_argument("--traj-ids", nargs="+", type=int, default=[0])
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--action-horizon", type=int, default=30)
-    parser.add_argument(
-        "--video-backend",
-        choices=("decord", "torchvision_av", "torchcodec"),
-        default="torchcodec",
-    )
-    if include_embodiment_tag:
-        parser.add_argument("--embodiment-tag", default="xdof_relative_eef_relative_joint")
     parser.add_argument("--denoising-steps", type=int, default=4)
     parser.add_argument("--server-parity-tolerance", type=float, default=0.01)
     parser.add_argument("--local-only", action="store_true")

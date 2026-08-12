@@ -1,61 +1,7 @@
-# Isaac GR00T 2
-
-## Start With Your Preferred Agent
-
-Connect this repository checkout to your preferred coding agent, such as Codex
-or Claude Code. Start the agent in the package root, the directory containing
-this README and `pyproject.toml`, then ask:
-
-> Onboard me to Isaac GR00T 2 using the minimal end-to-end example. Set up the
-> uv environment, prepare the example dataset, and verify training, open-loop
-> evaluation, and the policy server.
-
-The repository guidance and OSS skill give the agent the supported workflow and
-success criteria. To run the same onboarding manually, follow the
-[minimal end-to-end example](docs/minimal_example.md).
+# Isaac-GR00T-N2
 
 This package exposes OSS-local post-training, open-loop evaluation, and policy
-serving through `uv run --no-sync python -m groot.infra.oss` after installing
-the training environment.
-
-## Minimal End-to-End Example
-
-The [minimal example](docs/minimal_example.md) uses a pinned, small public
-LeRobot dataset to run one post-training step, a short open-loop evaluation,
-and the policy server. It installs the locked environment directly with `uv`
-and keeps data, caches, and outputs on explicit local paths.
-
-TorchCodec requires FFmpeg shared libraries. On Ubuntu or Debian, install
-FFmpeg before creating the uv environment:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y ffmpeg
-uv sync --frozen --extra training
-```
-
-When running as `root`, omit `sudo`.
-
-Prepare the example dataset after completing the environment setup in the
-walkthrough:
-
-```bash
-uv run --no-sync python examples/prepare_minimal_dataset.py \
-  --output-dir "$HOME/gr00t2/data/gr00t_red_test"
-```
-
-Each workflow has a different input boundary:
-
-| Workflow | Required inputs | Primary output |
-| --- | --- | --- |
-| Prepare dataset | Network access to the public dataset; writable dataset path | Local LeRobot dataset |
-| Post-train | Local dataset, embodiment tag, accessible pretrain/model artifacts, GPU, writable output path | Local checkpoint |
-| Open-loop eval | Local dataset, matching embodiment tag, local checkpoint or accessible HF URI, GPU | JSON evaluation report |
-| Policy server | Matching embodiment tag, local checkpoint or accessible HF URI, GPU | TCP policy endpoint |
-| Train and eval | All post-training and open-loop evaluation inputs | Checkpoint and JSON report |
-
-See the detailed guide for the exact environment variables and command-line
-arguments used for each input.
+serving through `python -m groot.infra.oss`.
 
 ## AutoDebug
 
@@ -68,45 +14,44 @@ for a separate coding agent, and independently verifies the returned commit. Sta
 Run from the OSS package root with a local LeRobot dataset:
 
 ```bash
-uv run --no-sync python -m groot.infra.oss train \
-  --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag <dataset-embodiment-tag>
+uv run python -m groot.infra.oss train \
+  --dataset-path /path/to/lerobot_dataset
 ```
 
 For a smaller local smoke run:
 
 ```bash
-uv run --no-sync python -m groot.infra.oss train \
+uv run python -m groot.infra.oss train \
   --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag <dataset-embodiment-tag> \
   --num-gpus 8 \
   --batch-size 4 \
   --max-steps 2
 ```
 
 The OSS CLI defaults to its public N2 training experiment, so no experiment
-name is required. OSS training requires an explicit `--embodiment-tag` and
-either `--dataset-path` or an intentional replacement of the complete
-`data.datasets` list with `--set`.
+name is required. OSS training requires `--dataset-path` unless you intentionally override
+`data.datasets.*.dataset_paths` with `--set`.
 
 ## Evaluate
 
 Run open-loop evaluation for an existing checkpoint:
 
 ```bash
-uv run --no-sync python -m groot.infra.oss eval \
+uv run python -m groot.infra.oss eval \
   --checkpoint <hf-uri-or-local-path> \
-  --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag <dataset-embodiment-tag>
+  --dataset-path /path/to/lerobot_dataset
 ```
 
 Run post-training followed by evaluation:
 
 ```bash
-uv run --no-sync python -m groot.infra.oss train-eval \
-  --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag <dataset-embodiment-tag>
+uv run python -m groot.infra.oss train-eval \
+  --dataset-path /path/to/lerobot_dataset
 ```
+
+`train-eval` uses the same `--dataset-path` for training and evaluation. Run
+`train` and `eval` separately when evaluating the new checkpoint on a different
+held-out dataset.
 
 Use `--dry-run` with any command to print the resolved command or evaluation
 configuration without starting training or evaluation.
@@ -116,19 +61,19 @@ configuration without starting training or evaluation.
 Start a GR00T policy server for a local or Hugging Face checkpoint:
 
 ```bash
-uv run --no-sync python -m groot.infra.oss policy-server \
+uv run python -m groot.infra.oss policy-server \
   --checkpoint <hf-uri-or-local-path> \
   --host 0.0.0.0 \
   --port 5555
 ```
 
-Use `--dry-run` to print the resolved core server command without starting the
-server.
+Use `--dry-run` to print the effective server configuration without starting
+the server.
 
 ## Model Artifacts
 
-By default the OSS training entrypoint loads GR00T 2 model dependencies from
-Hugging Face:
+By default the OSS training entrypoint loads N2 model dependencies from Hugging
+Face:
 
 - `hf://model/nvidia/Cosmos-Reason1-7B@375e24000b24baed78f4618d3dd779e47cd96323`
 - `hf://model/nvidia/Cosmos-Predict2.5-2B@0d37c7498f54cee3c599d438d895a0a4a8608064/transformer`
@@ -137,9 +82,6 @@ Hugging Face:
 
 Pass `--pretrain-checkpoint` if you want to override the default pretrain
 checkpoint with another `hf://model/...` URI or a local checkpoint path.
-The default `base_200k` checkpoint and OSS training configuration both retain
-all 32 embodiment-specific robot heads. The dataset's `--embodiment-tag`
-selects the head used by each training example.
 
 Set `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`, or `HUGGINGFACE_TOKEN` when training
 or evaluation needs to download a private Hugging Face checkpoint or model
@@ -147,7 +89,7 @@ dependency.
 
 ## Boundary
 
-The OSS package includes reusable launcher and evaluation code:
+The OSS package links reusable launcher and evaluation code only:
 
 - `groot.infra.launcher`
 - `groot.infra.experiments.training.configs.n2_oss_pretrain`

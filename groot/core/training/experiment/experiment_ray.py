@@ -39,6 +39,7 @@ from groot.core.training.experiment.gear_registration import (
     preserve_checkpoint_root_enabled,
     resolve_training_output_dir,
 )
+from groot.core.training.experiment.placement import gpu_placement_bundles
 from groot.core.utils.storage import cache as cache_entrypoint
 
 _DRY_RUN_PROPAGATED_VARS = ("_GROOT_DRY_RUN_STUB_MODEL", "IDENTITY_FORWARD_SLEEP_MS")
@@ -560,9 +561,17 @@ def main():
             f"Waiting for CPU-only placement group ({num_cpu_workers} worker(s), strategy={strategy}, no GPUs)..."
         )
     else:
-        placement_group = ray.util.placement_group(
-            [{"CPU": config.training.dataloader_num_workers, "GPU": 1} for _ in range(num_gpus)]
+        # Some platforms reserve extra nodes because bad nodes are detected at
+        # runtime, then kill nodes that placement actors do not use. The head
+        # node cannot be killed, so always pin the first actor there to prevent
+        # the head from being considered idle.
+        head_node_resource = f"node:{ray.util.get_node_ip_address()}"
+        gpu_bundles = gpu_placement_bundles(
+            num_gpus,
+            config.training.dataloader_num_workers,
+            head_node_resource=head_node_resource,
         )
+        placement_group = ray.util.placement_group(gpu_bundles)
         logging.info(f"Waiting for placement group with {num_gpus} GPUs...")
     trainer = TorchTrainer(placement_group)
     memory_monitor.phase("training")

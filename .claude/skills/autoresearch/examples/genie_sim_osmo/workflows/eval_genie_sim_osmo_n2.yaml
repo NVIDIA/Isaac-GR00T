@@ -32,7 +32,7 @@ default-values:
   # Keep these small for AutoResearch testing: one task, one episode, one
   # subtask cap.
   POLICY_PORT: 8000
-  EMBODIMENT_TAG: agibot
+  EMBODIMENT_TAG: agibot_genie1
   ACTION_HORIZON: 16
   DENOISING_STEPS: 4
   TASK_TYPE: if

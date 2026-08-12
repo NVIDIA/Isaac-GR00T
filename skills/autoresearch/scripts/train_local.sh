@@ -25,7 +25,7 @@ fi
 printf '[train_local] config: %s\n' "${CONFIG_PATH}"
 printf '[train_local] loading training dependencies; this may take a few minutes...\n'
 
-exec "${PYTHON}" \
+GROOT_DEBUG_DISABLE_FLEX_ATTENTION="${GROOT_DEBUG_DISABLE_FLEX_ATTENTION:-1}" exec "${PYTHON}" \
   -m groot.core.training.experiment.experiment_ray \
   --load-config-path "${CONFIG_PATH}" \
   "$@"

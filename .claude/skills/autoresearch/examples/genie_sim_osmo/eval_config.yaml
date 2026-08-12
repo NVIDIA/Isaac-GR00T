@@ -4,7 +4,7 @@ osmo:
 
 simulation:
   geniesim_root: /mnt/amlfs-01/home/yuhlu/geniesim
-  embodiment_tag: agibot
+  embodiment_tag: agibot_genie1
   task_type: if
   task_name: pick_billiards_color
   num_episode: 1

@@ -42,6 +42,7 @@ export HF_HUB_CACHE="${HF_HUB_CACHE:-/mnt/amlfs-02/shared/ckpts}"
 export HF_HUB_OFFLINE=1
 export GIT_LFS_SKIP_SMUDGE=1
 export OTEL_SDK_DISABLED=true
+export GROOT_DEBUG_DISABLE_FLEX_ATTENTION=1
 export WANDB_MODE=disabled
 export WANDB_API_KEY=disabled
 export PYTHONUNBUFFERED=1

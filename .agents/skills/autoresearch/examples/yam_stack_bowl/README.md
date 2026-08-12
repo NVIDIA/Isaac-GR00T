@@ -69,7 +69,9 @@ bash skills/autoresearch/scripts/setup_env.sh
 ~~~
 
 This installs the locked training and development dependencies and builds
-FlashAttention with conservative build parallelism.
+FlashAttention with conservative build parallelism. The local training wrapper
+sets **GROOT_DEBUG_DISABLE_FLEX_ATTENTION=1**, which is required by this L40
+smoke path.
 
 Also make sure the Codex CLI is installed and authenticated:
 

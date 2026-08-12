@@ -64,8 +64,6 @@ def _resolve_fixture_training(
         oss._parse_args(  # noqa: SLF001 - exercise the same resolved command as the CLI.
             [
                 "train",
-                "--embodiment-tag",
-                "xdof_relative_eef_relative_joint",
                 "--compute-type",
                 os.environ.get("OSS_GPU_COMPUTE_TYPE", "gb300"),
                 "--max-steps",
@@ -80,14 +78,12 @@ def _resolve_fixture_training(
                 _PRETRAIN_CHECKPOINT,
                 "--dataset-path",
                 str(dataset_path),
-                # N2 training needs video deltas with future frames (delta > 0);
-                # otherwise all latents are conditioning and num_denoise_latent == 0.
-                "--set",
-                "data.modality_configs.xdof_relative_eef_relative_joint.video.delta_indices=[-6,-3,0,3,6,9,12]",
                 "--set",
                 "training.model.action-cfg.action-horizon=40",
                 "--set",
                 "training.model.action-cfg.max-action-horizon=40",
+                "--set",
+                "training.model.action-cfg.num-embodiments=1",
                 "--set",
                 (
                     "data.modality_configs.xdof_relative_eef_relative_joint."
@@ -188,8 +184,6 @@ def _run_open_loop_eval(
     args = oss._parse_args(  # noqa: SLF001 - reuse the OSS eval CLI parser.
         [
             "eval",
-            "--embodiment-tag",
-            "xdof_relative_eef_relative_joint",
             "--checkpoint",
             str(checkpoint),
             "--dataset-path",
