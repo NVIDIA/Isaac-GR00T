@@ -26,7 +26,6 @@ export GIT_LFS_SKIP_SMUDGE=1
 export OTEL_SDK_DISABLED=true
 export PYTHONUNBUFFERED=1
 export ENABLE_TENSORRT=True
-export GROOT_DEBUG_DISABLE_FLEX_ATTENTION=1
 
 exec "${PYTHON}" \
   skills/autoresearch/examples/genie_sim_osmo/osmo_scripts/serve_n2_genie_sim_websocket.py \
