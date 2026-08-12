@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
+import yaml
 
 from groot.infra import oss
 
@@ -40,6 +41,8 @@ def test_oss_train_dry_run_uses_one_launcher(monkeypatch, capsys, tmp_path: Path
     status = oss.main(
         [
             "train",
+            "--embodiment-tag",
+            "so100_2rgb",
             "--dataset-path",
             str(dataset_path),
             "--compute-type",
@@ -82,6 +85,8 @@ def test_oss_train_user_overrides_follow_defaults_for_last_wins_resolution(
     args = oss._parse_args(  # noqa: SLF001
         [
             "train",
+            "--embodiment-tag",
+            "so100_2rgb",
             "--dataset-path",
             str(tmp_path / "dataset"),
             "--set",
@@ -117,6 +122,8 @@ def test_oss_train_invokes_experiment_ray_without_running_gpu_backend(
     status = oss.main(
         [
             "train",
+            "--embodiment-tag",
+            "so100_2rgb",
             "--compute-type",
             "h100",
             "--dataset-path",
@@ -154,13 +161,16 @@ def test_oss_train_invokes_experiment_ray_without_running_gpu_backend(
         command[command.index("--training.start_from_checkpoint") + 1]
         == oss.OSS_PRETRAIN_CHECKPOINT_URI
     )
+    assert command[command.index("--model.action-cfg.num-embodiments") + 1] == "32"
+    assert "--training.checkpoint_embodiment_slot" not in command
     assert "--training.msc_profile_url" in command
     assert command[command.index("--training.msc_profile_url") + 1] == ""
-    _assert_config_contains_dataset_path(command, dataset_path)
+    _assert_config_contains_dataset(command, dataset_path, "so100_2rgb")
     env = calls[0]["env"]
     assert isinstance(env, dict)
     assert env["NUM_GPUS"] == "8"
     assert env["BATCH_SIZE"] == "4"
+    assert env["RAY_ENABLE_UV_RUN_RUNTIME_ENV"] == "0"
     assert f"FINAL_CHECKPOINT_PATH={output_dir / 'checkpoint-2'}" in output
 
 
@@ -176,6 +186,8 @@ def test_oss_train_allows_explicit_pretrain_checkpoint_override(
     status = oss.main(
         [
             "train",
+            "--embodiment-tag",
+            "so100_2rgb",
             "--dataset-path",
             str(dataset_path),
             "--pretrain-checkpoint",
@@ -199,6 +211,8 @@ def test_oss_train_preserves_user_model_and_checkpoint_overrides(
     args = oss._parse_args(  # noqa: SLF001 - exercise the public CLI parser.
         [
             "train",
+            "--embodiment-tag",
+            "so100_2rgb",
             "--dataset-path",
             str(tmp_path / "dataset"),
             "--set",
@@ -262,6 +276,8 @@ def test_oss_train_allows_experiment_dir_override(
     args = oss._parse_args(  # noqa: SLF001 - exercise the public CLI parser.
         [
             "train",
+            "--embodiment-tag",
+            "so100_2rgb",
             "--experiment-dir",
             str(custom_experiment_dir),
             "--dataset-path",
@@ -280,7 +296,19 @@ def test_oss_train_requires_dataset_path_or_dataset_override(monkeypatch) -> Non
     _set_training_env(monkeypatch)
 
     with pytest.raises(SystemExit, match="--dataset-path is required"):
-        oss.main(["train", "--dry-run"])
+        oss.main(["train", "--embodiment-tag", "so100_2rgb", "--dry-run"])
+
+
+def test_oss_train_requires_embodiment_tag(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        oss.main(
+            [
+                "train",
+                "--dataset-path",
+                str(tmp_path / "dataset"),
+                "--dry-run",
+            ]
+        )
 
 
 def test_oss_train_accepts_documented_dataset_override(
@@ -289,19 +317,27 @@ def test_oss_train_accepts_documented_dataset_override(
 ) -> None:
     _set_training_env(monkeypatch)
     dataset_path = tmp_path / "lerobot_dataset"
+    datasets = [
+        {
+            "dataset_paths": [str(dataset_path)],
+            "embodiment_tag": "so100_2rgb",
+        }
+    ]
 
     args = oss._parse_args(  # noqa: SLF001 - exercise the public CLI parser.
         [
             "train",
+            "--embodiment-tag",
+            "so100_2rgb",
             "--set",
-            f"data.datasets.0.dataset_paths={json.dumps([str(dataset_path)])}",
+            f"data.datasets={json.dumps(datasets)}",
             "--dry-run",
         ]
     )
 
     resolved = oss.resolve_train(args)
 
-    _assert_config_contains_dataset_path(resolved.command, dataset_path)
+    _assert_config_contains_dataset(resolved.command, dataset_path, "so100_2rgb")
 
 
 def test_oss_train_rejects_experiment_positional() -> None:
@@ -314,6 +350,8 @@ def test_oss_eval_dry_run_uses_open_loop_eval_config(capsys, tmp_path: Path) -> 
     status = oss.main(
         [
             "eval",
+            "--embodiment-tag",
+            "so100_2rgb",
             "--checkpoint",
             "hf://model/org/repo@main/checkpoint-100",
             "--dataset-path",
@@ -350,6 +388,8 @@ def test_oss_eval_invokes_open_loop_evaluator_without_running_gpu_backend(
     status = oss.main(
         [
             "eval",
+            "--embodiment-tag",
+            "so100_2rgb",
             "--checkpoint",
             str(checkpoint),
             "--dataset-path",
@@ -536,6 +576,8 @@ def test_oss_train_eval_passes_trained_checkpoint_to_eval_without_gpu_backend(
     status = oss.main(
         [
             "train-eval",
+            "--embodiment-tag",
+            "so100_2rgb",
             "--compute-type",
             "h100",
             "--max-steps",
@@ -572,6 +614,8 @@ def test_oss_infra_symlinks_expose_only_temporary_data_credentials() -> None:
     assert (public_configs / "_n2_base_data_config.py").is_symlink()
     assert (public_configs / "_n2_base_training_config.py").is_symlink()
     assert (public_configs / "_n2_model_config.py").is_symlink()
+    assert not (public_configs / "n2_egoscale_mega_soup_pretrain.py").exists()
+    assert not (public_configs / "n2_yam_simulation_stack_bowls.py").exists()
     assert not (public_configs / "n2_robocasa365.py").exists()
     assert (package_root / "groot/infra/eval").is_symlink()
     job_dir = package_root / "groot/infra/job"
@@ -666,11 +710,15 @@ def _assert_job_does_not_run_for_oss_tests(ci_config: str, job_name: str) -> Non
     assert "- if: '$OSS_TESTS == \"true\"'" not in _job_block(ci_config, job_name)
 
 
-def _assert_config_contains_dataset_path(command: list[str], dataset_path: Path) -> None:
+def _assert_config_contains_dataset(
+    command: list[str], dataset_path: Path, embodiment_tag: str
+) -> None:
     assert "--data.datasets.0.dataset_paths" not in command
     assert "--load_config_path" in command
     data_config = Path(command[command.index("--load_config_path") + 1])
-    assert str(dataset_path) in data_config.read_text(encoding="utf-8")
+    body = yaml.safe_load(data_config.read_text(encoding="utf-8"))
+    assert body["data"]["datasets"][0]["dataset_paths"] == [str(dataset_path)]
+    assert body["data"]["datasets"][0]["embodiment_tag"] == embodiment_tag
 
 
 def _job_block(ci_config: str, job_name: str) -> str:

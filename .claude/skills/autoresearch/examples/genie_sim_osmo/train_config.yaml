@@ -3,11 +3,43 @@ data:
     - dataset_paths:
         - /mnt/amlfs-02/shared/datasets/agibot_data/instruction_preprocessed/pick_billards_color
       mix_ratio: 1.0
-      embodiment_tag: agibot_genie1
+      embodiment_tag: agibot
   modality_configs:
-    agibot_genie1:
+    agibot:
       video:
         delta_indices: [0, 4, 8, 12, 16]
+        modality_keys: [top_head, hand_left, hand_right]
+      state:
+        delta_indices: [0]
+        modality_keys:
+          - left_arm_joint_position
+          - right_arm_joint_position
+          - left_effector_position
+          - right_effector_position
+        sin_cos_embedding_keys: null
+      action:
+        delta_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        modality_keys:
+          - left_arm_joint_position
+          - right_arm_joint_position
+          - left_effector_position
+          - right_effector_position
+        action_configs:
+          - rep: RELATIVE
+            type: NON_EEF
+            format: DEFAULT
+          - rep: RELATIVE
+            type: NON_EEF
+            format: DEFAULT
+          - rep: ABSOLUTE
+            type: NON_EEF
+            format: DEFAULT
+          - rep: ABSOLUTE
+            type: NON_EEF
+            format: DEFAULT
+      language:
+        delta_indices: [0]
+        modality_keys: [annotation.language.action_text]
   seed: 24
   allow_padding: true
   video_backend: torchcodec
