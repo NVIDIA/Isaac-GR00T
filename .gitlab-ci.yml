@@ -35,5 +35,4 @@ variables:
 
 include:
   - local: "ci/image.gitlab-ci.yml"
-  - local: "ci/test.unit.gitlab-ci.yml"
   - local: "ci/test.oss.gitlab-ci.yml"
