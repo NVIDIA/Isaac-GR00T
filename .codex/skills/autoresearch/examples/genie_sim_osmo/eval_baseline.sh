@@ -21,7 +21,13 @@ if [[ ! -x "${PYTHON}" ]]; then
   echo "Python environment does not exist: ${PYTHON}" >&2
   exit 1
 fi
-mapfile -t CONFIG_VALUES < <("${PYTHON}" -c '
+# Read config lines with a while-read loop so this stays portable to bash 3.2
+# (macOS default; the shebang promises any bash). Process substitution keeps the
+# loop body in this shell so the array survives.
+CONFIG_VALUES=()
+while IFS= read -r config_value; do
+  CONFIG_VALUES+=("${config_value}")
+done < <("${PYTHON}" -c '
 import sys, yaml
 c = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 for section, key in [

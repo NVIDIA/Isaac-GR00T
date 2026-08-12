@@ -1,5 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
 
 from __future__ import annotations
 
@@ -7,6 +14,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+
+import pytest
 
 _REPOSITORY = Path(__file__).resolve().parents[3]
 _TRAIN_WRAPPER = _REPOSITORY / "skills/autoresearch/examples/yam_stack_bowl/train_baseline.sh"
@@ -46,6 +55,15 @@ def test_launcher_exports_selected_python(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.skipif(
+    shutil.which("flock") is None,
+    reason=(
+        "train_baseline.sh serializes concurrent trials with flock, which is util-linux "
+        "and absent on macOS. Skipped rather than worked around: the lock is what stops "
+        "parallel trials writing one output directory, so a version without it would not "
+        "be the script this asserts on."
+    ),
+)
 def test_yam_wrapper_prunes_checkpoints_only_after_success(tmp_path: Path) -> None:
     fake_repo = tmp_path / "repo"
     fake_train = fake_repo / "skills/autoresearch/scripts/train_local.sh"
