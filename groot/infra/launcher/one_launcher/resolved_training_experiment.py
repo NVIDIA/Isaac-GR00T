@@ -204,10 +204,11 @@ class ResolvedTrainingExperiment:
                 "num_trials",
                 "remote_checkpoint",
                 "seed",
+                "persist",
             }:
                 raise ValueError(
                     "Evaluation overrides must target evaluation.task, evaluation.num_trials, "
-                    "evaluation.seed, evaluation.local_checkpoint, or "
+                    "evaluation.seed, evaluation.persist, evaluation.local_checkpoint, or "
                     "evaluation.remote_checkpoint"
                 )
             return
@@ -390,6 +391,7 @@ class ResolvedTrainingExperiment:
             "num_trials",
             "remote_checkpoint",
             "seed",
+            "persist",
         }
         missing = {"task", "num_trials"} - set(value)
         if unknown:
@@ -405,6 +407,7 @@ class ResolvedTrainingExperiment:
                 task=value["task"],
                 num_trials=value["num_trials"],
                 seed=value.get("seed", 0),
+                persist=value.get("persist", False),
                 local_checkpoint=value.get("local_checkpoint"),
                 remote_checkpoint=value.get("remote_checkpoint"),
             )
@@ -416,10 +419,11 @@ class ResolvedTrainingExperiment:
                 "task": config.task,
                 "num_trials": config.num_trials,
                 "seed": config.seed,
+                "persist": config.persist,
                 "local_checkpoint": config.local_checkpoint,
                 "remote_checkpoint": config.remote_checkpoint,
             }.items()
-            if item is not None
+            if item is not None and not (key == "persist" and item is False)
         }
 
     def optional_string(self, payload: Mapping[str, Any], key: str) -> str | None:
