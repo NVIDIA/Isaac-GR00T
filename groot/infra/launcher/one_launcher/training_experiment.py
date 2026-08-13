@@ -107,7 +107,7 @@ class TrainingExperiment:
         return {
             key: value
             for key, value in self.serializable_value(self.evaluation_config).items()
-            if value is not None and not (key == "persist" and value is False)
+            if value is not None
         }
 
     def dataclass_overrides(self, instance: Any) -> Mapping[str, Any]:

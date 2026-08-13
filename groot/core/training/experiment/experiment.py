@@ -1212,8 +1212,6 @@ def run(
 
         trainer.add_callback(_OverrideSaveStepsCallback())
         trainer.add_callback(OLTrainingProgressCallback(global_rank=global_rank))
-        for callback in pipeline.create_trainer_callbacks(trainer):
-            trainer.add_callback(callback)
 
         model_type = getattr(config.model, "model_type", type(config.model).__name__)
         if model_type in {"GrootN2", "GrootN2TTT", "GrootN2Nano"}:

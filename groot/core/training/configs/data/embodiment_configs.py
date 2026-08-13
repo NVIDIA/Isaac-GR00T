@@ -188,6 +188,68 @@ MODALITY_CONFIGS = {
             modality_keys=[],
         ),
     },
+    "arx_x5": {
+        "video": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=[
+                "cam_high",
+                "cam_left_wrist",
+                "cam_right_wrist",
+            ],
+        ),
+        "state": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=[
+                "left_joints",
+                "left_gripper",
+                "right_joints",
+                "right_gripper",
+            ],
+        ),
+        "action": ModalityConfig(
+            delta_indices=list(range(40)),
+            modality_keys=[
+                "left_joints",
+                "left_gripper",
+                "right_joints",
+                "right_gripper",
+            ],
+            action_configs=[
+                ActionConfig(
+                    rep=ActionRepresentation.RELATIVE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                    state_key="left_joints",
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.ABSOLUTE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                    state_key="left_gripper",
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.RELATIVE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                    state_key="right_joints",
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.ABSOLUTE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                    state_key="right_gripper",
+                ),
+            ],
+        ),
+        "language": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["annotation.human.action.task_description"],
+        ),
+        "rl_info": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=[],
+        ),
+    },
     "xdof_dream": {
         "video": ModalityConfig(
             # 8 frames per chunk (0..42 step 6). With num_chunks=4, dataset adds +1 frame

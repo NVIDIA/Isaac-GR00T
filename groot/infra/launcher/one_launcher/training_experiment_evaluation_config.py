@@ -25,7 +25,6 @@ class TrainingExperimentEvaluationConfig:
     task: str
     num_trials: int
     seed: int = 0
-    persist: bool = False
     local_checkpoint: str | None = None
     remote_checkpoint: str | None = None
 
@@ -40,8 +39,6 @@ class TrainingExperimentEvaluationConfig:
             raise TypeError("Evaluation seed must be an integer")
         if self.seed < 0:
             raise ValueError("Evaluation seed must be greater than or equal to 0")
-        if not isinstance(self.persist, bool):
-            raise TypeError("Evaluation persist must be a boolean")
         self.validate_local_checkpoint()
         self.validate_remote_checkpoint()
         if self.local_checkpoint is not None and self.remote_checkpoint is not None:

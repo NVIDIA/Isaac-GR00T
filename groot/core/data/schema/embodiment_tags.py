@@ -372,6 +372,11 @@ class EmbodimentTag(Enum):
     The XDOF robot.
     """
 
+    ARX_X5 = "arx_x5"
+    """
+    The bimanual ARX X5 robot used by RoboDojo.
+    """
+
     XDOF_H16 = "xdof_h16"
     """
     The XDOF robot with action horizon 16.
