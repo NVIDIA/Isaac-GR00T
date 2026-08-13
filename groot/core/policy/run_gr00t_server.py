@@ -45,6 +45,10 @@ from groot.core.policy import base
 from groot.core.policy.cot import cot_wrapper, planner_client
 from groot.core.policy.debug_logging_wrapper import DebugLoggingPolicy
 from groot.core.policy.gr00t_policy import Gr00tFlatPolicyWrapper, Gr00tPolicy
+from groot.core.policy.n2_policy_factory import (
+    authenticate_server_task_config,
+    create_gr00t_n2_policy,
+)
 from groot.core.policy.server_client import PolicyServer
 
 DEFAULT_MODEL_SERVER_PORT = 5555
@@ -119,6 +123,14 @@ class ServerConfig:
     enable_n2_pred_comparison: bool = False
     """For groot_n2: run video prediction and return decoded frames for pred-vs-real
     comparison PNGs even when --save-video-dir is unset (no traj_*.mp4 on server)."""
+
+    task_config: str | None = None
+    """Optional strict rl100_n2.task_config.v2 YAML, resolved together with the
+    RL100_N2_TASK_CONFIG environment override (a conflicting pair fails closed).
+    Authenticated at the START of main(), before the checkpoint is inspected and
+    before any dependency preparation; the authenticated binding object is then
+    handed to the N2 policy factory. None with no env override is the exact
+    legacy behavior."""
 
     debug_save_subdir: str | None = None
     """If set, dump every received observation to
@@ -230,7 +242,18 @@ def main(config: ServerConfig) -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     logger = logging.getLogger(__name__)
+
+    # Authenticate the strict task config FIRST — before the checkpoint is
+    # inspected, before the N2 policy implementation is imported, and before
+    # ensure_cosmos_model_deps() can download or mutate a dependency cache.
+    strict_binding = authenticate_server_task_config(config.task_config, logger=logger)
+
     policy_type = detect_policy_type_from_checkpoint(config.model_path)
+    if policy_type != "groot_n2" and strict_binding is not None:
+        raise ValueError(
+            "a strict task config is a Gr00tN2Policy contract; the generic "
+            f"{policy_type!r} policy cannot enforce it — refusing to serve"
+        )
 
     logger.info("Starting Groot inference server...")
     logger.info(f"  Policy type:              {policy_type}")
@@ -244,20 +267,12 @@ def main(config: ServerConfig) -> None:
     logger.info(f"  enable_n2_pred_comparison: {config.enable_n2_pred_comparison}")
 
     if policy_type == "groot_n2":
-        from groot.core.policy.n2_policy import Gr00tN2Policy
-
-        # Auto-download Cosmos DiT / text encoder / Wan VAE from S3 and rewrite
-        # baked Lustre paths in config.json + processor_config.json to point at
-        # the local cache. No-op when paths already exist locally. Use the
-        # groot.core implementation so the N2 inference path imports zero
-        # groot.vla.omni.
-        from groot.core.training.models.n2.utils.cosmos_model_deps import (
-            ensure_cosmos_model_deps,
-        )
-
-        ensure_cosmos_model_deps(config.model_path)
-
-        policy = Gr00tN2Policy(
+        # The factory owns what used to be inline here: one final live-byte
+        # check of the authenticated binding, the Cosmos DiT / text encoder /
+        # Wan VAE download + path rewrite, and the choice of policy
+        # implementation. It still imports zero groot.vla.omni, and it treats
+        # groot.core.rl as optional.
+        policy = create_gr00t_n2_policy(
             embodiment_tag=config.embodiment_tag,
             model_path=config.model_path,
             device=config.device,
@@ -266,6 +281,7 @@ def main(config: ServerConfig) -> None:
             use_torch_compile=config.use_torch_compile,
             torch_compile_mode=config.torch_compile_mode,
             save_video_dir=config.save_video_dir,
+            strict_task_binding=strict_binding,
             enable_n2_pred_comparison=config.enable_n2_pred_comparison,
         )
     else:
