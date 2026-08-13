@@ -80,6 +80,7 @@ training = [
 
 [tool.setuptools]
 include-package-data = true
+license-files = ["LICENSE", "LICENSES/*.txt", "THIRD_PARTY_NOTICES.md"]
 
 [tool.setuptools.packages.find]
 where = ["."]
