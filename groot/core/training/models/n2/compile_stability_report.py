@@ -1,12 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+# ruff: noqa: T201
+
 """Summarize GrootN2 torch.compile diagnostic logs."""
 
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
 import json
 from pathlib import Path
 import re
-from typing import Iterable
 
 _DIAGNOSTIC_RE = re.compile(r"\[GrootN2 compile\] step=(?P<step>\d+) (?P<metrics>.*)$")
 _METRIC_RE = re.compile(r"(?P<key>[A-Za-z0-9_]+)=(?P<value>-?\d+)")
@@ -24,11 +36,7 @@ def parse_compile_diagnostic_line(line: str) -> dict[str, int] | None:
 
 
 def collect_compile_diagnostics(lines: Iterable[str]) -> list[dict[str, int]]:
-    return [
-        record
-        for line in lines
-        if (record := parse_compile_diagnostic_line(line)) is not None
-    ]
+    return [record for line in lines if (record := parse_compile_diagnostic_line(line)) is not None]
 
 
 def summarize_compile_diagnostics(records: list[dict[str, int]]) -> dict[str, int]:
