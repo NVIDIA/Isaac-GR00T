@@ -55,6 +55,7 @@ training = [
     "lancedb",
     "matplotlib",
     "msgpack",
+    "cryptography>=48.0.1",
     "msal",
     "multi-storage-client[boto3]==0.46.0",
     "ninja",

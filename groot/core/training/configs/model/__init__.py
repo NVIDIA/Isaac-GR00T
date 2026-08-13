@@ -9,6 +9,7 @@
 # its affiliates is strictly prohibited.
 
 import importlib
+import os
 from pathlib import Path
 import typing
 
@@ -21,6 +22,12 @@ def register_model_config(shortname: str, configtype: type):
     MODEL_CONFIG_TYPES[shortname] = configtype
 
 
+# These dynamic import loops must be run before create_model_union_type is
+# *called* (in base_config.py).
+# They import the register_model_config function above and use it to add their
+# models to the MODEL_CONFIG_TYPES dict.
+
+# Add all model configs in groot/core/training/configs/model
 for file in Path(__file__).parent.glob("*.py"):
     if file.stem.startswith("_"):
         continue
@@ -30,6 +37,16 @@ for file in Path(__file__).parent.glob("*.py"):
         raise
     except Exception as e:
         print(f"Error importing module groot.core.training.configs.model.{file.stem}: {e}")
+
+# Add all model configs from GROOT_TRAINING_EXTENSIONS
+for module_path in os.environ.get("GROOT_TRAINING_EXTENSIONS", "").strip().split(":"):
+    if module_path:
+        try:
+            importlib.import_module(module_path)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            print(f"Error importing training extension {module_path}: {e}")
 
 
 def create_model_union_type():

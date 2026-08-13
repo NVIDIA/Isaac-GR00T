@@ -54,6 +54,10 @@ class ModelPipeline:
     def return_processor(self):
         return self.processor
 
+    def create_trainer_callbacks(self, trainer) -> list:
+        """Return model-family callbacks to install after Trainer construction."""
+        return []
+
     def stop(self) -> None:
         """Stop dataset/hydrator resources (e.g. IPC server). Call when training ends."""
         if self._dataset_factory is not None:
