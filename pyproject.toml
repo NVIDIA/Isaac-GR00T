@@ -27,7 +27,7 @@ dependencies = [
     "huggingface-hub>=0.36.0",
     "numpy==1.26.4",
     "pyyaml>=6.0.0",
-    "ray[default]==2.48.0",
+    "ray[default]==2.56.1",
     "requests>=2.32.0",
     "tyro",
 ]
@@ -55,6 +55,7 @@ training = [
     "lancedb",
     "matplotlib",
     "msgpack",
+    "cryptography>=48.0.1",
     "msal",
     "multi-storage-client[boto3]==0.46.0",
     "ninja",
@@ -66,7 +67,7 @@ training = [
     "pyarrow",
     "pylance>=0.37.0",
     "pyzmq",
-    "ray[train,default,tune]==2.48.0",
+    "ray[train,default,tune]==2.56.1",
     "structlog",
     "tianshou==0.5.1",
     "tiktoken",
@@ -80,6 +81,7 @@ training = [
 
 [tool.setuptools]
 include-package-data = true
+license-files = ["LICENSE", "LICENSES/*.txt", "THIRD_PARTY_NOTICES.md"]
 
 [tool.setuptools.packages.find]
 where = ["."]
