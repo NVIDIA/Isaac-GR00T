@@ -1,13 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-
 """Lightweight, env-gated host-memory monitor for diagnosing OOMs.
 
 Enable by setting ``GROOT_MEMORY_MONITOR=1``. Starts a daemon thread that logs
@@ -223,10 +213,7 @@ def start(interval_s: float = 5.0) -> None:
             if i % top_every == 0:
                 tops = _top_rss()
                 rendered = ", ".join(f"{name}[{pid}]:{_g(rss):.1f}G" for rss, pid, name in tops)
-                print(
-                    f"[memmon-top] host={host} phase={_PHASE} pid={os.getpid()} {rendered}",
-                    flush=True,
-                )
+                print(f"[memmon-top] host={host} phase={_PHASE} pid={os.getpid()} {rendered}", flush=True)
             if i % (2 * top_every) == 0:
                 try:
                     print(
@@ -239,7 +226,4 @@ def start(interval_s: float = 5.0) -> None:
             time.sleep(interval_s)
 
     threading.Thread(target=_loop, name="groot-memmon", daemon=True).start()
-    print(
-        f"[memmon] started (interval={interval_s}s); set GROOT_MEMORY_MONITOR to control",
-        flush=True,
-    )
+    print(f"[memmon] started (interval={interval_s}s); set GROOT_MEMORY_MONITOR to control", flush=True)

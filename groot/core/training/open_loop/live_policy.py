@@ -31,30 +31,35 @@ KEEP-IN-SYNC comment.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol, cast, runtime_checkable
+from collections.abc import Callable
+from typing import Any, Protocol, cast, runtime_checkable
 
 import torch
-
-# Module-class registration side effects — these are what
-# Gr00tPolicy.__init__ / Gr00tN2Policy.__init__ would have imported.
-# We do them at module top so the __new__ bypass is safe even if a future
-# entry point reaches the live path before any other model-loading code.
-import groot.core.training.models  # noqa: F401  (registers N1 with HF AutoModel)
-import groot.core.training.models.n2  # noqa: F401  (registers N2 with HF AutoModel)
 
 from groot.core.data import schema, types
 from groot.core.policy.base import BasePolicy
 from groot.core.policy.gr00t_policy import Gr00tPolicy
-from groot.core.policy.n2_policy import Gr00tN2Policy, _env_bool, _env_float, _env_int
-# ^ _env_bool / _env_int / _env_float are module-private but shared across both the
-#   disk-load path (n2_policy.Gr00tN2Policy.__init__) and the live path
-#   (_make_n2_concrete below). Importing instead of re-implementing
+from groot.core.policy.n2_policy import (
+    Gr00tN2Policy,
+    _env_bool,
+    _env_float,
+    _env_int,
+    _resolve_codec_roundtrip,
+)
+
+# ^ _env_bool / _env_int / _env_float / _resolve_codec_roundtrip are module-private
+#   but shared across both the disk-load path (n2_policy.Gr00tN2Policy.__init__) and
+#   the live path (_make_n2_concrete below). Importing instead of re-implementing
 #   eliminates semantic-drift risk on env-var parsing — a future fix to
 #   the parser semantics takes effect on both paths simultaneously.
 #   This is the one approved exception to the "live policy doesn't depend
-#   on n2_policy internals" rule: these helpers parse strings, not policy
-#   state, and n2_policy.py is bit-identical post-MR so importing is safe.
-
+#   on n2_policy internals" rule: these helpers parse strings, not policy state.
+# Module-class registration side effects — these are what
+# Gr00tPolicy.__init__ / Gr00tN2Policy.__init__ would have imported.
+# We do them at module scope so the __new__ bypass is safe even if a future
+# entry point reaches the live path before any other model-loading code.
+import groot.core.training.models
+import groot.core.training.models.n2  # noqa: F401  (registers N2 with HF AutoModel)
 
 _Restorer = Callable[[], None]
 _MAX_UNWRAP_DEPTH = 4
@@ -69,9 +74,7 @@ class _LivePolicyProtocol(Protocol):
     (see ``LivePolicyAdapter._get_action``).
     """
 
-    def get_action(
-        self, observation: dict, options: dict | None = None
-    ) -> tuple[dict, dict]: ...
+    def get_action(self, observation: dict, options: dict | None = None) -> tuple[dict, dict]: ...
     def get_modality_config(self) -> dict: ...
     def check_observation(self, observation: dict) -> None: ...
     def check_action(self, action: dict) -> None: ...
@@ -129,9 +132,9 @@ class LivePolicyAdapter(BasePolicy):
         # fp16/bf16 Q/K/V. HF Trainer's training_step autocast does NOT cover
         # `on_step_end` callbacks, so we wrap explicitly here.
         with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-            return wrapped._get_action(observation, options)
+            return wrapped._get_action(observation, options)  # noqa: SLF001 — see above
 
-    def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
+    def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]:  # noqa: ARG002
         """Per-trajectory reset that does NOT delegate blindly.
 
         ``Gr00tN2Policy.reset`` invalidates the prompt cache and calls
@@ -166,9 +169,10 @@ class LivePolicyAdapter(BasePolicy):
 
 
 def _unwrap_to_inner_module(model: torch.nn.Module) -> torch.nn.Module:
-    """Strip DDP/DeepSpeed wrappers (``.module``). Stops at the first object
-    without a ``.module`` attribute. Does NOT peel RL wrappers — those expose
-    a different inner via ``wrapped_model`` and N1's
+    """Strip DDP/DeepSpeed wrappers (``.module``).
+
+    Stops at the first object without a ``.module`` attribute. Does NOT peel RL
+    wrappers — those expose a different inner via ``wrapped_model`` and N1's
     ``_resolve_n1_action_head`` knows how to walk both.
 
     Asserts the unwrap depth bound. 4 is a generous upper bound for
@@ -219,11 +223,11 @@ def _resolve_n1_action_head(inner: torch.nn.Module) -> torch.nn.Module | None:
     return None
 
 
-def _override_n1_inference_timesteps(
-    action_head: torch.nn.Module, value: int
-) -> _Restorer:
-    """Mutate the action head's inference timestep count and return a closure
-    that restores the previous value."""
+def _override_n1_inference_timesteps(action_head: torch.nn.Module, value: int) -> _Restorer:
+    """Mutate the action head's inference timestep count.
+
+    Returns a closure that restores the previous value.
+    """
     if hasattr(action_head, "num_inference_timesteps"):
         attr = "num_inference_timesteps"
     elif hasattr(action_head, "num_inference_steps"):
@@ -274,7 +278,7 @@ def _make_n1_concrete(
     policy.model = model
     policy.processor = processor
     policy.embodiment_tag = embodiment_tag
-    policy.modality_configs = policy._load_modality_configs()
+    policy.modality_configs = policy._load_modality_configs()  # noqa: SLF001
     policy.collate_fn = processor.collator
     language_keys = policy.modality_configs["language"].modality_keys
     language_delta = policy.modality_configs["language"].delta_indices
@@ -289,9 +293,7 @@ def _make_n1_concrete(
                 f"num_inference_timesteps={num_inference_timesteps} requested "
                 f"but model {type(inner_module).__name__} has no action_head."
             )
-        restorers.append(
-            _override_n1_inference_timesteps(action_head, num_inference_timesteps)
-        )
+        restorers.append(_override_n1_inference_timesteps(action_head, num_inference_timesteps))
     return policy, restorers
 
 
@@ -304,9 +306,11 @@ def _make_n2_concrete(
     num_inference_timesteps: int | None,
     strict: bool,
 ) -> tuple[Gr00tN2Policy, list[_Restorer]]:
-    """Same idea for N2. The override site is policy.num_inference_steps,
-    not action_head.num_inference_timesteps. No model-side mutation, so no
-    restorer needed.
+    """Same idea for N2.
+
+    The override site is policy.num_inference_steps, not
+    action_head.num_inference_timesteps. No model-side mutation, so no restorer
+    needed.
 
     KEEP IN SYNC WITH ``Gr00tN2Policy.__init__``. The defaults below
     (kv_cache_cond, joint_denoise, num_video_steps from env; the others as
@@ -321,7 +325,7 @@ def _make_n2_concrete(
     policy.model = model
     policy.processor = processor
     policy.embodiment_tag = embodiment_tag
-    policy.modality_configs = policy._load_modality_configs()
+    policy.modality_configs = policy._load_modality_configs()  # noqa: SLF001
     policy.collate_fn = processor.collator
     policy.language_key = policy.modality_configs["language"].modality_keys[0]
 
@@ -344,6 +348,7 @@ def _make_n2_concrete(
     policy.kv_cache_cond = _env_bool("GROOT_N2_KV_CACHE_COND", default=True)
     policy.joint_denoise = _env_bool("GROOT_N2_JOINT_DENOISE", default=True)
     policy.num_video_steps = _env_int("GROOT_N2_NUM_VIDEO_STEPS", default=2)
+    policy.codec_roundtrip = _resolve_codec_roundtrip()
     policy.shift = _env_float("GROOT_N2_SHIFT", default=5.0)
 
     # Per-trajectory state — adapter clears the buffer in `reset()`.
@@ -352,9 +357,9 @@ def _make_n2_concrete(
     # `_step_count` is incremented unconditionally by every `_get_action` call;
     # only consulted when `save_video_dir is not None`, but read either way so
     # it must exist. KEEP IN SYNC WITH ``Gr00tN2Policy.__init__``.
-    policy._step_count = 0
-    policy._cached_prompt_embs = None
-    policy._cached_language_dict = None
+    policy._step_count = 0  # noqa: SLF001
+    policy._cached_prompt_embs = None  # noqa: SLF001
+    policy._cached_language_dict = None  # noqa: SLF001
     return policy, []
 
 
@@ -391,8 +396,8 @@ def build_live_policy(
     inner = _unwrap_to_inner_module(model)
     factory = _CONCRETE_POLICY_FACTORIES[_classify_model(inner)]
     policy, restorers = factory(
-        model=model,           # bind wrapped model so DDP/DS hooks fire
-        inner_module=inner,    # used only for action_head introspection
+        model=model,  # bind wrapped model so DDP/DS hooks fire
+        inner_module=inner,  # used only for action_head introspection
         processor=processor,
         embodiment_tag=embodiment_tag,
         num_inference_timesteps=num_inference_timesteps,

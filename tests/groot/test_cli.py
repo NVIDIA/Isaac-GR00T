@@ -610,48 +610,25 @@ def test_oss_train_eval_passes_trained_checkpoint_to_eval_without_gpu_backend(
     assert eval_configs[0].checkpoint == str(output_dir / "checkpoint-2")
 
 
-def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
+def test_oss_infra_symlinks_expose_only_temporary_data_credentials() -> None:
     package_root = _package_root()
 
-    exported_files = [
-        package_root / "groot/infra/oss.py",
-        package_root / "groot/infra/job/data_credentials.py",
-    ]
-    exported_directories = [
-        package_root / "groot/infra/launcher",
-        package_root / "groot/infra/eval",
-    ]
+    assert (package_root / "groot/infra/oss.py").is_symlink()
+    assert (package_root / "groot/infra/launcher").is_symlink()
     assert (package_root / "groot/infra/experiments").is_dir()
     public_configs = package_root / "groot/infra/experiments/training/configs"
-    exported_files.extend(
-        [
-            public_configs / f"{oss.OSS_TRAINING_EXPERIMENT}.py",
-            public_configs / "_n2_base_compute_config.py",
-            public_configs / "_n2_base_data_config.py",
-            public_configs / "_n2_base_training_config.py",
-            public_configs / "_n2_model_config.py",
-        ]
-    )
-
-    for exported_file in exported_files:
-        assert exported_file.is_file()
-    for exported_directory in exported_directories:
-        assert exported_directory.is_dir()
-
-    # The internal package uses links to share implementation. The sync intentionally
-    # materializes those links into regular files and directories in staging.
-    if _is_internal_monorepo(package_root):
-        for exported_path in [*exported_files, *exported_directories]:
-            assert exported_path.is_symlink()
-    else:
-        for exported_path in [*exported_files, *exported_directories]:
-            assert not exported_path.is_symlink()
-
+    assert (public_configs / f"{oss.OSS_TRAINING_EXPERIMENT}.py").is_symlink()
+    assert (public_configs / "_n2_base_compute_config.py").is_symlink()
+    assert (public_configs / "_n2_base_data_config.py").is_symlink()
+    assert (public_configs / "_n2_base_training_config.py").is_symlink()
+    assert (public_configs / "_n2_model_config.py").is_symlink()
     assert not (public_configs / "n2_egoscale_mega_soup_pretrain.py").exists()
     assert not (public_configs / "n2_yam_simulation_stack_bowls.py").exists()
     assert not (public_configs / "n2_robocasa365.py").exists()
+    assert (package_root / "groot/infra/eval").is_symlink()
     job_dir = package_root / "groot/infra/job"
     assert (job_dir / "__init__.py").is_file()
+    assert (job_dir / "data_credentials.py").is_symlink()
     assert not (job_dir / "__main__.py").exists()
     assert not (job_dir / "ray_cluster.py").exists()
     assert not (job_dir / "ray_job.py").exists()
@@ -721,10 +698,6 @@ def _package_root() -> Path:
         for parent in Path(__file__).resolve().parents
         if (parent / "pyproject.toml").exists()
     )
-
-
-def _is_internal_monorepo(package_root: Path) -> bool:
-    return (package_root.parent / "ci/internal/sync").is_dir()
 
 
 def _monorepo_root() -> Path:

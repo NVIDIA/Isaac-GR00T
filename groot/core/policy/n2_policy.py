@@ -158,6 +158,38 @@ def _env_float(name: str, *, default: float) -> float:
     return float(raw)
 
 
+def _resolve_codec_roundtrip(codec_roundtrip: str = "mp4v") -> str:
+    """Resolve the observation-video codec, letting the env override the ctor arg.
+
+    Shared with ``open_loop/live_policy.py``: that path builds the policy through
+    ``__new__`` and never runs ``__init__``, so a second hand-written copy of this
+    logic would silently drift from this one.
+
+    ``GROOT_N2_CODEC_ROUNDTRIP`` is the only roundtrip variable this policy reads.
+    Any other ``GROOT_N2_*_ROUNDTRIP`` export — a retired spelling, a typo — is
+    rejected rather than ignored: silently falling back to the default would hand
+    the policy a different codec than the caller asked for, and a codec mismatch
+    surfaces as degraded success rates rather than as an error.
+    """
+    stale = sorted(
+        name
+        for name in os.environ
+        if name.startswith("GROOT_N2_")
+        and name.endswith("_ROUNDTRIP")
+        and name != "GROOT_N2_CODEC_ROUNDTRIP"
+    )
+    if stale:
+        raise ValueError(
+            f"unrecognized roundtrip env var(s) {stale}; this policy reads only "
+            f"GROOT_N2_CODEC_ROUNDTRIP (one of {_CODEC_ROUNDTRIPS}). A retired "
+            "boolean spelling maps 0 -> 'none' and 1 -> 'h264'."
+        )
+    codec = os.environ.get("GROOT_N2_CODEC_ROUNDTRIP", codec_roundtrip).lower()
+    if codec not in _CODEC_ROUNDTRIPS:
+        raise ValueError(f"codec_roundtrip must be one of {_CODEC_ROUNDTRIPS}, got {codec!r}")
+    return codec
+
+
 class Gr00tN2Policy(Gr00tPolicy):
     """Policy for GrootN2: joint video + action inference.
 
@@ -255,12 +287,7 @@ class Gr00tN2Policy(Gr00tPolicy):
         self.num_video_steps = _env_int("GROOT_N2_NUM_VIDEO_STEPS", default=2)
         # Observation-video codec roundtrip (see _codec_roundtrip_views). The env
         # var overrides the ctor arg so eval can flip it without an API change.
-        self.codec_roundtrip = os.environ.get("GROOT_N2_CODEC_ROUNDTRIP", codec_roundtrip).lower()
-        if self.codec_roundtrip not in _CODEC_ROUNDTRIPS:
-            raise ValueError(
-                f"codec_roundtrip must be one of {_CODEC_ROUNDTRIPS}, "
-                f"got {self.codec_roundtrip!r}"
-            )
+        self.codec_roundtrip = _resolve_codec_roundtrip(codec_roundtrip)
         print(
             f"[Gr00tN2Policy] inference config: "
             f"num_inference_timesteps={num_inference_timesteps}, "

@@ -23,6 +23,14 @@ class StragglerConfig:
 
     Monitors per-rank performance in distributed training to identify slow ranks.
     Enabled by default. Requires nvidia-resiliency-ext (declared in pyproject.toml).
+
+    Known incompatibility with CUDA graphs: under `--training.torch_compile`
+    (reduce-overhead), the straggler report's NCCL collective raised "NCCL Error 1:
+    unhandled cuda error" on an 8xH100 run, poisoning the CUDA context so the next
+    ALLREDUCE hung 600s -> watchdog abort -> whole job crash (~step 30). Recipes that
+    hit this pass `--training.straggler.no-enabled` for that run rather than flipping
+    this default; see groot/core/training/scripts/n2_rl/boot_train_h100x32_ray.sh and
+    groot/core/training/scripts/n2/weighted_bc/launch_n2_rl_after_iter0.py.
     """
 
     enabled: bool = True
@@ -224,9 +232,7 @@ class TrainingConfig:
     straggler: "StragglerConfig" = dataclasses.field(default_factory=lambda: StragglerConfig())
 
     # Open-loop evaluation (two nested configs).
-    open_loop_eval: OpenLoopEvalConfig = dataclasses.field(
-        default_factory=OpenLoopEvalConfig
-    )
+    open_loop_eval: OpenLoopEvalConfig = dataclasses.field(default_factory=OpenLoopEvalConfig)
     open_loop_eval_in_process: OpenLoopEvalInProcessConfig = dataclasses.field(
         default_factory=OpenLoopEvalInProcessConfig
     )

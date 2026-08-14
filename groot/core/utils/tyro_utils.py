@@ -1,15 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-
-# ruff: noqa: BLE001, ISC001, PLW2901, RUF005, UP007, UP038
-
 """Utilities for converting objects back into tyro-compatible CLI args."""
 
 from __future__ import annotations
@@ -92,7 +80,9 @@ def _tyro_default_selector_name(tp: object) -> str | None:
 
 
 def _is_structured_type(tp: object) -> bool:
-    return (isinstance(tp, type) and dataclasses.is_dataclass(tp)) or typing.is_typeddict(tp)
+    return (isinstance(tp, type) and dataclasses.is_dataclass(tp)) or typing.is_typeddict(
+        tp
+    )
 
 
 def _is_optional(tp: object) -> bool:
@@ -130,7 +120,9 @@ def _scalar_to_str(value: object) -> str:
     return str(value)
 
 
-def _extend_sequence_tokens(tokens: list[str], values: list[object] | tuple[object, ...]) -> None:
+def _extend_sequence_tokens(
+    tokens: list[str], values: list[object] | tuple[object, ...]
+) -> None:
     for item in values:
         if isinstance(item, (list, tuple)):
             _extend_sequence_tokens(tokens, item)
@@ -145,9 +137,9 @@ def _is_cli_representable_sequence(value: object) -> bool:
         if isinstance(item, (list, tuple)):
             if not _is_cli_representable_sequence(item):
                 return False
-        elif (dataclasses.is_dataclass(item) and not isinstance(item, type)) or isinstance(
-            item, dict
-        ):
+        elif dataclasses.is_dataclass(item) and not isinstance(item, type):
+            return False
+        elif isinstance(item, dict):
             return False
     return True
 
@@ -168,7 +160,9 @@ def _subcommand_name_from_metadata(metadata: tuple[object, ...]) -> str | None:
     return None
 
 
-def _subcommand_choice_for_value(value: object, field_type: object) -> tuple[str, object] | None:
+def _subcommand_choice_for_value(
+    value: object, field_type: object
+) -> tuple[str, object] | None:
     field_type, _ = _strip_annotated(field_type)
     if not _is_union(field_type):
         return None
@@ -221,7 +215,8 @@ def _values_equal(left: object, right: object) -> bool:
 
 def _raise_unsupported(path: str, value: object) -> None:
     raise UntyroUnsupportedOverrideError(
-        f"Changed value at {path!r} cannot be represented as tyro argv: {type(value).__name__}"
+        f"Changed value at {path!r} cannot be represented as tyro argv: "
+        f"{type(value).__name__}"
     )
 
 
@@ -325,9 +320,13 @@ def _serialize_override_value(
     if subcommand_choice is not None:
         command_name, choice_type = subcommand_choice
         default_choice = (
-            _subcommand_choice_for_value(default, field_type) if default is not _MISSING else None
+            _subcommand_choice_for_value(default, field_type)
+            if default is not _MISSING
+            else None
         )
-        branch_changed = default_choice is None or default_choice[0] != command_name
+        branch_changed = (
+            default_choice is None or default_choice[0] != command_name
+        )
         args = [f"{arg_name}:{command_name}"]
         branch_default = default
         if branch_changed:
@@ -347,7 +346,9 @@ def _serialize_override_value(
         args = [f"{arg_name}:{command_name}"]
         if dataclasses.is_dataclass(value) and not isinstance(value, type):
             nested_default = (
-                _default_for_structured_type(choice_type) if selector_needed else default
+                _default_for_structured_type(choice_type)
+                if selector_needed
+                else default
             )
             args.extend(_dataclass_overrides(value, nested_default, prefix=arg_name))
             return args
@@ -452,15 +453,21 @@ def _override_items(values: OverrideValues) -> tuple[tuple[str, object], ...]:
         return tuple((str(key), value) for key, value in values.items())
     if dataclasses.is_dataclass(values) and not isinstance(values, type):
         return tuple(
-            (field.name, getattr(values, field.name)) for field in dataclasses.fields(values)
+            (field.name, getattr(values, field.name))
+            for field in dataclasses.fields(values)
         )
     raise TypeError(
-        "Expected override values to be a dict or dataclass instance, " f"got {type(values)}"
+        "Expected override values to be a dict or dataclass instance, "
+        f"got {type(values)}"
     )
 
 
-def _apply_override_values(target: object, values: OverrideValues, path: str = "") -> None:
-    values_are_dataclass = dataclasses.is_dataclass(values) and not isinstance(values, type)
+def _apply_override_values(
+    target: object, values: OverrideValues, path: str = ""
+) -> None:
+    values_are_dataclass = dataclasses.is_dataclass(values) and not isinstance(
+        values, type
+    )
 
     for key, value in _override_items(values):
         if isinstance(value, UnsetType):
@@ -468,16 +475,26 @@ def _apply_override_values(target: object, values: OverrideValues, path: str = "
 
         item_path = f"{path}.{key}" if path else key
         should_merge_value = isinstance(value, collections.abc.Mapping) or (
-            values_are_dataclass and dataclasses.is_dataclass(value) and not isinstance(value, type)
+            values_are_dataclass
+            and dataclasses.is_dataclass(value)
+            and not isinstance(value, type)
         )
 
         if isinstance(target, dict):
             current = target.get(key, _MISSING)
-            if should_merge_value and (
-                isinstance(current, dict)
-                or (dataclasses.is_dataclass(current) and not isinstance(current, type))
+            if (
+                should_merge_value
+                and (
+                    isinstance(current, dict)
+                    or (
+                        dataclasses.is_dataclass(current)
+                        and not isinstance(current, type)
+                    )
+                )
             ):
-                _apply_override_values(current, typing.cast(OverrideValues, value), item_path)
+                _apply_override_values(
+                    current, typing.cast(OverrideValues, value), item_path
+                )
             else:
                 target[key] = value
             continue
@@ -490,11 +507,19 @@ def _apply_override_values(target: object, values: OverrideValues, path: str = "
                 )
 
             current = getattr(target, key)
-            if should_merge_value and (
-                isinstance(current, dict)
-                or (dataclasses.is_dataclass(current) and not isinstance(current, type))
+            if (
+                should_merge_value
+                and (
+                    isinstance(current, dict)
+                    or (
+                        dataclasses.is_dataclass(current)
+                        and not isinstance(current, type)
+                    )
+                )
             ):
-                _apply_override_values(current, typing.cast(OverrideValues, value), item_path)
+                _apply_override_values(
+                    current, typing.cast(OverrideValues, value), item_path
+                )
             else:
                 setattr(target, key, value)
             continue
@@ -528,7 +553,9 @@ def _overlay_annotation(field_type: object) -> object:
 
 def overlay_type(dataclass_type: type[object]) -> type[DataclassInstance]:
     """Return a cached sparse overlay dataclass for ``dataclass_type``."""
-    if not dataclasses.is_dataclass(dataclass_type) or not isinstance(dataclass_type, type):
+    if not dataclasses.is_dataclass(dataclass_type) or not isinstance(
+        dataclass_type, type
+    ):
         raise TypeError(f"Expected a dataclass class, got {dataclass_type}")
 
     cached = _OVERLAY_TYPE_CACHE.get(dataclass_type)
