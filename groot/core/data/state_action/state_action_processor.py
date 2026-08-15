@@ -521,7 +521,7 @@ class StateActionProcessor:
 
                     # Convert batched relative actions to absolute
                     absolute_actions = []
-                    for s, a in zip(reference_state, relative_action, strict=False):
+                    for s, a in zip(reference_state, relative_action, strict=True):
                         # Use last timestep of state as reference
                         absolute_action = self._convert_to_absolute_action(
                             action=a,

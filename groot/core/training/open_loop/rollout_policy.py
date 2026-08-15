@@ -31,7 +31,7 @@ from groot.vla.env.sim.wrapper.video_recording_wrapper import (
     VideoRecorder,
     VideoRecordingWrapper,
 )
-from groot.vla.eval.sim.groot_locomanip_utils import get_embodiment_tag_from_env_name
+from groot.vla.eval.sim.sim_env_utils import get_embodiment_tag_from_env_name
 
 
 @dataclass
