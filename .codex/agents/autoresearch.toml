@@ -23,7 +23,7 @@ path = "./skills/insights/SKILL.md"
 enabled = true
 
 [[skills.config]]
-path = "./skills/oss/SKILL.md"
+path = "./skills/onboarding/SKILL.md"
 enabled = true
 
 [[skills.config]]

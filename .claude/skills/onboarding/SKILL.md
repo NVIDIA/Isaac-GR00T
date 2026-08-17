@@ -1,6 +1,6 @@
 ---
-name: oss
-description: Run local OSS GR00T N2 workflows through `uv run python -m groot.infra.oss`. Use when an assistant is asked to post-train, fine-tune, train-eval, evaluate a checkpoint, run open-loop eval, start a policy server, dry-run setup, or train/evaluate on a user-provided LeRobot dataset in the OSS package.
+name: onboarding
+description: Onboard users to local OSS GR00T N2 workflows through `uv run python -m groot.infra.oss`. Use when an assistant is asked to set up or verify an OSS installation, post-train, fine-tune, train-eval, evaluate a checkpoint, run open-loop eval, start a policy server, dry-run setup, or train/evaluate on a user-provided LeRobot dataset.
 ---
 
 <!--
@@ -15,7 +15,7 @@ without an express license agreement from NVIDIA CORPORATION or
 its affiliates is strictly prohibited.
 -->
 
-# OSS Local Workflows
+# OSS Onboarding and Local Workflows
 
 Use the local OSS CLI as the only execution surface. Do not use OSMO, GitLab
 pipelines, internal CI, internal agents, or golden-run workflows.
@@ -23,8 +23,8 @@ pipelines, internal CI, internal agents, or golden-run workflows.
 ## Workflow
 
 1. Work from the OSS package root, the directory containing `pyproject.toml`.
-2. Use `n2_egoscale_mega_soup_pretrain` unless the user names another experiment
-   accepted by `python -m groot.infra.oss --help`.
+2. Use the CLI's fixed `n2_oss_pretrain` experiment. Do not pass an experiment
+   name positionally; the public CLI does not accept one.
 3. Use a local LeRobot-compatible dataset path for v1. If the user gives a
    Hugging Face dataset ID, ask for the local materialized dataset path unless
    the CLI adds first-class dataset download flags.
@@ -146,7 +146,7 @@ infrastructure or shared mounts.
 Dry-run training on a local dataset:
 
 ```bash
-uv run python -m groot.infra.oss train n2_egoscale_mega_soup_pretrain \
+uv run python -m groot.infra.oss train \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag <dataset-embodiment-tag> \
   --dry-run
@@ -155,7 +155,7 @@ uv run python -m groot.infra.oss train n2_egoscale_mega_soup_pretrain \
 Short smoke training run:
 
 ```bash
-uv run python -m groot.infra.oss train n2_egoscale_mega_soup_pretrain \
+uv run python -m groot.infra.oss train \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag <dataset-embodiment-tag> \
   --num-gpus 8 \
@@ -166,7 +166,7 @@ uv run python -m groot.infra.oss train n2_egoscale_mega_soup_pretrain \
 Override the starting checkpoint:
 
 ```bash
-uv run python -m groot.infra.oss train n2_egoscale_mega_soup_pretrain \
+uv run python -m groot.infra.oss train \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag <dataset-embodiment-tag> \
   --pretrain-checkpoint <hf-uri-or-local-path>
@@ -177,7 +177,7 @@ uv run python -m groot.infra.oss train n2_egoscale_mega_soup_pretrain \
 Dry-run evaluation:
 
 ```bash
-uv run python -m groot.infra.oss eval n2_egoscale_mega_soup_pretrain \
+uv run python -m groot.infra.oss eval \
   --checkpoint <hf-uri-or-local-path> \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag <dataset-embodiment-tag> \
@@ -187,7 +187,7 @@ uv run python -m groot.infra.oss eval n2_egoscale_mega_soup_pretrain \
 Quick local smoke eval:
 
 ```bash
-uv run python -m groot.infra.oss eval n2_egoscale_mega_soup_pretrain \
+uv run python -m groot.infra.oss eval \
   --checkpoint <hf-uri-or-local-path> \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag <dataset-embodiment-tag> \
@@ -199,7 +199,7 @@ uv run python -m groot.infra.oss eval n2_egoscale_mega_soup_pretrain \
 Evaluate multiple trajectories and write an explicit report:
 
 ```bash
-uv run python -m groot.infra.oss eval n2_egoscale_mega_soup_pretrain \
+uv run python -m groot.infra.oss eval \
   --checkpoint <hf-uri-or-local-path> \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag <dataset-embodiment-tag> \
@@ -235,7 +235,7 @@ on CUDA.
 Run post-training followed by eval on the same dataset:
 
 ```bash
-uv run python -m groot.infra.oss train-eval n2_egoscale_mega_soup_pretrain \
+uv run python -m groot.infra.oss train-eval \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag <dataset-embodiment-tag>
 ```

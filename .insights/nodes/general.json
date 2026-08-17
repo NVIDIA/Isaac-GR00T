@@ -1,10 +1,52 @@
 {
   "chunks": [
     {
+      "chunk_id": "doc:00777a0fd639",
+      "concepts": [],
+      "text": "100 direct human op, hard to get teleop with robot hand, working on action control with IK",
+      "title": "100 direct human hard get teleop robot hand"
+    },
+    {
+      "chunk_id": "doc:0151e12be47b",
+      "concepts": [],
+      "text": "collected several datasets, 100 (one task), 400 episodes (two tasks each 200)",
+      "title": "collected several datasets 100 task 400 episodes tasks"
+    },
+    {
+      "chunk_id": "doc:019f983e72f1",
+      "concepts": [],
+      "text": "how can system recover from failure (miss grasp, grasp then object fail)->break symmetry, learn state machine implicitly",
+      "title": "system recover failure miss grasp object fail break"
+    },
+    {
       "chunk_id": "doc:06136f473dc0",
       "concepts": [],
       "text": "camera: ceiling better than head (left and right wrist cameras are also used)",
       "title": "camera ceiling better head left right wrist cameras"
+    },
+    {
+      "chunk_id": "doc:0b48ac5efd43",
+      "concepts": [],
+      "text": "sim-real co-training is big hole, do not touch",
+      "title": "sim-real co-training big hole touch"
+    },
+    {
+      "chunk_id": "doc:0bd0209f11d7",
+      "concepts": [],
+      "text": "Q: which IK to use to mimic human-like eef motion? A: train exp result on wiping task",
+      "title": "Q IK mimic human-like eef motion train exp"
+    },
+    {
+      "chunk_id": "doc:0c58d0dcdcaa",
+      "concepts": [],
+      "text": "Phase 1: pick towels from a basket, isolate one item, flatten it, and place onto a conveyor for high\u2011temperature drying.",
+      "title": "Phase 1 pick towels basket isolate item flatten"
+    },
+    {
+      "chunk_id": "doc:0ce941def52c",
+      "concepts": [],
+      "text": "sideline: cosmos 3 EA, doing sft exp, will show next meeting",
+      "title": "sideline cosmos 3 EA doing sft exp show"
     },
     {
       "chunk_id": "doc:0cf371294ffb",
@@ -13,10 +55,112 @@
       "title": "Importance keeping task definition environment consistent across simulation"
     },
     {
+      "chunk_id": "doc:0d437c36b892",
+      "concepts": [],
+      "text": "NVIDIA has internal best\u2011practice requirements and is open to sharing them.",
+      "title": "NVIDIA internal best practice requirements open sharing them."
+    },
+    {
+      "chunk_id": "doc:0e643997a828",
+      "concepts": [],
+      "text": "action joint state: relative or absolute (now use). relative might work, also suggested relative EEF (used in pretrain).",
+      "title": "action joint state relative absolute now work suggested"
+    },
+    {
+      "chunk_id": "doc:0fd64be8569c",
+      "concepts": [],
+      "text": "Review shared configs and provide guidance on task setup consistency and benchmarking.",
+      "title": "Review shared configs provide guidance task setup consistency"
+    },
+    {
+      "chunk_id": "doc:106aa7049ca6",
+      "concepts": [],
+      "text": "Establish a single-object pick-and-place baseline in simulation and report results.",
+      "title": "Establish single-object pick-and-place baseline simulation report results."
+    },
+    {
+      "chunk_id": "doc:1120c9afcbd9",
+      "concepts": [],
+      "text": "For context, some internal settings used a similar one-history-frame pattern, e.g. delta_indices=[-16, 0], because the internal replan interval was 16.",
+      "title": "context internal settings similar one-history-frame pattern e.g. delta"
+    },
+    {
+      "chunk_id": "doc:119be8203629",
+      "concepts": [],
+      "text": "dagger is simple and worth building for customer (where operator can help finish tasks robot fail), the data could be treated as good demo, or bad demo for rl training",
+      "title": "dagger simple worth building customer operator help finish"
+    },
+    {
+      "chunk_id": "doc:17956c4fc09c",
+      "concepts": [],
+      "text": "Authors: Benedetta Delfino, Alexander Schwarz, Axel Xu, Kartik Sachdev in collaboration with GEAR Lab.",
+      "title": "Authors Benedetta Delfino Alexander Schwarz Axel Kartik Sachdev"
+    },
+    {
       "chunk_id": "doc:18e6ea2de815",
       "concepts": [],
       "text": "If the robot action looks jerky, first check if the training data has the same problem. Try apply low-pass filter to training data. Try more denoising steps in inference.",
       "title": "robot action looks jerky first check training data"
+    },
+    {
+      "chunk_id": "doc:194cb99cb656",
+      "concepts": [],
+      "text": "has N2 able to do full task 4 minutes, with only 100 demo data in real",
+      "title": "N2 able full task 4 minutes only 100"
+    },
+    {
+      "chunk_id": "doc:1b4498265d9e",
+      "concepts": [],
+      "text": "Q: How was N1.7 compared with Pi0.5 in internal evaluation? A: n1.6 use pi0.5 as baseline, yam, bimanual manip: tune n1d6 > pi0.5 on most tasks; more vis on what can be tuned, e.g. full finetuning (often better) vs. dit, worth trying both; add input history; replanning frequent: take smaller action_horizon, but not too short (pick-place keep repeat); full config of both groot and pi, action_chunks, get them closer. dit is much smaller than vlm backbone; pi0.5 default use full_finetune. keep all configs",
+      "title": "Q N1.7 compared Pi0.5 internal evaluation n1.6 baseline"
+    },
+    {
+      "chunk_id": "doc:1b5f2accd7e0",
+      "concepts": [],
+      "text": "Shenyuan Gao1,2\u2020 William Liang1,3\u2020 Kaiyuan Zheng1,4\u2217 Ayaan Malik1,5\u2217 Seonghyeon Ye1,6 Sihyun Yu6 Wei-Cheng Tseng1,7 Yuzhu Dong1 Kaichun Mo1 Chen-Hsuan Lin1 Qianli Ma1 Seungjun Nah1 Loic Magne1 Jiannan Xiang8 Yuqi Xie1 Ruijie Zheng1 Dantong Niu1,3 You Liang Tan1 K.R. Zentner1 George Kurian1 Suneel Indupuru1 Pooya Jannaty1 Jinwei Gu1 Jun Zhang2 Jitendra Malik3 Pieter Abbeel3 Ming-Yu Liu1 Yuke Zhu1,9\u2021 Joel Jang1\u2021 Linxi \u201cJim\u201d Fan1\u2021 1NVIDIA 2HKUST 3UC Berkeley 4UW 5Stanford 6KAIST 7UofT 8UCSD 9UT Austin \u2020Co-First Authors \u2217Core Contributors \u2021Project Leads dreamdojo-world.github.io ###### Abstract Being able to simulate the outcomes of actions in varied environments will revolutionize the development of generalist agents at scale. However, modeling these world dynamics, especially for dexterous robotics tasks, poses significant challenges due to limited data coverage and scarce action labels. As an endeavor towards this end, we introduce DreamDojo, a foundation world model that learns diverse interactions and dexterous controls from 44k hours of egocentric human videos. Our data mixture represents the largest video dataset to date for world model pretraining, spanning a wide range of daily scenarios with diverse objects and skills. To address the scarcity of action labels, we introduce continuous latent actions as unified proxy actions, enhancing interaction knowledge transfer from unlabeled videos. After post-training on small-scale target robot data, DreamDojo demonstrates a strong understanding of physics and precise action controllability. We also devise a distillation pipeline that accelerates DreamDojo to a real-time speed of 10.81 FPS and further improves context consistency. Our work enables several important applications based on generative world models, including live teleoperation, policy evaluation, and model-based planning. Systematic evaluation on multiple challenging out-of-distribution (OOD) benchmarks verifies the significance of our method for simulating open-world, contact-rich tasks, paving the way for general-purpose robot world models. \\abscontent",
+      "title": "DreamDojo: A Generalist Robot World Model from Large-Scale Human Videos"
+    },
+    {
+      "chunk_id": "doc:1c05473f6489",
+      "concepts": [],
+      "text": "QA: they asked about joint space vs. task space, @Yevgen Chebotar confirmed both should work but worth trying. Another question I missed here...",
+      "title": "QA asked joint space vs. task Yevgen Chebotar"
+    },
+    {
+      "chunk_id": "doc:1c21c3125b79",
+      "concepts": [],
+      "text": "Users ask whether 20k steps is always needed, how batch size should scale, what data amount is enough, and what to tune first.",
+      "title": "Users ask whether 20k steps always needed batch"
+    },
+    {
+      "chunk_id": "doc:1d70cd779280",
+      "concepts": [],
+      "text": "Users are confused about state/action mapping, relative vs absolute actions, high-DOF robots, wrist cameras, depth, history input, and action horizon limits.",
+      "title": "Users confused state/action mapping relative absolute actions high-DOF"
+    },
+    {
+      "chunk_id": "doc:1fb1412f0025",
+      "concepts": [],
+      "text": "need to decide 1. which grids are empty 2. place in order of topleft->bottomright",
+      "title": "need decide 1. grids empty 2. place order"
+    },
+    {
+      "chunk_id": "doc:2318bf78245b",
+      "concepts": [],
+      "text": "new embodiment 50-100? known one 10-20. 10-15s, depend on teleop, speed.",
+      "title": "new embodiment 50-100 known 10-20. 10-15s depend teleop"
+    },
+    {
+      "chunk_id": "doc:24b06bd92093",
+      "concepts": [],
+      "text": "retry with longer action_horizon, history answered in Q&A",
+      "title": "retry longer action horizon history answered Q"
+    },
+    {
+      "chunk_id": "doc:26e1cafc9417",
+      "concepts": [],
+      "text": "sonic predict in latent space, not task not joint. like vae for actions.",
+      "title": "sonic predict latent space task joint. like vae"
     },
     {
       "chunk_id": "doc:2889ade8cbac",
@@ -25,10 +169,28 @@
       "title": "Common pattern open-loop looks acceptable robot jitters misses"
     },
     {
+      "chunk_id": "doc:28c831cc30c4",
+      "concepts": [],
+      "text": "wam: output action + video, video quality may not need to be that high to predict policy. dreamzero, cosmos3 are wam. N2 in progress.",
+      "title": "wam output action video quality need high predict"
+    },
+    {
       "chunk_id": "doc:28d6c90f4b68",
       "concepts": [],
       "text": "suggest: add history; camera footage=>better understand edge/corner location from image; collect data only through robot cameras than 3rd person view",
       "title": "suggest add history camera footage better understand edge/corner"
+    },
+    {
+      "chunk_id": "doc:3118a87df1b8",
+      "concepts": [],
+      "text": "eagle is from another previous model, not qwen3, plus many non-commercial data",
+      "title": "eagle another previous model qwen3 plus non-commercial data"
+    },
+    {
+      "chunk_id": "doc:311aa6627bb1",
+      "concepts": [],
+      "text": "Interactive world model. The objective of an interactive world model is to infer future states based on actions. Formally, given an action $a\\in\\mathcal{A}$, the interactive world model acts as a state transition function that samples the next state: | | | | | | --- | --- | --- | --- | | | $s\\_{t+1}\\sim p(\\cdot|s\\_{t},a\\_{t}),$ | | (1) | where $p:\\mathcal{S}\\times\\mathcal{A}\\rightarrow\\Delta(\\mathcal{S})$ is the transition distribution. In this paper, the term \u201cworld model\u201d refers specifically to this category unless otherwise stated. Cosmos-Predict2.5 model. We establish our world model on the pretrained Cosmos-Predict2.5 model (ali2025world), a latent video diffusion model that predicts future frames with text and conditional frame inputs. The Cosmos-Predict2.5 model operates in the continuous latent space produced by WAN2.2 tokenizer (team2025wan). It injects language and timestep conditions into each DiT block (peebles2022scalable). The text embedding is processed by cross-attention layers, while the timestep information is first encoded by sinusoidal embeddings, projected by a lightweight MLP, and then used by adaptive layer normalization for dynamic modulations (scale, shift, gate) (ali2025world). The whole network is trained using flow matching loss (lipman2022flow). Specifically, given the noise corrupted video latent $\\mathbf{x}\\_{t}$ at timestep $t$, the flow matching loss minimizes the prediction error with the ground-truth velocity $\\mathbf{v}\\_{t}$: | | | | | | --- | --- | --- | --- | | | $\\mathcal{L}\\_{\\text{flow}}(\\theta)=\\mathbb{E}\\_{\\mathbf{x},\\epsilon,\\mathbf{c},t}\\left\\|\\mathbf{u}(\\mathbf{x}\\_{t},t,\\mathbf{c};\\theta)-\\mathbf{v}\\_{t}\\right\\|^{2},$ | | (2) | where $\\mathbf{v}\\_{t}$ is a difference between the noise $\\bm{\\epsilon}$ and the clean sample $\\mathbf{x}$ (\\ie, $\\mathbf{v}\\_{t}=\\bm{\\epsilon}-\\mathbf{x}$), $\\mathbf{c}$ denotes any conditions (\\eg, text, conditional frames, and actions for world models), and $\\mathbf{u}(\\cdot;\\theta)$ is the denoiser parametrized by $\\theta$.",
+      "title": "2 Preliminary"
     },
     {
       "chunk_id": "doc:317767693999",
@@ -37,10 +199,64 @@
       "title": "collected 100 episodes suggest post-train directly task easy"
     },
     {
+      "chunk_id": "doc:35cdba67bdc7",
+      "concepts": [],
+      "text": "(https://github.com/NVIDIA/Isaac-GR00T/issues/176), #453 (https://github.com/NVIDIA/Isaac-GR00T/issues/453). Useful notes: 100-200 demos as a starting point, simple tasks around 100,",
+      "title": "https github.com/NVIDIA/Isaac-GR00T/issues/176 453 github.com/NVIDIA/Isaac-GR00T/issues/453 Useful notes 100-200 demos"
+    },
+    {
       "chunk_id": "doc:35dfea403abc",
       "concepts": [],
       "text": "Which is more important for training data, consistency or diversity? If you aim at medium SR, keeping consistent is OK; if you want very high SR, then diversity is necessary.",
       "title": "important training data consistency diversity aim medium SR"
+    },
+    {
+      "chunk_id": "doc:36b7177bfd03",
+      "concepts": [],
+      "text": "Share current task configuration files and simulation setup used for N1.7.",
+      "title": "Share current task configuration files simulation setup N1.7."
+    },
+    {
+      "chunk_id": "doc:378e1b64f95e",
+      "concepts": [],
+      "text": "In this paper, we introduce DreamDojo, a foundation world model that can simulate dexterous robotics tasks and generalize to unseen scenarios. Our model is pretrained on large-scale human datasets that encompass a wide variety of daily interactions. To further enhance knowledge transfer and action controllability, continuous latent actions are introduced as proxy actions for all videos. We further introduce a distillation pipeline that enables stable long-horizon interactions at real-time speed. Extensive evaluations underscore the significance of DreamDojo, demonstrating improved physics understanding and action following in out-of-distribution scenarios, a positive correlation with real-world evaluations, and real-time interactivity for live teleoperation and test-time policy steering. We hope our effort can pave the way for general-purpose robot world models. Limitations. While DreamDojo demonstrates significant improvements over the baseline, it is by no means perfect when simulating uncommon actions, such as slapping and fast waving. Additionally, when conducting policy evaluation, the absolute success rates in DreamDojo are often higher than their real counterparts, indicating a limitation in accurately generating nuanced failures. Future work should explore how to cover broader action distribution, \\eg, using policy rollouts (zhu2025wmpo; ho20251x). We also believe that there remains significant space for improving inference speed through engineering optimizations (hong2025relic; parker2025genie; team2026advancing; ye2026dreamzero). In addition, our model does not naturally support multi-view simulation, which is crucial for state-of-the-art policies (bjorck2025gr00t; black2024pi\\_0). Moreover, how to retain the pretrained knowledge as much as possible has not been studied in depth. Future work could explore other fine-tuning strategies (hu2022lora; yadav2025robust) to achieve better post-training performance on the target embodiment.",
+      "title": "5 Conclusion"
+    },
+    {
+      "chunk_id": "doc:381c9e95c5ef",
+      "concepts": [],
+      "text": "midtrain with more accurate data with more sensors to track every joint, also doing retargeting to robot\u2019s joint space",
+      "title": "midtrain accurate data sensors track every joint doing"
+    },
+    {
+      "chunk_id": "doc:3826895b271d",
+      "concepts": [],
+      "text": "another example: simple cube picknplace in isaacsim, trained using abs task space control",
+      "title": "another example simple cube picknplace isaacsim trained abs"
+    },
+    {
+      "chunk_id": "doc:39a666d3a504",
+      "concepts": [],
+      "text": "relative joint + absolute gripper, same as SO100=>tried and got 35%",
+      "title": "relative joint absolute gripper same SO100 tried got"
+    },
+    {
+      "chunk_id": "doc:39ef0135c6ff",
+      "concepts": [],
+      "text": "training experiments with diff action space/horizon, camera all finished, detail below",
+      "title": "training experiments diff action space/horizon camera finished detail"
+    },
+    {
+      "chunk_id": "doc:3eabdcfa75a7",
+      "concepts": [],
+      "text": "Place not precise enough (object does not slide into target slot).",
+      "title": "Place precise enough object slide target slot"
+    },
+    {
+      "chunk_id": "doc:3f745161011d",
+      "concepts": [],
+      "text": "update with n1.7, use absolute joint than relative including gripper, 35%->96%",
+      "title": "update n1.7 absolute joint relative including gripper 35%-"
     },
     {
       "chunk_id": "doc:41789a408e77",
@@ -49,10 +265,70 @@
       "title": "only current frame robot easier get stuck. history"
     },
     {
+      "chunk_id": "doc:449ae4572712",
+      "concepts": [],
+      "text": "Use these as prior answers to convert into internal notes.",
+      "title": "prior answers convert internal notes."
+    },
+    {
+      "chunk_id": "doc:45432fe9b82b",
+      "concepts": [],
+      "text": "- Dataset conversion / metadata / schema: #28 (https://github.com/NVIDIA/Isaac-GR00T/issues/28), #57 (https://github.com/NVIDIA/Isaac-GR00T/issues/57), #58",
+      "title": "Dataset conversion metadata schema 28 https github.com/NVIDIA/Isaac-GR00T/issues/28 57"
+    },
+    {
+      "chunk_id": "doc:457363a97e8d",
+      "concepts": [],
+      "text": "- Data amount / data quality: #98 (https://github.com/NVIDIA/Isaac-GR00T/issues/98), #168 (https://github.com/NVIDIA/Isaac-GR00T/issues/168), #176",
+      "title": "Data amount quality 98 https github.com/NVIDIA/Isaac-GR00T/issues/98 168 github.com/NVIDIA/Isaac-GR00T/issues/168"
+    },
+    {
+      "chunk_id": "doc:49d8d1143bf3",
+      "concepts": [],
+      "text": "Creating autonomous robots to perform everyday tasks in the human world has long been a fascinating goal and, at the same time, a significant technical undertaking. Recent progress in robotic hardware, artificial intelligence, and accelerated computing has collectively paved the ground for developing general-purpose robot autonomy. To march toward human-level physical intelligence, we advocate for a full-stack solution that integrates the three key ingredients: hardware, models, and data. First and foremost, robots are embodied physical agents, and their hardware determines their capability envelope. It makes humanoid robots a compelling form factor to build robot intelligence due to their human-like physique and versatility. Second, the diversity and variability of the real world demands that the robots operate on open-ended objectives and perform a wide range of tasks. Achieving this requires a generalist robot model sufficiently expressive and capable of handling various tasks. Third, real-world humanoid data are costly and time-consuming to acquire at scale. We need an effective data strategy to train large-scale robotic models. In recent years, foundation models have brought forth dramatic breakthroughs in understanding and generating visual and text data. They demonstrate the effectiveness of training generalist models on web-scale data to enable strong generalization and fast adaptation to downstream tasks. The successes of foundation models in neighboring fields of AI have depicted a promising roadmap for building the \u201cbackbone\u201d of intelligence for generalist robots, endowing them with a set of core competencies and enabling them to rapidly learn and adapt in the real world. However, unlike the digital realms of words and pixels, no Internet of humanoid robot datasets exist for large-scale pre-training. The data available for any single humanoid hardware would be orders of magnitude too small. Recent efforts in the robot learning community (Open X-Embodiment Collaboration et al., 2024) have explored cross-embodied learning to enlarge the dataset by pooling training data from many different robots. However, the great variability in robot embodiments, sensors, actuator degrees of freedom, control modes, and other factors result in an archipelago of \u201cdata islands\u201d rather than a coherent, Internet-scale dataset needed for training a true generalist model. We introduce GR00T N1, an open foundation model for generalist humanoid robots. The GR00T N1 model is a Vision-Language-Action (VLA) model, which generates actions from image and language instruction input. It has cross-embodiment support from tabletop robot arms to dexterous humanoid robots. It adopts a dual-system compositional architecture, inspired by human cognitive processing (Kahneman, 2011). The System 2 reasoning module is a pre-trained Vision-Language Model (VLM) that runs at 10Hz on an NVIDIA L40 GPU. It processes the robot\u2019s visual perception and language instruction to interpret the environment and understand the task goal. Subsequently, a Diffusion Transformer, trained with action flow-matching, serves as the System 1 action module. It cross-attends to the VLM output tokens and employs embodiment-specific encoders and decoders to handle variable state and action dimensions for motion generation. It generates closed-loop motor actions at a higher frequency (120Hz). Both the System 1 and System 2 modules are implemented as Transformer-based neural networks, tightly coupled and jointly optimized during training to facilitate coordination between reasoning and actuation. To mitigate the \u201cdata island\u201d problem mentioned earlier, we structure the VLA training corpora as a data pyramid, illustrated in Fig. 1. Rather than treating the training datasets as a homogeneous pool, we organize heterogeneous sources by scale: large quantities of web data and human videos lay the base of the pyramid; synthetic data generated with physics simulations and/or augmented by off-the-shelf neural models form the middle layer, and real-world data collected on the physical robot hardware complete the top. The lower layers of the pyramid provide broad visual and behavioral priors, while the upper layers ensure grounding in embodied, real-robot execution. We develop an effective co-training strategy to learn across the entire data pyramid in both pre- and post-training phases. To train our model with action-less data sources, such as human videos and neural-generated videos, we learn a latent-action codebook (Ye et al., 2025) and also use a trained inverse dynamics model (IDM) to infer pseudo-actions. These techniques enable us to annotate actions on action-less videos so we can effectively treat them as additional robot embodiments for model training. By unifying all data sources across the data pyramid, we construct a consistent dataset where the input consists of the robot state, visual observations, and language instruction, and the output is the corresponding motor action. We pre-train our model end-to-end across the three data layers, spanning (annotated) video datasets, synthetically generated datasets, and real-robot trajectories \u2014 by sampling training batches across this heterogeneous data mixture. With a unified model and single set of weights, GR00T N1 can generate diverse manipulation behaviors using single-arm, bimanual, and humanoid embodiments. Evaluated on standard simulation benchmark environments, GR00T N1 achieves superior results compared to state-of-the-art imitation learning baselines. We also demonstrate GR00T N1\u2019s strong performance in real-world experiments with GR-1 humanoid robots. Our GR00T-N1-2B model checkpoint, training data, and simulation benchmarks are publicly available here: GitHub and HuggingFace Datasets.",
+      "title": "1 Introduction"
+    },
+    {
+      "chunk_id": "doc:4a39d71a01ce",
+      "concepts": [],
+      "text": "how much data: depend on complexity; decompose to 3 subtasks and collect in a certain order (left arm pick left edge, then..)",
+      "title": "data depend complexity decompose 3 subtasks collect certain"
+    },
+    {
       "chunk_id": "doc:4b34752b9c66",
       "concepts": [],
       "text": "Start with a small operational area, achieve high success rate, then expand distribution.",
       "title": "Start small operational area achieve high success rate"
+    },
+    {
+      "chunk_id": "doc:4b384958359d",
+      "concepts": [],
+      "text": "We have presented GR00T N1, an open foundation model for generalist humanoid robots. GR00T N1 features a dual-system model design, leverages heterogeneous training data, and supports multiple robot embodiments. We systematically evaluate it as a generalist policy across simulation benchmarks and on the real GR-1 humanoid robot. Our experiments demonstrate its strong generalization capabilities, enabling robots to learn diverse manipulation skills with high data efficiency. We hope that our open GR00T-N1-2B model, alongside its training datasets and simulation environments, will accelerate the community\u2019s progress toward building and deploying generally capable humanoid robots in the wild.",
+      "title": "6 Conclusions"
+    },
+    {
+      "chunk_id": "doc:52c928a62021",
+      "concepts": [],
+      "text": "- Action horizon / history / chunking: #135 (https://github.com/NVIDIA/Isaac-GR00T/issues/135), #145 (https://github.com/NVIDIA/Isaac-GR00T/issues/145), #177",
+      "title": "Action horizon history chunking 135 https github.com/NVIDIA/Isaac-GR00T/issues/135 145"
+    },
+    {
+      "chunk_id": "doc:534348f58f23",
+      "concepts": [],
+      "text": "embodiment and task: they will use real-world openarm platform to collect data and do testing. previously they got satisfying results of chopstick picknplace on GTC, about 80-90% with N1.6; new tasks including linen handling, brushing, surface wiping",
+      "title": "embodiment task real-world openarm platform collect data testing."
+    },
+    {
+      "chunk_id": "doc:558882b2007f",
+      "concepts": [],
+      "text": "purpose: build private benchmark toolkit and will continue adding more tasks and allow more action spaces",
+      "title": "purpose build private benchmark toolkit continue adding tasks"
+    },
+    {
+      "chunk_id": "doc:560420042395",
+      "concepts": [],
+      "text": "will collect data only with human hand help? needs to set embodiment tag correctly",
+      "title": "collect data only human hand help needs set"
     },
     {
       "chunk_id": "doc:569fc26ebcf2",
@@ -61,10 +337,40 @@
       "title": "GR00T N1.7 supports additional observation history delta indices"
     },
     {
+      "chunk_id": "doc:57801414ca8b",
+      "concepts": [],
+      "text": "Strategy: start with simple, single-task workflows before scaling complexity.",
+      "title": "Strategy start simple single-task workflows before scaling complexity."
+    },
+    {
+      "chunk_id": "doc:595661895b26",
+      "concepts": [],
+      "text": "action space->future, how normalization: how long in actual time: 1-1.3s. 30 fps, half, 40 action horizon->20 execute",
+      "title": "action space- future normalization long actual time 1-1.3s."
+    },
+    {
       "chunk_id": "doc:5959751af09a",
       "concepts": [],
       "text": "Finally, we recommend verifying that the control stack used during data collection matches deployment as closely as possible, including IK solver, low-level controller, control frequency, action representation, and any smoothing or filtering.",
       "title": "Finally recommend verifying control stack during data collection"
+    },
+    {
+      "chunk_id": "doc:595becf72ae5",
+      "concepts": [],
+      "text": "train/inference speed no worry, could benchmark diff history length; env randomness may have break symmetry; action_chunks average may cause symmetry",
+      "title": "train/inference speed worry benchmark diff history length env"
+    },
+    {
+      "chunk_id": "doc:5c0b49cb2527",
+      "concepts": [],
+      "text": "For one benchmark, get the exact branch, checkpoint, dataset split, stats generation, training command, eval command, checkpoint selection rule, n_envs, number of trials, and expected",
+      "title": "benchmark get exact branch checkpoint dataset split stats"
+    },
+    {
+      "chunk_id": "doc:5d19dbe45d2c",
+      "concepts": [],
+      "text": "why not train with joint state: depend on how fast controller converge / tracking latency depend on robot (openarm is fine, ur5 has latency; should try to use state if possible)",
+      "title": "train joint state depend fast controller converge tracking"
     },
     {
       "chunk_id": "doc:5f1980b435cf",
@@ -73,16 +379,40 @@
       "title": "recommend starting video/image history only. State tried afterward"
     },
     {
+      "chunk_id": "doc:5ff7cbc7a517",
+      "concepts": [],
+      "text": "sft, rl and dagger",
+      "title": "sft dagger"
+    },
+    {
+      "chunk_id": "doc:60af4acd64a9",
+      "concepts": [],
+      "text": "Q: do you do data collection? operation team teleop? do you scale it using mimicgen, etc.? do you use simulation data at all for real tasks? A: flywheel: data collection->model training->deployment",
+      "title": "Q data collection operation team teleop scale mimicgen"
+    },
+    {
       "chunk_id": "doc:616b9e236908",
       "concepts": [],
       "text": "stiff control is preferable if possible, easier to learn as reducing latency",
       "title": "stiff control preferable possible easier learn reducing latency"
     },
     {
+      "chunk_id": "doc:62926f29dd1a",
+      "concepts": [],
+      "text": "3. Embodiment, Modalities, Cameras, Action Semantics",
+      "title": "3. Embodiment Modalities Cameras Action Semantics"
+    },
+    {
       "chunk_id": "doc:67c3d99d8d71",
       "concepts": [],
       "text": "When collecting data by tele-op, look at camera images but not the real robot. Make sure you see what the robot sees. It may affect speed and quality at the beginning, but will be fine after some practice.",
       "title": "collecting data tele-op look camera images real robot."
+    },
+    {
+      "chunk_id": "doc:696a33b3014e",
+      "concepts": [],
+      "text": "Yuhang\u2019s report on n1.6/n1.7 replicate: Gr00t Genie Sim debugging",
+      "title": "Yuhang report n1.6/n1.7 replicate Gr00t Genie Sim debugging"
     },
     {
       "chunk_id": "doc:6b78f46d643f",
@@ -97,10 +427,142 @@
       "title": "Especially since wrote own trainers sure recompute post-training"
     },
     {
+      "chunk_id": "doc:6bed70cead20",
+      "concepts": [],
+      "text": "action horizon: 32 better than 16",
+      "title": "action horizon 32 better 16"
+    },
+    {
+      "chunk_id": "doc:6c1b09725c95",
+      "concepts": [],
+      "text": "test scenario: isaaclab picknplace task left-right two boxes with 2d grids, pick from right and place into left",
+      "title": "test scenario isaaclab picknplace task left-right boxes 2d"
+    },
+    {
+      "chunk_id": "doc:6e94a7fa6e54",
+      "concepts": [],
+      "text": "Billy Wang CN made initial investigations, slack thread",
+      "title": "Billy Wang CN initial investigations slack thread"
+    },
+    {
+      "chunk_id": "doc:70eafbe6b853",
+      "concepts": [],
+      "text": "add position hints in prompts, no hints in image",
+      "title": "add position hints prompts image"
+    },
+    {
+      "chunk_id": "doc:716f3e295022",
+      "concepts": [],
+      "text": "Q: What is the training process like? A: 5-10k steps, 1k batchsize. 1episode: 100-nk, <=5k steps, split to overlapping chunks, 1k->1k, same language",
+      "title": "Q training process like 5-10k steps 1k batchsize."
+    },
+    {
+      "chunk_id": "doc:71e66e4bb098",
+      "concepts": [],
+      "text": "HQ feedback: Results on instruction-following tasks are overall consistent with those observed on the HQ side.",
+      "title": "HQ feedback Results instruction-following tasks overall consistent observed"
+    },
+    {
+      "chunk_id": "doc:79a6a23269bd",
+      "concepts": [],
+      "text": "will continue to support N2 in near future",
+      "title": "continue support N2 near future"
+    },
+    {
+      "chunk_id": "doc:7a6495fdf1c2",
+      "concepts": [],
+      "text": "any default param subject to change, are they same for diff embodiments: learning rate, num_of_epochs, action_horizon\u2026",
+      "title": "default param subject change same diff embodiments learning"
+    },
+    {
+      "chunk_id": "doc:7b7e3c65ec21",
+      "concepts": [],
+      "text": "148 episodes, teleop action: grasp and re-grasp to shorter edge (exact use case in factory)",
+      "title": "148 episodes teleop action grasp re-grasp shorter edge"
+    },
+    {
+      "chunk_id": "doc:8193a295d817",
+      "concepts": [],
+      "text": "gr00t post-training recipe has many tricks, docs are there but not for every trial, most customers use it incorrectly, with few shot data the tasks should be solved well, including the laundry towel folding",
+      "title": "gr00t post-training recipe tricks docs every trial customers"
+    },
+    {
       "chunk_id": "doc:8296ac67164b",
       "concepts": [],
       "text": "GR00T N1.7 result sharing: Compared with N1.6, N1.7 performs much better on instruction-following and robustness tasks, and is roughly similar for manipulation tasks.",
       "title": "GR00T N1.7 result sharing Compared N1.6 performs better"
+    },
+    {
+      "chunk_id": "doc:835df2c3de80",
+      "concepts": [],
+      "text": "Human Egocentric Data Collection (Customer Site)",
+      "title": "Human Egocentric Data Collection Customer Site"
+    },
+    {
+      "chunk_id": "doc:8385304d0065",
+      "concepts": [],
+      "text": "Hyper-parameter search: Current trials bring limited gains but provide useful hints for further optimization.",
+      "title": "Hyper-parameter search Current trials bring limited gains provide"
+    },
+    {
+      "chunk_id": "doc:8438d0c1dc07",
+      "concepts": [],
+      "text": "GR00T N1 is a Vision-Language-Action (VLA) model for humanoid robots trained on diverse data sources. The model contains a vision-language backbone that encodes language and image input and a DiT-based flow-matching policy that outputs high-frequency actions. We use the NVIDIA Eagle-2 VLM (Li et al., 2025) as the vision-language backbone. Specifically, our publicly released GR00T-N1-2B model has 2.2B parameters in total, with 1.34B in the VLM. The inference time for sampling a chunk of 16 actions is 63.9ms on an L40 GPU using bf16. Fig. 2 provides a high-level overview of our model design. We highlight three key features of GR00T N1: * \u2022 We design a compositional model that integrates Vision-Language Model (VLM)-based reasoning module (System 2) and Diffusion Transformer (DiT)-based action module (System 1) in a unified learning framework; * \u2022 We develop an effective pre-training strategy using a mixture of human videos, simulation and neural-generated data, and real robot demonstrations (see Fig. 1) for generalization and robustness; * \u2022 We train a massively multi-task, language-conditioned policy that supports a wide range of robot embodiments and enables rapid adaptation to new tasks through data-efficient post-training. ### 2.1 Model Architecture In this section, we describe the GR00T N1 model architecture, illustrated in Fig. 3. GR00T N1 uses flow-matching (Lipman et al., ) to learn action generation. A diffusion transformer (DiT) processes the robot\u2019s proprioceptive state and action, which are then cross-attended with image and text tokens from the Eagle-2 VLM backbone to output the denoised motor actions. Below, we elaborate on each module in detail. #### State and Action Encoders To process states and actions of varying dimensions across different robot embodiments, we use an MLP per embodiment to project them to a shared embedding dimension as input to the DiT. As in Black et al. (2024), the Action Encoder MLP also encodes the diffusion timestep together with the noised action vector. We use action flow matching, which samples actions through iterative denoising. The model takes as input noised actions in addition to encodings of the robot\u2019s proprioceptive state, image tokens, and text tokens. The actions are processed in chunks as in Zhao et al. (2023), meaning that at any given time $t$ the model uses $A\\_{t}=[a\\_{t},a\\_{t+1},\\ldots,a\\_{t+H-1}]$ which contains the action vectors of timesteps $t$ through $t+H-1$. We set $H=16$ in our implementation. #### Vision-Language Module (System 2) For encoding vision and language inputs, GR00T N1 uses the Eagle-2 (Li et al., 2025) vision-language model (VLM) pretrained on Internet-scale data. Eagle-2 is finetuned from a SmolLM2 (Allal et al., 2025) LLM and a SigLIP-2 (Tschannen et al., 2025) image encoder. Images are encoded at resolution $224\\times 224$ followed by pixel shuffle (Shi et al., 2016), resulting in 64 image token embeddings per frame. These embeddings are then further encoded together with text by the LLM component of the Eagle-2 VLM. The LLM and image encoder are aligned over a broad set of vision-language tasks following the general recipe of Li et al. (2025). During policy training, a text description of the task, as well as (possibly multiple) images, are passed to the VLM in the chat format used during vision-language training. We then extract vision-language features of shape (batch size $\\times$ sequence length $\\times$ hidden dimension) from the LLM. We found that using middle-layer instead of final-layer LLM embeddings resulted in both faster inference speed and higher downstream policy success rate. For GR00T-N1-2B, we use the representations from the 12th layer. #### Diffusion Transformer Module (System 1) For modeling actions, GR00T N1 uses a variant of DiT (Peebles and Xie, 2023), which is a transformer with denoising step conditioning via adaptive layer normalization, denoted as $V\\_{\\theta}$. As shown in Fig. 3, $V\\_{\\theta}$ consists of alternating cross-attention and self-attention blocks, similar to Flamingo (Alayrac et al., 2022) and VIMA (Jiang et al., 2023). The self-attention blocks operate on noised action token embeddings $A\\_{t}^{\\tau}$ together with state embeddings $q\\_{t}$, while cross-attention blocks allow conditioning on the vision-language token embeddings $\\phi\\_{t}$ output by VLM. After the final DiT block, we apply an embodiment-specific Action Decoder, another MLP, to the final $H$ tokens to predict the actions. Given a ground-truth action chunk $A\\_{t}$, a flow-matching timestep $\\tau\\in[0,1]$ and sampled noise $\\epsilon\\sim\\mathcal{N}(\\mathbf{0},\\mathbf{I})$, the noised action chunk $A\\_{t}^{\\tau}$ is computed as $A\\_{t}^{\\tau}=\\tau A\\_{t}+(1-\\tau)\\epsilon$. The model prediction $V\\_{\\theta}(\\phi\\_{t},A\\_{t}^{\\tau},q\\_{t})$ aims to approximate the denoising vector field $\\epsilon-A\\_{t}$ by minimizing the following loss: | | | | | | --- | --- | --- | --- | | | $\\mathcal{L}\\_{\\textit{fm}}(\\theta)=\\mathbb{E}\\_{\\tau}\\left[\\|V\\_{\\theta}(\\phi\\_{t}% ,A\\_{t}^{\\tau},q\\_{t})-(\\epsilon-A\\_{t})\\|^{2}\\right].$ | | (1) | As in Black et al. (2024), we use $p(\\tau)=\\text{Beta}(\\frac{s-\\tau}{s};1.5,1)$, $s=0.999$. During inference, we generate action chunks with $K$-step denoising. First, randomly sample $A\\_{t}^{0}\\sim\\mathcal{N}(\\mathbf{0},\\mathbf{I})$ and then use forward Euler integration to iteratively generate the action chunk, updating as follows: | | | | | --- | --- | --- | | | $A\\_{t}^{\\tau+1/K}=A\\_{t}^{\\tau}+\\frac{1}{K}V\\_{\\theta}(\\phi\\_{t},A\\_{t}^{\\tau},q\\_{t% }).$ | | In practice, we found $K=4$ inference steps to work well across all embodiments. ### 2.2 Training Data Generation To train GR00T N1, we use a diverse set of data sources and objectives to construct the data pyramid (Fig. 1). We first source diverse human egocentric video data from open datasets, which forms the base, together with the web data used in VLM pretraining. Next, we generate synthetic neural trajectories using pre-trained video generation models. In this way, we $\\sim$10$\\times$ our in-house collected teleoperation trajectories \u2014 the \u201cpeak\u201d of the data pyramid \u2014 from 88 hours to 827 hours, using diverse counterfactual robot trajectories with novel language instructions (see Fig. 5 for examples). We additionally generate diverse simulation trajectories, which also expand the middle part of the data pyramid. In the next paragraph, we first describe how we extract latent actions from videos, which we use to extract labels for web-scaled human egocentric datasets. Next, we describe how we generate neural and simulated robot trajectories, and how we obtain actions for each of these data sources. #### Latent Actions For human egocentric videos and neural trajectories, we do not have any actions that we can directly use to train GR00T N1. For these data, we instead generate latent actions by training a VQ-VAE model to extract features from consecutive image frames from videos (Ye et al., 2025). The encoder takes the current frame $x\\_{t}$ and the future frame $x\\_{t+H}$ of a video with a fixed window size $H$ and outputs the latent action $z\\_{t}$. The decoder is trained to take the latent action $z\\_{t}$ and $x\\_{t}$ and reconstruct $x\\_{t+H}$. This model is trained with a VQ-VAE objective, where the continuous embedding from the encoder is mapped to the nearest embedding from the codebook. After training, we take the encoder and use it as an inverse dynamics model; given an $x\\_{t}$ and $x\\_{t+H}$ pair, we extract the continuous pre-quantized embedding and use this as the latent action label during pre-training, with the same flow-matching loss, but treat it as a distinct \u201cLAPA\u201d embodiment. Training the VQ-VAE model on all heterogeneous data together allows us to unify all of the data to share the same learned latent action space, potentially improving cross-embodiment generalization. Fig. 4 shows $x\\_{t}$ and $x\\_{t+H}$ pairs from 8 distinct embodiments including both robot and human embodiment, all retrieved from similar latent actions; the first latent action shows all embodiments moving right arm to the left and the second latent action shows moving right arm to the right. #### Neural Trajectories Robot data scales linearly with human labor, since it typically requires a human operator to teleoperate the robot to produce each trajectory. Recently, video generation models have demonstrated significant potential for high-quality controllable video generation (Brooks et al., 2024; Yang et al., 2024; Xiang et al., 2024; Lin et al., 2024; Wan Team, 2025; Ren et al., 2025b), which paves the way for building world models in the robotic domain. To harness these models, we fine-tune image-to-video generation models (Agarwal et al., 2025; Yang et al., 2024; Wan Team, 2025) on all of our 88 hours of in-house collected teleoperation data and generate 827 hours of video data given the existing initial frames with novel language prompts, augmenting it by around 10$\\times$. This enables generating training data that captures many more counterfactual scenarios in the real world without actually collecting teleoperation data for each of these cases (examples shown in Fig. 5; more examples of dream generations in Fig. 13). To increase the diversity of our neural trajectories, we first use a commercial-grade multimodal LLM to detect the objects given initial frames and generate many more possible combinations of \u201cpick up {object} from {location A} to {location B}\", while instructing the model to only consider the physically feasible combinations. We also apply post-processing mechanisms, including filtering and re-captioning, to the generated videos. For this, we also use a commercial-grade multimodal LLM as a judge and feed the downsampled 8 frames to filter out neural trajectories that do not follow the language instruction precisely. We then caption the filtered-out videos. (More details can be found in Appendix F). #### Simulation Trajectories Scaling up real-world data collection for humanoid robots is highly expensive due to the challenge of simultaneously controlling both arms and dexterous hands. Recent research (Wang et al., 2024; Mandlekar et al., 2023; Jiang et al., 2024) has demonstrated that generating training data in simulation is a practical alternative. We use DexMimicGen (Jiang et al., 2024) to synthesize large-scale robot manipulation trajectories. Starting with a small set of human demonstrations, DexMimicGen applies demonstration transformation and replay in simulation to expand the dataset automatically. Each task is decomposed into a sequence of object-centric subtasks. The initial human demonstrations are segmented into smaller manipulation sequences, each corresponding to a subtask involving a single object. These segments are then adapted to new environments by aligning them with the object\u2019s position, preserving the relative poses between the robot\u2019s end effector and the object. To ensure smooth execution, the system interpolates movements between the robot\u2019s current state and the transformed segment. The robot then follows the full sequence step by step, verifying task success at the end. Only successful demonstrations are retained, ensuring high-quality data. Using DexMimicGen, we scale a limited set of human demonstrations into a large-scale humanoid manipulation dataset. Considering the pre- and post-training datasets, we have generated 780,000 simulation trajectories \u2014 equivalent to 6,500 hours, or nine continuous months, of human demonstration data \u2014 in just 11 hours. These simulation data significantly supplement the real-robot data with minimal human costs. ### 2.3 Training Details #### Pre-training During the pre-training phase, GR00T N1 is trained via flow-matching loss (Equation 1) on a diverse collection of embodiments and data sources, encompassing various real and synthetic robot datasets as well as human motion data. We refer readers to Sec. 3 for a detailed description of the datasets. For human videos, in the absence of ground-truth actions, we extract learned latent actions and use them as flow-matching targets (see Sec. 2.2). For robot datasets such as our GR-1 humanoid data or Open X-Embodiment data, we use both ground-truth robot actions as well as learned latent actions as flow-matching targets. In the case of neural trajectories (Sec. 2.2) used to augment our robot datasets, we use both latent actions as well as predicted actions from an inverse-dynamics model trained on the real robot data. Pre-training hyper-parameters are listed in Table 6 in the Appendix. #### Post-training In the post-training phase, we fine-tune our pre-trained model on datasets corresponding to each single embodiment. As in pretraining, we keep the language component of the VL backbone frozen and fine-tune the rest of the model. Post-training hyperparameters are given in Table 6 in the Appendix. #### Post-training with Neural Trajectories To overcome the challenge of data scarcity during post-training, we explore augmenting the data for each downstream task by generating neural trajectories, similar to the procedure described in Sec. 2.2. For downstream tasks that are conditioned on multiple views, we finetune the video model to generate multiple subimages in a grid (Fig. 13). For simulation tasks, we collect diverse initial frames from the randomly initialized environment. For real robot tasks, we randomly initialize object poses manually and record the robot\u2019s initial observation. Novel initial frames could also be created automatically using img2img diffusion (example shown in Fig. 13), but we leave further exploration for future work. We also demonstrate examples of (1) multi-round video generation for generating long-horizon trajectories composed of atomic tasks and (2) neural trajectories of liquids and articulated objects, known to be extremely challenging to simulate, though we leave quantitative evaluation of downstream tasks for future work. For our post-training pipeline with neural trajectories, we restrict ourselves to fine-tuning the video generation model only on the human-collected trajectories for simulation tasks and only 10% of the data from the real-world benchmark collected for post-training, to match the realistic scenario that we only have access to limited number of teleoperation data. Since the generated videos do not have action labels, we use either latent or inverse dynamics models (IDM) labeled actions (Baker et al., 2022) and train the policy model to treat these pseudo-actions as action labels for a different embodiment. In low-data regime scenarios, we also restrict ourselves on training the IDM models only on the low-data, to facilitate realistic scenarios. Details of how we train the IDM models are provided in Appendix F. Some empirical comparisons between latent and IDM-labeled actions are made in Sec. 4.4. During post-training, we co-train the policy with real-world trajectories with neural trajectories with a 1:1 sampling ratio. #### Training Infrastructure We train GR00T N1 on a cluster managed via NVIDIA OSMO (NVIDIA, 2025), an orchestration platform for scaling complex\u2423\u200crobotics workloads. The training cluster is equipped with H100 NVIDIA GPUs connected via NVIDIA Quantum-2 InfiniBand in a fat-tree topology. We facilitate fault-tolerant multi-node training and data ingestion via a custom library built on top of the Ray distributed computing library (Moritz et al., 2018). We use up to 1024 GPUs for a single model. GR00T-N1-2B used roughly 50,000 H100 GPU hours for pretraining. Compute-constrained finetuning was tested in the context of a single A6000 GPU. If only tuning the adapter layers (action and state encoders + action decoder) and DiT, a batch size up to 200 can be used. When tuning the vision encoder, a batch size of up to 16 can be used.",
+      "title": "2 GR00T N1 Foundation Model"
+    },
+    {
+      "chunk_id": "doc:84f94be8e1ee",
+      "concepts": [],
+      "text": "Q: How to generalize to new embodiments with different sensors and different actuators? A: n1d7 more eagle data, human relative eef pose, sharpa hand joints",
+      "title": "Q generalize new embodiments different sensors actuators n1d7"
+    },
+    {
+      "chunk_id": "doc:87b0494e9c2d",
+      "concepts": [],
+      "text": "in https://github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/configs/finetune_config.py#L47-L58 . When finetuning with tune_llm and tune_visual we recommend lowering the learning rate to",
+      "title": "https github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/configs/finetune config.py L47-L58 finetuning tune llm visual"
+    },
+    {
+      "chunk_id": "doc:892d9bd6d4f8",
+      "concepts": [],
+      "text": "will organize workshop to go through research-application pipeline, a gear member can teach, later can ask Qi access to real robots",
+      "title": "organize workshop through research-application pipeline gear member teach"
+    },
+    {
+      "chunk_id": "doc:8c690f6654f0",
+      "concepts": [],
+      "text": "Get a private tuning table: demos, task type, LR, batch, steps/epochs, action horizon, replan interval, tune_visual, tune_diffusion, LoRA/full SFT, and expected failure symptoms.",
+      "title": "Get private tuning table demos task type LR"
+    },
+    {
+      "chunk_id": "doc:8d1c228c87aa",
+      "concepts": [],
+      "text": "What is the robot control frequency? We internally use replan every 20 steps with robot control frequency of 20Hz, so replan every 1 second. If you are running a similar or higher control frequency, increasing the interval between replanning would be worth trying.",
+      "title": "robot control frequency internally replan every 20 steps"
+    },
+    {
+      "chunk_id": "doc:8e5ce15f1473",
+      "concepts": [],
+      "text": "These block users before they can even learn whether the policy works.",
+      "title": "block users before even learn whether policy works."
+    },
+    {
+      "chunk_id": "doc:8ebc4a4345ff",
+      "concepts": [],
+      "text": "Feedback: onboarding and documentation for N1.7 are smooth; improved data efficiency and faster convergence compared to prior setups.",
+      "title": "Feedback onboarding documentation N1.7 smooth improved data efficiency"
+    },
+    {
+      "chunk_id": "doc:9615dd263d4e",
+      "concepts": [],
+      "text": "Pick not precise enough (gripper does not slide into object).",
+      "title": "Pick precise enough gripper slide object"
+    },
+    {
+      "chunk_id": "doc:99639ecb947d",
+      "concepts": [],
+      "text": "Revisit results after baseline and ablation results are available.",
+      "title": "Revisit results after baseline ablation available."
     },
     {
       "chunk_id": "doc:9a187ffb3319",
@@ -115,6 +577,30 @@
       "title": "N1.7 supports relative action representations recommend checking whether"
     },
     {
+      "chunk_id": "doc:9d2b9e480f3d",
+      "concepts": [],
+      "text": "They are doing single-stage training on all kinds of data in N2.",
+      "title": "doing single-stage training kinds data N2."
+    },
+    {
+      "chunk_id": "doc:9db48cc8f9f0",
+      "concepts": [],
+      "text": "hard to detect towel edge to pick for 2nd arm, after 1st arm picked and raised the other side (almost every trial, can succeed with human picking up edge and raise the towel a bit)",
+      "title": "hard detect towel edge pick 2nd arm after"
+    },
+    {
+      "chunk_id": "doc:9e8bb43e292a",
+      "concepts": [],
+      "text": "set up openarm for towel picking from bins, 4 cameras, 2 on torso top-bottom, two wrist, 30fps 256*256",
+      "title": "set openarm towel picking bins 4 cameras 2"
+    },
+    {
+      "chunk_id": "doc:9f012a4fd9da",
+      "concepts": [],
+      "text": "video resolution: during training use 256, can try diff resolution by training whole model (+vlm backbone, egoscale pretrain already helped avoid overfitting)",
+      "title": "video resolution during training 256 try diff whole"
+    },
+    {
       "chunk_id": "doc:a05c433443f1",
       "concepts": [],
       "text": "If the task is not common or unseen in pretraining, you better turn on tune_llm and tune_visual to finetune parameters in the LLM backbone and vision encoder. In that case, you should use a lower LR than tuning the action head only. It will use more GPU memories.",
@@ -127,10 +613,40 @@
       "title": "fail retry behavior data collection avoid them only"
     },
     {
+      "chunk_id": "doc:a3eba0760b86",
+      "concepts": [],
+      "text": "Q: in which case building a simulation suite to collect data/train may benefit, than directly in real? A: why is output action zigzagging",
+      "title": "Q case building simulation suite collect data/train benefit"
+    },
+    {
       "chunk_id": "doc:a4c1885c5e63",
       "concepts": [],
       "text": "When collecting DAgger data, use the human trajectory only and discard the robot trajectory, because the robot trajectory leads the robot to a bad state. We do not want the model to imitate bad robot trajectories.",
       "title": "collecting DAgger data human trajectory only discard robot"
+    },
+    {
+      "chunk_id": "doc:a6c0d552f806",
+      "concepts": [],
+      "text": "params: only train projector, dit, bs=1024, lr=1e-4, 30k steps",
+      "title": "params only train projector dit 1024 1e-4 30k"
+    },
+    {
+      "chunk_id": "doc:a884fbe038d0",
+      "concepts": [],
+      "text": "Consensus: stabilize and validate performance in simulation first, using a controlled baseline.",
+      "title": "Consensus stabilize validate performance simulation first controlled baseline."
+    },
+    {
+      "chunk_id": "doc:a9bea42fe5f7",
+      "concepts": [],
+      "text": "Build a diagnosis tree for: gripper toggling, grasp-no-lift, arm jitter, action zigzag, wrong joint direction, camera sensitivity, and sim success but real failure.",
+      "title": "Build diagnosis tree gripper toggling grasp-no-lift arm jitter"
+    },
+    {
+      "chunk_id": "doc:ab141d43d4a1",
+      "concepts": [],
+      "text": "failed to pick, but n1.5 succeed almost every time",
+      "title": "failed pick n1.5 succeed almost every time"
     },
     {
       "chunk_id": "doc:ac1b131d505a",
@@ -145,10 +661,22 @@
       "title": "Relative action/state usually better absolute action/state."
     },
     {
+      "chunk_id": "doc:b1772d9fad8f",
+      "concepts": [],
+      "text": "action is stable even with 100 episodes. overall model able to reproduce collected dataset, to collect more data",
+      "title": "action stable even 100 episodes. overall model able"
+    },
+    {
       "chunk_id": "doc:b27540d08703",
       "concepts": [],
       "text": "rl training should be the final step to further boost the performance, dangerous on real robot (need to protect arm from collisions)",
       "title": "training final step further boost performance dangerous real"
+    },
+    {
+      "chunk_id": "doc:b2973a5ef855",
+      "concepts": [],
+      "text": "pretrain with human ego-view data, hand tracking, e.g. joints may not be accurate, purely vision-based",
+      "title": "pretrain human ego-view data hand tracking e.g. joints"
     },
     {
       "chunk_id": "doc:b3d873f3d6e7",
@@ -163,10 +691,40 @@
       "title": "Avoid collecting repetitive identical demonstrations."
     },
     {
+      "chunk_id": "doc:b7b1282a3399",
+      "concepts": [],
+      "text": "data sharing and plan for human data collection",
+      "title": "data sharing plan human collection"
+    },
+    {
+      "chunk_id": "doc:b83497460c75",
+      "concepts": [],
+      "text": "evaluation: expect higher success rate on picknplace and adapt to the new tasks with N1.7 model",
+      "title": "evaluation expect higher success rate picknplace adapt new"
+    },
+    {
+      "chunk_id": "doc:b8fe5f2752d7",
+      "concepts": [],
+      "text": "rel_joint: not accurate in either pick/place, collide with existing piece/does not release gripper when placing;",
+      "title": "rel joint accurate either pick/place collide existing piece/does"
+    },
+    {
       "chunk_id": "doc:b93387ad3f81",
       "concepts": [],
       "text": "Batch size 1024, learning rate 1e-4 (same as N1.5).",
       "title": "Batch size 1024 learning rate 1e-4 same N1.5"
+    },
+    {
+      "chunk_id": "doc:ba9ed519f231",
+      "concepts": [],
+      "text": "robotics vs AV: much lower resolution as robot motion is slower; image domain completely different",
+      "title": "robotics AV lower resolution robot motion slower image"
+    },
+    {
+      "chunk_id": "doc:bdc851cbf755",
+      "concepts": [],
+      "text": "Simulation vs. Real-World Gap",
+      "title": "Simulation vs. Real-World Gap"
     },
     {
       "chunk_id": "doc:be0d33729060",
@@ -175,10 +733,64 @@
       "title": "Include controlled variation grasp angle object pose limited"
     },
     {
+      "chunk_id": "doc:bebf4dc97b70",
+      "concepts": [],
+      "text": "open post-training issues as internal P0 triage and closed post-training",
+      "title": "open post-training issues internal P0 triage closed"
+    },
+    {
+      "chunk_id": "doc:c0127febebd7",
+      "concepts": [],
+      "text": "- Multi-camera / embodiment / action representation: #149 (https://github.com/NVIDIA/Isaac-GR00T/issues/149), #167 (https://github.com/NVIDIA/Isaac-GR00T/issues/167), #174",
+      "title": "Multi-camera embodiment action representation 149 https github.com/NVIDIA/Isaac-GR00T/issues/149 167"
+    },
+    {
       "chunk_id": "doc:c28ab68be8e8",
       "concepts": [],
       "text": "Single-task experiment (pick_block_shape): Training only on a single task performs worse than joint training on all tasks.",
       "title": "Single-task experiment pick block shape Training only single"
+    },
+    {
+      "chunk_id": "doc:c3bf9c5945e3",
+      "concepts": [],
+      "text": "how many episodes/demostrations required for a specific difficulty task, e.g. simple object picknplace, insertion",
+      "title": "episodes/demostrations required specific difficulty task e.g. simple object"
+    },
+    {
+      "chunk_id": "doc:c51f62371dd4",
+      "concepts": [],
+      "text": "wipe task, with 16 action_horizon, right hand hesitates over the tray=>add history, fix training action_horizon 40 and try diff in deployment",
+      "title": "wipe task 16 action horizon right hand hesitates"
+    },
+    {
+      "chunk_id": "doc:c7602a9c672d",
+      "concepts": [],
+      "text": "Navigation/mobility discussed as out of scope for the initial task; focus is manipulation only.",
+      "title": "Navigation/mobility discussed scope initial task focus manipulation only."
+    },
+    {
+      "chunk_id": "doc:c7c6be216c04",
+      "concepts": [],
+      "text": "- SFT vs LoRA / what to tune: #187 (https://github.com/NVIDIA/Isaac-GR00T/issues/187), #217 (https://github.com/NVIDIA/Isaac-GR00T/issues/217), #245",
+      "title": "SFT LoRA tune 187 https github.com/NVIDIA/Isaac-GR00T/issues/187 217 github.com/NVIDIA/Isaac-GR00T/issues/217"
+    },
+    {
+      "chunk_id": "doc:c7e829fae80a",
+      "concepts": [],
+      "text": "By default, we are currently disabling VLM backbone fine-tuning and only train the action-head. As your highly industrial task might be a distribution shift for the training data of the VLM backbone we recommend finetuning also the llm and visual layers of the model. In the Isaac-GR00T repository this can be set via",
+      "title": "default currently disabling VLM backbone fine-tuning only train"
+    },
+    {
+      "chunk_id": "doc:ca5e74a8945e",
+      "concepts": [],
+      "text": "For a 3-camera, 29D humanoid setup, ask exactly how researchers define action keys, gripper actions, normalization stats, camera keys, history frames, and action chunk execution.",
+      "title": "3-camera 29D humanoid setup ask exactly researchers define"
+    },
+    {
+      "chunk_id": "doc:cb1c64b8c3c4",
+      "concepts": [],
+      "text": "Next steps: Continue experiments on robustness and manipulation tasks.",
+      "title": "Next steps Continue experiments robustness manipulation tasks."
     },
     {
       "chunk_id": "doc:cb553a080f92",
@@ -187,10 +799,88 @@
       "title": "Recommendation simplify first Focus single-object pick-and-place before moving"
     },
     {
+      "chunk_id": "doc:cc05811622a5",
+      "concepts": [],
+      "text": "camera view visibility: camera view blocked by task; move too fast",
+      "title": "camera view visibility blocked task move too fast"
+    },
+    {
+      "chunk_id": "doc:ccedd7ec42d5",
+      "concepts": [],
+      "text": "Next steps: After completing local reproduction, will share the reproduction process and results with HQ to align.",
+      "title": "Next steps After completing local reproduction share process"
+    },
+    {
+      "chunk_id": "doc:cd1c7ba5df97",
+      "concepts": [],
+      "text": "(history / no history) data, so adding observation history is a more natural way to address non-Markovian behaviour in this task.",
+      "title": "history data adding observation natural way address non-Markovian"
+    },
+    {
+      "chunk_id": "doc:ce7c070a5f36",
+      "concepts": [],
+      "text": "Check data preprocessing and training configurations, and cross-compare with Pi0.5 implementation.",
+      "title": "Check data preprocessing training configurations cross-compare Pi0.5 implementation."
+    },
+    {
+      "chunk_id": "doc:d0233bac4ef8",
+      "concepts": [],
+      "text": "Target use case: Singapore laundry factory automation, reducing manual labor in the post-spin / pre-drying stage.",
+      "title": "Target case Singapore laundry factory automation reducing manual"
+    },
+    {
+      "chunk_id": "doc:d1703098cb29",
+      "concepts": [],
+      "text": "Current status: Based on the completed N1.6 / N1.7 reproduction, single-task vs multi-task comparisons and hyper-parameter search experiments were carried out.",
+      "title": "Current status Based completed N1.6 N1.7 reproduction single-task"
+    },
+    {
+      "chunk_id": "doc:d25ad8943de1",
+      "concepts": [],
+      "text": "1st: grab bottle on the left and spill into the tray",
+      "title": "1st grab bottle left spill tray"
+    },
+    {
+      "chunk_id": "doc:d2a15ef1fa04",
+      "concepts": [],
+      "text": "Users cannot reproduce reported results or do not know the exact recipe.",
+      "title": "Users cannot reproduce reported results know exact recipe."
+    },
+    {
+      "chunk_id": "doc:d2c3f670d351",
+      "concepts": [],
+      "text": "timeline: first run due May 10 but in Japan there is long hoilday so only expect small runs from 100-200 episodes, more iteration in following weeks, tentative final demo day July 1",
+      "title": "timeline first run due 10 Japan long hoilday"
+    },
+    {
+      "chunk_id": "doc:d3ce23fd2ca3",
+      "concepts": [],
+      "text": "World models, which predict futures based on actions, have emerged as a key component in the development of generalist robots (sutton1991dyna; lecun2022path; hu2023toward; richens2025general). Recent advances in video generation (ali2025world; team2025wan) have driven video world models, in which future states are represented as video frames (parker2025genie; russell2025gaia; sun2025worldplay). However, they primarily plateau at discrete controls, while the high-dimensional action spaces for contact-rich robot tasks have yet to make similar progress. Unlike game and driving data, robot data often has limited coverage due to hardware variability and collection cost. The nearly infinite variety of real-world environments can easily exceed the distribution of available robot data. Additionally, existing datasets predominantly consist of expert demonstrations, lacking the stochasticity in intentions necessary for learning strong action controllability. As a result, existing video world models remain confined to simulating observed setups and are often unresponsive to counterfactual actions, constraining their applicability for diverse scenarios and complex tasks. In this work, we introduce DreamDojo, a foundation world model for open-world dexterous robot tasks. Unlike previous methods that typically rely on teleoperation data, we exploit *human videos* for pretraining. Despite the embodiment gap, the underlying physics during interactions is largely consistent between humans and robots, enabling effective knowledge transfer. Therefore, we curate the *largest* egocentric human video dataset to date, DreamDojo-HV (Human Videos), which comprises 44k hours of video sequences, surpassing the datasets used in prior works by several orders of magnitude. In addition to its scale, DreamDojo-HV incorporates an exceptionally diverse range of activities, encompassing approximately 96$\\times$ more skills and 2,000$\\times$ more scenes than the most diverse public datasets for robot learning (khazatsky2024droid; bu2025agibot). This provides us with a rich corpus for learning physics and dynamics about diverse interactions. Nevertheless, fine-grained action labels are much scarcer than raw videos at scale. Naively training on passive videos overlooks the causality between video observations and actions, leading to inferior knowledge transfer for action-conditioned world simulation. Moreover, converting various action formats into a unified one entails inevitable engineering effort. To address these challenges, we introduce *continuous latent actions* (gao2025adaworld) as unified proxy actions for all videos. The proposed latent action model can extract semantically meaningful actions between frames in a self-supervised manner, ensuring effective transfer of both physics and controllability as the data scales to the internet level. Through rigorous designs of model architecture and training recipe, DreamDojo is able to acquire a comprehensive understanding of physics, achieving plausible simulations across diverse environments and fine-grained controllability over continuous robot actions. To achieve real-time prediction without visual degradation, we further introduce a distillation pipeline following the Self Forcing paradigm (huang2025self). Our distillation also enhances the long-horizon consistency by efficiently modeling a short temporal context. The resulting model can autoregressively predict future frames at a resolution of $640\\times 480$ at 10.81 FPS for an arbitrary horizon, significantly reducing the cost for various downstream applications such as live teleoperation and model-based planning. In summary, our main contributions include: * \u2022 A large-scale video dataset, DreamDojo-HV, that accumulates 44k hours of egocentric experiences from a wide spectrum of daily activities. To the best of our knowledge, this is the *largest* and most diverse data corpus to date for world model learning. * \u2022 A foundation world model for general-purpose robots. By scaling up human videos and introducing continuous latent actions as unified proxy, we present DreamDojo, the *first* world model of its kind that shows zero-shot generalization to unseen objects and novel environments. * \u2022 A distillation pipeline that enables efficient autoregressive prediction and improves context consistency. The final model can be interacted with for more than 1 minute in real time without degradation. * \u2022 Multiple downstream applications highlight the potential of DreamDojo in performing live teleoperation, policy evaluation, model-based planning, \\etc, accelerating the development of robot policies.",
+      "title": "1 Introduction"
+    },
+    {
+      "chunk_id": "doc:d4524dc23381",
+      "concepts": [],
+      "text": "We evaluate our GR00T N1 models in a diverse set of simulated and real-world benchmarks. Our simulation experiments are conducted on three distinct benchmarks designed to systematically assess the effectiveness of our model across various robot embodiments and manipulation tasks. In our real-world experiments, we investigate the model\u2019s capability on a suite of tabletop manipulation tasks with the GR-1 humanoid robot. These experiments aim to demonstrate GR00T N1\u2019s ability to acquire new skills from a limited number of human demonstrations. ### 4.1 Simulation Benchmarks Our simulation experiments comprise two open-source benchmarks from prior work (Nasiriany et al., 2024; Jiang et al., 2024), as well as a newly developed suite of tabletop manipulation tasks designed to closely mirror our real-world task settings. We meticulously choose these benchmarks for evaluating our models across different robot embodiments and diverse manipulation tasks. Our model checkpoints, together with the publicly available simulation environments and datasets, ensure the reproducibility of our key results. Fig. 7 illustrates some example tasks from these three benchmarks. * \u2022 RoboCasa Kitchen (24 tasks, RoboCasa) RoboCasa (Nasiriany et al., 2024) features a collection of tasks in simulated kitchen environments. We focus on 24 \u201catomic\u201d tasks that involve foundational sensorimotor skills such as pick-and-place, door opening and closing, pressing buttons, turning faucets, and more. For each task, we use the publicly available dataset of 3000 demonstrations featuring the Franka Emika Panda arm, all generated with MimicGen (Mandlekar et al., 2023). The observation space includes three RGB images captured from cameras positioned on the left, right, and at the wrist. The state representation comprises the position and rotation of both the end-effector and the robot base, as well as the gripper\u2019s state. The action space is defined by the relative position and rotation of the end-effector along with the gripper state. We follow the same training and evaluation protocol outlined by Nasiriany et al. (2024). * \u2022 DexMimicGen Cross-Embodiment Suite (9 tasks, DexMG) DexMimicGen (Jiang et al., 2024) includes an array of nine bimanual dexterous manipulation tasks requiring precise two-arm coordination. Together, these tasks cover three bi-manual robot embodiments: (1) Bimanual Panda Arms with Parallel-Jaw Grippers: tasks include threading, piece assembly, and transport. The state/action space consists of the end-effector position and rotation of both arms, as well as the gripper states; (2) Bimanual Panda Arms with Dexterous Hands: tasks include box cleanup, drawer cleanup, and tray lifting. The state/action space consists of the end-effector position and rotation of both arms and hands; (3) GR-1 Humanoid with Dexterous Hands: tasks include pouring, coffee preparation, and can sorting. The state/action space consists of the joint position and rotation of both arms and hands, along with the waist and neck. We generate 1000 demonstrations for each task using the DexMimicGen data generation system and evaluate the model\u2019s ability to generalize to novel object configurations. * \u2022 GR-1 Tabletop Tasks (24 tasks, GR-1) This dataset serves as a digital counterpart to real-world humanoid datasets, enabling systematic evaluations that inform the performance of real-robot deployment. This benchmark focuses on dexterous hand control using the GR-1 humanoid robot equipped with Fourier dexterous hands. Compared to DexMG, this benchmark features a significantly larger variety of objects with diverse placements. We model a total of 18 rearrangement tasks, which have a similar structure to the pre-training tasks outlined in Sec. 3.2, \\ie, rearranging objects from a source to a target receptacle. Each task involves a unique combination of receptacles, and these combinations are unseen in our pre-training data. Like the pre-training tasks, most tasks involve distractor objects and receptacles that require the model to pay attention to the task language. We additionally feature six tasks that involve placing objects into articulated objects (\\ie, cabinets, drawers, and microwaves) and closing them. The observation space includes one RGB image captured from an egocentric camera positioned on the robot\u2019s head. The state/action space consists of the joint position and rotation of both arms and hands, along with the waist and neck. We optionally include in our datasets the end effector-based actions for controlling the arms, as the native action space for controlling the whole-body IK controller is end effector-based. We generate 1000 demonstrations for each task using the DexMimicGen system. ### 4.2 Real-World Benchmarks We introduce a diverse and meticulously designed set of tabletop manipulation tasks, aimed at evaluating and post-training our models on human demonstrations. These tasks emphasize critical aspects of real-world dexterity, including precise object manipulation, spatial reasoning, bimanual coordination, and multi-agent collaboration. We carefully categorize our benchmarks into four distinct types, ensuring a rigorous evaluation of model performance. We show some example tasks from our real-world benchmarks in Fig. 8. * \u2022 Object-to-Container Pick-and-Place (5 tasks, Pick-and-Place) This category evaluates the model\u2019s ability to grasp objects and place them into designated containers, a fundamental capability for robotic manipulation. Tasks include transferring objects between common household containers such as trays, plates, cutting boards, baskets, placemats, bowls, and pans. These scenarios test fine motor skills, spatial alignment, and adaptability to different object geometries. To rigorously assess generalization, we evaluate models on both seen and unseen objects. * \u2022 Articulated Object Manipulation (3 tasks, Articulated) These tasks assess the model\u2019s ability to manipulate articulated storage compartments. The model must grasp an object, place it into a storage unit such as a wooden chest, dark cabinet, or white drawer, and then close the compartment. These tasks introduce challenges in constrained motion control and precise placement within limited spaces. Generalization is tested with both seen and unseen objects. * \u2022 Industrial Object Manipulation (3 tasks, Industrial) We design this category for industrial scenarios, which involve three structured workflows and tool-based interactions: 1) Machinery Packing: Pick up various machinery parts and tools and place them into a designated yellow bin; 2) Mesh Cup Pouring: Grasp a mesh cup containing small industrial components (\\eg, screws and bolts) and pour its contents into a plastic bin; and 3) Cylinder Handover: Pick up a cylindrical object, transfer it from one hand to the other, and place it into a yellow bin. These tasks closely mirror real-world industrial applications, making them highly relevant benchmarks for assessing dexterity in structured environments. * \u2022 Multi-Agent Coordination (2 tasks, Coordination) Collaborative tasks require synchronization between multiple agents, emphasizing role coordination and adaptive decision-making: 1) Coordination Part 1: Pick up a cylinder, place it into a mesh cup, and hand it over to another robot; and 2) Coordination Part 2: The receiving robot places the cylinder into one yellow bin, then pours the remaining contents of the mesh cup into another yellow bin. These carefully designed benchmarks introduce structured, goal-driven interactions to test whether a model can seamlessly adapt to real-world applications. To build a high-quality post-training dataset, we let human operators collect task-specific data for durations ranging from 15 minutes to 3 hours, depending on task complexity. We then filter out low-quality trajectories to maintain data integrity. By incorporating a diverse set of task requirements \u2014 spanning precise single-agent manipulation to complex multi-agent coordination\u2014our benchmark provides a rigorous testbed for evaluating generalization, adaptability, and fine-tuned control in human-like manipulation tasks. ### 4.3 Experiment Setup Our evaluation experiment consists of post-training GR00T N1 and baseline models as described in Sec. 2.3 in a data-limited setting and evaluating the policy success rate in our simulated and real benchmarks described in Sections 4.1 and 4.2, respectively. By default we use a global batch size of 1024 and train for 60k steps. For the DexMimicGen Cross-Embodiment Suite, where each embodiment contains relatively few tasks and the overall training data is limited, we used a smaller batch size of 128 for GR00T-N1-2B. #### Baselines To demonstrate the effectiveness of diverse pretraining of GR00T N1, we compare with two established baselines, BC-Transformer (Mandlekar et al., 2021) and Diffusion Policy (Chi et al., 2024a). We describe the details of these two methods below: * \u2022 BC-Transformer is a Transformer-based behavior cloning policy in RoboMimic (Mandlekar et al., 2021). It consists of a Transformer architecture for processing observation sequences and a Gaussian Mixture Model (GMM) module for modeling action distributions. The policy takes 10 observation frames as input and predicts the next 10 actions. * \u2022 Diffusion Policy (Chi et al., 2024a) models action distributions through a diffusion-based generative process. It employs a U-Net architecture that progressively removes noise from random samples to generate precise robot actions conditioned on observation sequences. It takes a single frame of observations as input and produces 16 action steps in one inference pass. #### Evaluation Protocol For simulated benchmark evaluation, we report the average success rate over 100 trials, taking the maximum score of the last 5 checkpoints, where checkpoints are written every 500 training steps, following the protocol from RoboCasa (Nasiriany et al., 2024). For real robot evaluation, we employ a partial scoring system to capture model behavior across different execution phases, ensuring a fine-grained assessment of performance. We report the average success rate over 10 trials for each task, except for the task of Pack Machinery; for this task, we report the success rate of how many objects out of the 5 machinery parts and tools are placed into the bin, given a time-limit of 30 seconds. We conduct only 5 trials due to the time constraint. Additionally, to assess the model\u2019s efficiency in a low-data regime, we subsample 10% of the full dataset for each task and evaluate whether the model can still learn effective behaviors. ### 4.4 Quantitative Results #### Pre-training Evaluations To evaluate the generalization capabilities of our pretrained checkpoint, we design two tasks on the real GR-1 humanoid robot (Fig. 8). In the first task, the robot is instructed to place an object on the bottom shelf. However, the object is intentionally positioned to the left of its left hand, requiring a coordinated bimanual strategy. The robot must first grasp the object with its left hand, transfer it within reach of the right hand, and then complete the placement onto the shelf. In the second task, the robot is instructed to place a novel object into an unseen target container. For each task, we evaluate the pretrained GR00T-N1-2B model using five different objects, with three trials per object. GR00T-N1-2B achieves a success rate of 76.6% (11.5/15) in the first coordinated setting and 73.3% (11/15) in the second setting involving novel object manipulation. 0.5 stands for grasping the object correctly but failing to place the object into the container. The high performance under these two evaluation settings illustrates the effectiveness of large-scale pre-training. #### Post-training Evaluations In simulation, we compare the quantitative results for our post-trained GR00T N1 models against from-scratch baselines in the three simulation benchmarks (Table 2). For each benchmark, we post-train using 30, 100, and 300 demonstrations per task (24 tasks for RoboCasa, 9 tasks for DexMG, and 24 tasks for GR-1). We observe that GR00T N1 consistently outperforms the baseline models across benchmark tasks and dataset sizes. In Appendix B, we include the full results and a bar plot (Fig. 10) for comparison. On the real robot, we compare GR00T-N1-2B against Diffusion Policy, training on 10% of the human teleoperation dataset and the full dataset (Table 3 and Fig. 9). GR00T-N1-2B, achieves a significantly higher success rate across all tasks, outperforming Diffusion Policy by 32.4% in the 10% Data setting and by 30.4% in the Full Data setting. Notably, GR00T-N1-2B trained on just 10% of the data performs only 3.8% lower than Diffusion Policy trained on the full dataset, highlighting its data efficiency. #### Post-training w/ Neural Trajectories Evaluations We show some preliminary results of using neural trajectories during post-training for the RoboCasa benchmark for simulation evaluation and Pick-and-Place (seen) and Industrial for the real-world evaluation in Figure 9. We observe that GR00T N1 co-trained with neural trajectories consistently results in substantial gains compared to GR00T N1 only trained on real-world trajectories: +4.2%, +8.8%, +6.8% on average for 30, 100, and 300 data-regimes, respectively, for RoboCasa and +5.8% on average across the 8 tasks with the GR-1 Humanoid. When comparing LAPA and IDM labels in RoboCasa, an interesting pattern emerges: LAPA slightly outperforms IDM in the relatively low-data regime (30), but as more data becomes available (100 and 300), the performance gap between LAPA and IDM widens. This trend is intuitive\u2014 with more data for IDM training, the pseudo-action labels become increasingly aligned with real-world actions, leading to stronger positive transfer. Since GR-1 Humanoid is a relatively \u201chigh-data\u201d regime for us, we only utilize IDM actions for neural trajectory co-training in the real world. ### 4.5 Qualitative Results How does this behavior look qualitatively? To answer this, we consider the task \u201cTurn Sink Spout\u201d in RoboCasa \u2014 in the 100 sample regime, the DP baseline gets 11.8% success rate whereas GR00T N1 gets 42.2%. The DP baseline often gets confused about the semantics of the tasks. From Table 2, we see that GR00T N1 has strong results in the low-data regime. It is natural, in the limit of large fine-tuning datasets, that the effect of pre-training dwindles. When prompting the pre-trained GR00T N1 model with the task instruction \u201cPick up the red apple and place it in the basket,\u201d one of the tasks in our post-training benchmark, we observe interesting behavioral patterns. In this scenario, we intentionally position the apple to the left of the humanoid hand. Despite seeing few similar tasks during pretraining and exhibiting jerkier motions, the pretrained checkpoint uses its left hand to grasp the apple, hands it over to the right hand, and then places it into the basket. We provide the visualization of this behavior in Fig. 11. In contrast, the post-trained checkpoint fails in this scenario. Since all post-training data exclusively involve the right hand without any inter-hand transfer, the post-trained policy loses the capability to perform this behavior. For post-trained GR00T N1, we observed that, compared to the baseline Diffusion Policy, its motion is generally much smoother, and its grasping accuracy is significantly higher. In contrast, the Diffusion Policy baseline suffers from immobility during the initial frames and frequently exhibits inaccurate grasping, resulting in a low success rate in our real-world benchmarks. We provide visualizations of two policy rollout examples in Fig. 12. ### 4.6 Limitations Currently, our GR00T N1 model focuses primarily on short-horizon tabletop manipulation tasks. In future work, we aim to extend its capabilities to tackle long-horizon loco-manipulation, which will require advancements in humanoid hardware, model architecture, and training corpora. We anticipate a stronger vision-language backbone will enhance the model\u2019s spatial reasoning, language understanding, and adaptability. Our synthetic data generation techniques \u2014 leveraging video generation models and automated trajectory synthesis systems \u2014 have shown great promise. However, existing methods still face challenges in generating diverse and counterfactual data, while adhering to the laws of physics, limiting the quality and variability of synthetic datasets. We aim to enhance our synthetic data generation techniques to further enrich our data pyramid for model training. Furthermore, we plan to explore novel model architectures and pre-training strategies to improve the robustness and generalization capabilities of our generalist robot models.",
+      "title": "4 Evaluation"
+    },
+    {
       "chunk_id": "doc:d8ce5a3e39f3",
       "concepts": [],
       "text": "abs vs. rel: rel. action space predict may be too small to move; abs. may cause jump; rel. is smoother, generally better on real and def. better in sim.",
       "title": "abs vs. rel rel. action space predict too"
+    },
+    {
+      "chunk_id": "doc:d900d36facb5",
+      "concepts": [],
+      "text": "Analyze failure cases to understand typical failure reasons.",
+      "title": "Analyze failure cases understand typical reasons."
+    },
+    {
+      "chunk_id": "doc:d9ee4a8aae3a",
+      "concepts": [],
+      "text": "open-loop eval, left arm 7 joint + gripper matches well; N1.7 fit well, better than N1.5",
+      "title": "open-loop eval left arm 7 joint gripper matches"
     },
     {
       "chunk_id": "doc:db1816f1de66",
@@ -199,10 +889,58 @@
       "title": "task requires high visual details e.g. finding towel"
     },
     {
+      "chunk_id": "doc:df4955177973",
+      "concepts": [],
+      "text": "2nd: clean spill on tray (left hand hold the tray, right hand hold a cloth to clean the spill)",
+      "title": "2nd clean spill tray left hand hold right"
+    },
+    {
+      "chunk_id": "doc:dfe9f97f61aa",
+      "concepts": [],
+      "text": "Yuhang Lu US almost replicated results with gr00t, and showed n1.7 slightly better than n1.6",
+      "title": "Yuhang US almost replicated results gr00t showed n1.7"
+    },
+    {
+      "chunk_id": "doc:e258e86d7ded",
+      "concepts": [],
+      "text": "NVIDIA ###### Abstract General-purpose robots need a versatile body and an intelligent mind. Recent advancements in humanoid robots have shown great promise as a hardware platform for building generalist autonomy in the human world. A robot foundation model, trained on massive and diverse data sources, is essential for enabling the robots to reason about novel situations, robustly handle real-world variability, and rapidly learn new tasks. To this end, we introduce GR00T N1, an open foundation model for humanoid robots. GR00T N1 is a Vision-Language-Action (VLA) model with a dual-system architecture. The vision-language module (System 2) interprets the environment through vision and language instructions. The subsequent diffusion transformer module (System 1) generates fluid motor actions in real time. Both modules are tightly coupled and jointly trained end-to-end. We train GR00T N1 with a heterogeneous mixture of real-robot trajectories, human videos, and synthetically generated datasets. We show that our generalist robot model GR00T N1 outperforms the state-of-the-art imitation learning baselines on standard simulation benchmarks across multiple robot embodiments. Furthermore, we deploy our model on the Fourier GR-1 humanoid robot for language-conditioned bimanual manipulation tasks, achieving strong performance with high data efficiency. \\abscontent",
+      "title": "GR00T N1: An Open Foundation Model for Generalist Humanoid Robots"
+    },
+    {
       "chunk_id": "doc:e302b92950f3",
       "concepts": [],
       "text": "Short horizon in inference is good for action precision, while long horizon is good for action continuity.",
       "title": "Short horizon inference good action precision long continuity."
+    },
+    {
+      "chunk_id": "doc:e3a497c1a5eb",
+      "concepts": [],
+      "text": "need to slow down robot motion: 100ms inference on gpu, 3x slower than data collection",
+      "title": "need slow down robot motion 100ms inference gpu"
+    },
+    {
+      "chunk_id": "doc:e5b1dc92edbc",
+      "concepts": [],
+      "text": "Align on one reference task and environment for apples-to-apples comparison between simulation and real robot.",
+      "title": "Align reference task environment apples-to-apples comparison simulation real"
+    },
+    {
+      "chunk_id": "doc:e6d87ab0853d",
+      "concepts": [],
+      "text": "predict both eef and joint for yam. choose during inference. use joint but eef to supervise; language following regress on n1d6 pretrain data; motion quality should be better",
+      "title": "predict eef joint yam. choose during inference. supervise"
+    },
+    {
+      "chunk_id": "doc:e77d03e8c168",
+      "concepts": [],
+      "text": "- RoboCasa / LIBERO / sim eval recipes: #129 (https://github.com/NVIDIA/Isaac-GR00T/issues/129), #139 (https://github.com/NVIDIA/Isaac-GR00T/issues/139), #146",
+      "title": "RoboCasa LIBERO sim eval recipes 129 https github.com/NVIDIA/Isaac-GR00T/issues/129"
+    },
+    {
+      "chunk_id": "doc:e89c71d368b7",
+      "concepts": [],
+      "text": "### 3.1 Overview In this section, we first introduce the features of our dataset in Sec.\u02dc3.2, and then describe the architecture of DreamDojo and its training recipe in Sec.\u02dc3.3. Our whole training procedure consists of three phases: 1. 1. Pretraining from human videos. At this stage, we curate three egocentric human datasets for pretraining: In-lab, EgoDex, and DreamDojo-HV. Continuous latent actions are introduced as conditions for all videos. 2. 2. Post-training on target robots. To adapt DreamDojo to different embodiments, we reset the action conditioning layer and learn the new action space through finetuning. The post-training can be conducted on a target robot dataset collected from limited scenarios. 3. 3. Distillation. Once DreamDojo has learned the target action space, a distillation process can be applied to improve real-time interactivity and context consistency. ### 3.2 DreamDojo-HV Dataset Existing robot world models are primarily limited to in-distribution settings and fall short in generalizing to unseen interactions with new objects (team2025evaluating; zhang2025reinforcing). In essence, this limitation arises because most datasets only cover a relatively narrow distribution with limited verbs, objects, and environments, thereby restricting the breadth of interaction patterns. As a result, training on these datasets often fails to preserve the model\u2019s abilities when extending to out-of-distribution scenarios. To address this limitation, one might consider increasing the scale of real robot data. However, this may not be the most efficient approach to encompass all potential interaction types, as each new trajectory involves costly teleoperation. On the other hand, human videos, which can be captured during daily activities, emerge as a promising axis to empower robot learning (zheng2025flare; chen2025villa; luo2025being; li2025scalable; wang2024dexcap; liu2025egozero; bi2025h; yang2025egovla; qiu2025humanoid; kareer2025emergence; ye2024latent; chen2025large). Inspired by these studies, we scale up human videos as a pioneering step for world model pretraining. Our human data comes from three sources: 1. 1. In-lab is collected in our tabletop settings at our laboratory to validate our core designs. The collectors are wearing Manus gloves with Vive Ultimate Tracker to capture precise hand poses, which can be readily retargeted to the GR-1 robot actions. It contains several new objects and new verbs that are unseen in our default robot training dataset. 2. 2. EgoDex (hoque2025egodex) is a public dexterous human manipulation dataset with egocentric views recorded by Apple Vision Pro. It has 829 hours of egocentric videos with high-precision 3D hand and finger poses collected at the time of recording. It also contains a variety of everyday household objects. We include it to our data suite to enrich object variety. 3. 3. DreamDojo-HV is a large-scale in-house dataset collected through crowdsourcing. It features a wide spectrum of loco-manipulation skills and extremely diverse environments, such as household, industrial, retail, educational, and administrative (see Fig.\u02dc2 for the distribution), which significantly increases the scale and diversity of our data corpus. Each episode is annotated with a text that describes the task being performed. As shown in Tab.\u02dc1, our final dataset comprises a total of 44,711 hours, making it the largest human interaction dataset to date for world model pretraining. It includes more than 9,869 unique scenes, 6,015 unique tasks, and 43,237 unique objects, representing the majority of interactions in daily activities. Its scale and diversity also provide thorough coverage of various action distributions and increase the stochasticity of the future, thereby enhancing the controllability of actions. In Sec.\u02dc4.3, we demonstrate that increasing the data scale and diversity continues to enhance model performance across all benchmarks. ### 3.3 DreamDojo Foundation World Model #### 3.3.1 Model Architecture Unlike conventional video generators (team2025wan; ali2025world), world models are distinct in their prioritization on action controllability (yang2023learning; yang2025resim; huang2025vid2world). Different from interactive games with discrete inputs (parker2024genie), achieving genuine controllability for robot actions presents more challenges due to its high dimensionality and contact-rich nature. To realize precise action following, we propose two improvements based on the original architecture. First, instead of using the absolute robot joint poses, we transform them into relative actions by rebaselining the inputs with the pose at the beginning of each latent frame (\\ie, every 4 timesteps). Since relative actions are often concentrated in a narrower space shared across various trajectories, this significantly reduces modeling complexity, thereby enhancing generalization to continuous and compositional robot actions. Second, since the consequences of interactions strictly follow causality, observing future actions does not aid predictions at the current timestep but rather increases irrelevant noise. Therefore, instead of sending the entire relative action trajectory as a global condition for all latent frames, we inject actions into the latent frames as chunks (huang2025vid2world; zhu2024irasim; guo2025ctrl). Specifically, since the temporal compression ratio of the WAN2.2 tokenizer (team2025wan) is 4 (\\ie, video latent $x^{i}$ corresponds to 4 frames $f^{i:i+4}$ in the pixel space, $x^{i+1}$ corresponds to $f^{i+4:i+8}$, and so on), we concatenate 4 consecutive actions $a^{t:t+4}$ as a chunk and send them to the corresponding latent frame together. This strong prior can greatly mitigate the causality confusion, thereby improving learning efficiency and ultimately enhancing controllability. We show the effects of these two designs above on both expert and counterfactual trajectories in Sec.\u02dc4.5. #### 3.3.2 Pretraining from Human Videos Latent action as proxy action. While our data suite includes comprehensive real-world activities, it does not come with fine-grained action annotations. To inherit the rich knowledge from this unlabeled dataset, one straightforward solution is to pretrain the model by passively predicting future frames. In our experiments, we found that this simple approach can transfer certain physical knowledge from human videos, resulting in more physically plausible modeling for unseen objects. Nevertheless, since world models must learn the consequences of actions, relying solely on actionless videos may lead to an inadequate understanding of the causality, ultimately resulting in inferior interactivity when adapting to the target robots. To address the inefficient knowledge transfer caused by absence of action labels, it is crucial to derive pseudo labels from pixels that describe the current actions. While off-the-shelf models like HaMeR (pavlakos2024reconstructing) can extract hand poses at scale, these models struggle to represent actions beyond the hands (\\eg, arm movements and locomotions) and often face challenges in inferring hand positions in heavy occlusions and camera movements. In addition, they primarily focus on low-level features of the human hands, which may hinder effective knowledge transfer to the target robot when there is a significant embodiment gap. On the other hand, latent actions (bruce2024genie; ye2024latent; gao2025adaworld), which extract action information purely from videos in a self-supervised manner and provide consistent action interpretation across embodiments, have gained increasing attention recently. Inspired by (gao2025adaworld), we adopt continuous latent actions due to their superiority in cross-embodiment generalization and efficient adaptability. We establish a latent action model as a VAE (kingma2013auto) using the spatiotemporal Transformer architecture (bruce2024genie). It has an information bottleneck design that can automatically disentangle the most critical action information from the context. Specifically, unlike the standard VAE, our VAE encoder takes two consecutive frames $f^{t:t+1}$, extracts spatiotemporal features, and projects the global features to a low-dimensional embedding $\\hat{a}\\_{t}$. The VAE decoder receives this embedding along with the former frame $f^{t}$, aggregates the information and predicts the subsequent frame $f^{t+1}$. The entire VAE is supervised by the reconstruction loss of the later frame and the KL divergence. The compactness of the embedding and the regularization term together create an information bottleneck. To reconstruct the later frame, the model has to disentangle and compress the most critical motions between frames. | | | | | | --- | --- | --- | --- | | | $\\mathcal{L}^{pred}\\_{\\theta,\\phi}(f^{t+1})=\\;\\mathbb{E}\\_{q\\_{\\phi}(\\hat{a}|f^{t:t+1})}\\log p\\_{\\theta}(f^{t+1}|\\hat{a},f^{t})-\\beta\\,D\\_{KL}(q\\_{\\phi}(\\hat{a}|f^{t:t+1})||p(\\hat{a})).$ | | (3) | In egocentric human videos, we found that this embedding particularly captures the human actions and can be transferred across embodiments (see Fig.\u02dc3). Ultimately, we are able to utilize latent actions as unified proxy labels for world models. During pretraining, we condition each latent frame on the chunked latent actions. Concretely, after extracting latent actions from consecutive frames, we project them using a lightweight MLP to match the dimensions of the timestep embeddings. The last layer of the action MLP is initialized with zeros to avoid perturbing the pretrained model state at the beginning of training (zhang2023adding), which we empirically found leads to improved physics. The projected embeddings are added with the timestep embeddings and then fed into the adaptive layer normalization within each DiT block. Training objective. As mentioned in Sec.\u02dc2, Cosmos-Predict2.5 employs the standard flow matching loss (Eq.\u02dc2) as its training objective. However, this individual supervision of each frame overlooks the temporal correlation between video frames, which could provide a more direct signal for learning object dynamics and action following. Inspired by previous studies (wang2024recipe; gao2024vista; yang2025resim), we modify Eq.\u02dc2 to a new loss that aims to match the ground-truth temporal transitions. Let $\\mathbf{z}\\_{t}=\\mathbf{u}(\\mathbf{x}\\_{t},t,\\mathbf{c};\\theta)$ represent the predicted velocity, then the proposed temporal consistency loss can be expressed as: | | | | | | --- | --- | --- | --- | | | $\\mathcal{L}\\_{\\text{temporal}}(\\theta)=\\mathbb{E}\\Big[\\sum^{K-1}\\_{i=1}\\left\\|(z^{i+1}-z^{i})-(v^{i+1}-v^{i}))\\right\\|^{2}\\Big].$ | | (4) | Here, $K$ is the total length of the video latent, $[z^{1},z^{2},\\ldots,z^{k}]$ and $[v^{1},v^{2},\\ldots,v^{k}]$ are frames in $\\mathbf{z}\\_{t}$ and $\\mathbf{v}\\_{t}$, respectively. In practice, we found that this loss term not only accelerates the learning of action controllability but also effectively enhances object completeness and reduces artifacts. Therefore, our final training objective becomes: | | | | | | --- | --- | --- | --- | | | $\\mathcal{L}\\_{\\text{final}}(\\theta)=\\mathcal{L}\\_{\\text{flow}}(\\theta)+\\lambda\\,\\mathcal{L}\\_{\\text{temporal}}(\\theta),$ | | (5) | where $\\lambda>0$ is a trade-off coefficient to balance the optimization. We use $\\lambda=0.1$ in our experiments. #### 3.3.3 Post-Training on Target Robots Although learning from human videos exposes the model to a wide range of physics interactions, we still require a post-training stage on the target robot data to adapt our model for downstream applications. To achieve this, we flatten the ground-truth actions of the target robot into a sequence and project the entire sequence through the action MLP. To match the target action space, we reinitialize the first layer of the action MLP and fully finetune it along with all other pretrained weights. Thanks to strong pretraining, the target robot dataset can be collected in limited domains at a small scale while still achieving zero-shot generalization after finetuning. The continuity of our latent action space also ensures better adaptation results compared to other variants (gao2025adaworld). #### 3.3.4 Distillation In order to unlock capabilities like live teleoperation and online model-based planning, our world model must be able to run autoregressively in real time (huang2025towards). However, existing video diffusion models are often limited in achieving this due to (1) their bidirectional attention architecture, which defines a fixed horizon length, and (2) a large number of denoising timesteps (\\eg, 50), which severely hampers inference speed. Thus, we introduce an additional distillation stage that converts the foundation DreamDojo model into an autoregressive, few-step diffusion model. We build on the process introduced by Self Forcing (huang2025self), which uses two training stages to distill teacher $G\\_{\\text{teacher}}$ to student $G\\_{\\text{student}}$. We construct $G\\_{\\text{student}}$ with the same architecture and model weights of $G\\_{\\text{teacher}}$, with the exception of the bidirectional attention mechanism, which is replaced with causal attention, and the timestep schedule, which is shortened to a few steps (\\eg, 4). Warmup stage. In the first \u201cwarmup\u201d stage, we regress student predictions to match ODE solutions generated by our teacher, | | | | | | --- | --- | --- | --- | | | $\\mathcal{L}\\_{\\text{warmup}}(G\\_{\\text{teacher}},G\\_{\\text{student}})=\\mathbb{E}\\_{x,t}\\|G\\_{\\text{student}}(x\\_{t},t)-x\\_{0}\\|^{2},$ | | (6) | where $x\\_{0}$ is from the teacher\u2019s ODE trajectory. In this stage, the student generates via teacher forcing, \\ie, its context consists of latents generated by the teacher. Distillation stage. Afterwards, in the second \u201cdistillation\u201d stage, we construct the student context with its own previously-generated latents, instead of continuing teacher forcing from the first stage. This aligns the training distribution with what the model will receive at inference time, thereby reducing compounding error. To supervise this stage, we guide the student distribution toward the teacher via a distribution matching loss (yin2024one) based on the Kullback-Leibler (KL) divergence between real (teacher) and fake (student) distributions, | | | | | | --- | --- | --- | --- | | | $\\mathcal{L}\\_{\\text{distill}}=D\\_{\\text{KL}}(p\\_{\\text{teacher}}\\|p\\_{\\text{student}}).$ | | (7) | Computing the loss in this form is intractable, but we can directly compute its gradient, using real and fake diffusion models $s\\_{\\text{real}}$ and $s\\_{\\text{fake}}$ to estimate the score, | | | | | | --- | --- | --- | --- | | | $\\nabla\\mathcal{L}\\_{\\text{distill}}=-\\mathbb{E}\\_{z,t}\\left[(s\\_{\\text{real}}(x\\_{t},t)-s\\_{\\text{fake}}(x\\_{t},t))\\frac{dG\\_{\\text{student}}}{d\\theta}\\right],$ | | (8) | where $z\\sim\\mathcal{N}(0,I)$ is noise, $x\\_{t}$ is produced via forward diffusion with $G\\_{\\text{student}}$ starting at $z$, and $s\\_{\\text{real}}$ is estimated by $G\\_{\\text{teacher}}$ whereas $s\\_{\\text{fake}}$ is estimated by a model trained on the predictions of $G\\_{\\text{student}}$. This process minimizes the train-test distribution mismatch, as the student is trained to generate from its previous outputs. However, despite this alignment, generation quality can still degrade over long horizons. To improve robustness against compounding errors, we propose to have the student generate $N^{\\prime}>N$ frames, where $N$ represents the horizon of the teacher. This simulates longer student rollouts, thus further minimizing the train-test discrepancy. To supervise the student\u2019s prediction, we randomly select a window of size $N$, which receives gradients via the $\\mathcal{L}\\_{\\text{distill}}$ loss (Eq.\u02dc8).",
+      "title": "3 Approach"
     },
     {
       "chunk_id": "doc:e8b33227dd0f",
@@ -211,10 +949,52 @@
       "title": "recommended start UMI data post-training because embodiment gap"
     },
     {
+      "chunk_id": "doc:e9b27b2b6dae",
+      "concepts": [],
+      "text": "during fine-tuning. use stats on post-training data (confirmed done)",
+      "title": "during fine-tuning. stats post-training data confirmed"
+    },
+    {
+      "chunk_id": "doc:ec18649ea92c",
+      "concepts": [],
+      "text": "Phase 2: bedsheets, which are larger, more tangled, and higher difficulty.",
+      "title": "Phase 2 bedsheets larger tangled higher difficulty."
+    },
+    {
+      "chunk_id": "doc:ed0058303d59",
+      "concepts": [],
+      "text": "rel joint angle from last step action/state, need to check control stack details, discuss more on slack",
+      "title": "rel joint angle last step action/state need check"
+    },
+    {
+      "chunk_id": "doc:ed090ded97f8",
+      "concepts": [],
+      "text": "pi0.5 is running a full finetune by default, which may partly explain why you are seeing the gap in success rates.",
+      "title": "pi0.5 running full finetune default partly explain seeing"
+    },
+    {
       "chunk_id": "doc:ee3c9911138e",
       "concepts": [],
       "text": "If it is a new embodiment and unseen task, you can try two-stage training. First, turn off tune_llm and tune_visual and train action head only, it helps the action head to warm up on the new action space. Then turn on tune_llm and tune_visual, it helps the model to better adapt to the new task. If you turn on all parameters from the beginning, the action can be very noisy and may cause loss spikes.",
       "title": "new embodiment unseen task try two-stage training. First"
+    },
+    {
+      "chunk_id": "doc:efe12eec45a0",
+      "concepts": [],
+      "text": "training recipe: param, rl: try train with action_horizon=40 than test on 40 and 16; add image/state history with negative delta_indices",
+      "title": "training recipe param try train action horizon 40"
+    },
+    {
+      "chunk_id": "doc:f076d45888c7",
+      "concepts": [],
+      "text": "n1.5: 82% success rate (within training set distribution, pickplace locations), w/ key changes:",
+      "title": "n1.5 82% success rate within training set distribution"
+    },
+    {
+      "chunk_id": "doc:f18c15996a70",
+      "concepts": [],
+      "text": "always exist, but we need to sell that story as nvidia big picture",
+      "title": "always exist need sell story nvidia big picture"
     },
     {
       "chunk_id": "doc:f48806525c63",
@@ -223,16 +1003,40 @@
       "title": "close loop first asap see fails- adjust collection"
     },
     {
+      "chunk_id": "doc:f64b8bb9704a",
+      "concepts": [],
+      "text": "has ~500 pp oper team on data collection, expert on various robotic tasks",
+      "title": "500 oper team data collection expert various robotic"
+    },
+    {
       "chunk_id": "doc:f64c3c56f91a",
       "concepts": [],
       "text": "policy hesitates: task is ambiguous, multiple ways from current obs",
       "title": "policy hesitates task ambiguous multiple ways current obs"
     },
     {
+      "chunk_id": "doc:f8081930ca12",
+      "concepts": [],
+      "text": "abs_joint: only failed to pick, large improve in place, keep trying and correct its motion;",
+      "title": "abs joint only failed pick large improve place"
+    },
+    {
       "chunk_id": "doc:f89d12a2885a",
       "concepts": [],
       "text": "As a first experiment, use one frame of history plus the current frame. Since your current replan interval is 8, this corresponds to video delta_indices=[-8, 0]. This matches our recommendation to use step_size = replan_frequency for the observation history.",
       "title": "first experiment frame history plus current frame. Since"
+    },
+    {
+      "chunk_id": "doc:f95339de01d0",
+      "concepts": [],
+      "text": "dreamzero is 14b, n2 will be 2b so that it can deploy",
+      "title": "dreamzero 14b n2 2b deploy"
+    },
+    {
+      "chunk_id": "doc:fa05728c29e1",
+      "concepts": [],
+      "text": "pretrain data change from n1.5 to n1.7: add bimanual manip real data, majority is real data, egoscale, rel_eef human",
+      "title": "pretrain data change n1.5 n1.7 add bimanual manip"
     }
   ],
   "findings": [],

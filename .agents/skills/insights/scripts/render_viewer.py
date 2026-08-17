@@ -30,11 +30,8 @@ Because ``graph.html`` fetches its data at runtime, browsers block that request 
 ``file://``. Serve the ``oss/`` dir (so the cross-folder data fetch resolves) and view it::
 
     cd oss
-    python3 -m http.server 8000 --bind 127.0.0.1
+    python3 -m http.server 8000
     # then open http://localhost:8000/skills/insights/scripts/graph.html
-
-Keep ``--bind 127.0.0.1``: the server exposes everything under ``oss/``, including ``.git``
-and untracked incident or research output, to any client that can reach the port.
 
 The JS library is vendored locally (``vis-network.min.js``, no CDN). The rendering style
 mirrors ``scripts/visualize_knowledge_graph.py`` (legend, hover tooltips, node-type
@@ -359,7 +356,7 @@ def render_html(vis_nodes: list[dict], vis_edges: list[dict], *, source: str) ->
       'so most browsers block it when the file is opened directly via <code>file://</code>. ' +
       'Serve the <code>oss/</code> dir instead (the data lives in <code>oss/.insights/</code>):</p>' +
       '<pre style="background:#f1f3f5;padding:10px;border-radius:6px">' +
-      'cd oss\\npython3 -m http.server 8000 --bind 127.0.0.1</pre>' +
+      'cd oss\\npython3 -m http.server 8000</pre>' +
       '<p>then open <code>http://localhost:8000/skills/insights/scripts/graph.html</code>.</p></div>';
   }}
 

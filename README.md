@@ -1,22 +1,31 @@
 # Isaac GR00T 2
 
-## Start With Your Preferred Agent
+## Start With an Officially Supported Agent
 
-Connect this repository checkout to your preferred coding agent, such as Codex
-or Claude Code. Start the agent in the package root, the directory containing
-this README and `pyproject.toml`, then ask:
+> [!WARNING]
+> The agentic workflows in this repository are officially supported only with
+> **Codex, Claude Code, and Cursor**. Other coding agents may be able to read the
+> instructions, but are not officially supported or tested.
+
+Start Codex, Claude Code, or Cursor in the package root, the directory
+containing this README and `pyproject.toml`, then ask:
 
 > Onboard me to Isaac GR00T 2 using the minimal end-to-end example. Set up the
 > uv environment, prepare the example dataset, and verify training, open-loop
 > evaluation, and the policy server.
 
-The repository guidance and OSS skill give the agent the supported workflow and
-success criteria. To run the same onboarding manually, follow the
+The repository guidance and [`onboarding` skill](skills/onboarding/SKILL.md) give the agent
+the supported workflow and success criteria. To run the same onboarding
+manually, follow the
 [minimal end-to-end example](docs/minimal_example.md).
 
 This package exposes OSS-local post-training, open-loop evaluation, and policy
 serving through `uv run --no-sync python -m groot.infra.oss` after installing
 the training environment.
+
+See the [agentic workflows and skills guide](skills/README.md) to choose among
+the onboarding, AutoResearch, AutoResearch visualization, AutoDebug, and FAQ
+workflows and start them with copy-ready prompts.
 
 ## Minimal End-to-End Example
 
@@ -56,12 +65,6 @@ Each workflow has a different input boundary:
 
 See the detailed guide for the exact environment variables and command-line
 arguments used for each input.
-
-## AutoDebug
-
-AutoDebug reproduces a GR00T problem, tests focused explanations, writes a fix package
-for a separate coding agent, and independently verifies the returned commit. Start with
-[the AutoDebug guide](.agents/autodebug.md).
 
 ## Train
 

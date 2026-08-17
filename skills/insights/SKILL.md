@@ -167,13 +167,9 @@ question), treat it as an action: **(re)generate** the viewer from the current p
 ```bash
 python3 oss/skills/insights/scripts/render_viewer.py   # regenerate graph.html (scripts/) + .insights/graph_data.json
 cd oss                                                 # data lives in oss/.insights/, so serve the oss/ dir
-python3 -m http.server 8000 --bind 127.0.0.1           # if 8000 is taken, pick another port (e.g. 8001)
+python3 -m http.server 8000                            # if 8000 is taken, pick another port (e.g. 8001)
 # then open http://localhost:8000/skills/insights/scripts/graph.html
 ```
-
-The server exposes every file under `oss/` — including `.git` and any untracked incident
-or research output — to whoever can reach it, so always keep `--bind 127.0.0.1`, never
-serve a parent directory, and stop the server once the user is done.
 
 Report the `http://localhost:8000/skills/insights/scripts/graph.html` link (and note it
 renders findings and their source chunks, filterable by node type). Do not paste raw JSON at

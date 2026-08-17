@@ -20,15 +20,15 @@ without additional evidence.
 Issue #282 is retained as a triage and FAQ check, not an execution benchmark,
 because the reported path became obsolete after later refactoring.
 
-## Reported task
+## Internal customer task
 
-### Relative EEF training and open-loop evaluation error
+### Geely: relative EEF training and open-loop evaluation error
 
 **Report:** A model trained with relative end-effector actions produces an error
-during open-loop evaluation. When the reporter has already attempted fixes,
-those attempts must be copied into the incident report verbatim—with commands,
+during open-loop evaluation. Geely has shared what they already tried. Those
+attempts must be copied into the incident report verbatim—with commands,
 parameter changes, and observed outcomes—before the agent proposes duplicate
-experiments.
+experiments. The exact attempt list is not yet recorded in this repository.
 
 **Evidence to attach:**
 
@@ -37,7 +37,7 @@ experiments.
 - normalization statistics and action-dimension ordering;
 - one fixed evaluation episode with observations, target actions, predictions,
   decoded actions, logs, and metrics;
-- the reporter's attempted fixes and the result of each attempt.
+- Geely's attempted fixes and the result of each attempt.
 
 **First diagnostic test:** Trace one fixed episode through the training target
 construction and the open-loop evaluation decoder. Compare coordinate frame,

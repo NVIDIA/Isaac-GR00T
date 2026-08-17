@@ -29,5 +29,5 @@ Apply high reasoning effort to research tasks.
 Use these skills from the repository's `skills/` directory:
 
 - `insights`
-- `oss`
+- `onboarding`
 - `autoresearch`
