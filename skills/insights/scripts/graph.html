@@ -22,12 +22,12 @@
 <body>
 <header>
   <h1>GR00T knowledge graph — .insights/</h1>
-  <div class="meta">373 nodes · 371 edges · source: .insights/
+  <div class="meta">118 nodes · 116 edges · source: .insights/
     · data loaded at runtime from <code>graph_data.json</code>
     · radial tree: topic at centre → finding rings → support (chunk) rings
     · drag to pan, scroll to zoom, hover a node for its title</div>
-  <div class="legend"><b>nodes</b> &nbsp; <span class="chip"><i style="background:#6741d9"></i>topic (2)</span><span class="chip"><i style="background:#099268"></i>finding (217)</span><span class="chip"><i style="background:#fd7e14"></i>evidence (154)</span></div>
-  <div class="legend"><b>edges</b> &nbsp; <span class="chip"><i style="background:#b197fc"></i>about (217)</span><span class="chip"><i style="background:#ffa94d"></i>cites (154)</span></div>
+  <div class="legend"><b>nodes</b> &nbsp; <span class="chip"><i style="background:#6741d9"></i>topic (2)</span><span class="chip"><i style="background:#099268"></i>finding (78)</span><span class="chip"><i style="background:#fd7e14"></i>evidence (38)</span></div>
+  <div class="legend"><b>edges</b> &nbsp; <span class="chip"><i style="background:#b197fc"></i>about (78)</span><span class="chip"><i style="background:#ffa94d"></i>cites (38)</span></div>
   <div class="controls"><b>show</b>
     <label><input type="checkbox" class="nf" value="topic" checked> topic</label><label><input type="checkbox" class="nf" value="finding" checked> finding</label><label><input type="checkbox" class="nf" value="evidence" checked> evidence</label>
     &nbsp;|&nbsp; <button id="fit">fit view</button>
@@ -80,7 +80,7 @@
       'so most browsers block it when the file is opened directly via <code>file://</code>. ' +
       'Serve the <code>oss/</code> dir instead (the data lives in <code>oss/.insights/</code>):</p>' +
       '<pre style="background:#f1f3f5;padding:10px;border-radius:6px">' +
-      'cd oss\npython3 -m http.server 8000</pre>' +
+      'cd oss\npython3 -m http.server 8000 --bind 127.0.0.1</pre>' +
       '<p>then open <code>http://localhost:8000/skills/insights/scripts/graph.html</code>.</p></div>';
   }
 
