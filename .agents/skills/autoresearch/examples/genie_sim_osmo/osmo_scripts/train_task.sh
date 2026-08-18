@@ -48,7 +48,7 @@ export PYTHON
 export DS_IGNORE_CUDA_DETECTION=1
 export ENABLE_TENSORRT=True
 export SKIP_EXPERIMENT_REGISTRATION=1
-export HF_HUB_CACHE="${HF_HUB_CACHE:-/mnt/amlfs-02/shared/ckpts}"
+export HF_HUB_CACHE="${HF_HUB_CACHE:-${AUTORESEARCH_ROOT}/cache/huggingface}"
 export HF_HUB_OFFLINE=1
 export GIT_LFS_SKIP_SMUDGE=1
 export OTEL_SDK_DISABLED=true

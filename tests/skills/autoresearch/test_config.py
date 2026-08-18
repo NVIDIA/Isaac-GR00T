@@ -95,6 +95,27 @@ def test_load_study_config(tmp_path: Path) -> None:
     assert config.max_retry == 2
 
 
+def test_load_study_config_expands_environment_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "autoresearch"
+    monkeypatch.setenv("AUTORESEARCH_ROOT", str(root))
+    data = _config_data()
+    data["output_dir"] = "${AUTORESEARCH_ROOT}/study"
+
+    config = StudyConfig.from_yaml(_write_config(tmp_path, data))
+
+    assert config.output_dir == (root / "study").resolve()
+
+
+def test_load_study_config_rejects_missing_environment_paths(tmp_path: Path) -> None:
+    data = _config_data()
+    data["output_dir"] = "${AUTORESEARCH_MISSING_ROOT}/study"
+
+    with pytest.raises(ValueError, match="AUTORESEARCH_MISSING_ROOT is not set"):
+        StudyConfig.from_yaml(_write_config(tmp_path, data))
+
+
 def test_config_resolves_missing_base_commit_from_branch_head(tmp_path: Path) -> None:
     workspace = tmp_path / "repo"
     workspace.mkdir()

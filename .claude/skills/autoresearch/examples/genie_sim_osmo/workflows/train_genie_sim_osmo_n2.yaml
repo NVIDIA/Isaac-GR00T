@@ -12,12 +12,13 @@ default-values:
   GROOT_ROOT: /workspace/gr00t
   GROOT_BRANCH: main
   GROOT_REVISION: ""
-  GROOT_REPO: gitlab-master.nvidia.com/GR00T/gr00t/gr00t.git
+  GROOT_REPO: github.com/NVIDIA/Isaac-GR00T-CRA.git
   OSS_PACKAGE_DIR: oss
 
-  RUN_ROOT: /mnt/amlfs-01/home/yuhlu/AutoResearch_genie_sim_osmo/baseline
-  TRAINING_CONFIG: /mnt/amlfs-01/home/yuhlu/AutoResearch_genie_sim_osmo/baseline/config/train_config.yaml
-  TRAIN_DATASET: /mnt/amlfs-02/shared/datasets/agibot_data/instruction_preprocessed/pick_billards_color
+  AUTORESEARCH_ROOT: /tmp/autoresearch
+  RUN_ROOT: ""
+  TRAINING_CONFIG: ""
+  TRAIN_DATASET: ""
 
 workflow:
   name: {{ WORKFLOW_NAME }}
@@ -39,7 +40,7 @@ workflow:
     resource: train
     command: ["bash", "-lc"]
     credentials:
-      gitlab-pat: /tmp/gitlab
+      github-token: /tmp/github
     environment:
       ACCEPT_EULA: "Y"
       PRIVACY_CONSENT: "Y"
@@ -53,17 +54,21 @@ workflow:
       export GROOT_REVISION='{{ GROOT_REVISION }}'
       export GROOT_REPO='{{ GROOT_REPO }}'
       export OSS_PACKAGE_DIR='{{ OSS_PACKAGE_DIR }}'
+      export AUTORESEARCH_ROOT='{{ AUTORESEARCH_ROOT }}'
       export RUN_ROOT='{{ RUN_ROOT }}'
       export TRAINING_CONFIG='{{ TRAINING_CONFIG }}'
       export TRAIN_DATASET='{{ TRAIN_DATASET }}'
+      RUN_ROOT="${RUN_ROOT:-${AUTORESEARCH_ROOT}/genie_sim_osmo/baseline}"
+      TRAINING_CONFIG="${TRAINING_CONFIG:-${RUN_ROOT}/config/train_config.yaml}"
+      TRAIN_DATASET="${TRAIN_DATASET:-${AUTORESEARCH_ROOT}/genie_sim_osmo/datasets/pick_billiards_color}"
       export WORKFLOW_NAME='{{ WORKFLOW_NAME }}'
       export OSMO_OUTPUT_DIR='{{output}}'
 
       cat > /tmp/git-askpass <<'EOF'
       #!/usr/bin/env bash
       case "$1" in
-        *Username*) echo oauth2 ;;
-        *Password*) tr -d '\r\n' < /tmp/gitlab/gitlab-pat ;;
+        *Username*) echo x-access-token ;;
+        *Password*) tr -d '\r\n' < /tmp/github/github-token ;;
       esac
       EOF
       chmod +x /tmp/git-askpass

@@ -13,15 +13,37 @@
 
 from __future__ import annotations
 
+import os
+import re
 import sys
+from typing import Any
 
 import yaml
+
+_ENVIRONMENT_VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _expand_environment_variables(value: Any) -> Any:
+    if isinstance(value, str):
+
+        def replace(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name not in os.environ:
+                raise ValueError(f"environment variable {name} is not set")
+            return os.environ[name]
+
+        return _ENVIRONMENT_VARIABLE_RE.sub(replace, value)
+    if isinstance(value, list):
+        return [_expand_environment_variables(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _expand_environment_variables(item) for key, item in value.items()}
+    return value
 
 
 def main() -> None:
     source, dataset, output = sys.argv[1:]
     with open(source, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+        config = _expand_environment_variables(yaml.safe_load(f))
 
     config["data"]["datasets"][0]["dataset_paths"] = [dataset]
 

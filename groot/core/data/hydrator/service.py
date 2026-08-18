@@ -29,13 +29,13 @@ except ImportError:
     _ray = None
     _RAY_AVAILABLE = False
 
-from groot.core.utils.distributed import worker_logging
 from groot.core.data.hydrator import backends, cache, exceptions, types
 from groot.core.data.hydrator import client as _hydrator_client
 from groot.core.data.hydrator import config as hydrator_config
 from groot.core.data.hydrator import data_source_resolver as _dsr
 from groot.core.data.hydrator import modality as hydrator_modality
 from groot.core.data.hydrator.utils import io
+from groot.core.utils.distributed import worker_logging
 
 log = worker_logging.get_unified_logger()
 
@@ -79,9 +79,8 @@ def _default_tmp_root() -> str:
 
     Resolution order:
 
-    1. Osmo pool lookup (``WORKFLOW_ID`` set): if the workflow's pool is in
-       ``_GB200_POOLS``, return ``/mnt/aws-lfs-02/shared/hydrator_cache/...``;
-       any other osmo pool returns ``/mnt/amlfs-07/shared/hydrator_cache/...``.
+    1. Osmo pool lookup (``WORKFLOW_ID`` set): select the cache root associated
+       with the workflow's pool.
     2. Filesystem-mount probe: if osmo lookup didn't apply (no WORKFLOW_ID, or
        it failed), pick the first mount in ``_LUSTRE_PROBE_ORDER`` that exists
        on disk. This covers SkyPilot / DGXC pods (GB300 → aws-lfs-03,
@@ -949,9 +948,7 @@ class Hydrator:
             if metadata is None:
                 continue  # not registered (e.g. DIRECT_READ) — nothing to do
             if metadata.state == types.FileState.DOWNLOADING:
-                raise exceptions.HydratorException(
-                    f"Cannot purge in-flight download: {path}"
-                )
+                raise exceptions.HydratorException(f"Cannot purge in-flight download: {path}")
             local_path = metadata.local_path
             self.cache_manager.drop_entry(path)
             if local_path:

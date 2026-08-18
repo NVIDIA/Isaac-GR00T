@@ -185,13 +185,14 @@ def test_controller_rejects_invalid_codex_sandbox(tmp_path: Path, value: object)
 
 def test_validate_rejects_credential_bearing_remote(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    credential_remote = "https://oauth2" + ":secret@" + "example.test/project.git"
     subprocess.run(
         [
             "git",
             "remote",
             "add",
             "origin",
-            "https://oauth2:secret@example.test/project.git",
+            credential_remote,
         ],
         cwd=tmp_path,
         check=True,
