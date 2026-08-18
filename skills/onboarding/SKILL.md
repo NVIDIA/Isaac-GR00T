@@ -44,7 +44,7 @@ Before running anything, identify:
 
 - An H100-class CUDA GPU with at least 80 GB of memory for the N2 smoke.
 - A writable dataset path, Hugging Face cache, GR00T artifact cache, and output
-  directory on ordinary local storage. Do not require a shared `/mnt` path.
+  directory on ordinary local storage. Do not require shared internal storage.
 - A Hugging Face token with read access to every model repository referenced by
   the selected experiment.
 - The dataset embodiment tag. The public onboarding dataset uses

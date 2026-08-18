@@ -1,15 +1,15 @@
 study_id: yam-stack-bowl-local
-workspace: /mnt/amlfs-01/home/yuhlu/gr00t
+workspace: ${AUTORESEARCH_ROOT}/gr00t
 max_trials: 5
 max_parallel_trials: 1
 max_retry: 2
-output_dir: /mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl_full/study
+output_dir: ${AUTORESEARCH_ROOT}/yam_stack_bowl/study
 
 baseline:
   script_timeout_s: 7200
-  train_script: /mnt/amlfs-01/home/yuhlu/gr00t/oss/skills/autoresearch/examples/yam_stack_bowl/train_baseline.sh
-  eval_script: /mnt/amlfs-01/home/yuhlu/gr00t/oss/skills/autoresearch/examples/yam_stack_bowl/eval_baseline.sh
-  eval_result: /mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl_full/baseline/eval/results.json
+  train_script: ${AUTORESEARCH_ROOT}/gr00t/oss/skills/autoresearch/examples/yam_stack_bowl/train_baseline.sh
+  eval_script: ${AUTORESEARCH_ROOT}/gr00t/oss/skills/autoresearch/examples/yam_stack_bowl/eval_baseline.sh
+  eval_result: ${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline/eval/results.json
   eval_metric: results.local.average.mse
   direction: minimize
   baseline_result: 0.010261768475174904

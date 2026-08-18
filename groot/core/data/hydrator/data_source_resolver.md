@@ -15,7 +15,7 @@
 ## Purpose
 
 Training configs reference datasets by their Lustre paths (e.g.
-`/mnt/aws-lfs-02/GrootDatasets/my_dataset`). When training runs on a GB200 cluster where
+`/shared/GrootDatasets/my_dataset`). When training runs on a GB200 cluster where
 datasets have been migrated to S3, those paths must be transparently rewritten to the
 correct `s3://` URI before they reach the dataset constructors and hydrator.
 
@@ -47,8 +47,8 @@ regardless of whether credentials or mappings are available.
 
 ```yaml
 whitelist:
-  - /mnt/aws-lfs-02/shared/datasets/agibot-custom-converted-1104-diverse-fullres
-  - /mnt/aws-lfs-02/shared/datasets/gr1-diverse-2025
+  - /shared/datasets/agibot-custom-converted-1104-diverse-fullres
+  - /shared/datasets/gr1-diverse-2025
 ```
 
 This is the primary operator control for limiting which datasets are read from S3/PDX.
@@ -63,7 +63,7 @@ If the user passes `s3://…` directly, that choice is respected: `resolve()` an
 to buckets when the caller already named S3.)
 
 The whitelist is a **prefix list**, not a glob.
-`/mnt/aws-lfs-02/GrootDatasets/agibot-custom` matches every path that starts with that
+`/shared/GrootDatasets/agibot-custom` matches every path that starts with that
 string followed by `/` (or exactly equals it), so a shared prefix covers multiple
 datasets without listing each one.
 
@@ -131,8 +131,8 @@ Segments of `local_path` are split on `/`, lowercased, underscores replaced with
 hyphens, joined with `-`, then suffixed with `-{region}-nvidia-gear`.
 
 ```text
-/mnt/aws-lfs-02/GrootDatasets  +  us-west-2
-→ mnt-aws-lfs-02-grootdatasets-us-west-2-nvidia-gear
+/shared/GrootDatasets  +  us-west-2
+→ shared-grootdatasets-us-west-2-nvidia-gear
 
 /A_B/C/D  +  us-east-1
 → a-b-c-d-us-east-1-nvidia-gear
@@ -153,7 +153,7 @@ define a key (`{**yaml_mappings, **tier_cfg.mappings}`).
 ```yaml
 # path_mapping.yaml
 mappings:
-  /mnt/aws-lfs-02/GrootDatasets: s3://my-bucket/GrootDatasets
+  /shared/GrootDatasets: s3://my-bucket/GrootDatasets
 disable_path_mapping: false
 ```
 
@@ -238,7 +238,7 @@ Call `resolver.reload()` to clear all state (useful in tests).
 
 ```python
 # Local path resolved to AWS S3
-uri, profile = resolver.resolve("/mnt/aws-lfs-02/GrootDatasets/my_dataset")
+uri, profile = resolver.resolve("/shared/GrootDatasets/my_dataset")
 # uri     -> "s3://my-bucket/GrootDatasets/my_dataset"
 # profile -> "aws"   (the tier that won)
 
@@ -323,7 +323,7 @@ data_source_resolver.ancestor_paths(path)               # -> list[str]
 
 # Singleton resolver (used by Hydrator.resolve_path)
 resolver = data_source_resolver.default_resolver()
-uri, profile = resolver.resolve("/mnt/aws-lfs-02/GrootDatasets/my_dataset")
+uri, profile = resolver.resolve("/shared/GrootDatasets/my_dataset")
 
 # Per-URI profile lookup — probes tiers on cache miss (resolve() not required first)
 profile = resolver.get_profile_for_uri("s3://my-bucket/path/file.mp4")
@@ -371,7 +371,7 @@ DataSourceConfig(
     tiers=[
         TierConfig(name="aws", profile="aws", region=None,
                    endpoint_style="regional",
-                   mappings={"/mnt/lfs": "s3://explicit-bucket"}),
+                   mappings={"/shared/data": "s3://explicit-bucket"}),
         TierConfig(name="pdx", profile="default",
                    endpoint_style="profile"),   # keep profile's custom endpoint_url
     ],

@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import math
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -27,7 +28,26 @@ from skills.autoresearch.study_state import Objective
 # Schema guards keep study IDs and commits deterministic.
 _STUDY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _FULL_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+_ENVIRONMENT_VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 TRIAL_EVAL_RESULT = "eval/results.json"
+
+
+def expand_environment_variables(value: Any, source: Path) -> Any:
+    """Expand ${NAME} values recursively and reject missing variables."""
+    if isinstance(value, str):
+
+        def replace(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name not in os.environ:
+                raise ValueError(f"{source}: environment variable {name} is not set")
+            return os.environ[name]
+
+        return _ENVIRONMENT_VARIABLE_RE.sub(replace, value)
+    if isinstance(value, list):
+        return [expand_environment_variables(item, source) for item in value]
+    if isinstance(value, dict):
+        return {key: expand_environment_variables(item, source) for key, item in value.items()}
+    return value
 
 
 # StudyConfig is the normalized contract used by the controller.
@@ -138,7 +158,9 @@ class StudyConfig:
         """Load one study from a YAML mapping."""
         # Load raw YAML first so all validation errors can cite this file.
         config_path = Path(path).expanduser().resolve()
-        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        raw = expand_environment_variables(
+            yaml.safe_load(config_path.read_text(encoding="utf-8")), config_path
+        )
         if not isinstance(raw, Mapping):
             raise TypeError(f"{config_path}: top-level YAML must be a mapping")
 

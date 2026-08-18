@@ -21,11 +21,14 @@ import tyro
 import yaml
 
 from groot.infra.eval.oss_open_loop_eval_config import OssOpenLoopEvalConfig
+from skills.autoresearch.config import expand_environment_variables
 
 
 def _load_config(path: Path) -> OssOpenLoopEvalConfig:
     """Load evaluator arguments and environment variables from YAML."""
-    values = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    values = expand_environment_variables(
+        yaml.safe_load(path.read_text(encoding="utf-8")) or {}, path
+    )
     if not isinstance(values, dict):
         raise TypeError(f"Evaluation config must be a mapping: {path}")
 

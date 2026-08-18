@@ -2,7 +2,7 @@ data:
   # train_local.sh loads this config unless a different path is supplied.
   datasets:
     - dataset_paths:
-        - /mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl/datasets/train
+        - ${AUTORESEARCH_ROOT}/yam_stack_bowl/datasets/train
       mix_ratio: 1.0
       embodiment_tag: xdof_relative_eef_relative_joint
   modality_configs:
@@ -29,7 +29,7 @@ training:
   enable_profiling: false
   use_async_checkpoint_save: false
   max_retries: 1
-  output_dir: /mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl_full/baseline/training
+  output_dir: ${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline/training
 
 model:
   model_type: GrootN2

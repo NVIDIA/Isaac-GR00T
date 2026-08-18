@@ -29,7 +29,15 @@ Codex changes only paths listed under **editable_paths**.
 
 ## 1. Configure the example
 
-Edit the following values before running:
+Choose one writable base directory and export it before using any checked-in
+configuration:
+
+~~~bash
+export AUTORESEARCH_ROOT=/path/to/autoresearch
+~~~
+
+The example resolves all repository, dataset, baseline, and study paths below
+that directory. Edit the following values before running:
 
 1. In **autoresearch.yaml**:
    - **workspace**: the local repository checkout.
@@ -44,16 +52,12 @@ Edit the following values before running:
 3. In **eval_config.yaml**:
    - the held-out evaluation dataset path.
    - embodiment-compatible horizon and sampling settings.
-4. In **train_baseline.sh** and **eval_baseline.sh**:
-   - change their default absolute repository/config/output paths if this
-     checkout is not at the paths currently shown.
-
 The configured training and evaluation datasets must be separate. The current
 example expects:
 
 ~~~text
-/mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl/datasets/train
-/mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl/datasets/eval
+$AUTORESEARCH_ROOT/yam_stack_bowl/datasets/train
+$AUTORESEARCH_ROOT/yam_stack_bowl/datasets/eval
 ~~~
 
 If **base_commit** is omitted, AutoResearch resolves the current head of
@@ -85,7 +89,7 @@ the normal Hugging Face cache.
 Use the same output root referenced by **baseline.eval_result**:
 
 ~~~bash
-export RUN_ROOT=/mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl_full/baseline
+export RUN_ROOT="${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline"
 bash skills/autoresearch/examples/yam_stack_bowl/train_baseline.sh
 bash skills/autoresearch/examples/yam_stack_bowl/eval_baseline.sh
 ~~~

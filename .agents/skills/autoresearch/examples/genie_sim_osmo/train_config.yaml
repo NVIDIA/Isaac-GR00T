@@ -1,7 +1,7 @@
 data:
   datasets:
     - dataset_paths:
-        - /mnt/amlfs-02/shared/datasets/agibot_data/instruction_preprocessed/pick_billards_color
+        - ${AUTORESEARCH_ROOT}/genie_sim_osmo/datasets/pick_billiards_color
       mix_ratio: 1.0
       embodiment_tag: agibot
   modality_configs:
@@ -46,7 +46,7 @@ data:
   override_pretraining_statistics: true
 
 training:
-  start_from_checkpoint: /mnt/amlfs-01/home/yuhlu/n2_experiments/groot_hf_artifacts/models/nvidia--GR00T-N2-YAM-Pretrain-Bidir-200K/checkpoint-200000
+  start_from_checkpoint: ${AUTORESEARCH_ROOT}/checkpoints/GR00T-N2-YAM-Pretrain-Bidir-200K/checkpoint-200000
   max_steps: 10
   per_device_batch_size: 1
   num_gpus: 1
@@ -61,7 +61,7 @@ training:
   enable_profiling: false
   use_async_checkpoint_save: false
   max_retries: 1
-  output_dir: /mnt/amlfs-01/home/yuhlu/AutoResearch_genie_sim_osmo/baseline/training
+  output_dir: ${AUTORESEARCH_ROOT}/genie_sim_osmo/baseline/training
 
 model:
   model_type: GrootN2
