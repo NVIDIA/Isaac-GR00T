@@ -69,8 +69,12 @@ osmo profile list
 osmo pool list
 ~~~
 
-The default pool is **groot-l40-01**. Confirm that the selected pool can access
-**AUTORESEARCH_ROOT** and run the two container images in the workflow.
+Replace **your-osmo-pool** with a pool available to your account, and confirm it
+can access **AUTORESEARCH_ROOT** and run the public NVIDIA NGC PyTorch and Isaac
+Sim images in the workflow.
+Each task bootstraps `uv` and validates `uv.lock` before running. The training
+and policy tasks then install the locked project environment, so they do not
+depend on Python packages preinstalled in the base image.
 
 The controller also needs the repository development environment and an
 authenticated Codex CLI:
@@ -90,6 +94,7 @@ OSMO workers:
 
 ~~~bash
 export AUTORESEARCH_ROOT=/path/to/autoresearch
+export OSMO_POOL=your-available-pool
 ~~~
 
 The checked-in configurations resolve their repository, dataset, model cache,
@@ -102,7 +107,8 @@ before running:
 - all three absolute paths under **baseline**.
 - **base_branch** and, optionally, **base_commit**.
 - **baseline_result** after the baseline evaluation.
-- **POOL** and **PRIORITY** under both **train.env** and **eval.env**.
+- **OSMO_POOL** in the controller environment, plus **PRIORITY** under
+  **train.env** and **eval.env** if the default is unsuitable.
 - **max_trials**, **max_parallel_trials**, and **max_retry** for the available
   compute budget.
 
@@ -148,7 +154,7 @@ First validate the training workflow template:
 ~~~bash
 osmo workflow validate \
   skills/autoresearch/examples/genie_sim_osmo/workflows/train_genie_sim_osmo_n2.yaml \
-  --pool groot-l40-01
+  --pool your-osmo-pool
 ~~~
 
 Then validate the rendered evaluation workflow through its wrapper. Use a fresh

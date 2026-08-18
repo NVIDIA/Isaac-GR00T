@@ -58,6 +58,10 @@ fi
 OSMO="${OSMO:-osmo}"
 POOL="${POOL:-${CONFIG_VALUES[0]}}"
 PRIORITY="${PRIORITY:-${CONFIG_VALUES[1]}}"
+if [[ "${POOL}" == "your-osmo-pool" ]]; then
+  echo "Set POOL to an OSMO pool available to your account" >&2
+  exit 2
+fi
 OSMO_POLL_INTERVAL_S="${OSMO_POLL_INTERVAL_S:-30}"
 GENIESIM_ROOT="${GENIESIM_ROOT:-${CONFIG_VALUES[2]}}"
 EMBODIMENT_TAG="${EMBODIMENT_TAG:-${CONFIG_VALUES[3]}}"
