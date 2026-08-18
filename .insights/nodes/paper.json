@@ -34,6 +34,14 @@
       "title": "Co-training combines synthetic simulation data MimicGen DexMimicGen neural-generated"
     },
     {
+      "body": "Self Forcing paradigm distillation enables autoregressive prediction at 640×480 resolution at 10.81 FPS for arbitrary horizon lengths while maintaining long-horizon consistency",
+      "id": "finding:doc:1db478702c3e",
+      "tags": [
+        "paper"
+      ],
+      "title": "Self Forcing paradigm distillation enables autoregressive prediction 640"
+    },
+    {
       "body": "Video generative models can produce neural trajectories at ~300k trajectory scale for robot training data augmentation.",
       "id": "finding:doc:215771b0ade9",
       "tags": [
@@ -64,6 +72,14 @@
         "paper"
       ],
       "title": "Initializing last layer action MLP zeros adding conditioning"
+    },
+    {
+      "body": "Video generation throughput is approximately 2 minutes per one-second video on a single L40 GPU.",
+      "id": "finding:doc:3c93a69e3948",
+      "tags": [
+        "paper"
+      ],
+      "title": "Video generation throughput approximately 2 minutes one-second single"
     },
     {
       "body": "Training data is organized as a pyramid structure with web data and human videos at the base, synthetic/simulation data in the middle, and real robot data at the top, enabling effective use of heterogeneous data sources",
@@ -98,6 +114,14 @@
       "title": "DexMimicGen generates 10 000 demonstrations source-target receptacle pair"
     },
     {
+      "body": "Distillation reduces denoising steps from 35 to 4, achieving nearly 4× faster inference while maintaining performance close to the teacher model on 600-frame long-horizon tasks.",
+      "id": "finding:doc:5fb979a07f22",
+      "tags": [
+        "paper"
+      ],
+      "title": "Distillation reduces denoising steps 35 4 achieving nearly"
+    },
+    {
       "body": "Post-training on task-specific data can cause capability regression: models post-trained exclusively with right-hand demonstrations lose the ability to perform bimanual handover behaviors present in the pre-trained checkpoint.",
       "id": "finding:doc:6011793cf633",
       "tags": [
@@ -130,12 +154,28 @@
       "title": "embodiments few tasks limited training data DexMimicGen Cross-Embodiment"
     },
     {
+      "body": "GR00T-N1-2B trained on 10% of real-world teleoperation data achieves success rates only 3.8% lower than Diffusion Policy trained on the full dataset, demonstrating significant data efficiency from pre-training.",
+      "id": "finding:doc:7ecdc975a319",
+      "tags": [
+        "paper"
+      ],
+      "title": "GR00T-N1-2B trained 10% real-world teleoperation data achieves success"
+    },
+    {
       "body": "IDM-labeled neural trajectories outperform LAPA labels as training data increases, with the performance gap widening from 30 to 300 demonstrations per task.",
       "id": "finding:doc:8250409b0276",
       "tags": [
         "paper"
       ],
       "title": "IDM-labeled neural trajectories outperform LAPA labels training data"
+    },
+    {
+      "body": "Neural trajectory generation via fine-tuned image-to-video models on 3,000 real samples (81 frames at 480P) for 100 epochs produces 827 hours of counterfactual videos, taking approximately 105k L40 GPU hours.",
+      "id": "finding:doc:82b54429df41",
+      "tags": [
+        "paper"
+      ],
+      "title": "Neural trajectory generation fine-tuned image-to-video models 3 000"
     },
     {
       "body": "Relative action transformation and chunked action injection each significantly improve simulation quality and action controllability; combining them with temporal consistency loss further enhances both action following and object modeling.",
@@ -154,6 +194,14 @@
       "title": "distillation real-time autoregressive generation having student model generate"
     },
     {
+      "body": "GR00T N1 humanoid pre-training uses teleoperation at 20Hz control frequency with VIVE Ultimate Tracker for wrist poses and Xsens Metagloves for finger tracking, with inverse kinematics retargeting to robot actions.",
+      "id": "finding:doc:8c9bd4ba1699",
+      "tags": [
+        "paper"
+      ],
+      "title": "GR00T N1 humanoid pre-training uses teleoperation 20Hz control"
+    },
+    {
       "body": "Adding a temporal consistency loss (matching predicted velocity transitions between consecutive frames) with coefficient λ=0.1 to standard flow matching loss accelerates learning of action controllability, enhances object completeness, and reduces artifacts.",
       "id": "finding:doc:8fcb00a1a0de",
       "tags": [
@@ -168,6 +216,14 @@
         "paper"
       ],
       "title": "Pretraining human videos despite embodiment gap transfers underlying"
+    },
+    {
+      "body": "Action chunks of size H=16 timesteps are used, with inference time of 63.9ms for sampling a 16-action chunk on an L40 GPU using bf16.",
+      "id": "finding:doc:ac6a93f05fba",
+      "tags": [
+        "paper"
+      ],
+      "title": "Action chunks size H 16 timesteps inference time"
     },
     {
       "body": "Human video datasets (Ego4D, Ego-Exo4D, Assembly-101, EPIC-KITCHENS, HOI4D, HoloAssist, RH20T-Human) provide affordances, task semantics, and motion patterns without explicit action labels for pre-training.",
@@ -194,6 +250,14 @@
       "title": "Latent action conditioning during pretraining human videos significantly"
     },
     {
+      "body": "Co-training GR00T N1 with neural trajectories yields +4.2%, +8.8%, and +6.8% average improvement over real-trajectory-only training in the 30, 100, and 300 demonstration regimes respectively on RoboCasa simulation.",
+      "id": "finding:doc:c391239e02da",
+      "tags": [
+        "paper"
+      ],
+      "title": "Co-training GR00T N1 neural trajectories yields 4.2% 8.8%"
+    },
+    {
       "body": "Injecting actions into latent frames as temporally-aligned chunks (4 consecutive actions per chunk matching the 4-frame temporal compression ratio) rather than as global conditions mitigates causality confusion and improves action controllability and learning efficiency.",
       "id": "finding:doc:ca493345b08c",
       "tags": [
@@ -218,7 +282,7 @@
       "title": "Transforming robot joint poses relative actions rebaselining inputs"
     },
     {
-      "body": "GR00T N1 uses a dual-system architecture where a Vision-Language Model (System 2) performs reasoning while a Diffusion Transformer (System 1) generates closed-loop motor actions.",
+      "body": "GR00T N1 uses a dual-system architecture where a Vision-Language Model (System 2) runs at 10Hz on an NVIDIA L40 GPU for reasoning, while a Diffusion Transformer (System 1) generates closed-loop motor actions at 120Hz",
       "id": "finding:doc:d9b8264a204f",
       "tags": [
         "paper"

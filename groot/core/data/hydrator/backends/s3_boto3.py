@@ -115,7 +115,6 @@ class S3Boto3Backend(base.StorageBackend):
         if config_.get("endpoint_url"):
             from botocore import config
 
-
             config_.setdefault("config", config.Config(s3={"addressing_style": "path"}))
         return boto3.client("s3", **config_)
 
@@ -271,7 +270,12 @@ class S3Boto3Backend(base.StorageBackend):
         try:
             s3_client = self._get_s3_client(bucket)
             if isinstance(content, Path):
-                s3_client.upload_file(Filename=str(content), Bucket=bucket, Key=key)
+                s3_client.upload_file(
+                    Filename=str(content),
+                    Bucket=bucket,
+                    Key=key,
+                    Config=self.transfer_config,
+                )
             else:
                 s3_client.put_object(Bucket=bucket, Key=key, Body=content)
         except exceptions.ClientError as e:

@@ -3,7 +3,7 @@ osmo:
   priority: NORMAL
 
 simulation:
-  geniesim_root: ${AUTORESEARCH_ROOT}/geniesim
+  geniesim_root: /mnt/amlfs-01/home/yuhlu/geniesim
   embodiment_tag: agibot
   task_type: if
   task_name: pick_billiards_color

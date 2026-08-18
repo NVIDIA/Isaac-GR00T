@@ -9,9 +9,8 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# ruff: noqa: BLE001, D301, EXE001, TRY400
-
-"""MSC Data Sync - Efficiently synchronize data between local and S3 using Multi-Storage Client.
+"""
+MSC Data Sync - Efficiently synchronize data between local and S3 using Multi-Storage Client.
 
 A simple example to use it (AWS S3 CLI compatible syntax):
 
@@ -19,7 +18,7 @@ A simple example to use it (AWS S3 CLI compatible syntax):
 ```
 python -m groot.vla.utils.msc_data_sync \\
     ~/Downloads/pdx_cache \\
-    s3://example-bucket/path/to/dataset/ \\
+    s3://GearHome/zhezh/gr1_unified.PnPCupToDrawerClose_GR1ArmsAndWaistFourierHands/ \\
     --num-workers 6 --credentials ~/.gear/data_credentials --profile default
 ```
 """

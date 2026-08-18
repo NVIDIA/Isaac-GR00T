@@ -9,10 +9,6 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# This legacy diagnostic CLI intentionally prints progress and preserves its
-# existing broad error handling while its hardcoded inputs are made explicit.
-# ruff: noqa: B904, BLE001, SLF001, T201, TRY002
-import argparse
 import io
 import json
 import os
@@ -25,10 +21,13 @@ from PIL import Image
 
 
 class LMDBImageReader:
-    """A class to efficiently read images from LMDB shards based on JSONL metadata."""
+    """
+    A class to efficiently read images from LMDB shards based on JSONL metadata.
+    """
 
     def __init__(self, data_root: str):
-        """Initialize the LMDB image reader.
+        """
+        Initialize the LMDB image reader.
 
         Args:
             data_root: Root directory where the actual data files are stored
@@ -38,7 +37,8 @@ class LMDBImageReader:
         self.data_root = data_root
 
     def _resolve_path(self, lmdb_file: str) -> str:
-        """Resolve relative playground paths to absolute paths.
+        """
+        Resolve relative playground paths to absolute paths.
 
         Args:
             lmdb_file: Original path from JSONL (may be relative)
@@ -70,7 +70,8 @@ class LMDBImageReader:
         return os.path.join(self.data_root, lmdb_file)
 
     def _get_lmdb_env(self, lmdb_file: str) -> lmdb.Environment | None:
-        """Get or create an LMDB environment, with caching to avoid repeated opens.
+        """
+        Get or create an LMDB environment, with caching to avoid repeated opens.
 
         Args:
             lmdb_file: Path to the LMDB file (will be resolved if relative)
@@ -100,7 +101,8 @@ class LMDBImageReader:
             return None
 
     def read_image_from_lmdb(self, image_data: dict[str, str]) -> Image.Image:
-        """Read an image from LMDB given the metadata.
+        """
+        Read an image from LMDB given the metadata.
 
         Args:
             image_data: Dictionary containing 'lmdb_file' and 'lmdb_key'
@@ -175,7 +177,8 @@ class LMDBImageReader:
                 )
 
     def parse_image_data(self, image_data: Any) -> Image.Image:
-        """Parse image data from various formats (file path, LMDB metadata, etc.).
+        """
+        Parse image data from various formats (file path, LMDB metadata, etc.).
 
         Args:
             image_data: Can be a string (file path), dict (LMDB metadata), or None
@@ -189,7 +192,7 @@ class LMDBImageReader:
         """
         if image_data is None:
             raise ValueError("Image data cannot be None")
-        if isinstance(image_data, str):
+        elif isinstance(image_data, str):
             # Regular file path - also resolve relative paths
             resolved_path = self._resolve_path(image_data)
             try:
@@ -213,7 +216,8 @@ class LMDBImageReader:
 
 
 def save_image_to_disk(image: Image.Image, save_path: str, quality: int = 95) -> bool:
-    """Save a PIL Image to disk.
+    """
+    Save a PIL Image to disk.
 
     Args:
         image: PIL Image to save
@@ -243,7 +247,8 @@ def process_jsonl_file(
     save_images: bool = True,
     output_dir: str = "./lmdb_images_output",
 ) -> None:
-    """Process a JSONL file and demonstrate reading images from LMDB.
+    """
+    Process a JSONL file and demonstrate reading images from LMDB.
 
     Args:
         reader: LMDBImageReader instance to use for reading images
@@ -377,7 +382,8 @@ def demo_single_image_read(
     save_image: bool = True,
     output_dir: str = "./lmdb_images_output",
 ) -> None:
-    """Demonstrate reading a single image from LMDB.
+    """
+    Demonstrate reading a single image from LMDB.
 
     Args:
         lmdb_file: Path to LMDB file (can be relative)
@@ -413,50 +419,30 @@ def demo_single_image_read(
     reader.close()
 
 
-def main(argv: list[str] | None = None) -> None:
+def main():
     """Main function to demonstrate LMDB image reading."""
-    parser = argparse.ArgumentParser(description="Read sample images from LMDB metadata.")
-    parser.add_argument("jsonl_file", help="Path to the JSONL metadata file.")
-    parser.add_argument(
-        "data_root",
-        help="Root directory used to resolve relative LMDB paths in the metadata.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="./lmdb_images_output",
-        help="Directory for extracted sample images.",
-    )
-    parser.add_argument(
-        "--max-samples",
-        type=int,
-        default=10,
-        help="Maximum number of JSONL samples to process.",
-    )
-    args = parser.parse_args(argv)
-
     print("=== LMDB Image Reader ===")
 
-    jsonl_file = args.jsonl_file
-    data_root = args.data_root
-    output_dir = args.output_dir
+    # Configuration - modify these paths as needed
+    jsonl_file = (
+        "/mnt/amlfs-01/shared/vl_shared/users/yman/osmo-share/lmdb_jsonl/llava_instruct_150k.jsonl"
+    )
+    data_root = "/mnt/amlfs-01/shared/vl_shared/users/yman/osmo-share"
+    output_dir = "./lmdb_images_output"
 
     # Check if JSONL file exists
     if not os.path.exists(jsonl_file):
         print(f"JSONL file not found: {jsonl_file}")
-        print("Pass an existing JSONL metadata file as the first argument.")
+        print("Please update the jsonl_file variable with a valid path.")
         return
 
     # Create reader instance with data root mapping
     reader = LMDBImageReader(data_root=data_root)
 
     try:
-        # Process a bounded number of samples for the demo and save images.
+        # Process JSONL file (limit to 10 samples for demo) and save images
         process_jsonl_file(
-            reader,
-            jsonl_file,
-            max_samples=args.max_samples,
-            save_images=True,
-            output_dir=output_dir,
+            reader, jsonl_file, max_samples=10, save_images=True, output_dir=output_dir
         )
 
         # Example of reading a single image with playground path

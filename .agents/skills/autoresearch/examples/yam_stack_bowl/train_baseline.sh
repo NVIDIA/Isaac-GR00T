@@ -20,13 +20,10 @@ else
 fi
 PYTHON="${PYTHON:-${PACKAGE_ROOT}/.venv/bin/python}"
 CONFIG_PATH="${CONFIG_PATH:-${PACKAGE_ROOT}/skills/autoresearch/examples/yam_stack_bowl/train_config.yaml}"
-AUTORESEARCH_ROOT="${AUTORESEARCH_ROOT:?Set AUTORESEARCH_ROOT to a writable shared directory}"
-RUN_ROOT="${RUN_ROOT:-${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline}"
+RUN_ROOT="${RUN_ROOT:-/mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl_full/baseline}"
 OUTPUT_DIR="${OUTPUT_DIR:-${RUN_ROOT}/training}"
-RENDERED_CONFIG="${RUN_ROOT}/config/train_config.yaml"
 
 mkdir -p "${OUTPUT_DIR}"
-"${PYTHON}" "${SCRIPT_DIR}/../../scripts/render_config.py" "${CONFIG_PATH}" "${RENDERED_CONFIG}"
 exec 9>"${RUN_ROOT}/.train.lock"
 flock 9
 model_is_complete() {
@@ -46,7 +43,7 @@ export SKIP_EXPERIMENT_REGISTRATION=1
 unset RAY_ADDRESS
 
 REPO_ROOT="${PACKAGE_ROOT}" bash "${PACKAGE_ROOT}/skills/autoresearch/scripts/train_local.sh" \
-  "${RENDERED_CONFIG}" \
+  "${CONFIG_PATH}" \
   --training.output-dir "${OUTPUT_DIR}"
 
 # train_local.sh returns only after the final model has been saved at OUTPUT_DIR.

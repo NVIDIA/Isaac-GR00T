@@ -8,8 +8,6 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# ruff: noqa: D417, E501, PLW0127, S108, SIM101, T201
-
 import argparse
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -188,6 +186,7 @@ def get_libero_env_fn(
 
 def get_gym_env(env_name: str):
     """Create Ray environment factory function without wrappers."""
+
     env_embodiment = get_embodiment_tag_from_env_name(env_name)
 
     if env_embodiment in (
@@ -230,6 +229,7 @@ def create_eval_env(env_name: str, env_idx: int, wrapper_configs: WrapperConfigs
     Returns:
         Wrapped gymnasium environment
     """
+
     env = get_gym_env(env_name)
     if (wrapper_configs.video.video_dir is not None) and (env_idx == 0):
         video_recorder = VideoRecorder.create_h264(
@@ -275,7 +275,6 @@ def run_rollout_gymnasium_policy(
         n_envs: Number of parallel environments
         wrapper_configs: Configuration for environment wrappers
         ray_env: Whether to use ray gym env to create each env.
-
     Returns:
         Collection results from running the episodes
     """
@@ -326,7 +325,9 @@ def run_rollout_gymnasium_policy(
         for env_idx in range(n_envs):
             if "success" in env_infos:
                 env_success = env_infos["success"][env_idx]
-                if isinstance(env_success, list) or isinstance(env_success, np.ndarray):
+                if isinstance(env_success, list):
+                    env_success = np.any(env_success)
+                elif isinstance(env_success, np.ndarray):
                     env_success = np.any(env_success)
                 elif isinstance(env_success, bool):
                     env_success = env_success
@@ -463,6 +464,7 @@ if __name__ == "__main__":
         type=str,
         default="",
     )
+    # for n1.6 default model path: /mnt/amlfs-03/shared/sreed/checkpoints/fm_24dc_1756408738/checkpoint-26000
     parser.add_argument("--policy_client_host", type=str, default="")
     parser.add_argument("--policy_client_port", type=int, default=None)
     parser.add_argument(

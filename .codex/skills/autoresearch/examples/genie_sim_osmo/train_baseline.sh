@@ -38,12 +38,11 @@ fi
 WORKFLOW_NAME="${WORKFLOW_NAME:-${DEFAULT_WORKFLOW_NAME}}"
 GROOT_BRANCH="${GROOT_BRANCH:-$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD)}"
 GROOT_REVISION="${GROOT_REVISION:-$(git -C "${REPO_ROOT}" rev-parse HEAD)}"
-GROOT_REPO="${GROOT_REPO:-github.com/NVIDIA/Isaac-GR00T-CRA.git}"
+GROOT_REPO="${GROOT_REPO:-gitlab-master.nvidia.com/GR00T/gr00t/gr00t.git}"
 
-AUTORESEARCH_ROOT="${AUTORESEARCH_ROOT:?Set AUTORESEARCH_ROOT to a writable shared directory}"
-RUN_ROOT="${RUN_ROOT:-${AUTORESEARCH_ROOT}/genie_sim_osmo/baseline}"
+RUN_ROOT="${RUN_ROOT:-/mnt/amlfs-01/home/yuhlu/AutoResearch_genie_sim_osmo/baseline}"
 TRAIN_CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SOURCE_EXAMPLE_DIR}/train_config.yaml}"
-TRAIN_DATASET="${TRAIN_DATASET:-${AUTORESEARCH_ROOT}/genie_sim_osmo/datasets/pick_billiards_color}"
+TRAIN_DATASET="${TRAIN_DATASET:-/mnt/amlfs-02/shared/datasets/agibot_data/instruction_preprocessed/pick_billards_color}"
 TRAINING_OUTPUT_DIR="${RUN_ROOT}/training"
 
 model_is_complete() {
@@ -62,7 +61,6 @@ cp "${TRAIN_CONFIG_PATH}" "${CONFIG_COPY}"
 
 SET_STRINGS=(
   "WORKFLOW_NAME=${WORKFLOW_NAME}"
-  "AUTORESEARCH_ROOT=${AUTORESEARCH_ROOT}"
   "RUN_ROOT=${RUN_ROOT}"
   "TRAINING_CONFIG=${CONFIG_COPY}"
   "TRAIN_DATASET=${TRAIN_DATASET}"

@@ -28,20 +28,6 @@ def test_load_config_sets_environment(tmp_path: Path, monkeypatch) -> None:
     assert os.environ["AUTORESEARCH_EVAL_TEST"] == "enabled"
 
 
-def test_load_config_expands_environment_paths(tmp_path: Path, monkeypatch) -> None:
-    root = tmp_path / "autoresearch"
-    monkeypatch.setenv("AUTORESEARCH_ROOT", str(root))
-    config_path = tmp_path / "eval.yaml"
-    config_path.write_text(
-        "dataset_path: ${AUTORESEARCH_ROOT}/datasets/eval\n",
-        encoding="utf-8",
-    )
-
-    config = _load_config(config_path)
-
-    assert config.dataset_path == str(root / "datasets/eval")
-
-
 def test_parse_config_applies_cli_override(tmp_path: Path) -> None:
     config_path = tmp_path / "eval.yaml"
     config_path.write_text("steps: 10\n", encoding="utf-8")

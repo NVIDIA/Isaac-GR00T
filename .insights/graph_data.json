@@ -7,7 +7,7 @@
       "id": "topic:paper",
       "label": "paper",
       "group": "topic",
-      "title": "topic · paper\n32 findings",
+      "title": "topic · paper\n40 findings",
       "x": 0,
       "y": -3400,
       "size": 38,
@@ -53,12 +53,21 @@
       "size": 17
     },
     {
+      "id": "finding:doc:1db478702c3e",
+      "label": "Self Forcing paradigm disti…",
+      "group": "finding",
+      "title": "finding · finding:doc:1db478702c3e\nSelf Forcing paradigm distillation enables autoregressive prediction 640\n\nSelf Forcing paradigm distillation enables autoregressive prediction at 640×480 resolution at 10.81 FPS for arbitrary horizon lengths while maintaining long-horizon consistency",
+      "x": -53,
+      "y": -3166,
+      "size": 17
+    },
+    {
       "id": "finding:doc:215771b0ade9",
       "label": "Video generative models pro…",
       "group": "finding",
       "title": "finding · finding:doc:215771b0ade9\nVideo generative models produce neural trajectories 300k trajectory\n\nVideo generative models can produce neural trajectories at ~300k trajectory scale for robot training data augmentation.",
-      "x": -53,
-      "y": -3166,
+      "x": -150,
+      "y": -3212,
       "size": 17
     },
     {
@@ -66,8 +75,8 @@
       "label": "System 1 2 modules jointly …",
       "group": "finding",
       "title": "finding · finding:doc:295d923dfc61\nSystem 1 2 modules jointly optimized during training\n\nThe System 1 and System 2 modules are jointly optimized during training rather than trained separately, facilitating coordination between reasoning and actuation",
-      "x": -150,
-      "y": -3212,
+      "x": -216,
+      "y": -3296,
       "size": 17
     },
     {
@@ -75,8 +84,8 @@
       "label": "Cross-attention mechanism b…",
       "group": "finding",
       "title": "finding · finding:doc:2d8f72256c73\nCross-attention mechanism bridges VLM action generation model instead\n\nCross-attention mechanism bridges the VLM and action generation model instead of mixture-of-experts architecture, providing flexibility in model architecture choices.",
-      "x": -216,
-      "y": -3296,
+      "x": -240,
+      "y": -3400,
       "size": 17
     },
     {
@@ -84,8 +93,17 @@
       "label": "Initializing last layer act…",
       "group": "finding",
       "title": "finding · finding:doc:2f920d000448\nInitializing last layer action MLP zeros adding conditioning\n\nInitializing the last layer of the action MLP with zeros when adding action conditioning to a pretrained model prevents perturbation of the pretrained state and empirically improves physics modeling.",
-      "x": -240,
-      "y": -3400,
+      "x": -216,
+      "y": -3504,
+      "size": 17
+    },
+    {
+      "id": "finding:doc:3c93a69e3948",
+      "label": "Video generation throughput…",
+      "group": "finding",
+      "title": "finding · finding:doc:3c93a69e3948\nVideo generation throughput approximately 2 minutes one-second single\n\nVideo generation throughput is approximately 2 minutes per one-second video on a single L40 GPU.",
+      "x": -150,
+      "y": -3588,
       "size": 17
     },
     {
@@ -93,8 +111,8 @@
       "label": "Training data organized pyr…",
       "group": "finding",
       "title": "finding · finding:doc:43d316282016\nTraining data organized pyramid structure web human videos\n\nTraining data is organized as a pyramid structure with web data and human videos at the base, synthetic/simulation data in the middle, and real robot data at the top, enabling effective use of heterogeneous data sources",
-      "x": -216,
-      "y": -3504,
+      "x": -53,
+      "y": -3634,
       "size": 17
     },
     {
@@ -102,8 +120,8 @@
       "label": "single unified model set we…",
       "group": "finding",
       "title": "finding · finding:doc:556dbd75005b\nsingle unified model set weights generate manipulation behaviors\n\nA single unified model with one set of weights can generate manipulation behaviors across single-arm, bimanual, and humanoid embodiments through embodiment-specific encoders and decoders",
-      "x": -150,
-      "y": -3588,
+      "x": 53,
+      "y": -3634,
       "size": 17
     },
     {
@@ -111,8 +129,8 @@
       "label": "DexMimicGen scaled limited …",
       "group": "finding",
       "title": "finding · finding:doc:56e21b50ce2e\nDexMimicGen scaled limited human demonstrations 780 000 simulation\n\nDexMimicGen scaled limited human demonstrations to 780,000 simulation trajectories (6,500 hours equivalent) in just 11 hours of compute time.",
-      "x": -53,
-      "y": -3634,
+      "x": 150,
+      "y": -3588,
       "size": 17
     },
     {
@@ -120,8 +138,17 @@
       "label": "DexMimicGen generates 10 00…",
       "group": "finding",
       "title": "finding · finding:doc:5bcec1a81c3f\nDexMimicGen generates 10 000 demonstrations source-target receptacle pair\n\nDexMimicGen generates 10,000 demonstrations per source-target receptacle pair from a few dozen teleoperated source demonstrations, yielding 540k total simulation trajectories across 54 receptacle combinations.",
-      "x": 53,
-      "y": -3634,
+      "x": 216,
+      "y": -3504,
+      "size": 17
+    },
+    {
+      "id": "finding:doc:5fb979a07f22",
+      "label": "Distillation reduces denois…",
+      "group": "finding",
+      "title": "finding · finding:doc:5fb979a07f22\nDistillation reduces denoising steps 35 4 achieving nearly\n\nDistillation reduces denoising steps from 35 to 4, achieving nearly 4× faster inference while maintaining performance close to the teacher model on 600-frame long-horizon tasks.",
+      "x": 366,
+      "y": -3266,
       "size": 17
     },
     {
@@ -129,8 +156,8 @@
       "label": "Post-training task-specific…",
       "group": "finding",
       "title": "finding · finding:doc:6011793cf633\nPost-training task-specific data cause capability regression models post-trained\n\nPost-training on task-specific data can cause capability regression: models post-trained exclusively with right-hand demonstrations lose the ability to perform bimanual handover behaviors present in the pre-trained checkpoint.",
-      "x": 150,
-      "y": -3588,
+      "x": 314,
+      "y": -3168,
       "size": 17
     },
     {
@@ -138,8 +165,8 @@
       "label": "Increasing human video data…",
       "group": "finding",
       "title": "finding · finding:doc:622047a785de\nIncreasing human video data diversity during pretraining improves\n\nIncreasing human video data diversity during pretraining improves both physics modeling and controllability for out-of-distribution actions on downstream robot tasks.",
-      "x": 216,
-      "y": -3504,
+      "x": 236,
+      "y": -3089,
       "size": 17
     },
     {
@@ -147,8 +174,8 @@
       "label": "middle-layer LLM embeddings…",
       "group": "finding",
       "title": "finding · finding:doc:680f952d148d\nmiddle-layer LLM embeddings layer 12 2B model instead\n\nUsing middle-layer LLM embeddings (layer 12 for the 2B model) instead of final-layer embeddings resulted in both faster inference speed and higher downstream policy success rate.",
-      "x": 366,
-      "y": -3266,
+      "x": 139,
+      "y": -3036,
       "size": 17
     },
     {
@@ -156,8 +183,17 @@
       "label": "embodiments few tasks limit…",
       "group": "finding",
       "title": "finding · finding:doc:7270d9ae7255\nembodiments few tasks limited training data DexMimicGen Cross-Embodiment\n\nFor embodiments with few tasks and limited training data (DexMimicGen Cross-Embodiment Suite), reducing batch size from 1024 to 128 for GR00T-N1-2B was necessary.",
-      "x": 299,
-      "y": -3149,
+      "x": 31,
+      "y": -3011,
+      "size": 17
+    },
+    {
+      "id": "finding:doc:7ecdc975a319",
+      "label": "GR00T-N1-2B trained 10% rea…",
+      "group": "finding",
+      "title": "finding · finding:doc:7ecdc975a319\nGR00T-N1-2B trained 10% real-world teleoperation data achieves success\n\nGR00T-N1-2B trained on 10% of real-world teleoperation data achieves success rates only 3.8% lower than Diffusion Policy trained on the full dataset, demonstrating significant data efficiency from pre-training.",
+      "x": -80,
+      "y": -3018,
       "size": 17
     },
     {
@@ -165,8 +201,17 @@
       "label": "IDM-labeled neural trajecto…",
       "group": "finding",
       "title": "finding · finding:doc:8250409b0276\nIDM-labeled neural trajectories outperform LAPA labels training data\n\nIDM-labeled neural trajectories outperform LAPA labels as training data increases, with the performance gap widening from 30 to 300 demonstrations per task.",
-      "x": 195,
-      "y": -3062,
+      "x": -185,
+      "y": -3056,
+      "size": 17
+    },
+    {
+      "id": "finding:doc:82b54429df41",
+      "label": "Neural trajectory generatio…",
+      "group": "finding",
+      "title": "finding · finding:doc:82b54429df41\nNeural trajectory generation fine-tuned image-to-video models 3 000\n\nNeural trajectory generation via fine-tuned image-to-video models on 3,000 real samples (81 frames at 480P) for 100 epochs produces 827 hours of counterfactual videos, taking approximately 105k L40 GPU hours.",
+      "x": -274,
+      "y": -3122,
       "size": 17
     },
     {
@@ -174,8 +219,8 @@
       "label": "Relative action transformat…",
       "group": "finding",
       "title": "finding · finding:doc:8606659766f7\nRelative action transformation chunked injection significantly improve simulation\n\nRelative action transformation and chunked action injection each significantly improve simulation quality and action controllability; combining them with temporal consistency loss further enhances both action following and object modeling.",
-      "x": 67,
-      "y": -3016,
+      "x": -341,
+      "y": -3211,
       "size": 17
     },
     {
@@ -183,8 +228,17 @@
       "label": "distillation real-time auto…",
       "group": "finding",
       "title": "finding · finding:doc:860d7d13ab25\ndistillation real-time autoregressive generation having student model generate\n\nFor distillation to real-time autoregressive generation, having the student model generate N′>N frames (more than the teacher's horizon N) during training and randomly selecting an N-sized window for supervision improves robustness against…",
-      "x": -68,
-      "y": -3016,
+      "x": -380,
+      "y": -3314,
+      "size": 17
+    },
+    {
+      "id": "finding:doc:8c9bd4ba1699",
+      "label": "GR00T N1 humanoid pre-train…",
+      "group": "finding",
+      "title": "finding · finding:doc:8c9bd4ba1699\nGR00T N1 humanoid pre-training uses teleoperation 20Hz control\n\nGR00T N1 humanoid pre-training uses teleoperation at 20Hz control frequency with VIVE Ultimate Tracker for wrist poses and Xsens Metagloves for finger tracking, with inverse kinematics retargeting to robot actions.",
+      "x": -389,
+      "y": -3425,
       "size": 17
     },
     {
@@ -192,8 +246,8 @@
       "label": "Adding temporal consistency…",
       "group": "finding",
       "title": "finding · finding:doc:8fcb00a1a0de\nAdding temporal consistency loss matching predicted velocity transitions\n\nAdding a temporal consistency loss (matching predicted velocity transitions between consecutive frames) with coefficient λ=0.1 to standard flow matching loss accelerates learning of action controllability, enhances object completeness, and…",
-      "x": -195,
-      "y": -3062,
+      "x": -366,
+      "y": -3534,
       "size": 17
     },
     {
@@ -201,8 +255,17 @@
       "label": "Pretraining human videos de…",
       "group": "finding",
       "title": "finding · finding:doc:92269971080a\nPretraining human videos despite embodiment gap transfers underlying\n\nPretraining on human videos despite embodiment gap transfers underlying interaction physics to robot world models due to consistency of physical dynamics between humans and robots",
-      "x": -299,
-      "y": -3150,
+      "x": -314,
+      "y": -3632,
+      "size": 17
+    },
+    {
+      "id": "finding:doc:ac6a93f05fba",
+      "label": "Action chunks size H 16 tim…",
+      "group": "finding",
+      "title": "finding · finding:doc:ac6a93f05fba\nAction chunks size H 16 timesteps inference time\n\nAction chunks of size H=16 timesteps are used, with inference time of 63.9ms for sampling a 16-action chunk on an L40 GPU using bf16.",
+      "x": -236,
+      "y": -3711,
       "size": 17
     },
     {
@@ -210,8 +273,8 @@
       "label": "Human video datasets Ego4D …",
       "group": "finding",
       "title": "finding · finding:doc:aca694b14af7\nHuman video datasets Ego4D Ego-Exo4D Assembly-101 EPIC-KITCHENS HOI4D\n\nHuman video datasets (Ego4D, Ego-Exo4D, Assembly-101, EPIC-KITCHENS, HOI4D, HoloAssist, RH20T-Human) provide affordances, task semantics, and motion patterns without explicit action labels for pre-training.",
-      "x": -367,
-      "y": -3267,
+      "x": -139,
+      "y": -3764,
       "size": 17
     },
     {
@@ -219,8 +282,8 @@
       "label": "K 4 inference steps flow-ma…",
       "group": "finding",
       "title": "finding · finding:doc:c1362ffb2cab\nK 4 inference steps flow-matching denoising works well\n\nK=4 inference steps for flow-matching denoising works well across all tested robot embodiments.",
-      "x": -390,
-      "y": -3400,
+      "x": -31,
+      "y": -3789,
       "size": 17
     },
     {
@@ -228,8 +291,17 @@
       "label": "Latent action conditioning …",
       "group": "finding",
       "title": "finding · finding:doc:c30c96090896\nLatent action conditioning during pretraining human videos significantly\n\nLatent action conditioning during pretraining on human videos significantly narrows the performance gap to ground-truth action conditioning, while action-free pretraining provides only marginal benefits over no pretraining.",
-      "x": -366,
-      "y": -3534,
+      "x": 80,
+      "y": -3782,
+      "size": 17
+    },
+    {
+      "id": "finding:doc:c391239e02da",
+      "label": "Co-training GR00T N1 neural…",
+      "group": "finding",
+      "title": "finding · finding:doc:c391239e02da\nCo-training GR00T N1 neural trajectories yields 4.2% 8.8%\n\nCo-training GR00T N1 with neural trajectories yields +4.2%, +8.8%, and +6.8% average improvement over real-trajectory-only training in the 30, 100, and 300 demonstration regimes respectively on RoboCasa simulation.",
+      "x": 185,
+      "y": -3744,
       "size": 17
     },
     {
@@ -237,8 +309,8 @@
       "label": "Injecting actions latent fr…",
       "group": "finding",
       "title": "finding · finding:doc:ca493345b08c\nInjecting actions latent frames temporally-aligned chunks 4 consecutive\n\nInjecting actions into latent frames as temporally-aligned chunks (4 consecutive actions per chunk matching the 4-frame temporal compression ratio) rather than as global conditions mitigates causality confusion and improves action controll…",
-      "x": -299,
-      "y": -3651,
+      "x": 274,
+      "y": -3678,
       "size": 17
     },
     {
@@ -246,8 +318,8 @@
       "label": "Policy evaluation DreamDojo…",
       "group": "finding",
       "title": "finding · finding:doc:ca8fc433f263\nPolicy evaluation DreamDojo produces absolute success rates systematically\n\nPolicy evaluation in DreamDojo produces absolute success rates that are systematically higher than real-world counterparts, suggesting the model fails to accurately generate nuanced failure modes",
-      "x": -195,
-      "y": -3738,
+      "x": 341,
+      "y": -3589,
       "size": 17
     },
     {
@@ -255,17 +327,17 @@
       "label": "Transforming robot joint po…",
       "group": "finding",
       "title": "finding · finding:doc:d56436a7eba7\nTransforming robot joint poses relative actions rebaselining inputs\n\nTransforming robot joint poses to relative actions (rebaselining inputs with pose at beginning of each latent frame every 4 timesteps) reduces modeling complexity and enhances generalization to continuous and compositional robot actions co…",
-      "x": -67,
-      "y": -3784,
+      "x": 380,
+      "y": -3486,
       "size": 17
     },
     {
       "id": "finding:doc:d9b8264a204f",
       "label": "GR00T N1 uses dual-system a…",
       "group": "finding",
-      "title": "finding · finding:doc:d9b8264a204f\nGR00T N1 uses dual-system architecture Vision-Language Model System\n\nGR00T N1 uses a dual-system architecture where a Vision-Language Model (System 2) performs reasoning while a Diffusion Transformer (System 1) generates closed-loop motor actions.",
-      "x": 68,
-      "y": -3784,
+      "title": "finding · finding:doc:d9b8264a204f\nGR00T N1 uses dual-system architecture Vision-Language Model System\n\nGR00T N1 uses a dual-system architecture where a Vision-Language Model (System 2) runs at 10Hz on an NVIDIA L40 GPU for reasoning, while a Diffusion Transformer (System 1) generates closed-loop motor actions at 120Hz",
+      "x": 389,
+      "y": -3375,
       "size": 17
     },
     {
@@ -273,8 +345,8 @@
       "label": "Human video pretraining ben…",
       "group": "finding",
       "title": "finding · finding:doc:dea58a476651\nHuman video pretraining benefits transfer through distillation distilled\n\nHuman video pretraining benefits transfer through distillation, with distilled students from pretrained teachers significantly outperforming those from non-pretrained teachers across all evaluation datasets.",
-      "x": 195,
-      "y": -3738,
+      "x": 413,
+      "y": -3052,
       "size": 17
     },
     {
@@ -282,8 +354,8 @@
       "label": "continuous latent actions u…",
       "group": "finding",
       "title": "finding · finding:doc:e5b34db843fb\ncontinuous latent actions unified proxy enables self-supervised extraction\n\nUsing continuous latent actions as unified proxy actions enables self-supervised extraction of semantically meaningful actions between frames, allowing effective transfer of physics and controllability from internet-scale passive video data",
-      "x": 299,
-      "y": -3650,
+      "x": -348,
+      "y": -2987,
       "size": 17
     },
     {
@@ -291,8 +363,8 @@
       "label": "Action-less data sources li…",
       "group": "finding",
       "title": "finding · finding:doc:eae11e66f6de\nAction-less data sources like human videos incorporated VLA\n\nAction-less data sources like human videos can be incorporated into VLA training by using a latent-action codebook and inverse dynamics model to infer pseudo-actions",
-      "x": 367,
-      "y": -3533,
+      "x": -413,
+      "y": -3748,
       "size": 17
     },
     {
@@ -300,15 +372,15 @@
       "label": "DreamDojo struggles accurat…",
       "group": "finding",
       "title": "finding · finding:doc:f7df31406572\nDreamDojo struggles accurately simulate uncommon actions slapping fast\n\nDreamDojo struggles to accurately simulate uncommon actions such as slapping and fast waving, indicating limitations in handling actions outside the common distribution of training data",
-      "x": 390,
-      "y": -3400,
+      "x": 348,
+      "y": -3813,
       "size": 17
     },
     {
       "id": "topic:playbook",
       "label": "playbook",
       "group": "topic",
-      "title": "topic · playbook\n36 findings",
+      "title": "topic · playbook\n38 findings",
       "x": 0,
       "y": 3400,
       "size": 38,
@@ -331,7 +403,7 @@
       "label": "camera ceiling better head …",
       "group": "evidence",
       "title": "evidence · doc:06136f473dc0\ncamera ceiling better head left right wrist cameras\n\ncamera: ceiling better than head (left and right wrist cameras are also used)",
-      "x": 550,
+      "x": 700,
       "y": 3400,
       "size": 11
     },
@@ -349,8 +421,8 @@
       "label": "Importance keeping task def…",
       "group": "evidence",
       "title": "evidence · doc:0cf371294ffb\nImportance keeping task definition environment consistent across simulation\n\nImportance of keeping task definition and environment consistent across simulation and real-robot runs when comparing results.",
-      "x": 496,
-      "y": 3639,
+      "x": 631,
+      "y": 3704,
       "size": 11
     },
     {
@@ -367,8 +439,8 @@
       "label": "robot action looks jerky fi…",
       "group": "evidence",
       "title": "evidence · doc:18e6ea2de815\nrobot action looks jerky first check training data\n\nIf the robot action looks jerky, first check if the training data has the same problem. Try apply low-pass filter to training data. Try more denoising steps in inference.",
-      "x": 343,
-      "y": 3830,
+      "x": 436,
+      "y": 3947,
       "size": 11
     },
     {
@@ -385,8 +457,8 @@
       "label": "Common pattern open-loop lo…",
       "group": "evidence",
       "title": "evidence · doc:2889ade8cbac\nCommon pattern open-loop looks acceptable robot jitters misses\n\nCommon pattern: open-loop looks acceptable, but robot jitters, misses grasp, does not lift, twists joints, or executes wrong action.",
-      "x": 122,
-      "y": 3936,
+      "x": 156,
+      "y": 4082,
       "size": 11
     },
     {
@@ -403,8 +475,8 @@
       "label": "suggest add history camera …",
       "group": "evidence",
       "title": "evidence · doc:28d6c90f4b68\nsuggest add history camera footage better understand edge/corner\n\nsuggest: add history; camera footage=>better understand edge/corner location from image; collect data only through robot cameras than 3rd person view",
-      "x": -122,
-      "y": 3936,
+      "x": -156,
+      "y": 4082,
       "size": 11
     },
     {
@@ -421,8 +493,8 @@
       "label": "collected 100 episodes sugg…",
       "group": "evidence",
       "title": "evidence · doc:317767693999\ncollected 100 episodes suggest post-train directly task easy\n\ncollected 100 episodes, suggest post-train directly, task is easy to overfit with 100-200 episodes",
-      "x": -343,
-      "y": 3830,
+      "x": -436,
+      "y": 3947,
       "size": 11
     },
     {
@@ -439,8 +511,26 @@
       "label": "important training data con…",
       "group": "evidence",
       "title": "evidence · doc:35dfea403abc\nimportant training data consistency diversity aim medium SR\n\nWhich is more important for training data, consistency or diversity? If you aim at medium SR, keeping consistent is OK; if you want very high SR, then diversity is necessary.",
-      "x": -496,
-      "y": 3639,
+      "x": -631,
+      "y": 3704,
+      "size": 11
+    },
+    {
+      "id": "finding:doc:41789a408e77",
+      "label": "only current frame robot ea…",
+      "group": "finding",
+      "title": "finding · finding:doc:41789a408e77\nonly current frame robot easier get stuck. history\n\nIf using only the current frame, the robot is easier to get stuck. If using history frames, the robot can be more confident, but the model is easier to get overfitted. It is suggested to use the current frame and the history frame one acti…",
+      "x": -240,
+      "y": 3400,
+      "size": 17
+    },
+    {
+      "id": "doc:41789a408e77",
+      "label": "only current frame robot ea…",
+      "group": "evidence",
+      "title": "evidence · doc:41789a408e77\nonly current frame robot easier get stuck. history\n\nIf using only the current frame, the robot is easier to get stuck. If using history frames, the robot can be more confident, but the model is easier to get overfitted. It is suggested to use the current frame and the history frame one acti…",
+      "x": -700,
+      "y": 3400,
       "size": 11
     },
     {
@@ -448,8 +538,8 @@
       "label": "Start small operational are…",
       "group": "finding",
       "title": "finding · finding:doc:4b34752b9c66\nStart small operational area achieve high success rate\n\nStart with a small operational area, achieve high success rate, then expand distribution.",
-      "x": -240,
-      "y": 3400,
+      "x": -216,
+      "y": 3296,
       "size": 17
     },
     {
@@ -457,8 +547,8 @@
       "label": "Start small operational are…",
       "group": "evidence",
       "title": "evidence · doc:4b34752b9c66\nStart small operational area achieve high success rate\n\nStart with a small operational area, achieve high success rate, then expand distribution.",
-      "x": -550,
-      "y": 3400,
+      "x": -631,
+      "y": 3096,
       "size": 11
     },
     {
@@ -466,8 +556,8 @@
       "label": "GR00T N1.7 supports additio…",
       "group": "finding",
       "title": "finding · finding:doc:569fc26ebcf2\nGR00T N1.7 supports additional observation history delta indices\n\nGR00T N1.7 supports additional observation history via delta_indices (state or image or both). You will find an explanation in https://github.com/NVIDIA/Isaac-GR00T/blob/main/getting_started/data_config.md. We recommend adding video/image …",
-      "x": -216,
-      "y": 3296,
+      "x": -150,
+      "y": 3212,
       "size": 17
     },
     {
@@ -475,8 +565,8 @@
       "label": "GR00T N1.7 supports additio…",
       "group": "evidence",
       "title": "evidence · doc:569fc26ebcf2\nGR00T N1.7 supports additional observation history delta indices\n\nGR00T N1.7 supports additional observation history via delta_indices (state or image or both). You will find an explanation in https://github.com/NVIDIA/Isaac-GR00T/blob/main/getting_started/data_config.md. We recommend adding video/image …",
-      "x": -496,
-      "y": 3161,
+      "x": -436,
+      "y": 2853,
       "size": 11
     },
     {
@@ -484,8 +574,8 @@
       "label": "Finally recommend verifying…",
       "group": "finding",
       "title": "finding · finding:doc:5959751af09a\nFinally recommend verifying control stack during data collection\n\nFinally, we recommend verifying that the control stack used during data collection matches deployment as closely as possible, including IK solver, low-level controller, control frequency, action representation, and any smoothing or filteri…",
-      "x": -150,
-      "y": 3212,
+      "x": -53,
+      "y": 3166,
       "size": 17
     },
     {
@@ -493,8 +583,8 @@
       "label": "Finally recommend verifying…",
       "group": "evidence",
       "title": "evidence · doc:5959751af09a\nFinally recommend verifying control stack during data collection\n\nFinally, we recommend verifying that the control stack used during data collection matches deployment as closely as possible, including IK solver, low-level controller, control frequency, action representation, and any smoothing or filteri…",
-      "x": -343,
-      "y": 2970,
+      "x": -156,
+      "y": 2718,
       "size": 11
     },
     {
@@ -502,7 +592,7 @@
       "label": "recommend starting video/im…",
       "group": "finding",
       "title": "finding · finding:doc:5f1980b435cf\nrecommend starting video/image history only. State tried afterward\n\nWe recommend starting with video/image history only. State history can be tried afterward, but some internal experiments found that adding state history can make the model more likely to overfit.",
-      "x": -53,
+      "x": 53,
       "y": 3166,
       "size": 17
     },
@@ -511,8 +601,8 @@
       "label": "recommend starting video/im…",
       "group": "evidence",
       "title": "evidence · doc:5f1980b435cf\nrecommend starting video/image history only. State tried afterward\n\nWe recommend starting with video/image history only. State history can be tried afterward, but some internal experiments found that adding state history can make the model more likely to overfit.",
-      "x": -122,
-      "y": 2864,
+      "x": 156,
+      "y": 2718,
       "size": 11
     },
     {
@@ -520,8 +610,8 @@
       "label": "stiff control preferable po…",
       "group": "finding",
       "title": "finding · finding:doc:616b9e236908\nstiff control preferable possible easier learn reducing latency\n\nstiff control is preferable if possible, easier to learn as reducing latency",
-      "x": 53,
-      "y": 3166,
+      "x": 150,
+      "y": 3212,
       "size": 17
     },
     {
@@ -529,8 +619,8 @@
       "label": "stiff control preferable po…",
       "group": "evidence",
       "title": "evidence · doc:616b9e236908\nstiff control preferable possible easier learn reducing latency\n\nstiff control is preferable if possible, easier to learn as reducing latency",
-      "x": 122,
-      "y": 2864,
+      "x": 436,
+      "y": 2853,
       "size": 11
     },
     {
@@ -538,8 +628,8 @@
       "label": "collecting data tele-op loo…",
       "group": "finding",
       "title": "finding · finding:doc:67c3d99d8d71\ncollecting data tele-op look camera images real robot.\n\nWhen collecting data by tele-op, look at camera images but not the real robot. Make sure you see what the robot sees. It may affect speed and quality at the beginning, but will be fine after some practice.",
-      "x": 150,
-      "y": 3212,
+      "x": 216,
+      "y": 3296,
       "size": 17
     },
     {
@@ -547,8 +637,8 @@
       "label": "collecting data tele-op loo…",
       "group": "evidence",
       "title": "evidence · doc:67c3d99d8d71\ncollecting data tele-op look camera images real robot.\n\nWhen collecting data by tele-op, look at camera images but not the real robot. Make sure you see what the robot sees. It may affect speed and quality at the beginning, but will be fine after some practice.",
-      "x": 343,
-      "y": 2970,
+      "x": 631,
+      "y": 3096,
       "size": 11
     },
     {
@@ -556,8 +646,8 @@
       "label": "inference latency too large…",
       "group": "finding",
       "title": "finding · finding:doc:6b78f46d643f\ninference latency too large try add torch.compile.\n\nIf the inference latency is too large, try to add torch.compile.",
-      "x": 216,
-      "y": 3296,
+      "x": 366,
+      "y": 3534,
       "size": 17
     },
     {
@@ -565,8 +655,8 @@
       "label": "inference latency too large…",
       "group": "evidence",
       "title": "evidence · doc:6b78f46d643f\ninference latency too large try add torch.compile.\n\nIf the inference latency is too large, try to add torch.compile.",
-      "x": 496,
-      "y": 3161,
+      "x": 798,
+      "y": 3691,
       "size": 11
     },
     {
@@ -574,8 +664,8 @@
       "label": "Especially since wrote own …",
       "group": "finding",
       "title": "finding · finding:doc:6baf791530f8\nEspecially since wrote own trainers sure recompute post-training\n\nEspecially since you wrote your own trainers, you should make sure to recompute post-training dataset stats (see flag in https://github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/configs/data/data_config.py#L76). In the Isaac-GR00T repo, the f…",
-      "x": 366,
-      "y": 3534,
+      "x": 314,
+      "y": 3632,
       "size": 17
     },
     {
@@ -583,8 +673,8 @@
       "label": "Especially since wrote own …",
       "group": "evidence",
       "title": "evidence · doc:6baf791530f8\nEspecially since wrote own trainers sure recompute post-training\n\nEspecially since you wrote your own trainers, you should make sure to recompute post-training dataset stats (see flag in https://github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/configs/data/data_config.py#L76). In the Isaac-GR00T repo, the f…",
-      "x": 658,
-      "y": 3640,
+      "x": 684,
+      "y": 3905,
       "size": 11
     },
     {
@@ -592,8 +682,8 @@
       "label": "collecting data real evalua…",
       "group": "finding",
       "title": "finding · finding:doc:9a187ffb3319\ncollecting data real evaluating Sim. important Sim environment\n\nYou are collecting data in real and evaluating in Sim. It is important for the Sim environment to accurately reflect the real environment. It is worth testing if the policy works well, if trained on data collected in Sim, but also validati…",
-      "x": 314,
-      "y": 3632,
+      "x": 236,
+      "y": 3711,
       "size": 17
     },
     {
@@ -601,8 +691,8 @@
       "label": "collecting data real evalua…",
       "group": "evidence",
       "title": "evidence · doc:9a187ffb3319\ncollecting data real evaluating Sim. important Sim environment\n\nYou are collecting data in real and evaluating in Sim. It is important for the Sim environment to accurately reflect the real environment. It is worth testing if the policy works well, if trained on data collected in Sim, but also validati…",
-      "x": 563,
-      "y": 3816,
+      "x": 514,
+      "y": 4077,
       "size": 11
     },
     {
@@ -610,8 +700,8 @@
       "label": "N1.7 supports relative acti…",
       "group": "finding",
       "title": "finding · finding:doc:9cb4730abac5\nN1.7 supports relative action representations recommend checking whether\n\nN1.7 supports relative action representations, and we recommend checking whether your 29D action vector should be configured as relative actions where applicable, if not yet. See getting_started/finetune_new_embodiment.md for guidance on c…",
-      "x": 236,
-      "y": 3711,
+      "x": 139,
+      "y": 3764,
       "size": 17
     },
     {
@@ -619,8 +709,8 @@
       "label": "N1.7 supports relative acti…",
       "group": "evidence",
       "title": "evidence · doc:9cb4730abac5\nN1.7 supports relative action representations recommend checking whether\n\nN1.7 supports relative action representations, and we recommend checking whether your 29D action vector should be configured as relative actions where applicable, if not yet. See getting_started/finetune_new_embodiment.md for guidance on c…",
-      "x": 423,
-      "y": 3957,
+      "x": 303,
+      "y": 4194,
       "size": 11
     },
     {
@@ -628,8 +718,8 @@
       "label": "task common unseen pretrain…",
       "group": "finding",
       "title": "finding · finding:doc:a05c433443f1\ntask common unseen pretraining better turn tune llm\n\nIf the task is not common or unseen in pretraining, you better turn on tune_llm and tune_visual to finetune parameters in the LLM backbone and vision encoder. In that case, you should use a lower LR than tuning the action head only. It wil…",
-      "x": 139,
-      "y": 3764,
+      "x": 31,
+      "y": 3789,
       "size": 17
     },
     {
@@ -637,8 +727,8 @@
       "label": "task common unseen pretrain…",
       "group": "evidence",
       "title": "evidence · doc:a05c433443f1\ntask common unseen pretraining better turn tune llm\n\nIf the task is not common or unseen in pretraining, you better turn on tune_llm and tune_visual to finetune parameters in the LLM backbone and vision encoder. In that case, you should use a lower LR than tuning the action head only. It wil…",
-      "x": 249,
-      "y": 4054,
+      "x": 67,
+      "y": 4247,
       "size": 11
     },
     {
@@ -646,8 +736,8 @@
       "label": "fail retry behavior data co…",
       "group": "finding",
       "title": "finding · finding:doc:a13a3bd0456a\nfail retry behavior data collection avoid them only\n\nfail + retry behavior in data collection: avoid them, or only keep recovered parts (dagger, annotate good/bad intervals, only train with good)",
-      "x": 31,
-      "y": 3789,
+      "x": -80,
+      "y": 3782,
       "size": 17
     },
     {
@@ -655,8 +745,8 @@
       "label": "fail retry behavior data co…",
       "group": "evidence",
       "title": "evidence · doc:a13a3bd0456a\nfail retry behavior data collection avoid them only\n\nfail + retry behavior in data collection: avoid them, or only keep recovered parts (dagger, annotate good/bad intervals, only train with good)",
-      "x": 55,
-      "y": 4098,
+      "x": -175,
+      "y": 4232,
       "size": 11
     },
     {
@@ -664,8 +754,8 @@
       "label": "collecting DAgger data huma…",
       "group": "finding",
       "title": "finding · finding:doc:a4c1885c5e63\ncollecting DAgger data human trajectory only discard robot\n\nWhen collecting DAgger data, use the human trajectory only and discard the robot trajectory, because the robot trajectory leads the robot to a bad state. We do not want the model to imitate bad robot trajectories.",
-      "x": -80,
-      "y": 3782,
+      "x": -185,
+      "y": 3744,
       "size": 17
     },
     {
@@ -673,8 +763,26 @@
       "label": "collecting DAgger data huma…",
       "group": "evidence",
       "title": "evidence · doc:a4c1885c5e63\ncollecting DAgger data human trajectory only discard robot\n\nWhen collecting DAgger data, use the human trajectory only and discard the robot trajectory, because the robot trajectory leads the robot to a bad state. We do not want the model to imitate bad robot trajectories.",
-      "x": -144,
-      "y": 4085,
+      "x": -402,
+      "y": 4149,
+      "size": 11
+    },
+    {
+      "id": "finding:doc:ac1b131d505a",
+      "label": "difficult tasks first manag…",
+      "group": "finding",
+      "title": "finding · finding:doc:ac1b131d505a\ndifficult tasks first manage reach 20-30% success rate.\n\nFor difficult tasks, first manage to reach a 20-30% success rate. Once you reach that, then you can try DAgger to improve further.",
+      "x": -274,
+      "y": 3678,
+      "size": 17
+    },
+    {
+      "id": "doc:ac1b131d505a",
+      "label": "difficult tasks first manag…",
+      "group": "evidence",
+      "title": "evidence · doc:ac1b131d505a\ndifficult tasks first manage reach 20-30% success rate.\n\nFor difficult tasks, first manage to reach a 20-30% success rate. Once you reach that, then you can try DAgger to improve further.",
+      "x": -597,
+      "y": 4005,
       "size": 11
     },
     {
@@ -682,8 +790,8 @@
       "label": "Relative action/state usual…",
       "group": "finding",
       "title": "finding · finding:doc:ac28c475a9d7\nRelative action/state usually better absolute action/state.\n\nRelative action/state is usually better than absolute action/state.",
-      "x": -185,
-      "y": 3744,
+      "x": -341,
+      "y": 3589,
       "size": 17
     },
     {
@@ -691,8 +799,8 @@
       "label": "Relative action/state usual…",
       "group": "evidence",
       "title": "evidence · doc:ac28c475a9d7\nRelative action/state usually better absolute action/state.\n\nRelative action/state is usually better than absolute action/state.",
-      "x": -331,
-      "y": 4017,
+      "x": -743,
+      "y": 3813,
       "size": 11
     },
     {
@@ -700,8 +808,8 @@
       "label": "training final step further…",
       "group": "finding",
       "title": "finding · finding:doc:b27540d08703\ntraining final step further boost performance dangerous real\n\nrl training should be the final step to further boost the performance, dangerous on real robot (need to protect arm from collisions)",
-      "x": -274,
-      "y": 3678,
+      "x": -380,
+      "y": 3486,
       "size": 17
     },
     {
@@ -709,8 +817,8 @@
       "label": "training final step further…",
       "group": "evidence",
       "title": "evidence · doc:b27540d08703\ntraining final step further boost performance dangerous real\n\nrl training should be the final step to further boost the performance, dangerous on real robot (need to protect arm from collisions)",
-      "x": -491,
-      "y": 3898,
+      "x": -829,
+      "y": 3586,
       "size": 11
     },
     {
@@ -718,8 +826,8 @@
       "label": "harder tasks 400 cover stat…",
       "group": "finding",
       "title": "finding · finding:doc:b3d873f3d6e7\nharder tasks 400 cover states including after first\n\nharder tasks >400, cover all states including after first completion/recovery.",
-      "x": -341,
-      "y": 3589,
+      "x": -389,
+      "y": 3375,
       "size": 17
     },
     {
@@ -727,8 +835,8 @@
       "label": "harder tasks 400 cover stat…",
       "group": "evidence",
       "title": "evidence · doc:b3d873f3d6e7\nharder tasks 400 cover states including after first\n\nharder tasks >400, cover all states including after first completion/recovery.",
-      "x": -612,
-      "y": 3740,
+      "x": -848,
+      "y": 3345,
       "size": 11
     },
     {
@@ -736,8 +844,8 @@
       "label": "Avoid collecting repetitive…",
       "group": "finding",
       "title": "finding · finding:doc:b47b576df248\nAvoid collecting repetitive identical demonstrations.\n\nAvoid collecting repetitive, identical demonstrations.",
-      "x": -380,
-      "y": 3486,
+      "x": -366,
+      "y": 3266,
       "size": 17
     },
     {
@@ -745,8 +853,8 @@
       "label": "Avoid collecting repetitive…",
       "group": "evidence",
       "title": "evidence · doc:b47b576df248\nAvoid collecting repetitive identical demonstrations.\n\nAvoid collecting repetitive, identical demonstrations.",
-      "x": -683,
-      "y": 3554,
+      "x": -798,
+      "y": 3109,
       "size": 11
     },
     {
@@ -754,8 +862,8 @@
       "label": "Batch size 1024 learning ra…",
       "group": "finding",
       "title": "finding · finding:doc:b93387ad3f81\nBatch size 1024 learning rate 1e-4 same N1.5\n\nBatch size 1024, learning rate 1e-4 (same as N1.5).",
-      "x": -389,
-      "y": 3375,
+      "x": -314,
+      "y": 3168,
       "size": 17
     },
     {
@@ -763,8 +871,8 @@
       "label": "Batch size 1024 learning ra…",
       "group": "evidence",
       "title": "evidence · doc:b93387ad3f81\nBatch size 1024 learning rate 1e-4 same N1.5\n\nBatch size 1024, learning rate 1e-4 (same as N1.5).",
-      "x": -699,
-      "y": 3355,
+      "x": -684,
+      "y": 2895,
       "size": 11
     },
     {
@@ -772,8 +880,8 @@
       "label": "Include controlled variatio…",
       "group": "finding",
       "title": "finding · finding:doc:be0d33729060\nInclude controlled variation grasp angle object pose limited\n\nInclude controlled variation (grasp angle, object pose, limited workspace changes).",
-      "x": -366,
-      "y": 3266,
+      "x": -236,
+      "y": 3089,
       "size": 17
     },
     {
@@ -781,8 +889,8 @@
       "label": "Include controlled variatio…",
       "group": "evidence",
       "title": "evidence · doc:be0d33729060\nInclude controlled variation grasp angle object pose limited\n\nInclude controlled variation (grasp angle, object pose, limited workspace changes).",
-      "x": -658,
-      "y": 3160,
+      "x": -514,
+      "y": 2723,
       "size": 11
     },
     {
@@ -790,8 +898,8 @@
       "label": "Single-task experiment pick…",
       "group": "finding",
       "title": "finding · finding:doc:c28ab68be8e8\nSingle-task experiment pick block shape Training only single\n\nSingle-task experiment (pick_block_shape): Training only on a single task performs worse than joint training on all tasks.",
-      "x": -314,
-      "y": 3168,
+      "x": -139,
+      "y": 3036,
       "size": 17
     },
     {
@@ -799,8 +907,8 @@
       "label": "Single-task experiment pick…",
       "group": "evidence",
       "title": "evidence · doc:c28ab68be8e8\nSingle-task experiment pick block shape Training only single\n\nSingle-task experiment (pick_block_shape): Training only on a single task performs worse than joint training on all tasks.",
-      "x": -563,
-      "y": 2984,
+      "x": -303,
+      "y": 2606,
       "size": 11
     },
     {
@@ -808,8 +916,8 @@
       "label": "Recommendation simplify fir…",
       "group": "finding",
       "title": "finding · finding:doc:cb553a080f92\nRecommendation simplify first Focus single-object pick-and-place before moving\n\nRecommendation to simplify first: Focus on single-object pick-and-place before moving to multi-step or long-horizon tasks.",
-      "x": -236,
-      "y": 3089,
+      "x": -31,
+      "y": 3011,
       "size": 17
     },
     {
@@ -817,8 +925,8 @@
       "label": "Recommendation simplify fir…",
       "group": "evidence",
       "title": "evidence · doc:cb553a080f92\nRecommendation simplify first Focus single-object pick-and-place before moving\n\nRecommendation to simplify first: Focus on single-object pick-and-place before moving to multi-step or long-horizon tasks.",
-      "x": -423,
-      "y": 2843,
+      "x": -67,
+      "y": 2553,
       "size": 11
     },
     {
@@ -826,8 +934,8 @@
       "label": "abs vs. rel rel. action spa…",
       "group": "finding",
       "title": "finding · finding:doc:d8ce5a3e39f3\nabs vs. rel rel. action space predict too\n\nabs vs. rel: rel. action space predict may be too small to move; abs. may cause jump; rel. is smoother, generally better on real and def. better in sim.",
-      "x": -139,
-      "y": 3036,
+      "x": 80,
+      "y": 3018,
       "size": 17
     },
     {
@@ -835,8 +943,8 @@
       "label": "abs vs. rel rel. action spa…",
       "group": "evidence",
       "title": "evidence · doc:d8ce5a3e39f3\nabs vs. rel rel. action space predict too\n\nabs vs. rel: rel. action space predict may be too small to move; abs. may cause jump; rel. is smoother, generally better on real and def. better in sim.",
-      "x": -249,
-      "y": 2746,
+      "x": 175,
+      "y": 2568,
       "size": 11
     },
     {
@@ -844,8 +952,8 @@
       "label": "task requires high visual d…",
       "group": "finding",
       "title": "finding · finding:doc:db1816f1de66\ntask requires high visual details e.g. finding towel\n\nIf the task requires high visual details, e.g., finding towel corners, you can try increase the image resolution.",
-      "x": -31,
-      "y": 3011,
+      "x": 185,
+      "y": 3056,
       "size": 17
     },
     {
@@ -853,8 +961,8 @@
       "label": "task requires high visual d…",
       "group": "evidence",
       "title": "evidence · doc:db1816f1de66\ntask requires high visual details e.g. finding towel\n\nIf the task requires high visual details, e.g., finding towel corners, you can try increase the image resolution.",
-      "x": -55,
-      "y": 2702,
+      "x": 402,
+      "y": 2651,
       "size": 11
     },
     {
@@ -862,8 +970,8 @@
       "label": "Short horizon inference goo…",
       "group": "finding",
       "title": "finding · finding:doc:e302b92950f3\nShort horizon inference good action precision long continuity.\n\nShort horizon in inference is good for action precision, while long horizon is good for action continuity.",
-      "x": 80,
-      "y": 3018,
+      "x": 274,
+      "y": 3122,
       "size": 17
     },
     {
@@ -871,8 +979,8 @@
       "label": "Short horizon inference goo…",
       "group": "evidence",
       "title": "evidence · doc:e302b92950f3\nShort horizon inference good action precision long continuity.\n\nShort horizon in inference is good for action precision, while long horizon is good for action continuity.",
-      "x": 144,
-      "y": 2715,
+      "x": 597,
+      "y": 2795,
       "size": 11
     },
     {
@@ -880,8 +988,8 @@
       "label": "recommended start UMI data …",
       "group": "finding",
       "title": "finding · finding:doc:e8b33227dd0f\nrecommended start UMI data post-training because embodiment gap\n\nIt is not recommended to start with UMI data in post-training, because there is an embodiment gap between the 3rd-party UMI gloves and your robot.",
-      "x": 185,
-      "y": 3056,
+      "x": 341,
+      "y": 3211,
       "size": 17
     },
     {
@@ -889,8 +997,8 @@
       "label": "recommended start UMI data …",
       "group": "evidence",
       "title": "evidence · doc:e8b33227dd0f\nrecommended start UMI data post-training because embodiment gap\n\nIt is not recommended to start with UMI data in post-training, because there is an embodiment gap between the 3rd-party UMI gloves and your robot.",
-      "x": 331,
-      "y": 2783,
+      "x": 743,
+      "y": 2987,
       "size": 11
     },
     {
@@ -898,8 +1006,8 @@
       "label": "new embodiment unseen task …",
       "group": "finding",
       "title": "finding · finding:doc:ee3c9911138e\nnew embodiment unseen task try two-stage training. First\n\nIf it is a new embodiment and unseen task, you can try two-stage training. First, turn off tune_llm and tune_visual and train action head only, it helps the action head to warm up on the new action space. Then turn on tune_llm and tune_vis…",
-      "x": 274,
-      "y": 3122,
+      "x": 380,
+      "y": 3314,
       "size": 17
     },
     {
@@ -907,8 +1015,8 @@
       "label": "new embodiment unseen task …",
       "group": "evidence",
       "title": "evidence · doc:ee3c9911138e\nnew embodiment unseen task try two-stage training. First\n\nIf it is a new embodiment and unseen task, you can try two-stage training. First, turn off tune_llm and tune_visual and train action head only, it helps the action head to warm up on the new action space. Then turn on tune_llm and tune_vis…",
-      "x": 491,
-      "y": 2902,
+      "x": 829,
+      "y": 3214,
       "size": 11
     },
     {
@@ -916,8 +1024,8 @@
       "label": "close loop first asap see f…",
       "group": "finding",
       "title": "finding · finding:doc:f48806525c63\nclose loop first asap see fails- adjust collection\n\nclose loop first asap, see how it fails->adjust collection next",
-      "x": 341,
-      "y": 3211,
+      "x": 389,
+      "y": 3425,
       "size": 17
     },
     {
@@ -925,8 +1033,8 @@
       "label": "close loop first asap see f…",
       "group": "evidence",
       "title": "evidence · doc:f48806525c63\nclose loop first asap see fails- adjust collection\n\nclose loop first asap, see how it fails->adjust collection next",
-      "x": 612,
-      "y": 3060,
+      "x": 848,
+      "y": 3455,
       "size": 11
     },
     {
@@ -934,8 +1042,8 @@
       "label": "policy hesitates task ambig…",
       "group": "finding",
       "title": "finding · finding:doc:f64c3c56f91a\npolicy hesitates task ambiguous multiple ways current obs\n\npolicy hesitates: task is ambiguous, multiple ways from current obs",
-      "x": 380,
-      "y": 3314,
+      "x": 413,
+      "y": 3748,
       "size": 17
     },
     {
@@ -943,8 +1051,8 @@
       "label": "policy hesitates task ambig…",
       "group": "evidence",
       "title": "evidence · doc:f64c3c56f91a\npolicy hesitates task ambiguous multiple ways current obs\n\npolicy hesitates: task is ambiguous, multiple ways from current obs",
-      "x": 683,
-      "y": 3246,
+      "x": 765,
+      "y": 4044,
       "size": 11
     },
     {
@@ -952,8 +1060,8 @@
       "label": "first experiment frame hist…",
       "group": "finding",
       "title": "finding · finding:doc:f89d12a2885a\nfirst experiment frame history plus current frame. Since\n\nAs a first experiment, use one frame of history plus the current frame. Since your current replan interval is 8, this corresponds to video delta_indices=[-8, 0]. This matches our recommendation to use step_size = replan_frequency for the o…",
-      "x": 389,
-      "y": 3425,
+      "x": -413,
+      "y": 3052,
       "size": 17
     },
     {
@@ -961,8 +1069,8 @@
       "label": "first experiment frame hist…",
       "group": "evidence",
       "title": "evidence · doc:f89d12a2885a\nfirst experiment frame history plus current frame. Since\n\nAs a first experiment, use one frame of history plus the current frame. Since your current replan interval is 8, this corresponds to video delta_indices=[-8, 0]. This matches our recommendation to use step_size = replan_frequency for the o…",
-      "x": 699,
-      "y": 3445,
+      "x": -765,
+      "y": 2756,
       "size": 11
     }
   ],
@@ -1000,6 +1108,16 @@
     {
       "from": "topic:paper",
       "to": "finding:doc:1b6289b891a7",
+      "title": "about",
+      "color": {
+        "color": "#b197fc",
+        "opacity": 0.55
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "topic:paper",
+      "to": "finding:doc:1db478702c3e",
       "title": "about",
       "color": {
         "color": "#b197fc",
@@ -1049,6 +1167,16 @@
     },
     {
       "from": "topic:paper",
+      "to": "finding:doc:3c93a69e3948",
+      "title": "about",
+      "color": {
+        "color": "#b197fc",
+        "opacity": 0.55
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "topic:paper",
       "to": "finding:doc:43d316282016",
       "title": "about",
       "color": {
@@ -1080,6 +1208,16 @@
     {
       "from": "topic:paper",
       "to": "finding:doc:5bcec1a81c3f",
+      "title": "about",
+      "color": {
+        "color": "#b197fc",
+        "opacity": 0.55
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "topic:paper",
+      "to": "finding:doc:5fb979a07f22",
       "title": "about",
       "color": {
         "color": "#b197fc",
@@ -1129,7 +1267,27 @@
     },
     {
       "from": "topic:paper",
+      "to": "finding:doc:7ecdc975a319",
+      "title": "about",
+      "color": {
+        "color": "#b197fc",
+        "opacity": 0.55
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "topic:paper",
       "to": "finding:doc:8250409b0276",
+      "title": "about",
+      "color": {
+        "color": "#b197fc",
+        "opacity": 0.55
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "topic:paper",
+      "to": "finding:doc:82b54429df41",
       "title": "about",
       "color": {
         "color": "#b197fc",
@@ -1159,6 +1317,16 @@
     },
     {
       "from": "topic:paper",
+      "to": "finding:doc:8c9bd4ba1699",
+      "title": "about",
+      "color": {
+        "color": "#b197fc",
+        "opacity": 0.55
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "topic:paper",
       "to": "finding:doc:8fcb00a1a0de",
       "title": "about",
       "color": {
@@ -1170,6 +1338,16 @@
     {
       "from": "topic:paper",
       "to": "finding:doc:92269971080a",
+      "title": "about",
+      "color": {
+        "color": "#b197fc",
+        "opacity": 0.55
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "topic:paper",
+      "to": "finding:doc:ac6a93f05fba",
       "title": "about",
       "color": {
         "color": "#b197fc",
@@ -1200,6 +1378,16 @@
     {
       "from": "topic:paper",
       "to": "finding:doc:c30c96090896",
+      "title": "about",
+      "color": {
+        "color": "#b197fc",
+        "opacity": 0.55
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "topic:paper",
+      "to": "finding:doc:c391239e02da",
       "title": "about",
       "color": {
         "color": "#b197fc",
@@ -1420,6 +1608,26 @@
     {
       "from": "finding:doc:35dfea403abc",
       "to": "doc:35dfea403abc",
+      "title": "cites",
+      "color": {
+        "color": "#ffa94d",
+        "opacity": 0.65
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "topic:playbook",
+      "to": "finding:doc:41789a408e77",
+      "title": "about",
+      "color": {
+        "color": "#b197fc",
+        "opacity": 0.55
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "finding:doc:41789a408e77",
+      "to": "doc:41789a408e77",
       "title": "cites",
       "color": {
         "color": "#ffa94d",
@@ -1680,6 +1888,26 @@
     {
       "from": "finding:doc:a4c1885c5e63",
       "to": "doc:a4c1885c5e63",
+      "title": "cites",
+      "color": {
+        "color": "#ffa94d",
+        "opacity": 0.65
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "topic:playbook",
+      "to": "finding:doc:ac1b131d505a",
+      "title": "about",
+      "color": {
+        "color": "#b197fc",
+        "opacity": 0.55
+      },
+      "arrows": "to"
+    },
+    {
+      "from": "finding:doc:ac1b131d505a",
+      "to": "doc:ac1b131d505a",
       "title": "cites",
       "color": {
         "color": "#ffa94d",

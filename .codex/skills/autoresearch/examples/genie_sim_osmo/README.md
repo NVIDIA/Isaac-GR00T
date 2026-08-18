@@ -55,10 +55,9 @@ The controller host and OSMO tasks must be able to access:
 - the study **output_dir**, including trial checkpoints and results;
 - the Git repository and the exact candidate commits.
 
-The checked-in workflows expect an OSMO credential named **github-token** and
-clone the [Isaac-GR00T-CRA `main` repository](https://github.com/NVIDIA/Isaac-GR00T-CRA/tree/main).
-Change the workflow and wrapper settings if your repository or credential name
-differs.
+The checked-in workflows expect an OSMO credential named **gitlab-pat** and
+clone **gitlab-master.nvidia.com/GR00T/gr00t/gr00t.git**. Change the
+workflow and wrapper settings if your repository or credential name differs.
 
 Verify OSMO access before launching:
 
@@ -69,8 +68,8 @@ osmo profile list
 osmo pool list
 ~~~
 
-The default pool is **groot-l40-01**. Confirm that the selected pool can access
-**AUTORESEARCH_ROOT** and run the two container images in the workflow.
+The default pool is **groot-l40-01**. Confirm that the selected pool can mount
+the configured AMLFS paths and run the two container images in the workflow.
 
 The controller also needs the repository development environment and an
 authenticated Codex CLI:
@@ -85,16 +84,7 @@ container. The controller itself does not need to build FlashAttention.
 
 ## 2. Configure the example
 
-Choose one writable shared base directory that is visible to the controller and
-OSMO workers:
-
-~~~bash
-export AUTORESEARCH_ROOT=/path/to/autoresearch
-~~~
-
-The checked-in configurations resolve their repository, dataset, model cache,
-Genie Sim, baseline, and study paths below this directory. Update these settings
-before running:
+Update these settings before running:
 
 ### autoresearch.yaml
 
@@ -156,7 +146,6 @@ temporary path so an existing result cannot trigger the wrapper's resume shortcu
 
 ~~~bash
 RUN_ROOT=/tmp/genie-sim-osmo-validation \
-AUTORESEARCH_ROOT=/tmp/autoresearch-validation \
 VALIDATE_ONLY=1 \
 bash skills/autoresearch/examples/genie_sim_osmo/eval_baseline.sh
 ~~~
@@ -176,7 +165,7 @@ submit training or evaluation jobs.
 The following commands submit real OSMO workflows:
 
 ~~~bash
-export RUN_ROOT="${AUTORESEARCH_ROOT}/genie_sim_osmo/baseline"
+export RUN_ROOT=/mnt/amlfs-01/home/yuhlu/AutoResearch_genie_sim_osmo/baseline
 WORKFLOW_NAME=genie-sim-osmo-baseline-train \
   bash skills/autoresearch/examples/genie_sim_osmo/train_baseline.sh
 WORKFLOW_NAME=genie-sim-osmo-baseline-eval \
@@ -237,7 +226,7 @@ osmo workflow logs WORKFLOW_ID -n 10000
 Common causes are:
 
 - the candidate commit was not pushed or cannot be fetched by the workflow;
-- the **github-token** credential is absent or invalid;
+- the **gitlab-pat** credential is absent or invalid;
 - controller and OSMO tasks do not share the configured checkpoint/result paths;
 - the selected pool cannot run both evaluation tasks or mount Genie Sim;
 - the policy server never becomes reachable by the simulator;

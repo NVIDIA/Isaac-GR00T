@@ -43,6 +43,12 @@
       "title": "important training data consistency diversity aim medium SR"
     },
     {
+      "chunk_id": "doc:41789a408e77",
+      "concepts": [],
+      "text": "If using only the current frame, the robot is easier to get stuck. If using history frames, the robot can be more confident, but the model is easier to get overfitted. It is suggested to use the current frame and the history frame one action chunk earlier. For example, if the action horizon is 40, set the video delta indices to [-40, 0].",
+      "title": "only current frame robot easier get stuck. history"
+    },
+    {
       "chunk_id": "doc:4b34752b9c66",
       "concepts": [],
       "text": "Start with a small operational area, achieve high success rate, then expand distribution.",
@@ -125,6 +131,12 @@
       "concepts": [],
       "text": "When collecting DAgger data, use the human trajectory only and discard the robot trajectory, because the robot trajectory leads the robot to a bad state. We do not want the model to imitate bad robot trajectories.",
       "title": "collecting DAgger data human trajectory only discard robot"
+    },
+    {
+      "chunk_id": "doc:ac1b131d505a",
+      "concepts": [],
+      "text": "For difficult tasks, first manage to reach a 20-30% success rate. Once you reach that, then you can try DAgger to improve further.",
+      "title": "difficult tasks first manage reach 20-30% success rate."
     },
     {
       "chunk_id": "doc:ac28c475a9d7",

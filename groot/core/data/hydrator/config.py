@@ -58,16 +58,21 @@ class HydratorConfig:
     credentials_profile: str | None = None
     credentials_file: str = DataCredentials.DEFAULT_CREDENTIALS_FILE
     runtime_env: dict[str, Any] | None = None
-    # Enable shared DuckDB download index on Lustre for cross-rank file
-    # discovery. Off by default; the in-memory files dict is sufficient for
-    # single-rank or non-distributed use cases.
-    enable_download_index: bool = False
-    # Distributed identity used by download_index when ``enable_download_index=True``.
+    # Enable shared DuckDB download index on Lustre for cross-rank file discovery. The
+    # in-memory files dict is sufficient for single-rank or non-distributed use cases.
+    #
+    # ``None`` means unspecified: ``with_distributed_defaults`` resolves it from the ambient
+    # process group. Pass a value to state the intent explicitly and it is never overwritten —
+    # an actor-owned cache asking for ``False`` keeps it even inside a DDP worker.
+    enable_download_index: bool | None = None
+    # Distributed identity used by download_index when ``enable_download_index`` resolves true.
     # Under the default ``IdentityStrategy`` every rank downloads what it registers and
     # dedup is best-effort via cross-rank adoption (a rank registering after another
     # rank has published the row reads from the index instead of re-fetching).
-    rank: int = 0
-    world_size: int = 1
+    #
+    # ``None`` means unspecified, resolved the same way; an explicit value wins.
+    rank: int | None = None
+    world_size: int | None = None
     # Pluggable strategy that decides ``is_owner`` and DuckDB ``db_key``
     # for each path. ``None`` (default) selects ``IdentityStrategy()`` when
     # ``enable_download_index=True``; ignored otherwise. ``HashPartitionStrategy``
@@ -88,39 +93,51 @@ class HydratorConfig:
             raise ValueError(f"max_cache_size_gb must be positive, got {self.max_cache_size_gb}")
         if not 0 < self.eviction_buffer <= 1.0:
             raise ValueError(f"eviction_buffer must be in (0, 1], got {self.eviction_buffer}")
-        if self.world_size <= 0:
+        # rank/world_size validate once resolved; ``None`` is "unspecified", not invalid.
+        if self.world_size is not None and self.world_size <= 0:
             raise ValueError(f"world_size must be positive, got {self.world_size}")
-        if not 0 <= self.rank < self.world_size:
-            raise ValueError(
-                f"rank must satisfy 0 <= rank < world_size, "
-                f"got rank={self.rank} world_size={self.world_size}"
-            )
+        if self.rank is not None:
+            limit = self.world_size if self.world_size is not None else 1
+            if not 0 <= self.rank < limit:
+                raise ValueError(
+                    f"rank must satisfy 0 <= rank < world_size, "
+                    f"got rank={self.rank} world_size={limit}"
+                )
 
     def with_distributed_defaults(self) -> "HydratorConfig":
-        """Return a copy with rank/world_size/enable_download_index resolved from torch.
+        """Return a copy with *unspecified* distributed fields resolved from torch.
 
-        When ``torch.distributed`` is initialized with ``world_size > 1``, populate
-        ``rank`` and ``world_size`` from the current process group and flip
-        ``enable_download_index=True``. The partition strategy is left as ``None``
-        so ``CacheManager`` selects the safe default (``IdentityStrategy``) — see
+        ``rank``, ``world_size`` and ``enable_download_index`` default to ``None`` meaning
+        "unspecified". Only those are filled: when ``torch.distributed`` is initialized with
+        ``world_size > 1`` they resolve to the ambient process group with the shared index on,
+        otherwise to the single-rank values with it off. The partition strategy is left as
+        ``None`` so ``CacheManager`` selects the safe default (``IdentityStrategy``) — see
         ``cache.manager.CacheManager`` for the rationale.
 
-        Single-rank and non-distributed runs return ``self`` unchanged.
+        A field the caller passed explicitly is never overwritten. That matters for caches
+        that are actor-owned rather than rank-shared: a trainer rank publishing a checkpoint
+        runs inside DDP, but its private upload cache must not adopt cross-rank download
+        state just because a process group happens to exist around it.
 
         torch is imported lazily so importing this module stays light.
         """
+        ambient_rank, ambient_world_size, distributed = 0, 1, False
         try:
             import torch.distributed as dist
         except ImportError:
-            return self
-        if not (dist.is_available() and dist.is_initialized()):
-            return self
-        world_size = dist.get_world_size()
-        if world_size <= 1:
-            return self
+            pass
+        else:
+            if dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1:
+                ambient_rank = dist.get_rank()
+                ambient_world_size = dist.get_world_size()
+                distributed = True
         return dataclasses.replace(
             self,
-            rank=dist.get_rank(),
-            world_size=world_size,
-            enable_download_index=True,
+            rank=self.rank if self.rank is not None else ambient_rank,
+            world_size=(self.world_size if self.world_size is not None else ambient_world_size),
+            enable_download_index=(
+                self.enable_download_index
+                if self.enable_download_index is not None
+                else distributed
+            ),
         )

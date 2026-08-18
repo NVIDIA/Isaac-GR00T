@@ -1,15 +1,15 @@
 study_id: genie-sim-osmo-smoke
-workspace: ${AUTORESEARCH_ROOT}/gr00t
+workspace: /mnt/amlfs-01/home/yuhlu/gr00t
 max_trials: 16
 max_parallel_trials: 4
 max_retry: 3
-output_dir: ${AUTORESEARCH_ROOT}/genie_sim_osmo/study
+output_dir: /mnt/amlfs-01/home/yuhlu/AutoResearch_genie_sim_osmo_oss
 
 baseline:
   script_timeout_s: 28800
-  train_script: ${AUTORESEARCH_ROOT}/gr00t/oss/skills/autoresearch/examples/genie_sim_osmo/train_baseline.sh
-  eval_script: ${AUTORESEARCH_ROOT}/gr00t/oss/skills/autoresearch/examples/genie_sim_osmo/eval_baseline.sh
-  eval_result: ${AUTORESEARCH_ROOT}/genie_sim_osmo/baseline/eval/results.json
+  train_script: /mnt/amlfs-01/home/yuhlu/gr00t/oss/skills/autoresearch/examples/genie_sim_osmo/train_baseline.sh
+  eval_script: /mnt/amlfs-01/home/yuhlu/gr00t/oss/skills/autoresearch/examples/genie_sim_osmo/eval_baseline.sh
+  eval_result: /mnt/amlfs-01/home/yuhlu/AutoResearch_genie_sim_osmo/baseline/eval/results.json
   eval_metric: success_rate
   direction: maximize
   baseline_result: 0.0

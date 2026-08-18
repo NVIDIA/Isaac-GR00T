@@ -58,7 +58,7 @@ OSS_PRETRAIN_CHECKPOINT_URI = (
 
 # TODO(cuonguyen): Consolidate this OSS train path with `uv ol train` once the  # noqa: TD003
 # one-launcher CLI can run compute-platform-independent local training from the
-# OSS package.
+# OSS package. See https://gitlab-master.nvidia.com/GR00T/gr00t/gr00t/-/merge_requests/4377#note_60682123
 @dataclass(frozen=True)
 class ResolvedOssTrain:
     experiment: str

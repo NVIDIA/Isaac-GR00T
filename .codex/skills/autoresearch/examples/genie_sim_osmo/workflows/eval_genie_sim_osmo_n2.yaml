@@ -20,15 +20,14 @@ default-values:
   SIM_GROOT_ROOT: /tmp/gr00t
   GROOT_BRANCH: main
   GROOT_REVISION: ""
-  GROOT_REPO: github.com/NVIDIA/Isaac-GR00T-CRA.git
+  GROOT_REPO: gitlab-master.nvidia.com/GR00T/gr00t/gr00t.git
   OSS_PACKAGE_DIR: oss
 
   # Shared eval paths. The simulator writes live outputs under OSMO's output
   # volume, then copies summary artifacts back to EVAL_OUTPUT_DIR.
-  AUTORESEARCH_ROOT: /tmp/autoresearch
-  CHECKPOINT_PATH: ""
-  EVAL_OUTPUT_DIR: ""
-  GENIESIM_ROOT: ""
+  CHECKPOINT_PATH: /mnt/amlfs-01/home/yuhlu/AutoResearch_genie_sim_osmo/baseline/training
+  EVAL_OUTPUT_DIR: /mnt/amlfs-01/home/yuhlu/AutoResearch_genie_sim_osmo/baseline/eval
+  GENIESIM_ROOT: /mnt/amlfs-01/home/yuhlu/geniesim
 
   # Keep these small for AutoResearch testing: one task, one episode, one
   # subtask cap.
@@ -67,7 +66,7 @@ workflow:
       resource: policy
       command: ["bash", "-lc"]
       credentials:
-        github-token: /tmp/github
+        gitlab-pat: /tmp/gitlab
       environment:
         ACCEPT_EULA: "Y"
         PRIVACY_CONSENT: "Y"
@@ -82,9 +81,7 @@ workflow:
         export GROOT_REVISION='{{ GROOT_REVISION }}'
         export GROOT_REPO='{{ GROOT_REPO }}'
         export OSS_PACKAGE_DIR='{{ OSS_PACKAGE_DIR }}'
-        export AUTORESEARCH_ROOT='{{ AUTORESEARCH_ROOT }}'
         export CHECKPOINT_PATH='{{ CHECKPOINT_PATH }}'
-        CHECKPOINT_PATH="${CHECKPOINT_PATH:-${AUTORESEARCH_ROOT}/genie_sim_osmo/baseline/training}"
         export POLICY_PORT='{{ POLICY_PORT }}'
         export EMBODIMENT_TAG='{{ EMBODIMENT_TAG }}'
         export ACTION_HORIZON='{{ ACTION_HORIZON }}'
@@ -94,8 +91,8 @@ workflow:
         cat > /tmp/git-askpass <<'EOF'
         #!/usr/bin/env bash
         case "$1" in
-          *Username*) echo x-access-token ;;
-          *Password*) tr -d '\r\n' < /tmp/github/github-token ;;
+          *Username*) echo oauth2 ;;
+          *Password*) tr -d '\r\n' < /tmp/gitlab/gitlab-pat ;;
         esac
         EOF
         chmod +x /tmp/git-askpass
@@ -133,7 +130,7 @@ workflow:
       resource: simulator
       command: ["bash", "-lc"]
       credentials:
-        github-token: /tmp/github
+        gitlab-pat: /tmp/gitlab
       environment:
         ACCEPT_EULA: "Y"
         PRIVACY_CONSENT: "Y"
@@ -148,15 +145,11 @@ workflow:
         export GROOT_REVISION='{{ GROOT_REVISION }}'
         export GROOT_REPO='{{ GROOT_REPO }}'
         export OSS_PACKAGE_DIR='{{ OSS_PACKAGE_DIR }}'
-        export AUTORESEARCH_ROOT='{{ AUTORESEARCH_ROOT }}'
         export POLICY_HOST='{{host:policy-server}}'
         export POLICY_PORT='{{ POLICY_PORT }}'
         export GENIESIM_ROOT='{{ GENIESIM_ROOT }}'
         export REQUESTED_EVAL_OUTPUT_DIR='{{ EVAL_OUTPUT_DIR }}'
         export CHECKPOINT_PATH='{{ CHECKPOINT_PATH }}'
-        GENIESIM_ROOT="${GENIESIM_ROOT:-${AUTORESEARCH_ROOT}/geniesim}"
-        REQUESTED_EVAL_OUTPUT_DIR="${REQUESTED_EVAL_OUTPUT_DIR:-${AUTORESEARCH_ROOT}/genie_sim_osmo/baseline/eval}"
-        CHECKPOINT_PATH="${CHECKPOINT_PATH:-${AUTORESEARCH_ROOT}/genie_sim_osmo/baseline/training}"
         export TASK_TYPE='{{ TASK_TYPE }}'
         export TASK_NAME='{{ TASK_NAME }}'
         export MAX_SUBTASKS='{{ MAX_SUBTASKS }}'
@@ -168,8 +161,8 @@ workflow:
         cat > /tmp/git-askpass <<'EOF'
         #!/usr/bin/env bash
         case "$1" in
-          *Username*) echo x-access-token ;;
-          *Password*) tr -d '\r\n' < /tmp/github/github-token ;;
+          *Username*) echo oauth2 ;;
+          *Password*) tr -d '\r\n' < /tmp/gitlab/gitlab-pat ;;
         esac
         EOF
         chmod +x /tmp/git-askpass
