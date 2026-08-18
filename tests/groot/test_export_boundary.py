@@ -96,6 +96,15 @@ MOUNT_REFERENCE_ALLOWLIST: dict[Path, set[str]] = {
         "/aws-lfs-02/shared/ckpts/",
         "/aws-lfs-03/shared/ckpts/",
     },
+    # Optional Batch7 projection plugin imported by the open-loop CLI.
+    Path("groot/core/training/open_loop/open_loop_eval.py"): {
+        "/amlfs-07/shared/hanjungk/batch7_egowm/code"
+    },
+    # Existing LMDB reader demonstration inputs.
+    Path("groot/core/utils/io/read_lmdb.py"): {
+        "/amlfs-01/shared/vl_shared/users/yman/osmo-share",
+        "/amlfs-01/shared/vl_shared/users/yman/osmo-share/lmdb_jsonl/llava_instruct_150k.jsonl",
+    },
     # Runtime default for the shared dataset directory.
     Path("groot/core/utils/storage/data_paths.py"): {"/aws-lfs-01/shared/datasets"},
 }
