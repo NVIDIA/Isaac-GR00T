@@ -192,15 +192,15 @@ additional access through authenticated SSH aliases:
 {
   "version": 1,
   "targets": {
-    "workstation": {
+    "gpu-workstation": {
       "kind": "ssh",
-      "host": "autodebug-l40",
-      "workspace": "/workspace/gr00t/oss"
+      "host": "gpu-workstation.example.com",
+      "workspace": "/workspace/project"
     },
-    "orin": {
+    "edge-device": {
       "kind": "ssh",
-      "host": "orin",
-      "workspace": "/home/coco/gr00t/oss"
+      "host": "edge-device.example.com",
+      "workspace": "/opt/project"
     }
   }
 }
