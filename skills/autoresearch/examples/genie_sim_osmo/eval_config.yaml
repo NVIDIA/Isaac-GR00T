@@ -1,9 +1,9 @@
 osmo:
-  pool: groot-l40-01
+  pool: your-osmo-pool
   priority: NORMAL
 
 simulation:
-  geniesim_root: /mnt/amlfs-01/home/yuhlu/geniesim
+  geniesim_root: ${AUTORESEARCH_ROOT}/geniesim
   embodiment_tag: agibot
   task_type: if
   task_name: pick_billiards_color

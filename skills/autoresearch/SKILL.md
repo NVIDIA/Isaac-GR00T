@@ -25,19 +25,56 @@ layer. Keep autoresearch.yaml as the only user configuration interface.
 - Do not run git fetch when base_commit is omitted. The implementation resolves
   the locally visible head of base_branch.
 
+## Out-of-scope routing
+
+Before any AutoResearch action, decide whether the request is about operating
+an AutoResearch study.
+
+- For local OSS setup, dry-runs, training, evaluation, or policy serving outside
+  an AutoResearch study, stop and say: `Use the onboarding skill to handle this
+  local OSS workflow.`
+- For product, support, concept, or documentation questions, stop and say: `Use
+  the faq agent to answer this question from repository documentation and
+  published Insights.`
+- For unrelated GR00T failure diagnosis, stop and tell the user to call
+  `$autodebug`.
+
+Examples:
+
+| Request | Route |
+| --- | --- |
+| "Resume `/work/study/autoresearch.yaml`." | AutoResearch |
+| "Why did this trial fail according to `state.json`?" | AutoResearch |
+| "Dry-run local post-training on `/data/task`." | `onboarding` |
+| "Which datasets does GR00T support?" | FAQ agent |
+| "Importing GR00T fails in a clean checkout." | `$autodebug` |
+
+Do not inspect state.json, run preflight, modify files, or execute scripts after
+routing an out-of-scope request. Failures within an AutoResearch study remain
+in scope for this skill.
+
 ## Core workflow
 
 Run commands from the repository root.
 
 ### 1. Locate the config and understand the request
 
-Require one autoresearch.yaml path. Determine whether the user wants:
+Use the user's autoresearch.yaml path when it already exists. For a new task
+with no YAML yet, collect the available workspace, wrapper, dataset, config,
+metric, and baseline-result details. Do not require a config path before
+baseline preparation.
+When the user supplies research ideas or constraints, preserve a concise,
+self-contained summary in `user_guidance`; do not leave that intent only in the
+chat history.
+
+
+Determine whether the user wants:
 
 - preflight validation only;
 - preparation of a new task;
 - a lightweight smoke test;
 - launch or resume;
-- failure diagnosis or status;
+- in-study failure diagnosis or `state.json` status;
 - result visualization.
 
 For a new task or wrapper-contract question, read README.md before editing
@@ -46,35 +83,48 @@ truth.
 
 ### 2. Run deterministic preflight
 
+Before preflight, check whether the baseline interface is ready. Apply
+`$prepare-autoresearch-baseline` when any of these are missing or incomplete:
+
+- autoresearch.yaml;
+- train or eval wrapper scripts;
+- the baseline eval result or configured metric;
+- the baseline Git revision or execution contract.
+
+The preparation skill may inspect and create files automatically. It may run
+baseline training or evaluation only when the user explicitly authorized
+running the missing baseline; authorization to launch AutoResearch alone does
+not imply that permission. If execution is not authorized, stop after preparing
+files and report the exact baseline command and unresolved result.
+
+After preparation returns with a complete baseline, continue this workflow and
+run preflight. If the original request authorized launch or smoke-test, proceed
+after preflight passes without asking for that same study-launch authorization
+again.
+
+Do not use the preparation skill when output_dir contains state.json, for a
+normal trial failure, or for a request that only inspects or visualizes results.
+The dependency is one-way: this skill may invoke
+`$prepare-autoresearch-baseline`; the preparation skill must not launch or
+resume AutoResearch.
+
 Run:
 
     .venv/bin/python skills/autoresearch/scripts/check.py /absolute/path/to/autoresearch.yaml
 
 This validates the YAML, baseline result and metric, absolute wrapper paths, Git
-remote and revision, Codex executable, output boundary, and any existing saved
-state. It does not run user train/eval scripts or create output state.
+remote and revision, configured agent executable, output boundary, and any
+existing saved state. It does not run user train/eval scripts or create output state.
 
 If preflight fails, report the first actionable error and fix only what the user
 asked to fix. Re-run preflight after a fix.
 
 ### 3. Prepare a new task
 
-When asked to create a task:
-
-1. Start from skills/autoresearch/scripts/autoresearch.yaml.
-2. Prefer the closest existing example:
-   - skills/autoresearch/examples/yam_stack_bowl for local/open-loop work.
-   - skills/autoresearch/examples/genie_sim_osmo for remote/closed-loop work.
-3. Keep user wrapper scripts and evaluation logic frozen.
-4. Put only intended training-side code and config in editable_paths.
-5. Require an already-produced baseline eval JSON. Do not assume a baseline
-   checkpoint is required.
-6. Verify each wrapper independently with its own lightweight mechanism before
-   launching AutoResearch.
-7. Run preflight.
-
-Do not invent infrastructure commands when no working user wrapper exists.
-Explain the missing contract and ask the user to provide or complete it.
+For a new task, apply `$prepare-autoresearch-baseline` to create or validate the
+task-owned wrappers, configs, baseline result, and autoresearch.yaml. Then
+return here and run preflight. If no working user train/eval contract exists,
+report the missing contract instead of inventing infrastructure commands.
 
 ### 4. Smoke-test safely
 
@@ -112,7 +162,7 @@ For status or failures:
 1. Read output_dir/state.json.
 2. Identify active_wave_index, best_trial_id, best_score, and unfinished or
    failed trials.
-3. Inspect only the relevant trial's latest train/eval attempt logs and Codex
+3. Inspect only the relevant trial's latest train/eval attempt logs and agent
    attempt metadata.
 4. Distinguish candidate-edit, publish, train, eval, and metric-parsing failures.
 5. Check whether retry attempts remain.

@@ -15,8 +15,45 @@ from pathlib import Path
 import subprocess
 import sys
 
+import yaml
+
 REPOSITORY = Path(__file__).parents[3]
 EXAMPLE = REPOSITORY / "skills/autoresearch/examples/genie_sim_osmo"
+PREPARE_TRAIN_CONFIG = EXAMPLE / "osmo_scripts/prepare_train_config.py"
+
+
+def test_prepare_train_config_expands_environment_paths(tmp_path: Path) -> None:
+    source = tmp_path / "source.yaml"
+    destination = tmp_path / "rendered.yaml"
+    dataset = tmp_path / "selected-dataset"
+    root = tmp_path / "autoresearch"
+    source.write_text(
+        "data:\n"
+        "  datasets:\n"
+        '    - dataset_paths: ["${AUTORESEARCH_ROOT}/old-dataset"]\n'
+        "training:\n"
+        "  start_from_checkpoint: ${AUTORESEARCH_ROOT}/checkpoints/model\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(PREPARE_TRAIN_CONFIG),
+            str(source),
+            str(dataset),
+            str(destination),
+        ],
+        env={**os.environ, "AUTORESEARCH_ROOT": str(root)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    rendered = yaml.safe_load(destination.read_text(encoding="utf-8"))
+    assert rendered["data"]["datasets"][0]["dataset_paths"] == [str(dataset)]
+    assert rendered["training"]["start_from_checkpoint"] == str(root / "checkpoints/model")
 
 
 def _mock_osmo(tmp_path: Path) -> tuple[Path, Path]:
@@ -55,6 +92,7 @@ def _environment(tmp_path: Path, *, stage: str) -> tuple[dict[str, str], Path]:
     run_root = tmp_path / "run"
     environment = {
         **os.environ,
+        "AUTORESEARCH_ROOT": str(tmp_path),
         "AUTORESEARCH_ATTEMPT": "1",
         "AUTORESEARCH_STAGE": stage,
         "AUTORESEARCH_TRIAL_ID": "script-test_wave1_trial1",
@@ -63,11 +101,30 @@ def _environment(tmp_path: Path, *, stage: str) -> tuple[dict[str, str], Path]:
         "GROOT_REVISION": "a" * 40,
         "MOCK_STAGE": stage,
         "OSMO": str(osmo),
+        "POOL": "test-pool",
         "OSMO_POLL_INTERVAL_S": "0",
         "REPO_ROOT": str(REPOSITORY),
         "SUBMIT_MARKER": str(submit_marker),
     }
     return environment, submit_marker
+
+
+def test_osmo_train_script_rejects_placeholder_pool_before_cli(tmp_path: Path) -> None:
+    environment, submit_marker = _environment(tmp_path, stage="train")
+    environment["POOL"] = "your-osmo-pool"
+
+    completed = subprocess.run(
+        ["bash", str(EXAMPLE / "train_baseline.sh")],
+        cwd=REPOSITORY,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "Set POOL to an OSMO pool available to your account" in completed.stderr
+    assert not submit_marker.exists()
 
 
 def test_osmo_train_script_reattaches_without_duplicate_submit(tmp_path: Path) -> None:

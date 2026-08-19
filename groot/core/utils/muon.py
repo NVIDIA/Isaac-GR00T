@@ -8,19 +8,21 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+# Copyright (c) 2024 Keller Jordan
+
 import torch
 import torch.distributed as dist
 
 
 def zeropower_via_newtonschulz5(G, steps: int):
-    """
-    Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a
-    quintic iteration whose coefficients are selected to maximize the slope at zero. For the purpose
-    of minimizing steps, it turns out to be empirically effective to keep increasing the slope at
-    zero even beyond the point where the iteration no longer converges all the way to one everywhere
-    on the interval. This iteration therefore does not produce UV^T but rather something like US'V^T
-    where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
-    performance at all relative to UV^T, where USV^T = G is the SVD.
+    """Compute the zeroth power or orthogonalization of G with a Newton-Schulz iteration.
+
+    We opt to use a quintic iteration whose coefficients are selected to maximize the slope at zero.
+    For the purpose of minimizing steps, it turns out to be empirically effective to keep increasing
+    the slope at zero even beyond the point where the iteration no longer converges all the way to
+    one everywhere on the interval. This iteration therefore does not produce UV^T but rather
+    something like US'V^T where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not
+    to hurt model performance at all relative to UV^T, where USV^T = G is the SVD.
     """
     assert (
         G.ndim >= 2
@@ -56,8 +58,7 @@ def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, batched=Fa
 
 
 class Muon(torch.optim.Optimizer):
-    """
-    Muon - MomentUm Orthogonalized by Newton-schulz
+    """Muon - MomentUm Orthogonalized by Newton-schulz.
 
     https://kellerjordan.github.io/posts/muon/
 
@@ -120,9 +121,7 @@ class Muon(torch.optim.Optimizer):
 
 
 class SingleDeviceMuon(torch.optim.Optimizer):
-    """
-    Muon variant for usage in non-distributed settings.
-    """
+    """Muon variant for usage in non-distributed settings."""
 
     def __init__(self, params, lr=0.02, weight_decay=0, momentum=0.95):
         defaults = {"lr": lr, "weight_decay": weight_decay, "momentum": momentum}
@@ -159,11 +158,11 @@ def adam_update(grad, buf1, buf2, step, betas, eps):
 
 
 class MuonWithAuxAdam(torch.optim.Optimizer):
-    """
-    Distributed Muon variant that can be used for all parameters in the network, since it runs an
-    internal AdamW for the parameters that are not compatible with Muon. The user must manually
-    specify which parameters shall be optimized with Muon and which with Adam by passing in a
-    list of param_groups with the `use_muon` flag set.
+    """Distributed Muon variant that can optimize all network parameters.
+
+    It runs an internal AdamW for the parameters that are not compatible with Muon. The user must
+    manually specify which parameters shall be optimized with Muon and which with Adam by passing in
+    a list of param_groups with the `use_muon` flag set.
 
     The point of this class is to allow the user to have a single optimizer in their code, rather
     than having both a Muon and an Adam which each need to be stepped.
@@ -178,7 +177,11 @@ class MuonWithAuxAdam(torch.optim.Optimizer):
     head_params = [model.lm_head.weight]
 
     from muon import MuonWithAuxAdam
-    adam_groups = [dict(params=head_params, lr=0.22), dict(params=embed_params, lr=0.6), dict(params=scalar_params, lr=0.04)]
+    adam_groups = [
+        dict(params=head_params, lr=0.22),
+        dict(params=embed_params, lr=0.6),
+        dict(params=scalar_params, lr=0.04),
+    ]
     adam_groups = [dict(**g, betas=(0.8, 0.95), eps=1e-10, use_muon=False) for g in adam_groups]
     muon_group = dict(params=hidden_matrix_params, lr=0.05, momentum=0.95, use_muon=True)
     param_groups = [*adam_groups, muon_group]
@@ -269,9 +272,7 @@ class MuonWithAuxAdam(torch.optim.Optimizer):
 
 
 class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
-    """
-    Non-distributed variant of MuonWithAuxAdam.
-    """
+    """Non-distributed variant of MuonWithAuxAdam."""
 
     def __init__(self, param_groups, use_batching=False):
         self.use_batching = use_batching
@@ -318,7 +319,7 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
 
         group["params_by_shape_dtype"] = dict(params_by_shape_dtype)
 
-        for key, params_info in params_by_shape_dtype.items():
+        for _key, params_info in params_by_shape_dtype.items():
             params = params_info["params"]
             batched_momenta = params_info["batched_momentum_buffer"]
             # go through batch momenta initialize them if not present yet

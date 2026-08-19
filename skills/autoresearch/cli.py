@@ -18,7 +18,7 @@ import shutil
 import subprocess
 from urllib.parse import urlsplit
 
-from skills.autoresearch.codex_editor import CodexEditor, CodexEditorConfig
+from skills.autoresearch.agent_editor import agent_executable, create_editor
 from skills.autoresearch.config import StudyConfig
 from skills.autoresearch.git_workspace import GitWorkspaceManager
 from skills.autoresearch.script_runner import ScriptTrialRunner
@@ -52,19 +52,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _controller(config: StudyConfig) -> WaveController:
     """The controller factory wires the script runner, editor, and workspace implementation."""
-    # AutoResearch accepts user-owned scripts as its only runner contract.
-    agent = config.agent
-    sandbox = agent.get("sandbox", "workspace-write")
-    if not isinstance(sandbox, str) or not sandbox:
-        raise ValueError("agent.sandbox must be a non-empty string")
-    editor = CodexEditor(
-        CodexEditorConfig(
-            executable=str(agent.get("executable") or "codex"),
-            model=str(agent["model"]) if agent.get("model") else None,
-            timeout_s=int(agent.get("timeout_s", 3600)),
-            sandbox=sandbox,
-        )
-    )
+    editor = create_editor(config.agent)
     return WaveController(
         config=config,
         workspace_manager=GitWorkspaceManager(config.workspace, config.output_dir),
@@ -104,8 +92,10 @@ def _validate(config: StudyConfig) -> None:
     """Validate local inputs without running user scripts."""
     if not config.workspace.is_dir():
         raise ValueError(f"Workspace does not exist: {config.workspace}")
-    if shutil.which(str(config.agent.get("executable") or "codex")) is None:
-        raise ValueError("Codex CLI was not found on PATH")
+    create_editor(config.agent)
+    executable = agent_executable(config.agent)
+    if shutil.which(executable) is None:
+        raise ValueError(f"Agent CLI was not found on PATH: {executable}")
 
     # Script validation checks the wrapper paths and supplied baseline result.
     try:

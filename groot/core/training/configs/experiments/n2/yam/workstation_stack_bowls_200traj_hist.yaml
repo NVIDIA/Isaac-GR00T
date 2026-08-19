@@ -8,8 +8,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# Dataset paths are relative to the one-launcher shared data root
-# (H100: /mnt/amlfs-01/shared).
+# Dataset paths are relative to the One Launcher shared data root.
 data:
   datasets:
     - dataset_paths:

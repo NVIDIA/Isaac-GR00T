@@ -27,19 +27,18 @@ import signal
 import threading
 import time
 
-from groot.core.utils.distributed import worker_logging
 from groot.core.data.hydrator import backends, types, workers
 from groot.core.data.hydrator import modality as hydrator_modality
 from groot.core.data.hydrator.cache import eviction_policy as cache_eviction_policy
 from groot.core.data.hydrator.cache.dir_sync_job import DirSyncJob
+from groot.core.data.hydrator.cache.download_index import DownloadIndex, DownloadRecord
 from groot.core.data.hydrator.cache.partition_strategy import (
     AlphanumericPrefixStrategy,
-    HashPartitionStrategy,
     IdentityStrategy,
     PartitionStrategy,
 )
-from groot.core.data.hydrator.cache.download_index import DownloadIndex, DownloadRecord
 from groot.core.data.hydrator.utils import io as _io_utils
+from groot.core.utils.distributed import worker_logging
 
 log = worker_logging.get_unified_logger()
 
@@ -392,8 +391,7 @@ class CacheManager:
         return None
 
     def adopt_if_published(self, remote_path: str) -> bool:
-        """Try to mutate an existing PENDING entry to its terminal state
-        using the cross-rank index.
+        """Try to move an existing PENDING entry to its terminal state via the cross-rank index.
 
         Returns True iff the entry was adopted (state moved to READY on
         success or ERROR on terminal failure). Used by the get_file poll
@@ -457,9 +455,7 @@ class CacheManager:
         for prefix in strategy.all_prefixes():
             if not strategy.is_owner(prefix, rank, world_size):
                 continue
-            self.workers.enqueue_sync_dir(
-                f"{s3_base}/{prefix}*", os.path.join(local_dir, prefix)
-            )
+            self.workers.enqueue_sync_dir(f"{s3_base}/{prefix}*", os.path.join(local_dir, prefix))
 
     def get_covering_dir_sync(self, remote_path: str) -> "DirSyncJob | None":
         """Return the DirSyncJob whose s3_base is a prefix of remote_path, or None.
@@ -498,9 +494,25 @@ class CacheManager:
         Raises:
             RuntimeError: If upload fails or times out
         """
+        size_bytes = content.stat().st_size if isinstance(content, Path) else len(content)
+        started = time.monotonic()
+        log.info(
+            "[Hydrator] upload started size_bytes=%d size_mib=%.2f destination=%s",
+            size_bytes,
+            size_bytes / (1024**2),
+            remote_path,
+        )
         self.workers.enqueue_upload(remote_path, content, profile=profile)
         if not self.workers.wait_for_upload(remote_path):
             raise RuntimeError(f"Upload timed out: {remote_path}")
+        log.info(
+            "[Hydrator] upload completed size_bytes=%d size_mib=%.2f "
+            "destination=%s elapsed_seconds=%.3f",
+            size_bytes,
+            size_bytes / (1024**2),
+            remote_path,
+            time.monotonic() - started,
+        )
 
     def submit_upload_async(
         self,
@@ -1045,9 +1057,7 @@ class CacheManager:
         with self._lock:
             self.download_errors += 1
 
-        self.update_file_state(
-            remote_path, types.FileState.ERROR, error_message=error_message
-        )
+        self.update_file_state(remote_path, types.FileState.ERROR, error_message=error_message)
         if self.download_index is not None:
             self.download_index.batch_insert(
                 [
@@ -1070,6 +1080,4 @@ class CacheManager:
 
     def _on_upload_error(self, remote_path: str, error: Exception) -> None:
         """Callback when an async upload fails after all retries (internal)."""
-        self.update_file_state(
-            remote_path, types.FileState.ERROR, error_message=str(error)
-        )
+        self.update_file_state(remote_path, types.FileState.ERROR, error_message=str(error))

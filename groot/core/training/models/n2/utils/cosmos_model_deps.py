@@ -42,11 +42,10 @@ _LUSTRE_CKPT_PREFIXES = [
 def _find_lustre_alternative(dep_path: str) -> str | None:
     """Find an alternative Lustre path where the dep exists.
 
-    Training checkpoints bake in the Lustre prefix of the training cluster
-    (e.g. GB200 → `/mnt/aws-lfs-02/...`). Eval pods on a different cluster may
-    not have that mount, but often have the same data under a sibling mount
-    (e.g. H100/L40 → `/mnt/amlfs-02/...` or `/mnt/amlfs-07/...`). Swap prefixes
-    until we find a path that actually exists on the current machine.
+    Training checkpoints bake in the Lustre prefix of the training cluster.
+    Eval pods on a different cluster may not have that mount, but often have
+    the same data under a sibling mount. Swap prefixes until we find a path that
+    actually exists on the current machine.
     """
     if os.path.exists(dep_path):
         return dep_path

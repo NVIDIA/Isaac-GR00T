@@ -56,6 +56,9 @@ def _config(
         output_dir=tmp_path / "runs",
         train_script=train_script,
         eval_script=eval_script,
+        user_guidance=(
+            "Change only learning rate. Do not change weight decay, dropout, or batch size."
+        ),
         train_env={"AUTH": "must-not-appear"},
     )
 
@@ -134,6 +137,11 @@ def test_prompt_states_direction_guards_and_previous_result(tmp_path: Path) -> N
     assert "training and evaluation compute budget is fixed" in prompt
     assert "maximum training steps or epochs" in prompt
     assert "training-side search surface" in prompt
+    assert (
+        "Change only learning rate. Do not change weight decay, dropout, or batch size." in prompt
+    )
+    assert "takes precedence" in prompt
+    assert "Obey its requested changes and exclusions" in prompt
     assert "implementation correctness" in prompt
     assert "changed_files" not in prompt
     assert "result_summary Improved the metric from 0.0268 to 0.025" in prompt

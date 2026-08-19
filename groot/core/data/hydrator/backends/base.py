@@ -15,8 +15,8 @@ Users should NEVER import backend classes directly.
 """
 
 import abc
-import hashlib
 from collections.abc import Callable
+import hashlib
 from pathlib import Path
 
 OnPair = Callable[[str, str], None]
@@ -59,7 +59,7 @@ class StorageBackend(abc.ABC):
 
         Args:
             working_dir: Root working directory where files will be stored
-            remote_path: Full remote URI (e.g., s3://bucket/key, /mnt/lustre/file)
+            remote_path: Full remote URI (e.g., s3://bucket/key, /local/path/file)
 
         Returns:
             Full local file path as string
@@ -92,7 +92,7 @@ class StorageBackend(abc.ABC):
         The backend controls the destination file structure within cache_dir.
 
         Args:
-            remote_path: Remote URI (e.g., s3://bucket/key, /mnt/lustre/file)
+            remote_path: Remote URI (e.g., s3://bucket/key, /local/path/file)
 
         Returns:
             local_path: Full path to downloaded file

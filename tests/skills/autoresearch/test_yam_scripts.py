@@ -14,12 +14,32 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 import pytest
 
 _REPOSITORY = Path(__file__).resolve().parents[3]
 _TRAIN_WRAPPER = _REPOSITORY / "skills/autoresearch/examples/yam_stack_bowl/train_baseline.sh"
 _LAUNCHER = _REPOSITORY / "skills/autoresearch/scripts/launch_autoresearch.sh"
+_CONFIG_RENDERER = _REPOSITORY / "skills/autoresearch/scripts/render_config.py"
+
+
+def test_config_renderer_expands_environment_paths(tmp_path: Path) -> None:
+    source = tmp_path / "source.yaml"
+    destination = tmp_path / "rendered.yaml"
+    root = tmp_path / "autoresearch"
+    source.write_text("dataset: ${AUTORESEARCH_ROOT}/datasets/train\n", encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, str(_CONFIG_RENDERER), str(source), str(destination)],
+        env={**os.environ, "AUTORESEARCH_ROOT": str(root)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert destination.read_text(encoding="utf-8") == f"dataset: {root}/datasets/train\n"
 
 
 def test_launcher_exports_selected_python(tmp_path: Path) -> None:
@@ -89,10 +109,12 @@ printf 'final weights\n' > "${output_dir}/model.safetensors"
         environment = {
             **os.environ,
             "RUN_ROOT": str(run_root),
+            "AUTORESEARCH_ROOT": str(tmp_path),
             "FAKE_EXIT_CODE": str(exit_code),
             "GROOT_REVISION": "a" * 40,
             "OUTPUT_DIR": str(output_dir),
             "REPO_ROOT": str(fake_repo),
+            "PYTHON": sys.executable,
         }
 
         completed = subprocess.run(

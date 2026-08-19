@@ -2,139 +2,20 @@
   "chunks": [],
   "findings": [
     {
-      "body": "100 direct human op, hard to get teleop with robot hand, working on action control with IK",
-      "id": "finding:doc:00777a0fd639",
-      "tags": [
-        "playbook",
-        "topic:linen pillow task:"
-      ],
-      "title": "100 direct human hard get teleop robot hand"
-    },
-    {
-      "body": "collected several datasets, 100 (one task), 400 episodes (two tasks each 200)",
-      "id": "finding:doc:0151e12be47b",
-      "tags": [
-        "playbook",
-        "topic:wiping task"
-      ],
-      "title": "collected several datasets 100 task 400 episodes tasks"
-    },
-    {
-      "body": "how can system recover from failure (miss grasp, grasp then object fail)->break symmetry, learn state machine implicitly",
-      "id": "finding:doc:019f983e72f1",
-      "tags": [
-        "playbook",
-        "topic:debug"
-      ],
-      "title": "system recover failure miss grasp object fail break"
-    },
-    {
       "body": "camera: ceiling better than head (left and right wrist cameras are also used)",
       "id": "finding:doc:06136f473dc0",
       "tags": [
-        "playbook",
-        "topic:iter: 60-80k converge"
+        "playbook"
       ],
       "title": "camera ceiling better head left right wrist cameras"
-    },
-    {
-      "body": "sim-real co-training is big hole, do not touch",
-      "id": "finding:doc:0b48ac5efd43",
-      "tags": [
-        "playbook",
-        "topic:sim2real gap"
-      ],
-      "title": "sim-real co-training big hole touch"
-    },
-    {
-      "body": "Phase 1: pick towels from a basket, isolate one item, flatten it, and place onto a conveyor for high\u2011temperature drying.",
-      "id": "finding:doc:0c58d0dcdcaa",
-      "tags": [
-        "playbook",
-        "topic:lighting condition stable"
-      ],
-      "title": "Phase 1 pick towels basket isolate item flatten"
-    },
-    {
-      "body": "sideline: cosmos 3 EA, doing sft exp, will show next meeting",
-      "id": "finding:doc:0ce941def52c",
-      "tags": [
-        "playbook",
-        "topic:next step:"
-      ],
-      "title": "sideline cosmos 3 EA doing sft exp show"
     },
     {
       "body": "Importance of keeping task definition and environment consistent across simulation and real-robot runs when comparing results.",
       "id": "finding:doc:0cf371294ffb",
       "tags": [
-        "playbook",
-        "topic:current n1.7 setup:"
+        "playbook"
       ],
       "title": "Importance keeping task definition environment consistent across simulation"
-    },
-    {
-      "body": "NVIDIA has internal best\u2011practice requirements and is open to sharing them.",
-      "id": "finding:doc:0d437c36b892",
-      "tags": [
-        "playbook",
-        "topic:data diversity"
-      ],
-      "title": "NVIDIA internal best practice requirements open sharing them."
-    },
-    {
-      "body": "action joint state: relative or absolute (now use). relative might work, also suggested relative EEF (used in pretrain).",
-      "id": "finding:doc:0e643997a828",
-      "tags": [
-        "playbook",
-        "topic:q&a"
-      ],
-      "title": "action joint state relative absolute now work suggested"
-    },
-    {
-      "body": "Review shared configs and provide guidance on task setup consistency and benchmarking.",
-      "id": "finding:doc:0fd64be8569c",
-      "tags": [
-        "playbook",
-        "topic:nvidia"
-      ],
-      "title": "Review shared configs provide guidance task setup consistency"
-    },
-    {
-      "body": "Establish a single-object pick-and-place baseline in simulation and report results.",
-      "id": "finding:doc:106aa7049ca6",
-      "tags": [
-        "playbook",
-        "topic:run hyperparameter ablations."
-      ],
-      "title": "Establish single-object pick-and-place baseline simulation report results."
-    },
-    {
-      "body": "For context, some internal settings used a similar one-history-frame pattern, e.g. delta_indices=[-16, 0], because the internal replan interval was 16.",
-      "id": "finding:doc:1120c9afcbd9",
-      "tags": [
-        "playbook",
-        "topic:observation history"
-      ],
-      "title": "context internal settings similar one-history-frame pattern e.g. delta"
-    },
-    {
-      "body": "dagger is simple and worth building for customer (where operator can help finish tasks robot fail), the data could be treated as good demo, or bad demo for rl training",
-      "id": "finding:doc:119be8203629",
-      "tags": [
-        "playbook",
-        "topic:sim2real gap"
-      ],
-      "title": "dagger simple worth building customer operator help finish"
-    },
-    {
-      "body": "Authors: Benedetta Delfino, Alexander Schwarz, Axel Xu, Kartik Sachdev in collaboration with GEAR Lab.",
-      "id": "finding:doc:17956c4fc09c",
-      "tags": [
-        "playbook",
-        "topic:humanoid"
-      ],
-      "title": "Authors Benedetta Delfino Alexander Schwarz Axel Kartik Sachdev"
     },
     {
       "body": "If the robot action looks jerky, first check if the training data has the same problem. Try apply low-pass filter to training data. Try more denoising steps in inference.",
@@ -146,103 +27,12 @@
       "title": "robot action looks jerky first check training data"
     },
     {
-      "body": "has N2 able to do full task 4 minutes, with only 100 demo data in real",
-      "id": "finding:doc:194cb99cb656",
-      "tags": [
-        "playbook",
-        "topic:gear"
-      ],
-      "title": "N2 able full task 4 minutes only 100"
-    },
-    {
-      "body": "QA: they asked about joint space vs. task space, @Yevgen Chebotar confirmed both should work but worth trying. Another question I missed here...",
-      "id": "finding:doc:1c05473f6489",
-      "tags": [
-        "playbook",
-        "topic:iter: 60-80k converge"
-      ],
-      "title": "QA asked joint space vs. task Yevgen Chebotar"
-    },
-    {
-      "body": "Users ask whether 20k steps is always needed, how batch size should scale, what data amount is enough, and what to tune first.",
-      "id": "finding:doc:1c21c3125b79",
-      "tags": [
-        "playbook",
-        "topic:meeting ask:"
-      ],
-      "title": "Users ask whether 20k steps always needed batch"
-    },
-    {
-      "body": "Users are confused about state/action mapping, relative vs absolute actions, high-DOF robots, wrist cameras, depth, history input, and action horizon limits.",
-      "id": "finding:doc:1d70cd779280",
-      "tags": [
-        "playbook",
-        "topic:meeting ask:"
-      ],
-      "title": "Users confused state/action mapping relative absolute actions high-DOF"
-    },
-    {
-      "body": "which IK to use to mimic human-like eef motion? \u2014 train exp result on wiping task",
-      "id": "finding:doc:1ec1540cd668",
-      "tags": [
-        "playbook",
-        "topic:linen pillow task:"
-      ],
-      "title": "IK mimic human-like eef motion train exp result"
-    },
-    {
-      "body": "need to decide 1. which grids are empty 2. place in order of topleft->bottomright",
-      "id": "finding:doc:1fb1412f0025",
-      "tags": [
-        "playbook",
-        "topic:collect 300 episodes,"
-      ],
-      "title": "need decide 1. grids empty 2. place order"
-    },
-    {
-      "body": "new embodiment 50-100? known one 10-20. 10-15s, depend on teleop, speed.",
-      "id": "finding:doc:2318bf78245b",
-      "tags": [
-        "playbook",
-        "topic:data"
-      ],
-      "title": "new embodiment 50-100 known 10-20. 10-15s depend teleop"
-    },
-    {
-      "body": "retry with longer action_horizon, history answered in Q&A",
-      "id": "finding:doc:24b06bd92093",
-      "tags": [
-        "playbook",
-        "topic:next step:"
-      ],
-      "title": "retry longer action horizon history answered Q"
-    },
-    {
-      "body": "sonic predict in latent space, not task not joint. like vae for actions.",
-      "id": "finding:doc:26e1cafc9417",
-      "tags": [
-        "playbook",
-        "topic:observability / distribution"
-      ],
-      "title": "sonic predict latent space task joint. like vae"
-    },
-    {
       "body": "Common pattern: open-loop looks acceptable, but robot jitters, misses grasp, does not lift, twists joints, or executes wrong action.",
       "id": "finding:doc:2889ade8cbac",
       "tags": [
-        "playbook",
-        "topic:variance."
+        "playbook"
       ],
       "title": "Common pattern open-loop looks acceptable robot jitters misses"
-    },
-    {
-      "body": "wam: output action + video, video quality may not need to be that high to predict policy. dreamzero, cosmos3 are wam. N2 in progress.",
-      "id": "finding:doc:28c831cc30c4",
-      "tags": [
-        "playbook",
-        "topic:vla vs wam"
-      ],
-      "title": "wam output action video quality need high predict"
     },
     {
       "body": "suggest: add history; camera footage=>better understand edge/corner location from image; collect data only through robot cameras than 3rd person view",
@@ -254,31 +44,12 @@
       "title": "suggest add history camera footage better understand edge/corner"
     },
     {
-      "body": "eagle is from another previous model, not qwen3, plus many non-commercial data",
-      "id": "finding:doc:3118a87df1b8",
-      "tags": [
-        "playbook",
-        "topic:3 stage training"
-      ],
-      "title": "eagle another previous model qwen3 plus non-commercial data"
-    },
-    {
       "body": "collected 100 episodes, suggest post-train directly, task is easy to overfit with 100-200 episodes",
       "id": "finding:doc:317767693999",
       "tags": [
-        "playbook",
-        "topic:q&a:"
+        "playbook"
       ],
       "title": "collected 100 episodes suggest post-train directly task easy"
-    },
-    {
-      "body": "(https://github.com/NVIDIA/Isaac-GR00T/issues/176), #453 (https://github.com/NVIDIA/Isaac-GR00T/issues/453). Useful notes: 100-200 demos as a starting point, simple tasks around 100,",
-      "id": "finding:doc:35cdba67bdc7",
-      "tags": [
-        "playbook",
-        "topic:open issues:"
-      ],
-      "title": "https github.com/NVIDIA/Isaac-GR00T/issues/176 453 github.com/NVIDIA/Isaac-GR00T/issues/453 Useful notes 100-200 demos"
     },
     {
       "body": "Which is more important for training data, consistency or diversity? If you aim at medium SR, keeping consistent is OK; if you want very high SR, then diversity is necessary.",
@@ -290,114 +61,6 @@
       "title": "important training data consistency diversity aim medium SR"
     },
     {
-      "body": "Share current task configuration files and simulation setup used for N1.7.",
-      "id": "finding:doc:36b7177bfd03",
-      "tags": [
-        "playbook",
-        "topic:action items"
-      ],
-      "title": "Share current task configuration files simulation setup N1.7."
-    },
-    {
-      "body": "midtrain with more accurate data with more sensors to track every joint, also doing retargeting to robot\u2019s joint space",
-      "id": "finding:doc:381c9e95c5ef",
-      "tags": [
-        "playbook",
-        "topic:3 stage training"
-      ],
-      "title": "midtrain accurate data sensors track every joint doing"
-    },
-    {
-      "body": "another example: simple cube picknplace in isaacsim, trained using abs task space control",
-      "id": "finding:doc:3826895b271d",
-      "tags": [
-        "playbook",
-        "topic:q&a:"
-      ],
-      "title": "another example simple cube picknplace isaacsim trained abs"
-    },
-    {
-      "body": "relative joint + absolute gripper, same as SO100=>tried and got 35%",
-      "id": "finding:doc:39a666d3a504",
-      "tags": [
-        "playbook",
-        "topic:suggestion from nv:"
-      ],
-      "title": "relative joint absolute gripper same SO100 tried got"
-    },
-    {
-      "body": "training experiments with diff action space/horizon, camera all finished, detail below",
-      "id": "finding:doc:39ef0135c6ff",
-      "tags": [
-        "playbook",
-        "topic:wiping task"
-      ],
-      "title": "training experiments diff action space/horizon camera finished detail"
-    },
-    {
-      "body": "Place not precise enough (object does not slide into target slot).",
-      "id": "finding:doc:3eabdcfa75a7",
-      "tags": [
-        "playbook",
-        "topic:main failure modes:"
-      ],
-      "title": "Place precise enough object slide target slot"
-    },
-    {
-      "body": "update with n1.7, use absolute joint than relative including gripper, 35%->96%",
-      "id": "finding:doc:3f745161011d",
-      "tags": [
-        "playbook",
-        "topic:collect 300 episodes,"
-      ],
-      "title": "update n1.7 absolute joint relative including gripper 35%-"
-    },
-    {
-      "body": "If using only the current frame, the robot is easier to get stuck. If using history frames, the robot can be more confident, but the model is easier to get overfitted. It is suggested to use the current frame and the history frame one action chunk earlier. For example, if the action horizon is 40, set the video delta indices to [-40, 0].",
-      "id": "finding:doc:41789a408e77",
-      "tags": [
-        "playbook",
-        "know-how"
-      ],
-      "title": "only current frame robot easier get stuck. history"
-    },
-    {
-      "body": "Use these as prior answers to convert into internal notes.",
-      "id": "finding:doc:449ae4572712",
-      "tags": [
-        "playbook",
-        "topic:open issues:"
-      ],
-      "title": "prior answers convert internal notes."
-    },
-    {
-      "body": "- Dataset conversion / metadata / schema: #28 (https://github.com/NVIDIA/Isaac-GR00T/issues/28), #57 (https://github.com/NVIDIA/Isaac-GR00T/issues/57), #58",
-      "id": "finding:doc:45432fe9b82b",
-      "tags": [
-        "playbook",
-        "topic:(https://github.com/nvidia/isaac-gr00t/issues/479)."
-      ],
-      "title": "Dataset conversion metadata schema 28 https github.com/NVIDIA/Isaac-GR00T/issues/28 57"
-    },
-    {
-      "body": "- Data amount / data quality: #98 (https://github.com/NVIDIA/Isaac-GR00T/issues/98), #168 (https://github.com/NVIDIA/Isaac-GR00T/issues/168), #176",
-      "id": "finding:doc:457363a97e8d",
-      "tags": [
-        "playbook",
-        "topic:open issues:"
-      ],
-      "title": "Data amount quality 98 https github.com/NVIDIA/Isaac-GR00T/issues/98 168 github.com/NVIDIA/Isaac-GR00T/issues/168"
-    },
-    {
-      "body": "how much data: depend on complexity; decompose to 3 subtasks and collect in a certain order (left arm pick left edge, then..)",
-      "id": "finding:doc:4a39d71a01ce",
-      "tags": [
-        "playbook",
-        "topic:q&a"
-      ],
-      "title": "data depend complexity decompose 3 subtasks collect certain"
-    },
-    {
       "body": "Start with a small operational area, achieve high success rate, then expand distribution.",
       "id": "finding:doc:4b34752b9c66",
       "tags": [
@@ -405,42 +68,6 @@
         "topic:data diversity"
       ],
       "title": "Start small operational area achieve high success rate"
-    },
-    {
-      "body": "- Action horizon / history / chunking: #135 (https://github.com/NVIDIA/Isaac-GR00T/issues/135), #145 (https://github.com/NVIDIA/Isaac-GR00T/issues/145), #177",
-      "id": "finding:doc:52c928a62021",
-      "tags": [
-        "playbook",
-        "topic:open issues:"
-      ],
-      "title": "Action horizon history chunking 135 https github.com/NVIDIA/Isaac-GR00T/issues/135 145"
-    },
-    {
-      "body": "embodiment and task: they will use real-world openarm platform to collect data and do testing. previously they got satisfying results of chopstick picknplace on GTC, about 80-90% with N1.6; new tasks including linen handling, brushing, surface wiping",
-      "id": "finding:doc:534348f58f23",
-      "tags": [
-        "playbook",
-        "topic:iter: 60-80k converge"
-      ],
-      "title": "embodiment task real-world openarm platform collect data testing."
-    },
-    {
-      "body": "purpose: build private benchmark toolkit and will continue adding more tasks and allow more action spaces",
-      "id": "finding:doc:558882b2007f",
-      "tags": [
-        "playbook",
-        "topic:q&a:"
-      ],
-      "title": "purpose build private benchmark toolkit continue adding tasks"
-    },
-    {
-      "body": "will collect data only with human hand help? needs to set embodiment tag correctly",
-      "id": "finding:doc:560420042395",
-      "tags": [
-        "playbook",
-        "topic:linen pillow task:"
-      ],
-      "title": "collect data only human hand help needs set"
     },
     {
       "body": "GR00T N1.7 supports additional observation history via delta_indices (state or image or both). You will find an explanation in https://github.com/NVIDIA/Isaac-GR00T/blob/main/getting_started/data_config.md. We recommend adding video/image observation history for your task, before experimenting further with action_prefix conditioning. The reason is that N1.7 was trained with mixed",
@@ -452,24 +79,6 @@
       "title": "GR00T N1.7 supports additional observation history delta indices"
     },
     {
-      "body": "Strategy: start with simple, single-task workflows before scaling complexity.",
-      "id": "finding:doc:57801414ca8b",
-      "tags": [
-        "playbook",
-        "topic:lighting condition stable"
-      ],
-      "title": "Strategy start simple single-task workflows before scaling complexity."
-    },
-    {
-      "body": "action space->future, how normalization: how long in actual time: 1-1.3s. 30 fps, half, 40 action horizon->20 execute",
-      "id": "finding:doc:595661895b26",
-      "tags": [
-        "playbook",
-        "topic:eval"
-      ],
-      "title": "action space- future normalization long actual time 1-1.3s."
-    },
-    {
       "body": "Finally, we recommend verifying that the control stack used during data collection matches deployment as closely as possible, including IK solver, low-level controller, control frequency, action representation, and any smoothing or filtering.",
       "id": "finding:doc:5959751af09a",
       "tags": [
@@ -477,42 +86,6 @@
         "topic:real2sim gap"
       ],
       "title": "Finally recommend verifying control stack during data collection"
-    },
-    {
-      "body": "train/inference speed no worry, could benchmark diff history length; env randomness may have break symmetry; action_chunks average may cause symmetry",
-      "id": "finding:doc:595becf72ae5",
-      "tags": [
-        "playbook",
-        "topic:full finetuning,"
-      ],
-      "title": "train/inference speed worry benchmark diff history length env"
-    },
-    {
-      "body": "For one benchmark, get the exact branch, checkpoint, dataset split, stats generation, training command, eval command, checkpoint selection rule, n_envs, number of trials, and expected",
-      "id": "finding:doc:5c0b49cb2527",
-      "tags": [
-        "playbook",
-        "topic:meeting ask:"
-      ],
-      "title": "benchmark get exact branch checkpoint dataset split stats"
-    },
-    {
-      "body": "do you do data collection? operation team teleop? do you scale it using mimicgen, etc.? do you use simulation data at all for real tasks? \u2014 flywheel: data collection->model training->deployment",
-      "id": "finding:doc:5c4ec5204b5d",
-      "tags": [
-        "playbook",
-        "topic:data"
-      ],
-      "title": "data collection operation team teleop scale mimicgen etc."
-    },
-    {
-      "body": "why not train with joint state: depend on how fast controller converge / tracking latency depend on robot (openarm is fine, ur5 has latency; should try to use state if possible)",
-      "id": "finding:doc:5d19dbe45d2c",
-      "tags": [
-        "playbook",
-        "topic:q&a"
-      ],
-      "title": "train joint state depend fast controller converge tracking"
     },
     {
       "body": "We recommend starting with video/image history only. State history can be tried afterward, but some internal experiments found that adding state history can make the model more likely to overfit.",
@@ -524,31 +97,12 @@
       "title": "recommend starting video/image history only. State tried afterward"
     },
     {
-      "body": "sft, rl and dagger",
-      "id": "finding:doc:5ff7cbc7a517",
-      "tags": [
-        "playbook",
-        "topic:sim2real gap"
-      ],
-      "title": "sft dagger"
-    },
-    {
       "body": "stiff control is preferable if possible, easier to learn as reducing latency",
       "id": "finding:doc:616b9e236908",
       "tags": [
-        "playbook",
-        "topic:iter: 60-80k converge"
+        "playbook"
       ],
       "title": "stiff control preferable possible easier learn reducing latency"
-    },
-    {
-      "body": "3. Embodiment, Modalities, Cameras, Action Semantics",
-      "id": "finding:doc:62926f29dd1a",
-      "tags": [
-        "playbook",
-        "topic:meeting ask:"
-      ],
-      "title": "3. Embodiment Modalities Cameras Action Semantics"
     },
     {
       "body": "When collecting data by tele-op, look at camera images but not the real robot. Make sure you see what the robot sees. It may affect speed and quality at the beginning, but will be fine after some practice.",
@@ -558,15 +112,6 @@
         "know-how"
       ],
       "title": "collecting data tele-op look camera images real robot."
-    },
-    {
-      "body": "Yuhang\u2019s report on n1.6/n1.7 replicate: Gr00t Genie Sim debugging",
-      "id": "finding:doc:696a33b3014e",
-      "tags": [
-        "playbook",
-        "topic:context:"
-      ],
-      "title": "Yuhang report n1.6/n1.7 replicate Gr00t Genie Sim debugging"
     },
     {
       "body": "If the inference latency is too large, try to add torch.compile.",
@@ -587,177 +132,6 @@
       "title": "Especially since wrote own trainers sure recompute post-training"
     },
     {
-      "body": "action horizon: 32 better than 16",
-      "id": "finding:doc:6bed70cead20",
-      "tags": [
-        "playbook",
-        "topic:iter: 60-80k converge"
-      ],
-      "title": "action horizon 32 better 16"
-    },
-    {
-      "body": "test scenario: isaaclab picknplace task left-right two boxes with 2d grids, pick from right and place into left",
-      "id": "finding:doc:6c1b09725c95",
-      "tags": [
-        "playbook",
-        "topic:sim2real gap"
-      ],
-      "title": "test scenario isaaclab picknplace task left-right boxes 2d"
-    },
-    {
-      "body": "Billy Wang CN made initial investigations, slack thread",
-      "id": "finding:doc:6e94a7fa6e54",
-      "tags": [
-        "playbook",
-        "topic:context:"
-      ],
-      "title": "Billy Wang CN initial investigations slack thread"
-    },
-    {
-      "body": "add position hints in prompts, no hints in image",
-      "id": "finding:doc:70eafbe6b853",
-      "tags": [
-        "playbook",
-        "topic:collect 300 episodes,"
-      ],
-      "title": "add position hints prompts image"
-    },
-    {
-      "body": "What is the training process like? \u2014 5-10k steps, 1k batchsize. 1episode: 100-nk, <=5k steps, split to overlapping chunks, 1k->1k, same language",
-      "id": "finding:doc:74b213d27178",
-      "tags": [
-        "playbook",
-        "topic:training"
-      ],
-      "title": "training process like 5-10k steps 1k batchsize. 1episode"
-    },
-    {
-      "body": "will continue to support N2 in near future",
-      "id": "finding:doc:79a6a23269bd",
-      "tags": [
-        "playbook",
-        "topic:general"
-      ],
-      "title": "continue support N2 near future"
-    },
-    {
-      "body": "any default param subject to change, are they same for diff embodiments: learning rate, num_of_epochs, action_horizon\u2026",
-      "id": "finding:doc:7a6495fdf1c2",
-      "tags": [
-        "playbook",
-        "topic:training"
-      ],
-      "title": "default param subject change same diff embodiments learning"
-    },
-    {
-      "body": "148 episodes, teleop action: grasp and re-grasp to shorter edge (exact use case in factory)",
-      "id": "finding:doc:7b7e3c65ec21",
-      "tags": [
-        "playbook",
-        "topic:joint"
-      ],
-      "title": "148 episodes teleop action grasp re-grasp shorter edge"
-    },
-    {
-      "body": "gr00t post-training recipe has many tricks, docs are there but not for every trial, most customers use it incorrectly, with few shot data the tasks should be solved well, including the laundry towel folding",
-      "id": "finding:doc:8193a295d817",
-      "tags": [
-        "playbook",
-        "topic:general"
-      ],
-      "title": "gr00t post-training recipe tricks docs every trial customers"
-    },
-    {
-      "body": "Human Egocentric Data Collection (Customer Site)",
-      "id": "finding:doc:835df2c3de80",
-      "tags": [
-        "playbook",
-        "topic:data diversity"
-      ],
-      "title": "Human Egocentric Data Collection Customer Site"
-    },
-    {
-      "body": "Hyper-parameter search: Current trials bring limited gains but provide useful hints for further optimization.",
-      "id": "finding:doc:8385304d0065",
-      "tags": [
-        "playbook",
-        "topic:update 05/08"
-      ],
-      "title": "Hyper-parameter search Current trials bring limited gains provide"
-    },
-    {
-      "body": "in https://github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/configs/finetune_config.py#L47-L58 . When finetuning with tune_llm and tune_visual we recommend lowering the learning rate to",
-      "id": "finding:doc:87b0494e9c2d",
-      "tags": [
-        "playbook",
-        "topic:--model.tune_visual"
-      ],
-      "title": "https github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/configs/finetune config.py L47-L58 finetuning tune llm visual"
-    },
-    {
-      "body": "will organize workshop to go through research-application pipeline, a gear member can teach, later can ask Qi access to real robots",
-      "id": "finding:doc:892d9bd6d4f8",
-      "tags": [
-        "playbook",
-        "topic:general"
-      ],
-      "title": "organize workshop through research-application pipeline gear member teach"
-    },
-    {
-      "body": "Get a private tuning table: demos, task type, LR, batch, steps/epochs, action horizon, replan interval, tune_visual, tune_diffusion, LoRA/full SFT, and expected failure symptoms.",
-      "id": "finding:doc:8c690f6654f0",
-      "tags": [
-        "playbook",
-        "topic:meeting ask:"
-      ],
-      "title": "Get private tuning table demos task type LR"
-    },
-    {
-      "body": "What is the robot control frequency? We internally use replan every 20 steps with robot control frequency of 20Hz, so replan every 1 second. If you are running a similar or higher control frequency, increasing the interval between replanning would be worth trying.",
-      "id": "finding:doc:8d1c228c87aa",
-      "tags": [
-        "playbook",
-        "topic:observation history"
-      ],
-      "title": "robot control frequency internally replan every 20 steps"
-    },
-    {
-      "body": "These block users before they can even learn whether the policy works.",
-      "id": "finding:doc:8e5ce15f1473",
-      "tags": [
-        "playbook",
-        "topic:meeting ask:"
-      ],
-      "title": "block users before even learn whether policy works."
-    },
-    {
-      "body": "Feedback: onboarding and documentation for N1.7 are smooth; improved data efficiency and faster convergence compared to prior setups.",
-      "id": "finding:doc:8ebc4a4345ff",
-      "tags": [
-        "playbook",
-        "topic:current progress"
-      ],
-      "title": "Feedback onboarding documentation N1.7 smooth improved data efficiency"
-    },
-    {
-      "body": "Pick not precise enough (gripper does not slide into object).",
-      "id": "finding:doc:9615dd263d4e",
-      "tags": [
-        "playbook",
-        "topic:main failure modes:"
-      ],
-      "title": "Pick precise enough gripper slide object"
-    },
-    {
-      "body": "Revisit results after baseline and ablation results are available.",
-      "id": "finding:doc:99639ecb947d",
-      "tags": [
-        "playbook",
-        "topic:joint"
-      ],
-      "title": "Revisit results after baseline ablation available."
-    },
-    {
       "body": "You are collecting data in real and evaluating in Sim. It is important for the Sim environment to accurately reflect the real environment. It is worth testing if the policy works well, if trained on data collected in Sim, but also validating performance on the real setup.",
       "id": "finding:doc:9a187ffb3319",
       "tags": [
@@ -776,42 +150,6 @@
       "title": "N1.7 supports relative action representations recommend checking whether"
     },
     {
-      "body": "They are doing single-stage training on all kinds of data in N2.",
-      "id": "finding:doc:9d2b9e480f3d",
-      "tags": [
-        "playbook",
-        "topic:gear"
-      ],
-      "title": "doing single-stage training kinds data N2."
-    },
-    {
-      "body": "hard to detect towel edge to pick for 2nd arm, after 1st arm picked and raised the other side (almost every trial, can succeed with human picking up edge and raise the towel a bit)",
-      "id": "finding:doc:9db48cc8f9f0",
-      "tags": [
-        "playbook",
-        "topic:deployment failure analysis"
-      ],
-      "title": "hard detect towel edge pick 2nd arm after"
-    },
-    {
-      "body": "set up openarm for towel picking from bins, 4 cameras, 2 on torso top-bottom, two wrist, 30fps 256*256",
-      "id": "finding:doc:9e8bb43e292a",
-      "tags": [
-        "playbook",
-        "topic:joint"
-      ],
-      "title": "set openarm towel picking bins 4 cameras 2"
-    },
-    {
-      "body": "video resolution: during training use 256, can try diff resolution by training whole model (+vlm backbone, egoscale pretrain already helped avoid overfitting)",
-      "id": "finding:doc:9f012a4fd9da",
-      "tags": [
-        "playbook",
-        "topic:q&a"
-      ],
-      "title": "video resolution during training 256 try diff whole"
-    },
-    {
       "body": "If the task is not common or unseen in pretraining, you better turn on tune_llm and tune_visual to finetune parameters in the LLM backbone and vision encoder. In that case, you should use a lower LR than tuning the action head only. It will use more GPU memories.",
       "id": "finding:doc:a05c433443f1",
       "tags": [
@@ -824,8 +162,7 @@
       "body": "fail + retry behavior in data collection: avoid them, or only keep recovered parts (dagger, annotate good/bad intervals, only train with good)",
       "id": "finding:doc:a13a3bd0456a",
       "tags": [
-        "playbook",
-        "topic:observability / distribution"
+        "playbook"
       ],
       "title": "fail retry behavior data collection avoid them only"
     },
@@ -839,60 +176,6 @@
       "title": "collecting DAgger data human trajectory only discard robot"
     },
     {
-      "body": "params: only train projector, dit, bs=1024, lr=1e-4, 30k steps",
-      "id": "finding:doc:a6c0d552f806",
-      "tags": [
-        "playbook",
-        "topic:collect 300 episodes,"
-      ],
-      "title": "params only train projector dit 1024 1e-4 30k"
-    },
-    {
-      "body": "Consensus: stabilize and validate performance in simulation first, using a controlled baseline.",
-      "id": "finding:doc:a884fbe038d0",
-      "tags": [
-        "playbook",
-        "topic:current n1.7 setup:"
-      ],
-      "title": "Consensus stabilize validate performance simulation first controlled baseline."
-    },
-    {
-      "body": "Build a diagnosis tree for: gripper toggling, grasp-no-lift, arm jitter, action zigzag, wrong joint direction, camera sensitivity, and sim success but real failure.",
-      "id": "finding:doc:a9bea42fe5f7",
-      "tags": [
-        "playbook",
-        "topic:meeting ask:"
-      ],
-      "title": "Build diagnosis tree gripper toggling grasp-no-lift arm jitter"
-    },
-    {
-      "body": "How was N1.7 compared with Pi0.5 in internal evaluation? \u2014 n1.6 use pi0.5 as baseline, yam, bimanual manip: tune n1d6 > pi0.5 on most tasks; more vis on what can be tuned, e.g. full finetuning (often better) vs. dit, worth trying both; add input history; replanning frequent: take smaller action_horizon, but not too short (pick-place keep repeat); full config of both groot and pi, action_chunks, get them closer. dit is much smaller than vlm backbone; pi0.5 default use full_finetune. keep all configs",
-      "id": "finding:doc:aa82d8a0a9c5",
-      "tags": [
-        "playbook",
-        "topic:eval"
-      ],
-      "title": "N1.7 compared Pi0.5 internal evaluation n1.6 baseline yam"
-    },
-    {
-      "body": "failed to pick, but n1.5 succeed almost every time",
-      "id": "finding:doc:ab141d43d4a1",
-      "tags": [
-        "playbook",
-        "topic:q&a:"
-      ],
-      "title": "failed pick n1.5 succeed almost every time"
-    },
-    {
-      "body": "For difficult tasks, first manage to reach a 20-30% success rate. Once you reach that, then you can try DAgger to improve further.",
-      "id": "finding:doc:ac1b131d505a",
-      "tags": [
-        "playbook",
-        "know-how"
-      ],
-      "title": "difficult tasks first manage reach 20-30% success rate."
-    },
-    {
       "body": "Relative action/state is usually better than absolute action/state.",
       "id": "finding:doc:ac28c475a9d7",
       "tags": [
@@ -900,24 +183,6 @@
         "know-how"
       ],
       "title": "Relative action/state usually better absolute action/state."
-    },
-    {
-      "body": "How to generalize to new embodiments with different sensors and different actuators? \u2014 n1d7 more eagle data, human relative eef pose, sharpa hand joints",
-      "id": "finding:doc:ad66dd07a602",
-      "tags": [
-        "playbook",
-        "topic:observability / distribution"
-      ],
-      "title": "generalize new embodiments different sensors actuators n1d7 eagle"
-    },
-    {
-      "body": "action is stable even with 100 episodes. overall model able to reproduce collected dataset, to collect more data",
-      "id": "finding:doc:b1772d9fad8f",
-      "tags": [
-        "playbook",
-        "topic:iter: 60-80k converge"
-      ],
-      "title": "action stable even 100 episodes. overall model able"
     },
     {
       "body": "rl training should be the final step to further boost the performance, dangerous on real robot (need to protect arm from collisions)",
@@ -929,20 +194,10 @@
       "title": "training final step further boost performance dangerous real"
     },
     {
-      "body": "pretrain with human ego-view data, hand tracking, e.g. joints may not be accurate, purely vision-based",
-      "id": "finding:doc:b2973a5ef855",
-      "tags": [
-        "playbook",
-        "topic:3 stage training"
-      ],
-      "title": "pretrain human ego-view data hand tracking e.g. joints"
-    },
-    {
       "body": "harder tasks >400, cover all states including after first completion/recovery.",
       "id": "finding:doc:b3d873f3d6e7",
       "tags": [
-        "playbook",
-        "topic:open issues:"
+        "playbook"
       ],
       "title": "harder tasks 400 cover states including after first"
     },
@@ -956,58 +211,12 @@
       "title": "Avoid collecting repetitive identical demonstrations."
     },
     {
-      "body": "data sharing and plan for human data collection",
-      "id": "finding:doc:b7b1282a3399",
-      "tags": [
-        "playbook",
-        "topic:suggest:"
-      ],
-      "title": "data sharing plan human collection"
-    },
-    {
-      "body": "evaluation: expect higher success rate on picknplace and adapt to the new tasks with N1.7 model",
-      "id": "finding:doc:b83497460c75",
-      "tags": [
-        "playbook",
-        "topic:iter: 60-80k converge"
-      ],
-      "title": "evaluation expect higher success rate picknplace adapt new"
-    },
-    {
-      "body": "rel_joint: not accurate in either pick/place, collide with existing piece/does not release gripper when placing;",
-      "id": "finding:doc:b8fe5f2752d7",
-      "tags": [
-        "playbook",
-        "topic:specific example:"
-      ],
-      "title": "rel joint accurate either pick/place collide existing piece/does"
-    },
-    {
       "body": "Batch size 1024, learning rate 1e-4 (same as N1.5).",
       "id": "finding:doc:b93387ad3f81",
       "tags": [
-        "playbook",
-        "topic:current n1.7 setup:"
+        "playbook"
       ],
       "title": "Batch size 1024 learning rate 1e-4 same N1.5"
-    },
-    {
-      "body": "robotics vs AV: much lower resolution as robot motion is slower; image domain completely different",
-      "id": "finding:doc:ba9ed519f231",
-      "tags": [
-        "playbook",
-        "topic:vla vs wam"
-      ],
-      "title": "robotics AV lower resolution robot motion slower image"
-    },
-    {
-      "body": "Simulation vs. Real-World Gap",
-      "id": "finding:doc:bdc851cbf755",
-      "tags": [
-        "playbook",
-        "topic:current n1.7 setup:"
-      ],
-      "title": "Simulation vs. Real-World Gap"
     },
     {
       "body": "Include controlled variation (grasp angle, object pose, limited workspace changes).",
@@ -1019,211 +228,28 @@
       "title": "Include controlled variation grasp angle object pose limited"
     },
     {
-      "body": "open post-training issues as internal P0 triage and closed post-training",
-      "id": "finding:doc:bebf4dc97b70",
-      "tags": [
-        "playbook",
-        "topic:github oss issues:"
-      ],
-      "title": "open post-training issues internal P0 triage closed"
-    },
-    {
-      "body": "- Multi-camera / embodiment / action representation: #149 (https://github.com/NVIDIA/Isaac-GR00T/issues/149), #167 (https://github.com/NVIDIA/Isaac-GR00T/issues/167), #174",
-      "id": "finding:doc:c0127febebd7",
-      "tags": [
-        "playbook",
-        "topic:open issues:"
-      ],
-      "title": "Multi-camera embodiment action representation 149 https github.com/NVIDIA/Isaac-GR00T/issues/149 167"
-    },
-    {
       "body": "Single-task experiment (pick_block_shape): Training only on a single task performs worse than joint training on all tasks.",
       "id": "finding:doc:c28ab68be8e8",
       "tags": [
-        "playbook",
-        "topic:update 05/08"
+        "playbook"
       ],
       "title": "Single-task experiment pick block shape Training only single"
-    },
-    {
-      "body": "in which case building a simulation suite to collect data/train may benefit, than directly in real? \u2014 why is output action zigzagging",
-      "id": "finding:doc:c2ad06e280bd",
-      "tags": [
-        "playbook",
-        "topic:debug"
-      ],
-      "title": "case building simulation suite collect data/train benefit directly"
-    },
-    {
-      "body": "how many episodes/demostrations required for a specific difficulty task, e.g. simple object picknplace, insertion",
-      "id": "finding:doc:c3bf9c5945e3",
-      "tags": [
-        "playbook",
-        "topic:data"
-      ],
-      "title": "episodes/demostrations required specific difficulty task e.g. simple object"
-    },
-    {
-      "body": "wipe task, with 16 action_horizon, right hand hesitates over the tray=>add history, fix training action_horizon 40 and try diff in deployment",
-      "id": "finding:doc:c51f62371dd4",
-      "tags": [
-        "playbook",
-        "topic:iter: 60-80k converge"
-      ],
-      "title": "wipe task 16 action horizon right hand hesitates"
-    },
-    {
-      "body": "Navigation/mobility discussed as out of scope for the initial task; focus is manipulation only.",
-      "id": "finding:doc:c7602a9c672d",
-      "tags": [
-        "playbook",
-        "topic:current n1.7 setup:"
-      ],
-      "title": "Navigation/mobility discussed scope initial task focus manipulation only."
-    },
-    {
-      "body": "- SFT vs LoRA / what to tune: #187 (https://github.com/NVIDIA/Isaac-GR00T/issues/187), #217 (https://github.com/NVIDIA/Isaac-GR00T/issues/217), #245",
-      "id": "finding:doc:c7c6be216c04",
-      "tags": [
-        "playbook",
-        "topic:(https://github.com/nvidia/isaac-gr00t/issues/241), #565 (https://github.com/nvidia/isaac-gr00t/issues/565)."
-      ],
-      "title": "SFT LoRA tune 187 https github.com/NVIDIA/Isaac-GR00T/issues/187 217 github.com/NVIDIA/Isaac-GR00T/issues/217"
-    },
-    {
-      "body": "By default, we are currently disabling VLM backbone fine-tuning and only train the action-head. As your highly industrial task might be a distribution shift for the training data of the VLM backbone we recommend finetuning also the llm and visual layers of the model. In the Isaac-GR00T repository this can be set via",
-      "id": "finding:doc:c7e829fae80a",
-      "tags": [
-        "playbook",
-        "topic:observation history"
-      ],
-      "title": "default currently disabling VLM backbone fine-tuning only train"
-    },
-    {
-      "body": "For a 3-camera, 29D humanoid setup, ask exactly how researchers define action keys, gripper actions, normalization stats, camera keys, history frames, and action chunk execution.",
-      "id": "finding:doc:ca5e74a8945e",
-      "tags": [
-        "playbook",
-        "topic:meeting ask:"
-      ],
-      "title": "3-camera 29D humanoid setup ask exactly researchers define"
     },
     {
       "body": "Recommendation to simplify first: Focus on single-object pick-and-place before moving to multi-step or long-horizon tasks.",
       "id": "finding:doc:cb553a080f92",
       "tags": [
-        "playbook",
-        "topic:current n1.7 setup:"
+        "playbook"
       ],
       "title": "Recommendation simplify first Focus single-object pick-and-place before moving"
-    },
-    {
-      "body": "camera view visibility: camera view blocked by task; move too fast",
-      "id": "finding:doc:cc05811622a5",
-      "tags": [
-        "playbook",
-        "topic:observability / distribution"
-      ],
-      "title": "camera view visibility blocked task move too fast"
-    },
-    {
-      "body": "Next steps: After completing local reproduction, will share the reproduction process and results with HQ to align.",
-      "id": "finding:doc:ccedd7ec42d5",
-      "tags": [
-        "playbook",
-        "topic:pi0.5 results reproduction"
-      ],
-      "title": "Next steps After completing local reproduction share process"
-    },
-    {
-      "body": "(history / no history) data, so adding observation history is a more natural way to address non-Markovian behaviour in this task.",
-      "id": "finding:doc:cd1c7ba5df97",
-      "tags": [
-        "playbook",
-        "topic:observation history"
-      ],
-      "title": "history data adding observation natural way address non-Markovian"
-    },
-    {
-      "body": "Check data preprocessing and training configurations, and cross-compare with Pi0.5 implementation.",
-      "id": "finding:doc:ce7c070a5f36",
-      "tags": [
-        "playbook",
-        "topic:next steps:"
-      ],
-      "title": "Check data preprocessing training configurations cross-compare Pi0.5 implementation."
-    },
-    {
-      "body": "Target use case: Singapore laundry factory automation, reducing manual labor in the post-spin / pre-drying stage.",
-      "id": "finding:doc:d0233bac4ef8",
-      "tags": [
-        "playbook",
-        "topic:lighting condition stable"
-      ],
-      "title": "Target case Singapore laundry factory automation reducing manual"
-    },
-    {
-      "body": "Current status: Based on the completed N1.6 / N1.7 reproduction, single-task vs multi-task comparisons and hyper-parameter search experiments were carried out.",
-      "id": "finding:doc:d1703098cb29",
-      "tags": [
-        "playbook",
-        "topic:update 05/08"
-      ],
-      "title": "Current status Based completed N1.6 N1.7 reproduction single-task"
-    },
-    {
-      "body": "1st: grab bottle on the left and spill into the tray",
-      "id": "finding:doc:d25ad8943de1",
-      "tags": [
-        "playbook",
-        "topic:wiping task"
-      ],
-      "title": "1st grab bottle left spill tray"
-    },
-    {
-      "body": "Users cannot reproduce reported results or do not know the exact recipe.",
-      "id": "finding:doc:d2a15ef1fa04",
-      "tags": [
-        "playbook",
-        "topic:github oss issues:"
-      ],
-      "title": "Users cannot reproduce reported results know exact recipe."
-    },
-    {
-      "body": "timeline: first run due May 10 but in Japan there is long hoilday so only expect small runs from 100-200 episodes, more iteration in following weeks, tentative final demo day July 1",
-      "id": "finding:doc:d2c3f670d351",
-      "tags": [
-        "playbook",
-        "topic:iter: 60-80k converge"
-      ],
-      "title": "timeline first run due 10 Japan long hoilday"
     },
     {
       "body": "abs vs. rel: rel. action space predict may be too small to move; abs. may cause jump; rel. is smoother, generally better on real and def. better in sim.",
       "id": "finding:doc:d8ce5a3e39f3",
       "tags": [
-        "playbook",
-        "topic:full finetuning,"
+        "playbook"
       ],
       "title": "abs vs. rel rel. action space predict too"
-    },
-    {
-      "body": "Analyze failure cases to understand typical failure reasons.",
-      "id": "finding:doc:d900d36facb5",
-      "tags": [
-        "playbook",
-        "topic:next steps:"
-      ],
-      "title": "Analyze failure cases understand typical reasons."
-    },
-    {
-      "body": "open-loop eval, left arm 7 joint + gripper matches well; N1.7 fit well, better than N1.5",
-      "id": "finding:doc:d9ee4a8aae3a",
-      "tags": [
-        "playbook",
-        "topic:joint"
-      ],
-      "title": "open-loop eval left arm 7 joint gripper matches"
     },
     {
       "body": "If the task requires high visual details, e.g., finding towel corners, you can try increase the image resolution.",
@@ -1235,24 +261,6 @@
       "title": "task requires high visual details e.g. finding towel"
     },
     {
-      "body": "2nd: clean spill on tray (left hand hold the tray, right hand hold a cloth to clean the spill)",
-      "id": "finding:doc:df4955177973",
-      "tags": [
-        "playbook",
-        "topic:wiping task"
-      ],
-      "title": "2nd clean spill tray left hand hold right"
-    },
-    {
-      "body": "Yuhang Lu US almost replicated results with gr00t, and showed n1.7 slightly better than n1.6",
-      "id": "finding:doc:dfe9f97f61aa",
-      "tags": [
-        "playbook",
-        "topic:context:"
-      ],
-      "title": "Yuhang US almost replicated results gr00t showed n1.7"
-    },
-    {
       "body": "Short horizon in inference is good for action precision, while long horizon is good for action continuity.",
       "id": "finding:doc:e302b92950f3",
       "tags": [
@@ -1260,42 +268,6 @@
         "know-how"
       ],
       "title": "Short horizon inference good action precision long continuity."
-    },
-    {
-      "body": "need to slow down robot motion: 100ms inference on gpu, 3x slower than data collection",
-      "id": "finding:doc:e3a497c1a5eb",
-      "tags": [
-        "playbook",
-        "topic:deployment failure analysis"
-      ],
-      "title": "need slow down robot motion 100ms inference gpu"
-    },
-    {
-      "body": "Align on one reference task and environment for apples-to-apples comparison between simulation and real robot.",
-      "id": "finding:doc:e5b1dc92edbc",
-      "tags": [
-        "playbook",
-        "topic:joint"
-      ],
-      "title": "Align reference task environment apples-to-apples comparison simulation real"
-    },
-    {
-      "body": "predict both eef and joint for yam. choose during inference. use joint but eef to supervise; language following regress on n1d6 pretrain data; motion quality should be better",
-      "id": "finding:doc:e6d87ab0853d",
-      "tags": [
-        "playbook",
-        "topic:observability / distribution"
-      ],
-      "title": "predict eef joint yam. choose during inference. supervise"
-    },
-    {
-      "body": "- RoboCasa / LIBERO / sim eval recipes: #129 (https://github.com/NVIDIA/Isaac-GR00T/issues/129), #139 (https://github.com/NVIDIA/Isaac-GR00T/issues/139), #146",
-      "id": "finding:doc:e77d03e8c168",
-      "tags": [
-        "playbook",
-        "topic:(https://github.com/nvidia/isaac-gr00t/issues/367), #547 (https://github.com/nvidia/isaac-gr00t/issues/547)."
-      ],
-      "title": "RoboCasa LIBERO sim eval recipes 129 https github.com/NVIDIA/Isaac-GR00T/issues/129"
     },
     {
       "body": "It is not recommended to start with UMI data in post-training, because there is an embodiment gap between the 3rd-party UMI gloves and your robot.",
@@ -1307,42 +279,6 @@
       "title": "recommended start UMI data post-training because embodiment gap"
     },
     {
-      "body": "during fine-tuning. use stats on post-training data (confirmed done)",
-      "id": "finding:doc:e9b27b2b6dae",
-      "tags": [
-        "playbook",
-        "topic:suggest:"
-      ],
-      "title": "during fine-tuning. stats post-training data confirmed"
-    },
-    {
-      "body": "Phase 2: bedsheets, which are larger, more tangled, and higher difficulty.",
-      "id": "finding:doc:ec18649ea92c",
-      "tags": [
-        "playbook",
-        "topic:lighting condition stable"
-      ],
-      "title": "Phase 2 bedsheets larger tangled higher difficulty."
-    },
-    {
-      "body": "rel joint angle from last step action/state, need to check control stack details, discuss more on slack",
-      "id": "finding:doc:ed0058303d59",
-      "tags": [
-        "playbook",
-        "topic:suggestion from nv:"
-      ],
-      "title": "rel joint angle last step action/state need check"
-    },
-    {
-      "body": "pi0.5 is running a full finetune by default, which may partly explain why you are seeing the gap in success rates.",
-      "id": "finding:doc:ed090ded97f8",
-      "tags": [
-        "playbook",
-        "topic:--training.weight_decay\", \"1e-5\","
-      ],
-      "title": "pi0.5 running full finetune default partly explain seeing"
-    },
-    {
       "body": "If it is a new embodiment and unseen task, you can try two-stage training. First, turn off tune_llm and tune_visual and train action head only, it helps the action head to warm up on the new action space. Then turn on tune_llm and tune_visual, it helps the model to better adapt to the new task. If you turn on all parameters from the beginning, the action can be very noisy and may cause loss spikes.",
       "id": "finding:doc:ee3c9911138e",
       "tags": [
@@ -1350,33 +286,6 @@
         "know-how"
       ],
       "title": "new embodiment unseen task try two-stage training. First"
-    },
-    {
-      "body": "training recipe: param, rl: try train with action_horizon=40 than test on 40 and 16; add image/state history with negative delta_indices",
-      "id": "finding:doc:efe12eec45a0",
-      "tags": [
-        "playbook",
-        "topic:q&a:"
-      ],
-      "title": "training recipe param try train action horizon 40"
-    },
-    {
-      "body": "n1.5: 82% success rate (within training set distribution, pickplace locations), w/ key changes:",
-      "id": "finding:doc:f076d45888c7",
-      "tags": [
-        "playbook",
-        "topic:collect 300 episodes,"
-      ],
-      "title": "n1.5 82% success rate within training set distribution"
-    },
-    {
-      "body": "always exist, but we need to sell that story as nvidia big picture",
-      "id": "finding:doc:f18c15996a70",
-      "tags": [
-        "playbook",
-        "topic:sim2real gap"
-      ],
-      "title": "always exist need sell story nvidia big picture"
     },
     {
       "body": "close loop first asap, see how it fails->adjust collection next",
@@ -1388,31 +297,12 @@
       "title": "close loop first asap see fails- adjust collection"
     },
     {
-      "body": "has ~500 pp oper team on data collection, expert on various robotic tasks",
-      "id": "finding:doc:f64b8bb9704a",
-      "tags": [
-        "playbook",
-        "topic:gear"
-      ],
-      "title": "500 oper team data collection expert various robotic"
-    },
-    {
       "body": "policy hesitates: task is ambiguous, multiple ways from current obs",
       "id": "finding:doc:f64c3c56f91a",
       "tags": [
-        "playbook",
-        "topic:observability / distribution"
+        "playbook"
       ],
       "title": "policy hesitates task ambiguous multiple ways current obs"
-    },
-    {
-      "body": "abs_joint: only failed to pick, large improve in place, keep trying and correct its motion;",
-      "id": "finding:doc:f8081930ca12",
-      "tags": [
-        "playbook",
-        "topic:specific example:"
-      ],
-      "title": "abs joint only failed pick large improve place"
     },
     {
       "body": "As a first experiment, use one frame of history plus the current frame. Since your current replan interval is 8, this corresponds to video delta_indices=[-8, 0]. This matches our recommendation to use step_size = replan_frequency for the observation history.",
@@ -1422,24 +312,6 @@
         "topic:observation history"
       ],
       "title": "first experiment frame history plus current frame. Since"
-    },
-    {
-      "body": "dreamzero is 14b, n2 will be 2b so that it can deploy",
-      "id": "finding:doc:f95339de01d0",
-      "tags": [
-        "playbook",
-        "topic:gear"
-      ],
-      "title": "dreamzero 14b n2 2b deploy"
-    },
-    {
-      "body": "pretrain data change from n1.5 to n1.7: add bimanual manip real data, majority is real data, egoscale, rel_eef human",
-      "id": "finding:doc:fa05728c29e1",
-      "tags": [
-        "playbook",
-        "topic:q&a:"
-      ],
-      "title": "pretrain data change n1.5 n1.7 add bimanual manip"
     }
   ],
   "topic": "playbook"

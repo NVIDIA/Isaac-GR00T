@@ -54,8 +54,16 @@ SSH aliases; never put credentials in the target file:
 {
   "version": 1,
   "targets": {
-    "workstation": {"kind": "ssh", "host": "autodebug-l40", "workspace": "/workspace/gr00t/oss"},
-    "orin": {"kind": "ssh", "host": "orin", "workspace": "/home/coco/gr00t/oss"}
+    "gpu-workstation": {
+      "kind": "ssh",
+      "host": "gpu-workstation.example.com",
+      "workspace": "/workspace/project"
+    },
+    "edge-device": {
+      "kind": "ssh",
+      "host": "edge-device.example.com",
+      "workspace": "/opt/project"
+    }
   }
 }
 ```
