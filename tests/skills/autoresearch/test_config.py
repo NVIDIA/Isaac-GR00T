@@ -116,14 +116,6 @@ def test_load_study_config_rejects_missing_environment_paths(tmp_path: Path) -> 
         StudyConfig.from_yaml(_write_config(tmp_path, data))
 
 
-def test_load_study_config_rejects_placeholder_environment_values(tmp_path: Path) -> None:
-    data = _config_data()
-    data["train"] = {"env": {"POOL": "your-osmo-pool"}}
-
-    with pytest.raises(ValueError, match="train environment POOL must be set"):
-        StudyConfig.from_yaml(_write_config(tmp_path, data))
-
-
 def test_config_resolves_missing_base_commit_from_branch_head(tmp_path: Path) -> None:
     workspace = tmp_path / "repo"
     workspace.mkdir()

@@ -17,7 +17,7 @@ baseline:
 
 git:
   git_remote: origin
-  base_branch: main
+  base_branch: yuhlu/n2_autoresearch_oss
 
 agent:
   executable: codex

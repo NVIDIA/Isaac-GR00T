@@ -27,11 +27,9 @@ from typing import Any
 
 import ray
 
+from groot.core.utils.distributed import worker_logging
 from groot.core.data.hydrator.workers import worker
-from groot.core.utils.distributed import (
-    worker_logging,
-    xenna,  # type: ignore[attr-defined]
-)
+from groot.core.utils.distributed import xenna  # type: ignore[attr-defined]
 
 worker_log = worker_logging.get_unified_logger()
 
@@ -183,7 +181,7 @@ class WorkerPool:
                         self._task_queue.qsize(),
                         os.getpid(),
                     )
-                elif no_item_count % 5000 == 0:
+                elif no_item_count % 500 == 0:
                     worker_log.info(
                         "[WorkerPool] consumer: still pulling, queue empty %s times (queue_size=%s pid=%s)",
                         no_item_count,
@@ -328,5 +326,7 @@ class WorkerPool:
             del self._upload_waiters[remote_path]
         return success is True
 
-    def enqueue_sync_dir(self, s3_path: str, local_dir: str, profile: str | None = None) -> None:
+    def enqueue_sync_dir(
+        self, s3_path: str, local_dir: str, profile: str | None = None
+    ) -> None:
         self._task_queue.put(("sync_dir", s3_path, local_dir.encode("utf-8"), profile))

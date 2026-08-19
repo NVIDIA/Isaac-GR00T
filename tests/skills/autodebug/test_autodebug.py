@@ -322,19 +322,15 @@ def test_incident_runs_a_probe_on_a_declared_local_target(tmp_path: Path) -> Non
 
 def test_ssh_target_builds_a_noninteractive_remote_command(tmp_path: Path) -> None:
     target = ExecutionTarget.init_from_data(
-        "remote-gpu",
-        {
-            "kind": "ssh",
-            "host": "gpu-workstation.example.com",
-            "workspace": "/workspace/project",
-        },
+        "orin",
+        {"kind": "ssh", "host": "orin", "workspace": "/home/coco/gr00t/oss"},
         config_directory=tmp_path,
     )
 
     argv, workspace = target.command_argv("python3 -c 'print(42)'")
 
-    assert argv[:4] == ["ssh", "-o", "BatchMode=yes", "gpu-workstation.example.com"]
-    assert "cd -- /workspace/project" in argv[-1]
+    assert argv[:4] == ["ssh", "-o", "BatchMode=yes", "orin"]
+    assert "cd -- /home/coco/gr00t/oss" in argv[-1]
     assert workspace is None
 
 

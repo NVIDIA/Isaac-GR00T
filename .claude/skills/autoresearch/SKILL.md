@@ -25,34 +25,6 @@ layer. Keep autoresearch.yaml as the only user configuration interface.
 - Do not run git fetch when base_commit is omitted. The implementation resolves
   the locally visible head of base_branch.
 
-## Out-of-scope routing
-
-Before any AutoResearch action, decide whether the request is about operating
-an AutoResearch study.
-
-- For local OSS setup, dry-runs, training, evaluation, or policy serving outside
-  an AutoResearch study, stop and say: `Use the onboarding skill to handle this
-  local OSS workflow.`
-- For product, support, concept, or documentation questions, stop and say: `Use
-  the faq agent to answer this question from repository documentation and
-  published Insights.`
-- For unrelated GR00T failure diagnosis, stop and tell the user to call
-  `$autodebug`.
-
-Examples:
-
-| Request | Route |
-| --- | --- |
-| "Resume `/work/study/autoresearch.yaml`." | AutoResearch |
-| "Why did this trial fail according to `state.json`?" | AutoResearch |
-| "Dry-run local post-training on `/data/task`." | `onboarding` |
-| "Which datasets does GR00T support?" | FAQ agent |
-| "Importing GR00T fails in a clean checkout." | `$autodebug` |
-
-Do not inspect state.json, run preflight, modify files, or execute scripts after
-routing an out-of-scope request. Failures within an AutoResearch study remain
-in scope for this skill.
-
 ## Core workflow
 
 Run commands from the repository root.
@@ -65,7 +37,7 @@ Require one autoresearch.yaml path. Determine whether the user wants:
 - preparation of a new task;
 - a lightweight smoke test;
 - launch or resume;
-- in-study failure diagnosis or `state.json` status;
+- failure diagnosis or status;
 - result visualization.
 
 For a new task or wrapper-contract question, read README.md before editing

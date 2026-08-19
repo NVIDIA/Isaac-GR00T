@@ -1,5 +1,5 @@
 osmo:
-  pool: your-osmo-pool
+  pool: groot-l40-01
   priority: NORMAL
 
 simulation:

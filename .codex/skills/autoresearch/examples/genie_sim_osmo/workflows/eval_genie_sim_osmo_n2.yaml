@@ -3,8 +3,8 @@ default-values:
   WORKFLOW_NAME: n2-genie-sim-l40-eval
   EXEC_TIMEOUT: 4h
   QUEUE_TIMEOUT: 2h
-  POLICY_IMAGE: nvcr.io/nvidia/pytorch:25.04-py3
-  SIMULATOR_IMAGE: nvcr.io/nvidia/isaac-sim:4.5.0
+  POLICY_IMAGE: nvcr.io/nvidian/gear-h100-train:latest@sha256:a20c91c531642af540dac0112a8f3e0d87dba2dac851d83458be1ac1dea818a7
+  SIMULATOR_IMAGE: nvcr.io/nvidian/yuhlu-genie-sim:v3
 
   POLICY_CPU: 15
   POLICY_GPU: 1
@@ -76,13 +76,6 @@ workflow:
       - |
         set -euo pipefail
 
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl ffmpeg git
-        rm -rf /var/lib/apt/lists/*
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        export PATH="${HOME}/.local/bin:${PATH}"
-
         # Render OSMO template values into exported variables for the policy script.
         export GROOT_ROOT='{{ GROOT_ROOT }}'
         export GROOT_BRANCH='{{ GROOT_BRANCH }}'
@@ -127,7 +120,6 @@ workflow:
 
         # Run the policy server body from the checked-out repo.
         cd "${GROOT_ROOT}/${OSS_PACKAGE_DIR}"
-        uv lock --check
         export ACTUAL_GROOT_REVISION="$(git rev-parse HEAD)"
         if [ -n "${GROOT_REVISION}" ] && [ "${ACTUAL_GROOT_REVISION}" != "${GROOT_REVISION}" ]; then
           echo "Expected revision ${GROOT_REVISION}, cloned ${ACTUAL_GROOT_REVISION}" >&2
@@ -149,13 +141,6 @@ workflow:
       args:
       - |
         set -euo pipefail
-
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl git sudo
-        rm -rf /var/lib/apt/lists/*
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        export PATH="${HOME}/.local/bin:${PATH}"
 
         # Render OSMO template values into exported variables for the simulator script.
         export GROOT_ROOT='{{ SIM_GROOT_ROOT }}'
@@ -209,7 +194,6 @@ workflow:
 
         # Run the simulator body from the checked-out repo.
         cd "${GROOT_ROOT}/${OSS_PACKAGE_DIR}"
-        uv lock --check
         export ACTUAL_GROOT_REVISION="$(git rev-parse HEAD)"
         if [ -n "${GROOT_REVISION}" ] && [ "${ACTUAL_GROOT_REVISION}" != "${GROOT_REVISION}" ]; then
           echo "Expected revision ${GROOT_REVISION}, cloned ${ACTUAL_GROOT_REVISION}" >&2

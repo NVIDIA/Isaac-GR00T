@@ -17,7 +17,7 @@ baseline:
 
 git:
   git_remote: origin
-  base_branch: main
+  base_branch: yuhlu/n2_autoresearch_oss
 
 editable_paths:
   - oss/skills/autoresearch/scripts/train_local.sh
@@ -60,9 +60,9 @@ agent:
 
 train:
   env:
-    POOL: ${OSMO_POOL}
+    POOL: groot-l40-01
     PRIORITY: NORMAL
 eval:
   env:
-    POOL: ${OSMO_POOL}
+    POOL: groot-l40-01
     PRIORITY: NORMAL

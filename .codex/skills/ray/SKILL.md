@@ -97,4 +97,5 @@ For package changes, run:
 ```bash
 uv run pytest tests/groot/infra/job
 uv run ruff check groot/infra/job tests/groot/infra/job
+python /home/agent007/.codex/skills/.system/skill-creator/scripts/quick_validate.py .codex/skills/ray
 ```
