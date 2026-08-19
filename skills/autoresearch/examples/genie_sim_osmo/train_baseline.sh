@@ -26,8 +26,12 @@ log() {
 }
 
 OSMO="${OSMO:-osmo}"
-POOL="${POOL:-groot-l40-01}"
+POOL="${POOL:-your-osmo-pool}"
 PRIORITY="${PRIORITY:-NORMAL}"
+if [[ "${POOL}" == "your-osmo-pool" ]]; then
+  echo "Set POOL to an OSMO pool available to your account" >&2
+  exit 2
+fi
 OSMO_POLL_INTERVAL_S="${OSMO_POLL_INTERVAL_S:-30}"
 WORKFLOW="${WORKFLOW:-${SOURCE_EXAMPLE_DIR}/workflows/train_genie_sim_osmo_n2.yaml}"
 if [[ -n "${AUTORESEARCH_TRIAL_ID:-}" ]]; then

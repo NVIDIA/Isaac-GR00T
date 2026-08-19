@@ -22,6 +22,12 @@ from skills.autoresearch.study_state import StudyState
 import yaml
 
 _REPOSITORY = Path(__file__).resolve().parents[3]
+_SKILL_PATHS = (
+    _REPOSITORY / "skills/autoresearch/SKILL.md",
+    _REPOSITORY / ".codex/skills/autoresearch/SKILL.md",
+    _REPOSITORY / ".agents/skills/autoresearch/SKILL.md",
+)
+
 _CHECK = _REPOSITORY / "skills/autoresearch/scripts/check.py"
 
 
@@ -147,3 +153,27 @@ def test_preflight_is_read_only_and_detects_resume(tmp_path: Path) -> None:
     assert "mode=resume" in resumed.stdout
     assert "state=wave:none trials:0 best_trial:baseline best_score:0.25" in resumed.stdout
     assert not marker.exists()
+
+
+def test_skill_routes_out_of_scope_requests() -> None:
+    """Related study work stays local; other requests route to the right surface."""
+    canonical = _SKILL_PATHS[0].read_text(encoding="utf-8")
+    for path in _SKILL_PATHS[1:]:
+        assert path.read_text(encoding="utf-8") == canonical
+    normalized = " ".join(canonical.split())
+
+    assert "Before any AutoResearch action" in normalized
+    assert "local OSS setup, dry-runs, training, evaluation, or policy serving" in normalized
+    assert "Use the onboarding skill to handle this local OSS workflow" in normalized
+    assert "product, support, concept, or documentation questions" in normalized
+    assert "Use the faq agent to answer this question" in normalized
+    assert "unrelated GR00T failure diagnosis" in normalized
+    assert "`$autodebug`" in normalized
+    assert '"Resume `/work/study/autoresearch.yaml`."' in normalized
+    assert '"Dry-run local post-training on `/data/task`."' in normalized
+    assert '"Importing GR00T fails in a clean checkout."' in normalized
+    assert "in-study failure diagnosis or `state.json` status" in normalized
+    assert (
+        "Do not inspect state.json, run preflight, modify files, or execute scripts" in normalized
+    )
+    assert "Failures within an AutoResearch study remain" in normalized

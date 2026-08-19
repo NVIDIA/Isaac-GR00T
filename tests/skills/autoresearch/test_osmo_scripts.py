@@ -101,11 +101,30 @@ def _environment(tmp_path: Path, *, stage: str) -> tuple[dict[str, str], Path]:
         "GROOT_REVISION": "a" * 40,
         "MOCK_STAGE": stage,
         "OSMO": str(osmo),
+        "POOL": "test-pool",
         "OSMO_POLL_INTERVAL_S": "0",
         "REPO_ROOT": str(REPOSITORY),
         "SUBMIT_MARKER": str(submit_marker),
     }
     return environment, submit_marker
+
+
+def test_osmo_train_script_rejects_placeholder_pool_before_cli(tmp_path: Path) -> None:
+    environment, submit_marker = _environment(tmp_path, stage="train")
+    environment["POOL"] = "your-osmo-pool"
+
+    completed = subprocess.run(
+        ["bash", str(EXAMPLE / "train_baseline.sh")],
+        cwd=REPOSITORY,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "Set POOL to an OSMO pool available to your account" in completed.stderr
+    assert not submit_marker.exists()
 
 
 def test_osmo_train_script_reattaches_without_duplicate_submit(tmp_path: Path) -> None:

@@ -30,6 +30,7 @@ _STUDY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _FULL_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 _ENVIRONMENT_VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 TRIAL_EVAL_RESULT = "eval/results.json"
+_PLACEHOLDER_ENVIRONMENT_VALUES = frozenset({"your-osmo-pool"})
 
 
 def expand_environment_variables(value: Any, source: Path) -> Any:
@@ -145,6 +146,9 @@ class StudyConfig:
         _string_mapping(self.env, "env")
         _string_mapping(self.train_env, "train environment")
         _string_mapping(self.eval_env, "eval environment")
+        _reject_placeholder_environment_values(self.env, "env")
+        _reject_placeholder_environment_values(self.train_env, "train environment")
+        _reject_placeholder_environment_values(self.eval_env, "eval environment")
         # Tuple fields and opaque agent settings must be stable and JSON-safe.
         if not self.idea_types:
             raise ValueError("idea_types must not be empty")
@@ -391,6 +395,13 @@ def _string_mapping(value: Any, label: str) -> dict[str, str]:
     if any(not isinstance(key, str) or not isinstance(item, str) for key, item in value.items()):
         raise TypeError(f"{label} must map strings to strings")
     return dict(value)
+
+
+def _reject_placeholder_environment_values(value: Mapping[str, str], label: str) -> None:
+    """Reject checked-in examples that still need an operator-supplied value."""
+    for key, item in value.items():
+        if item.strip().lower() in _PLACEHOLDER_ENVIRONMENT_VALUES:
+            raise ValueError(f"{label} {key} must be set; replace placeholder {item!r}")
 
 
 def _validate_string_tuple(value: tuple[str, ...], label: str) -> None:
