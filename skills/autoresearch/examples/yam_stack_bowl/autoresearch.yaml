@@ -20,6 +20,7 @@ git:
   base_branch: main
 
 agent:
+  host: codex
   executable: codex
   model: gpt-5.6-sol
   timeout_s: 3600

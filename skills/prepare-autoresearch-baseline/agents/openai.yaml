@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prepare AutoResearch Baseline"
+  short_description: "Prepare and validate AutoResearch baselines"
+  default_prompt: "Use $prepare-autoresearch-baseline to turn my working train and eval workflow into a validated AutoResearch baseline."

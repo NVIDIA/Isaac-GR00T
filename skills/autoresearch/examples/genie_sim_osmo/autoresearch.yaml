@@ -53,10 +53,10 @@ idea_types:
   - free_roam
 
 agent:
-  executable: codex
-  model: gpt-5.6-sol
+  host: ${AUTORESEARCH_AGENT_HOST}
+  executable: ${AUTORESEARCH_AGENT_EXECUTABLE}
+  model: ${AUTORESEARCH_AGENT_MODEL}
   timeout_s: 3600
-  sandbox: danger-full-access
 
 train:
   env:

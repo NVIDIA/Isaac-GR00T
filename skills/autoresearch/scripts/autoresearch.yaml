@@ -5,7 +5,8 @@ workspace: /path/to/workspace # Root of the Git repository that AutoResearch edi
 output_dir: /path/to/study/runs # Directory for saving autoresearch results.
 max_trials: 20 # Maximum number of candidate experiments, excluding the supplied baseline.
 max_parallel_trials: 4 # Maximum number of trials launched concurrently in one search wave.
-max_retry: 2 # Retries for failed Codex, Git publish, training, or evaluation operations.
+max_retry: 2 # Retries for failed agent, Git publish, training, or evaluation operations.
+user_guidance: "" # Optional concise user-requested ideas and must/must-not-change constraints.
 
 # Existing baseline artifacts, scripts, metric, and comparison rules.
 baseline:
@@ -25,7 +26,7 @@ git:
   # Optional exact pin. If omitted, AutoResearch uses the locally visible head of base_branch.
   # base_commit: 0123456789abcdef0123456789abcdef01234567
 
-# Repository paths Codex may modify while creating an experiment.
+# Repository paths the configured agent may modify while creating an experiment.
 editable_paths:
   - skills/autoresearch/scripts/train_local.sh
   - skills/autoresearch/scripts/train_config.yaml
@@ -36,7 +37,7 @@ editable_paths:
   - groot/core/training/configs/deepspeed/
   - tests/groot/core/training/
 
-# Repository or dataset paths that Codex must never modify.
+# Repository or dataset paths that the configured agent must never modify.
 frozen_paths:
   - skills/autoresearch/scripts/launch_autoresearch.sh
   - skills/autoresearch/scripts/autoresearch.yaml
@@ -53,9 +54,7 @@ idea_types:
   - inference_path_ablation
   - free_roam
 
-# Codex process used to propose and implement each candidate change.
+# Coding agent used to propose and implement each candidate change.
 agent:
-  executable: codex
-  model: gpt-5.6-sol
+  host: codex # "codex" or "claude".
   timeout_s: 3600
-  sandbox: workspace-write # "danger-full-access" or "workspace-write".

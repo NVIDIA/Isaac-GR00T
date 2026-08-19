@@ -22,6 +22,8 @@ from skills.autoresearch.study_state import StudyState
 import yaml
 
 _REPOSITORY = Path(__file__).resolve().parents[3]
+_AUTORESEARCH_SKILL = _REPOSITORY / "skills/autoresearch/SKILL.md"
+_BASELINE_SKILL = _REPOSITORY / "skills/prepare-autoresearch-baseline/SKILL.md"
 _SKILL_PATHS = (
     _REPOSITORY / "skills/autoresearch/SKILL.md",
     _REPOSITORY / ".codex/skills/autoresearch/SKILL.md",
@@ -127,6 +129,21 @@ def test_preflight_is_read_only_and_detects_resume(tmp_path: Path) -> None:
     assert not marker.exists()
     assert not output_dir.exists()
 
+    baseline_result.unlink()
+    incomplete = subprocess.run(
+        [sys.executable, str(_CHECK), str(config_path)],
+        cwd=_REPOSITORY,
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert incomplete.returncode == 1
+    assert "Invalid evaluation result JSON" in incomplete.stderr
+    assert not marker.exists()
+    assert not output_dir.exists()
+    baseline_result.write_text('{"score": 0.25}\n', encoding="utf-8")
+
     output_dir.mkdir()
     state = StudyState.create(
         study_id="skill-test",
@@ -153,6 +170,61 @@ def test_preflight_is_read_only_and_detects_resume(tmp_path: Path) -> None:
     assert "mode=resume" in resumed.stdout
     assert "state=wave:none trials:0 best_trial:baseline best_score:0.25" in resumed.stdout
     assert not marker.exists()
+
+
+def test_all_canonical_skills_are_discoverable() -> None:
+    """Every non-empty canonical skill must resolve through all agent surfaces."""
+    canonical_skills = sorted(
+        path.parent
+        for path in (_REPOSITORY / "skills").glob("*/SKILL.md")
+        if path.read_text(encoding="utf-8").strip()
+    )
+    assert canonical_skills
+
+    agent_skills = _REPOSITORY / ".agents/skills"
+    assert agent_skills.is_symlink()
+
+    for canonical in canonical_skills:
+        for root in (".claude/skills", ".codex/skills", ".agents/skills"):
+            discovered = _REPOSITORY / root / canonical.name
+            assert discovered.exists(), f"{canonical.name} is missing from {root}"
+            if root != ".agents/skills":
+                assert discovered.is_symlink()
+            assert discovered.resolve() == canonical.resolve()
+
+
+def test_autoresearch_skill_routes_only_incomplete_new_baselines() -> None:
+    """Lock the handoff and its execution/resume safety boundaries."""
+    text = _AUTORESEARCH_SKILL.read_text(encoding="utf-8")
+
+    assert "Do not require a config path before" in text
+    assert "baseline preparation." in text
+    assert "`$prepare-autoresearch-baseline` when any of these are missing" in text
+    assert "authorization to launch AutoResearch alone does" in text
+    assert "not imply that permission" in text
+    assert "Do not use the preparation skill when output_dir contains state.json" in text
+    assert "normal trial failure" in text
+
+
+def test_skills_preserve_user_guidance_in_yaml() -> None:
+    """User research constraints must survive the handoff into trial prompts."""
+    autoresearch = _AUTORESEARCH_SKILL.read_text(encoding="utf-8")
+    baseline = _BASELINE_SKILL.read_text(encoding="utf-8")
+
+    assert "do not leave that intent only in the\nchat history" in autoresearch
+    assert "Distill the user's requested research ideas" in baseline
+    assert "`user_guidance`" in baseline
+    assert "do not invent requirements" in baseline
+
+
+def test_autoresearch_skill_copies_match() -> None:
+    """The installed Codex and agent copies must match the canonical skill."""
+    expected = _AUTORESEARCH_SKILL.read_text(encoding="utf-8")
+    for path in (
+        _REPOSITORY / ".codex/skills/autoresearch/SKILL.md",
+        _REPOSITORY / ".agents/skills/autoresearch/SKILL.md",
+    ):
+        assert path.read_text(encoding="utf-8") == expected
 
 
 def test_skill_routes_out_of_scope_requests() -> None:

@@ -71,6 +71,7 @@ class StudyConfig:
     output_dir: Path
     train_script: Path
     eval_script: Path
+    user_guidance: str = ""
     base_branch: str | None = None
     max_parallel_trials: int = 1
     max_retry: int = 0
@@ -107,6 +108,9 @@ class StudyConfig:
             not isinstance(self.base_branch, str) or not self.base_branch.strip()
         ):
             raise TypeError("base_branch must be a non-empty string")
+        if not isinstance(self.user_guidance, str):
+            raise TypeError("user_guidance must be a string")
+        object.__setattr__(self, "user_guidance", self.user_guidance.strip())
         # Trial scheduling limits are validated before any controller uses them.
         if not isinstance(self.workspace, Path):
             raise TypeError("workspace must be a pathlib.Path")
@@ -220,6 +224,7 @@ class StudyConfig:
             output_dir=output_dir,
             train_script=train_script,
             eval_script=eval_script,
+            user_guidance=_optional_text(raw, "user_guidance", config_path),
             checkpoint_path=_optional_nonempty_string(checkpoint_path, "train.checkpoint"),
             output_dir_name=_nonempty_string(output_dir_name, "train.output_dir"),
             script_timeout_s=_nonnegative_float(baseline, "script_timeout_s"),
@@ -336,6 +341,14 @@ def _optional_dict(data: Mapping[str, Any], key: str, path: Path) -> dict[str, A
     if not isinstance(value, Mapping):
         raise TypeError(f"{path}: {key} must be a mapping")
     return _copy_json_mapping(value, f"{path}: {key}")
+
+
+def _optional_text(data: Mapping[str, Any], key: str, path: Path) -> str:
+    """Read an optional free-text field and normalize surrounding whitespace."""
+    value = data.get(key, "")
+    if not isinstance(value, str):
+        raise TypeError(f"{path}: {key} must be a string")
+    return value.strip()
 
 
 def _required_string_tuple(data: Mapping[str, Any], key: str, path: Path) -> tuple[str, ...]:

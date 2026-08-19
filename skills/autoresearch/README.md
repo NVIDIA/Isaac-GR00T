@@ -8,8 +8,8 @@ AutoResearch helps users find a better GR00T N2 post-training recipe for their
 own dataset and embodiment. It turns recipe tuning into a sequence of measured
 experiments:
 
-1. Codex proposes one focused hypothesis and implements the corresponding code
-   or configuration change.
+1. The configured agent proposes one focused hypothesis and implements the
+   corresponding code or configuration change.
 2. AutoResearch trains a candidate model with that change.
 3. It evaluates the candidate with the user's evaluation procedure.
 4. It compares the resulting score with the best recipe found so far.
@@ -157,8 +157,8 @@ polling, recovery, and artifact verification.
 #### Training and evaluation configs
 
 Put the training recipe in a dedicated config file used by the training script.
-This config is normally part of **editable_paths**, allowing Codex to tune
-learning rates, sampling, architecture options, and other training choices.
+This config is normally part of **editable_paths**, allowing the configured
+agent to tune learning rates, sampling, architecture options, and other training choices.
 
 Keep the evaluation config frozen. Changing the eval dataset, task, metric,
 horizon, or scoring rule during a study would make scores from different trials
@@ -188,11 +188,12 @@ The main arguments are:
 | Arguments | Description |
 | --- | --- |
 | **study_id** | Stable study name used in trial IDs, branches, logs, and state |
-| **workspace** | Git repository containing the code Codex may edit |
+| **workspace** | Git repository containing the code the configured agent may edit |
 | **output_dir** | Directory for study state and trial artifacts; it must be outside **workspace** |
 | **max_trials** | Number of candidate experiments, excluding the baseline |
 | **max_parallel_trials** | Maximum number of trials that may run together in one wave |
-| **max_retry** | Retries after a failed Codex, publish, training, or evaluation operation |
+| **max_retry** | Retries after a failed agent, publish, training, or evaluation operation |
+| **user_guidance** | Optional concise user-requested research scope and must/must-not-change constraints included in each new trial prompt |
 | **baseline.train_script** | Absolute path to the training script |
 | **baseline.eval_script** | Absolute path to the evaluation script |
 | **baseline.eval_result** | Absolute path to the existing baseline result JSON |
@@ -204,13 +205,33 @@ The main arguments are:
 | **git.git_remote** | Git remote used to publish candidate branches |
 | **git.base_branch** | Branch containing the baseline code |
 | **git.base_commit** | Optional exact baseline commit |
-| **editable_paths** | Repository paths Codex may change |
+| **editable_paths** | Repository paths the configured agent may change |
 | **frozen_paths** | Repository paths that must remain unchanged |
 | **idea_types** | Research categories assigned to new trials |
-| **agent** | Codex executable, model, timeout, and sandbox settings |
+| **agent** | Agent host and its optional executable, model, timeout, and sandbox settings |
 
 With **max_retry: 2**, an operation can run at most three times: one initial
 attempt and two retries.
+
+Use **user_guidance** to preserve research ideas or constraints supplied in the
+original request, for example: "Change only learning rate, weight decay, or
+dropout; keep the data, model, and training budget fixed." AutoResearch gives
+this text priority over its broader generic idea-type guidance. If the field is
+omitted, no additional user guidance is added.
+
+#### Agent host
+
+Select the built-in coding agent with `agent.host`; it defaults to `codex`:
+
+~~~yaml
+agent:
+  host: claude # Or codex.
+  timeout_s: 3600
+~~~
+
+Both hosts accept optional `executable` and `model` settings. `sandbox` is
+Codex-only. To add another host later, implement `AgenticEditor` and add its
+factory to `_EDITOR_FACTORIES` in `agent_editor.py`.
 
 If **git.base_commit** is omitted, AutoResearch uses the locally visible head of
 **git.base_branch** without fetching. Pinning an exact commit is recommended for
@@ -270,9 +291,14 @@ output_dir/
         └── results.json
 ~~~
 
-Each trial folder contains the Codex proposal and diff, train/eval logs, final
+Each trial folder contains the agent proposal and diff, train/eval logs, final
 model, and evaluation result. A retry writes a new attempt log instead of
 overwriting the previous failure.
+
+The controller retains the wave-level `prior_insights` retrieval and prompt
+interface, but the provider is temporarily disabled and returns an empty
+handoff without searching published Insights. The controller caches that empty
+handoff in memory, just as it would a populated one.
 
 At the study level, **state.json** records the metric definition, baseline and
 best scores, best trial, active wave, and changes waiting for composition. Each

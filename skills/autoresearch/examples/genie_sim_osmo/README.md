@@ -77,11 +77,12 @@ and policy tasks then install the locked project environment, so they do not
 depend on Python packages preinstalled in the base image.
 
 The controller also needs the repository development environment and an
-authenticated Codex CLI:
+authenticated Codex or Claude CLI:
 
 ~~~bash
 uv sync --locked --extra dev
-codex --version
+# Verify the coding-agent CLI that you plan to configure below.
+codex --version # Or: claude --version
 ~~~
 
 The policy-server task installs the full training environment inside its OSMO
@@ -94,6 +95,9 @@ OSMO workers:
 
 ~~~bash
 export AUTORESEARCH_ROOT=/path/to/autoresearch
+export AUTORESEARCH_AGENT_HOST=codex # Or: claude
+export AUTORESEARCH_AGENT_EXECUTABLE=codex # Or: claude
+export AUTORESEARCH_AGENT_MODEL=gpt-5.6-sol # Use a model supported by the selected host.
 export OSMO_POOL=your-available-pool
 ~~~
 
@@ -104,6 +108,8 @@ before running:
 ### autoresearch.yaml
 
 - **workspace** and **output_dir**.
+- **AUTORESEARCH_AGENT_HOST**, **AUTORESEARCH_AGENT_EXECUTABLE**, and
+  **AUTORESEARCH_AGENT_MODEL** for the installed coding agent.
 - all three absolute paths under **baseline**.
 - **base_branch** and, optionally, **base_commit**.
 - **baseline_result** after the baseline evaluation.

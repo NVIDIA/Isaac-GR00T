@@ -17,7 +17,7 @@ import subprocess
 from types import SimpleNamespace
 
 import pytest
-from skills.autoresearch import cli
+from skills.autoresearch import agent_editor, cli
 import yaml
 
 
@@ -162,7 +162,7 @@ def test_controller_forwards_explicit_codex_sandbox(
     config_path.write_text(yaml.safe_dump(payload))
     captured = []
     monkeypatch.setattr(
-        cli,
+        agent_editor,
         "CodexEditor",
         lambda config: captured.append(config) or SimpleNamespace(),
     )
