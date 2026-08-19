@@ -53,9 +53,9 @@ Usage::
         ]
     )
     resolver = DataSourceResolver(config)
-    uri, profile = resolver.resolve("/shared/GrootDatasets/my_dataset")
-    # → ("s3://example-bucket/my_dataset", "aws")  (auto-derived)
-    # → ("/shared/GrootDatasets/my_dataset", None)                              (fallback)
+    uri, profile = resolver.resolve("/mnt/aws-lfs-02/GrootDatasets/my_dataset")
+    # → ("s3://mnt-aws-lfs-02-grootdatasets-us-west-2-nvidia-gear/my_dataset", "aws")  (auto-derived)
+    # → ("/mnt/aws-lfs-02/GrootDatasets/my_dataset", None)                              (fallback)
 """
 
 from __future__ import annotations
@@ -71,8 +71,8 @@ from typing import Literal
 import boto3
 from botocore import exceptions
 
-from groot.core.data.hydrator.utils import aws as aws_utils
 from groot.core.utils.distributed import worker_logging
+from groot.core.data.hydrator.utils import aws as aws_utils
 
 log = worker_logging.get_unified_logger()
 
@@ -89,7 +89,6 @@ def _whitelist_match(path: str, entry: str) -> bool:
     """
     if "*" in entry or "?" in entry or "[" in entry:
         import fnmatch
-
         return fnmatch.fnmatch(path, entry) or fnmatch.fnmatch(path, entry.rstrip("/") + "/*")
     return path == entry or path.startswith(entry.rstrip("/") + "/")
 
@@ -97,7 +96,6 @@ def _whitelist_match(path: str, entry: str) -> bool:
 # ---------------------------------------------------------------------------
 # Bucket-naming primitives
 # ---------------------------------------------------------------------------
-
 
 def _bucket_name_suffix(region: str) -> str:
     return f"-{region}-nvidia-gear"
@@ -110,7 +108,7 @@ def path_to_bucket_name(local_path: str, region: str) -> str:
     replaced with hyphens (AWS S3 does not allow underscores in bucket names).
 
     Args:
-        local_path: Local directory path (e.g. ``"/shared/GrootDatasets"``).
+        local_path: Local directory path (e.g. ``"/mnt/aws-lfs-02/GrootDatasets"``).
         region: AWS region string (e.g. ``"us-west-2"``).
 
     Returns:
@@ -118,8 +116,8 @@ def path_to_bucket_name(local_path: str, region: str) -> str:
 
     Example::
 
-        path_to_bucket_name("/shared/GrootDatasets", "us-west-2")
-        → "shared-grootdatasets-us-west-2-nvidia-gear"
+        path_to_bucket_name("/mnt/aws-lfs-02/GrootDatasets", "us-west-2")
+        → "mnt-aws-lfs-02-grootdatasets-us-west-2-nvidia-gear"
 
         path_to_bucket_name("/A_B/C/D", "us-east-1")
         → "a-b-c-d-us-east-1-nvidia-gear"
@@ -297,7 +295,9 @@ class DataSourceResolver:
             log.debug("DataSourceResolver: resolution disabled, returning %s unchanged", path)
             return (path, None)
 
-        if self._whitelist and not any(_whitelist_match(path, entry) for entry in self._whitelist):
+        if self._whitelist and not any(
+            _whitelist_match(path, entry) for entry in self._whitelist
+        ):
             log.info("DataSourceResolver: %s not in whitelist, using local path", path)
             return (path, None)
 
@@ -436,8 +436,8 @@ class DataSourceResolver:
             yaml_path_str = str(_DEFAULT_MAPPING_YAML)
 
         if yaml_path_str:
-            yaml_mappings, yaml_disable, yaml_whitelist, yaml_pool_to_region = (
-                self._load_yaml_mappings(yaml_path_str)
+            yaml_mappings, yaml_disable, yaml_whitelist, yaml_pool_to_region = self._load_yaml_mappings(
+                yaml_path_str
             )
             self._whitelist = yaml_whitelist
             self._pool_to_region = yaml_pool_to_region
@@ -493,9 +493,7 @@ class DataSourceResolver:
                 log.info("_load: profile=%r unavailable", tier._profile)  # noqa: SLF001
 
     @staticmethod
-    def _load_yaml_mappings(
-        yaml_path: str,
-    ) -> tuple[dict[str, str], bool, list[str], dict[str, str]]:
+    def _load_yaml_mappings(yaml_path: str) -> tuple[dict[str, str], bool, list[str], dict[str, str]]:
         """Load static mappings, whitelist, and pool_to_region from a ``path_mapping.yaml`` file.
 
         Args:
@@ -796,7 +794,7 @@ class _Tier:
         Checks exact bucket match first, then walks up ancestor paths.
 
         Args:
-            local_path: Local path (e.g. ``"/shared/GrootDatasets/foo"``).
+            local_path: Local path (e.g. ``"/mnt/aws-lfs-02/GrootDatasets/foo"``).
             region: AWS region to include in the derived bucket name.
             s3_client: Pre-built boto3 S3 client with appropriate credentials.
 

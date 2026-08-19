@@ -8,21 +8,19 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# Copyright (c) 2024 Keller Jordan
-
 import torch
 import torch.distributed as dist
 
 
 def zeropower_via_newtonschulz5(G, steps: int):
-    """Compute the zeroth power or orthogonalization of G with a Newton-Schulz iteration.
-
-    We opt to use a quintic iteration whose coefficients are selected to maximize the slope at zero.
-    For the purpose of minimizing steps, it turns out to be empirically effective to keep increasing
-    the slope at zero even beyond the point where the iteration no longer converges all the way to
-    one everywhere on the interval. This iteration therefore does not produce UV^T but rather
-    something like US'V^T where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not
-    to hurt model performance at all relative to UV^T, where USV^T = G is the SVD.
+    """
+    Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a
+    quintic iteration whose coefficients are selected to maximize the slope at zero. For the purpose
+    of minimizing steps, it turns out to be empirically effective to keep increasing the slope at
+    zero even beyond the point where the iteration no longer converges all the way to one everywhere
+    on the interval. This iteration therefore does not produce UV^T but rather something like US'V^T
+    where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
+    performance at all relative to UV^T, where USV^T = G is the SVD.
     """
     assert (
         G.ndim >= 2
@@ -58,7 +56,8 @@ def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, batched=Fa
 
 
 class Muon(torch.optim.Optimizer):
-    """Muon - MomentUm Orthogonalized by Newton-schulz.
+    """
+    Muon - MomentUm Orthogonalized by Newton-schulz
 
     https://kellerjordan.github.io/posts/muon/
 
@@ -121,7 +120,9 @@ class Muon(torch.optim.Optimizer):
 
 
 class SingleDeviceMuon(torch.optim.Optimizer):
-    """Muon variant for usage in non-distributed settings."""
+    """
+    Muon variant for usage in non-distributed settings.
+    """
 
     def __init__(self, params, lr=0.02, weight_decay=0, momentum=0.95):
         defaults = {"lr": lr, "weight_decay": weight_decay, "momentum": momentum}
@@ -158,11 +159,11 @@ def adam_update(grad, buf1, buf2, step, betas, eps):
 
 
 class MuonWithAuxAdam(torch.optim.Optimizer):
-    """Distributed Muon variant that can optimize all network parameters.
-
-    It runs an internal AdamW for the parameters that are not compatible with Muon. The user must
-    manually specify which parameters shall be optimized with Muon and which with Adam by passing in
-    a list of param_groups with the `use_muon` flag set.
+    """
+    Distributed Muon variant that can be used for all parameters in the network, since it runs an
+    internal AdamW for the parameters that are not compatible with Muon. The user must manually
+    specify which parameters shall be optimized with Muon and which with Adam by passing in a
+    list of param_groups with the `use_muon` flag set.
 
     The point of this class is to allow the user to have a single optimizer in their code, rather
     than having both a Muon and an Adam which each need to be stepped.
@@ -177,11 +178,7 @@ class MuonWithAuxAdam(torch.optim.Optimizer):
     head_params = [model.lm_head.weight]
 
     from muon import MuonWithAuxAdam
-    adam_groups = [
-        dict(params=head_params, lr=0.22),
-        dict(params=embed_params, lr=0.6),
-        dict(params=scalar_params, lr=0.04),
-    ]
+    adam_groups = [dict(params=head_params, lr=0.22), dict(params=embed_params, lr=0.6), dict(params=scalar_params, lr=0.04)]
     adam_groups = [dict(**g, betas=(0.8, 0.95), eps=1e-10, use_muon=False) for g in adam_groups]
     muon_group = dict(params=hidden_matrix_params, lr=0.05, momentum=0.95, use_muon=True)
     param_groups = [*adam_groups, muon_group]
@@ -272,7 +269,9 @@ class MuonWithAuxAdam(torch.optim.Optimizer):
 
 
 class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
-    """Non-distributed variant of MuonWithAuxAdam."""
+    """
+    Non-distributed variant of MuonWithAuxAdam.
+    """
 
     def __init__(self, param_groups, use_batching=False):
         self.use_batching = use_batching
@@ -319,7 +318,7 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
 
         group["params_by_shape_dtype"] = dict(params_by_shape_dtype)
 
-        for _key, params_info in params_by_shape_dtype.items():
+        for key, params_info in params_by_shape_dtype.items():
             params = params_info["params"]
             batched_momenta = params_info["batched_momentum_buffer"]
             # go through batch momenta initialize them if not present yet
@@ -401,3 +400,113 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
 
         return loss
+
+
+class TorchMuonWithAuxAdam(torch.optim.Optimizer):
+    """One Optimizer that wraps ``torch.optim.Muon`` + ``torch.optim.AdamW``.
+
+    Official ``torch.optim.Muon`` (torch>=2.9) for the ``use_muon=True`` groups and
+    ``torch.optim.AdamW`` for the rest. Same group contract as :class:`MuonWithAuxAdam`
+    (each group carries a ``use_muon`` flag), so it is a drop-in ``muon_impl`` for a
+    trainer that assumes a single ``self.optimizer`` with unified ``param_groups``
+    (KL-adaptive lr edits, accelerate wrapping, checkpointing). It holds two real
+    sub-optimizers and exposes their ``param_groups`` as one live view -- in-place
+    ``group["lr"]`` edits propagate because the group dicts are shared references. This
+    lets you A/B the official torch Muon (fused kernels, DTensor/distributed
+    integration) against the vendored :class:`MuonWithAuxAdam` without touching the
+    rest of the trainer.
+    """
+
+    def __init__(self, param_groups):
+        if not hasattr(torch.optim, "Muon"):
+            raise RuntimeError(
+                "torch.optim.Muon is unavailable (needs torch>=2.9). Use "
+                "muon_impl=dist or single_batched for the vendored reference impl."
+            )
+        # Split into muon / adam sub-optimizers, remembering each group's original
+        # position so param_groups re-exposes them in input order: the trainer tags
+        # groups by zipping with a same-order role list, and the KL controller reads
+        # each group's use_muon flag to hold the muon lr fixed.
+        muon_groups, adam_groups = [], []
+        self._group_order = []  # ("muon"|"adam", index within that sub-optimizer)
+        for group in param_groups:
+            assert "use_muon" in group, "each param group needs a use_muon flag"
+            g = dict(group)
+            if group["use_muon"]:
+                self._group_order.append(("muon", len(muon_groups)))
+                muon_groups.append(g)
+            else:
+                self._group_order.append(("adam", len(adam_groups)))
+                adam_groups.append(g)
+
+        # match_rms_adamw scaling (lr*0.2*sqrt(max(rows,cols))) lets an AdamW-scale
+        # muon_lr be reused, matching how these groups are tuned.
+        self._muon_opt = (
+            torch.optim.Muon(muon_groups, adjust_lr_fn="match_rms_adamw") if muon_groups else None
+        )
+        self._adam_opt = torch.optim.AdamW(adam_groups) if adam_groups else None
+        self.optimizers = [o for o in (self._muon_opt, self._adam_opt) if o is not None]
+        if not self.optimizers:
+            raise ValueError("TorchMuonWithAuxAdam received no param groups")
+
+        # Register an EMPTY param group so torch.optim.Optimizer.__init__ builds the real
+        # machinery (defaults + step/state hooks) for us: no params means nothing is
+        # double-registered, and the base's writes to param_groups/state land on the
+        # no-op setters below (the real groups/state live in the sub-optimizers).
+        super().__init__([{"params": []}], self.optimizers[0].defaults)
+
+    @property
+    def param_groups(self):
+        # Original input order (so the trainer's lr_role zip and in-place lr edits line
+        # up with how the groups were built), with use_muon restored on each dict.
+        return [
+            (self._muon_opt if kind == "muon" else self._adam_opt).param_groups[idx]
+            for kind, idx in self._group_order
+        ]
+
+    @param_groups.setter
+    def param_groups(self, value):
+        # Groups are owned by the sub-optimizers; in-place edits of the dicts the
+        # getter returns still propagate, so external reassignment is a no-op.
+        pass
+
+    @property
+    def state(self):
+        merged = {}
+        for opt in self.optimizers:
+            merged.update(opt.state)
+        return merged
+
+    @state.setter
+    def state(self, value):
+        # Owned by the sub-optimizers; the base __init__ assigns an empty dict here,
+        # which we ignore (the getter merges the real per-sub-optimizer state).
+        pass
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for opt in self.optimizers:
+            opt.step()
+        return loss
+
+    def zero_grad(self, set_to_none=True):
+        for opt in self.optimizers:
+            opt.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self):
+        return {"sub_optimizers": [opt.state_dict() for opt in self.optimizers]}
+
+    def load_state_dict(self, state_dict):
+        for opt, sd in zip(self.optimizers, state_dict["sub_optimizers"], strict=True):
+            opt.load_state_dict(sd)
+
+    def add_param_group(self, param_group):
+        # torch.optim.Optimizer.__init__ calls this to register our empty bootstrap
+        # group -> ignore it (param_groups delegates to the sub-optimizers). Any real
+        # post-construction addition is unsupported.
+        if param_group.get("params"):
+            raise NotImplementedError("TorchMuonWithAuxAdam has fixed param groups")

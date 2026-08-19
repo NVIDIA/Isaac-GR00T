@@ -38,8 +38,8 @@ CONFIG_VALUES=()
 while IFS= read -r config_value; do
   CONFIG_VALUES+=("${config_value}")
 done < <("${PYTHON}" -c '
-import os, sys, yaml
-c = yaml.safe_load(os.path.expandvars(open(sys.argv[1], encoding="utf-8").read()))
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 for section, key in [
     ("osmo", "pool"), ("osmo", "priority"),
     ("simulation", "geniesim_root"), ("simulation", "embodiment_tag"),
@@ -58,10 +58,6 @@ fi
 OSMO="${OSMO:-osmo}"
 POOL="${POOL:-${CONFIG_VALUES[0]}}"
 PRIORITY="${PRIORITY:-${CONFIG_VALUES[1]}}"
-if [[ "${POOL}" == "your-osmo-pool" ]]; then
-  echo "Set POOL to an OSMO pool available to your account" >&2
-  exit 2
-fi
 OSMO_POLL_INTERVAL_S="${OSMO_POLL_INTERVAL_S:-30}"
 GENIESIM_ROOT="${GENIESIM_ROOT:-${CONFIG_VALUES[2]}}"
 EMBODIMENT_TAG="${EMBODIMENT_TAG:-${CONFIG_VALUES[3]}}"
@@ -84,10 +80,9 @@ fi
 WORKFLOW_NAME="${WORKFLOW_NAME:-${DEFAULT_WORKFLOW_NAME}}"
 GROOT_BRANCH="${GROOT_BRANCH:-$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD)}"
 GROOT_REVISION="${GROOT_REVISION:-$(git -C "${REPO_ROOT}" rev-parse HEAD)}"
-GROOT_REPO="${GROOT_REPO:-github.com/NVIDIA/Isaac-GR00T-CRA.git}"
+GROOT_REPO="${GROOT_REPO:-gitlab-master.nvidia.com/GR00T/gr00t/gr00t.git}"
 
-AUTORESEARCH_ROOT="${AUTORESEARCH_ROOT:?Set AUTORESEARCH_ROOT to a writable shared directory}"
-RUN_ROOT="${RUN_ROOT:-${AUTORESEARCH_ROOT}/genie_sim_osmo/baseline}"
+RUN_ROOT="${RUN_ROOT:-/mnt/amlfs-01/home/yuhlu/AutoResearch_genie_sim_osmo/baseline}"
 CHECKPOINT_PATH="${CHECKPOINT_PATH:-${RUN_ROOT}/training}"
 EVAL_OUTPUT_DIR="${EVAL_OUTPUT_DIR:-${RUN_ROOT}/eval}"
 RESULT_PATH="${RESULT_PATH:-${EVAL_OUTPUT_DIR}/results.json}"
@@ -107,7 +102,6 @@ SET_VALUES=(
 )
 SET_STRINGS=(
   "WORKFLOW_NAME=${WORKFLOW_NAME}"
-  "AUTORESEARCH_ROOT=${AUTORESEARCH_ROOT}"
   "CHECKPOINT_PATH=${CHECKPOINT_PATH}"
   "EVAL_OUTPUT_DIR=${EVAL_OUTPUT_DIR}"
   "GENIESIM_ROOT=${GENIESIM_ROOT}"

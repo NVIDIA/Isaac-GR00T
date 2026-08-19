@@ -9,9 +9,8 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# ruff: noqa: D205, D415, T201, TRY004
-
-"""VLA Data Utilities
+"""
+VLA Data Utilities
 
 This module provides comprehensive utilities for VLA data operations including:
 - S3 client creation and credential management (replacement for gear.data)
@@ -45,7 +44,8 @@ LEROBOT_META_INFO = "meta/info.json"
 
 
 def create_s3_client(credentials_file: str, profile: str = "default"):
-    """Create S3 client from credentials file or environment variables.
+    """
+    Create S3 client from credentials file or environment variables.
     Prioritizes environment variables, then falls back to credentials file.
 
     Args:
@@ -116,7 +116,8 @@ def create_s3_client(credentials_file: str, profile: str = "default"):
 
 
 def load_s3_credentials(credentials_file: str, profile: str = "default") -> dict[str, Any]:
-    """Load S3 credentials from file or environment variables.
+    """
+    Load S3 credentials from file or environment variables.
     Prioritizes environment variables, then falls back to credentials file.
 
     Args:
@@ -165,7 +166,8 @@ def load_s3_credentials(credentials_file: str, profile: str = "default") -> dict
 
 
 def get_s3_credentials_from_file(credentials_file: str, profile: str = "default") -> dict[str, str]:
-    """Get S3 credentials from file (equivalent to gear.data.get_s3_credentials_from_file).
+    """
+    Get S3 credentials from file (equivalent to gear.data.get_s3_credentials_from_file).
 
     Args:
         credentials_file: Path to credentials JSON file
@@ -196,7 +198,8 @@ def get_s3_credentials_from_file(credentials_file: str, profile: str = "default"
 
 
 def get_datasets_base_path() -> Path:
-    """Get the base path for datasets using environment variables.
+    """
+    Get the base path for datasets using environment variables.
 
     Returns:
         Path: Base directory where datasets are stored
@@ -204,15 +207,16 @@ def get_datasets_base_path() -> Path:
     Environment Variables:
         LFS_CACHE_PATH: Path to the datasets directory (takes precedence)
 
-    If the environment variable is unset, the repository's shared dataset root
-    is used.
+    Default:
+        /mnt/aws-lfs-01/shared/datasets if no environment variable is set
     """
     base_path = os.environ.get("LFS_CACHE_PATH") or "/mnt/aws-lfs-01/shared/datasets"
     return Path(base_path)
 
 
 def resolve_dataset_path(dataset_path: str | Path) -> Path | str:
-    """Resolve a dataset path to an absolute path.
+    """
+    Resolve a dataset path to an absolute path.
 
     If the dataset_path is relative, it will be resolved relative to the
     datasets base path from get_datasets_base_path().
@@ -225,6 +229,9 @@ def resolve_dataset_path(dataset_path: str | Path) -> Path | str:
         Path or str: Absolute path, or S3 URI string (Path normalizes s3:// to s3:/ on some OSes).
 
     Examples:
+        >>> resolve_dataset_path("78dc_fixed_annotations/gr1_unified.Dataset1")
+        PosixPath('/mnt/aws-lfs-01/shared/datasets/78dc_fixed_annotations/gr1_unified.Dataset1')
+
         >>> resolve_dataset_path("/absolute/path/to/dataset")
         PosixPath('/absolute/path/to/dataset')
 
@@ -245,7 +252,8 @@ def resolve_dataset_path(dataset_path: str | Path) -> Path | str:
 
 
 def expand_lerobot_dataset_paths(path: Path) -> list[Path]:
-    """Normalize a dataset path so it always yields a list of LeRobot dataset roots.
+    """
+    Normalize a dataset path so it always yields a list of LeRobot dataset roots.
 
     Handles two scenarios:
 
@@ -286,7 +294,8 @@ def expand_lerobot_dataset_paths(path: Path) -> list[Path]:
 
 
 def resolve_all_dataset_paths(config) -> None:
-    """Resolve all dataset paths in a configuration object to absolute paths.
+    """
+    Resolve all dataset paths in a configuration object to absolute paths.
 
     This function modifies the config object in-place, updating both:
     - config.data.dataset_path (legacy single dataset)
@@ -308,8 +317,9 @@ def resolve_all_dataset_paths(config) -> None:
                 if isinstance(path, str):
                     resolved = resolve_dataset_path(path)
                     resolved_str = str(resolved)
-                    if resolved_str.startswith(("s3://", "dc://")) or resolved_str.endswith(
-                        ".packds"
+                    if (
+                        resolved_str.startswith(("s3://", "dc://"))
+                        or resolved_str.endswith(".packds")
                     ):
                         # Remote URIs and PackDS roots aren't LeRobot trees;
                         # don't run them through expand_lerobot_dataset_paths, which
@@ -339,7 +349,8 @@ def resolve_all_dataset_paths(config) -> None:
 
 
 def extract_dataset_s3_paths(config) -> list[str]:
-    """Extract S3 paths from configuration object.
+    """
+    Extract S3 paths from configuration object.
 
     This utility function extracts dataset paths from either format:
     - Multiple datasets: config.data.datasets[].dataset_path

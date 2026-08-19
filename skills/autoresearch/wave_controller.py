@@ -20,7 +20,7 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
-from skills.autoresearch.agent_editor import AgenticEditor
+from skills.autoresearch.codex_editor import CodexEditor
 from skills.autoresearch.config import StudyConfig
 from skills.autoresearch.git_workspace import GitWorkspaceManager
 from skills.autoresearch.study_state import StudyState, Trial, make_trial_id
@@ -37,7 +37,7 @@ class WaveController:
         *,
         config: StudyConfig,
         workspace_manager: GitWorkspaceManager,
-        editor: AgenticEditor,
+        editor: CodexEditor,
         runner: Any,
         progress: Callable[[str], None] | None = None,
     ) -> None:

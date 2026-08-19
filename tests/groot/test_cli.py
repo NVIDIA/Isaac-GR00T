@@ -353,28 +353,6 @@ def test_oss_train_rejects_experiment_positional() -> None:
         oss.main(["train", "n2_robocasa365", "--dry-run"])
 
 
-def test_onboarding_skill_uses_supported_cli_shape() -> None:
-    skill = (_package_root() / "skills/onboarding/SKILL.md").read_text(encoding="utf-8")
-
-    for line in skill.splitlines():
-        if not line.startswith("uv run ") or "python -m groot.infra.oss" not in line:
-            continue
-        command = shlex.split(line.removesuffix("\\").strip())
-        subcommand_index = command.index("groot.infra.oss") + 1
-        if len(command) > subcommand_index + 1:
-            assert command[subcommand_index + 1].startswith("--"), line
-
-
-def test_oss_agent_guidance_references_existing_surfaces() -> None:
-    package_root = _package_root()
-    guidance = (package_root / "AGENTS.md").read_text(encoding="utf-8")
-
-    assert "skills/evaluation" not in guidance
-    assert "skills/post-train" not in guidance
-    for target in re.findall(r"]\(([^)#]+)\)", guidance):
-        assert (package_root / target).exists(), target
-
-
 def test_oss_eval_dry_run_uses_open_loop_eval_config(capsys, tmp_path: Path) -> None:
     dataset_path = tmp_path / "dataset"
     status = oss.main(

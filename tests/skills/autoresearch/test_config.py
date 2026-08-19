@@ -16,7 +16,7 @@ from pathlib import Path
 import subprocess
 
 import pytest
-from skills.autoresearch.config import StudyConfig, expand_environment_variables
+from skills.autoresearch.config import StudyConfig
 import yaml
 
 
@@ -28,7 +28,6 @@ def _config_data() -> dict[str, object]:
         "eval_dataset": "/datasets/yam/eval",
         "max_trials": 4,
         "max_retry": 2,
-        "user_guidance": "Change only learning rate, weight decay, or dropout.",
         "output_dir": "study-runs",
         "editable_paths": ["groot/core/training/models/"],
         "frozen_paths": ["groot/infra/eval/", "/datasets/yam/"],
@@ -94,53 +93,6 @@ def test_load_study_config(tmp_path: Path) -> None:
     assert config.agent["model"] == "gpt-5.6"
     assert config.max_parallel_trials == 1
     assert config.max_retry == 2
-    assert config.user_guidance == "Change only learning rate, weight decay, or dropout."
-
-
-def test_user_guidance_is_optional_trimmed_and_type_checked(tmp_path: Path) -> None:
-    data = _config_data()
-    data.pop("user_guidance")
-    assert StudyConfig.from_yaml(_write_config(tmp_path, data)).user_guidance == ""
-
-    data = _config_data()
-    data["user_guidance"] = "  Change only the learning rate.  "
-    assert (
-        StudyConfig.from_yaml(_write_config(tmp_path, data)).user_guidance
-        == "Change only the learning rate."
-    )
-
-    data["user_guidance"] = ["change learning rate"]
-    with pytest.raises(TypeError, match="user_guidance must be a string"):
-        StudyConfig.from_yaml(_write_config(tmp_path, data))
-
-
-def test_load_study_config_expands_environment_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "autoresearch"
-    monkeypatch.setenv("AUTORESEARCH_ROOT", str(root))
-    data = _config_data()
-    data["output_dir"] = "${AUTORESEARCH_ROOT}/study"
-
-    config = StudyConfig.from_yaml(_write_config(tmp_path, data))
-
-    assert config.output_dir == (root / "study").resolve()
-
-
-def test_load_study_config_rejects_missing_environment_paths(tmp_path: Path) -> None:
-    data = _config_data()
-    data["output_dir"] = "${AUTORESEARCH_MISSING_ROOT}/study"
-
-    with pytest.raises(ValueError, match="AUTORESEARCH_MISSING_ROOT is not set"):
-        StudyConfig.from_yaml(_write_config(tmp_path, data))
-
-
-def test_load_study_config_rejects_placeholder_environment_values(tmp_path: Path) -> None:
-    data = _config_data()
-    data["train"] = {"env": {"POOL": "your-osmo-pool"}}
-
-    with pytest.raises(ValueError, match="train environment POOL must be set"):
-        StudyConfig.from_yaml(_write_config(tmp_path, data))
 
 
 def test_config_resolves_missing_base_commit_from_branch_head(tmp_path: Path) -> None:
@@ -398,29 +350,3 @@ def test_config_rejects_retired_runner_fields(tmp_path: Path, field: str) -> Non
 
     with pytest.raises(ValueError, match="no longer supported"):
         StudyConfig.from_yaml(_write_config(tmp_path, data))
-
-
-def test_genie_sim_example_reads_agent_from_environment(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    config_path = (
-        Path(__file__).resolve().parents[3]
-        / "skills/autoresearch/examples/genie_sim_osmo/autoresearch.yaml"
-    )
-    monkeypatch.setenv("AUTORESEARCH_ROOT", str(tmp_path))
-    monkeypatch.setenv("OSMO_POOL", "test-pool")
-    monkeypatch.setenv("AUTORESEARCH_AGENT_HOST", "claude")
-    monkeypatch.setenv("AUTORESEARCH_AGENT_EXECUTABLE", "/opt/claude")
-    monkeypatch.setenv("AUTORESEARCH_AGENT_MODEL", "sonnet")
-
-    payload = expand_environment_variables(
-        yaml.safe_load(config_path.read_text(encoding="utf-8")), config_path
-    )
-
-    assert payload["agent"] == {
-        "host": "claude",
-        "executable": "/opt/claude",
-        "model": "sonnet",
-        "timeout_s": 3600,
-    }

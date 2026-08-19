@@ -164,7 +164,7 @@ apt-get install -y --no-install-recommends nodejs
 # Codex/devcontainer are used by the gated autorun exploration job.
 npm install -g --no-audit --no-fund \
   @anthropic-ai/claude-code@2.1.126 \
-  @openai/codex@0.147.0 \
+  @openai/codex@0.128.0 \
   @devcontainers/cli@0.86.0
 EOF
 

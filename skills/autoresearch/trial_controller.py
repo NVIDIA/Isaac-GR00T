@@ -20,10 +20,9 @@ import subprocess
 import time
 from typing import Any, Literal
 
-from skills.autoresearch.agent_editor import AgenticEditor
+from skills.autoresearch.codex_editor import CodexEditor
 from skills.autoresearch.config import StudyConfig
 from skills.autoresearch.git_workspace import CompositionConflictError, GitWorkspaceManager
-from skills.autoresearch.prior_insights import prior_insights_for_wave
 from skills.autoresearch.study_state import StageState, StudyState, Trial
 from skills.autoresearch.trial_prompt import build_prompt
 
@@ -47,7 +46,7 @@ class TrialController:
         *,
         config: StudyConfig,
         workspace_manager: GitWorkspaceManager,
-        editor: AgenticEditor,
+        editor: CodexEditor,
         runner: Any,
         save_state: Callable[[StudyState], None],
         progress: Callable[[str], None],
@@ -59,7 +58,6 @@ class TrialController:
         self.runner = runner
         self._save_state = save_state
         self._progress = progress
-        self._prior_insights_by_wave: dict[int, str] = {}
 
     def advance(
         self,
@@ -146,14 +144,7 @@ class TrialController:
                     reason = "Composition conflict: " + ", ".join(conflict.conflict_files)
                     return self._reject_candidate(state, candidate, reason)
             else:
-                # Fresh trials share one in-memory prior-knowledge handoff per wave.
-                if trial.wave_index not in self._prior_insights_by_wave:
-                    self._prior_insights_by_wave[trial.wave_index] = prior_insights_for_wave(
-                        config=self.config,
-                        state=state,
-                        wave_index=trial.wave_index,
-                    )
-                prior_insights = self._prior_insights_by_wave[trial.wave_index]
+                # Fresh trials ask Codex for one new bounded research hypothesis.
                 prompt = build_prompt(
                     config=self.config,
                     state=state,
@@ -161,7 +152,6 @@ class TrialController:
                     trial_index=trial.index,
                     parent_revision=base_revision,
                     parent_score=trial.parent_score,
-                    prior_insights=prior_insights,
                 )
                 for retry in range(self.config.max_retry + 1):
                     attempt = retry + 1

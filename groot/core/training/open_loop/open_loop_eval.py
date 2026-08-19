@@ -8,8 +8,6 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# These are pre-existing exceptions in this legacy standalone evaluation CLI.
-# ruff: noqa: C408, D417, PGH003, S108, SLF001
 from copy import deepcopy
 from dataclasses import dataclass, field
 import logging
@@ -24,9 +22,9 @@ import numpy as np
 import polars as pl
 import tyro
 
+from groot.core.data.schema import EmbodimentTag
 from groot.core.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from groot.core.data.dataset.sharded_single_step_dataset import extract_step_data
-from groot.core.data.schema import EmbodimentTag
 from groot.core.policy.base import BasePolicy
 from groot.core.policy.gr00t_policy import Gr00tPolicy
 from groot.core.policy.server_client import PolicyClient
@@ -43,7 +41,8 @@ NOTE: provide --model_path to load up the model checkpoint in this script,
 
 
 def prepare_save_path(path: str, traj_id: int, extension: str) -> str:
-    """Prepare the save path for a given trajectory.
+    """
+    Prepare the save path for a given trajectory.
 
     If the path has the specified extension, it is treated as a file path.
     Otherwise, it is treated as a directory, and a filename is generated using the trajectory ID.
@@ -68,7 +67,8 @@ def plot_trajectory_results(
     action_horizon: int,
     save_plot_path: str,
 ) -> None:
-    """Plot and save trajectory results comparing ground truth and predicted actions.
+    """
+    Plot and save trajectory results comparing ground truth and predicted actions.
 
     Args:
         state_joints_across_time: Array of state joints over time
@@ -236,7 +236,9 @@ def evaluate_single_trajectory(
     # one forward pass per chunk (legacy behaviour) is enough for
     # MSE/MAE/Fréchet.
     if enable_reverse_kl and rkl_num_samples < 2:
-        raise ValueError(f"reverse_kl requires rkl_num_samples >= 2, got {rkl_num_samples}")
+        raise ValueError(
+            f"reverse_kl requires rkl_num_samples >= 2, got {rkl_num_samples}"
+        )
     num_samples = rkl_num_samples if enable_reverse_kl else 1
 
     # Extract state and action keys separately and sort for consistent order
@@ -251,7 +253,7 @@ def evaluate_single_trajectory(
     pred_samples_across_time: list[list[np.ndarray]] = [[] for _ in range(num_samples)]
 
     policy.reset()  # Reset policy state (including any state or video buffers)
-    first_chunk_action = None  # predicted action of the first window (for projection)
+    first_chunk_action = None     # predicted action of the first window (for projection)
     first_chunk_gt_action = None  # GT action of the first window (for GT-column projection)
     for step_count in range(start_step, start_step + actual_steps, action_horizon):
         data_point = extract_step_data(
@@ -280,9 +282,9 @@ def evaluate_single_trajectory(
                 # Same key format as first_chunk_action (action.<key> -> (horizon, dim)).
                 if log_video:
                     first_chunk_gt_action = {
-                        f"action.{k}": np.vstack(list(traj[f"action.{k}"]))[
-                            start_step : start_step + action_horizon
-                        ]
+                        f"action.{k}": np.vstack(
+                            list(traj[f"action.{k}"])
+                        )[start_step : start_step + action_horizon]
                         for k in action_keys
                         if f"action.{k}" in traj.columns
                     }
@@ -336,9 +338,9 @@ def evaluate_single_trajectory(
         try:
             # Lazy import: torch is heavy and we don't want to pay the
             # import cost on metric-disabled CLI runs.
-            import torch
+            import torch  # noqa: PLC0415
 
-            from groot.core.training.open_loop.metrics import (
+            from groot.core.training.open_loop.metrics import (  # noqa: PLC0415
                 frechet_gaussian_over_time,
             )
 
@@ -347,14 +349,14 @@ def evaluate_single_trajectory(
             fd = frechet_gaussian_over_time(pred_t, gt_t)
             metrics["frechet"] = float(fd.item())
             logging.info(f"Frechet Gaussian over time: {metrics['frechet']}")
-        except Exception:
+        except Exception:  # noqa: BLE001
             logging.exception("frechet_gaussian_over_time failed; skipping metric")
 
     if enable_reverse_kl:
         try:
-            import torch
+            import torch  # noqa: PLC0415
 
-            from groot.core.training.open_loop.metrics import (
+            from groot.core.training.open_loop.metrics import (  # noqa: PLC0415
                 reverse_kl_from_samples,
             )
 
@@ -363,8 +365,10 @@ def evaluate_single_trajectory(
             gt_t = torch.from_numpy(gt_action_across_time).unsqueeze(0)
             rkl = reverse_kl_from_samples(samples_t, gt_t)
             metrics["reverse_kl"] = float(rkl.item())
-            logging.info(f"Reverse KL from {num_samples} samples: {metrics['reverse_kl']}")
-        except Exception:
+            logging.info(
+                f"Reverse KL from {num_samples} samples: {metrics['reverse_kl']}"
+            )
+        except Exception:  # noqa: BLE001
             logging.exception("reverse_kl_from_samples failed; skipping metric")
 
     # ── Video reconstruction metrics (world-model policies that predict video) ──
@@ -403,8 +407,8 @@ def evaluate_single_trajectory(
                 pred_deltas = [d for d in deltas if d > 0]
                 n_cond = n_total - len(pred_deltas)
                 ego_key = video_cfg.modality_keys[0]
-                ego_full = view_frames[0]  # (n_total*chunks, H, W, C)
-                pred_frames = ego_full[n_cond:n_total]  # predicted (>0) frames, window 0
+                ego_full = view_frames[0]                       # (n_total*chunks, H, W, C)
+                pred_frames = ego_full[n_cond:n_total]          # predicted (>0) frames, window 0
                 gt_positions = np.array(
                     [min(max(start_step + d, 0), traj_length - 1) for d in pred_deltas]
                 )
@@ -425,21 +429,14 @@ def evaluate_single_trajectory(
                 crop_transform = None
                 _eit = getattr(proc, "eval_image_transform", None)
                 if callable(_eit):
-
                     def crop_transform(f, _t=_eit):
                         return np.asarray(_t(image=f)["image"])
-
                 # Whole-path: ``ego_full`` already holds every buffered chunk, so
                 # score each chunk against its GT-anchored window and aggregate —
                 # the video analogue of the action metric's per-hop re-query.
                 chunks, n_clamped = whole_path_video_chunks(
-                    len(ego_full),
-                    n_cond=n_cond,
-                    n_total=n_total,
-                    pred_deltas=pred_deltas,
-                    start_step=start_step,
-                    action_horizon=action_horizon,
-                    traj_length=traj_length,
+                    len(ego_full), n_cond=n_cond, n_total=n_total, pred_deltas=pred_deltas,
+                    start_step=start_step, action_horizon=action_horizon, traj_length=traj_length,
                 )
                 per_chunk_vms: list[dict[str, float]] = []
                 embed_pred_pf: list[np.ndarray] = []
@@ -453,10 +450,7 @@ def evaluate_single_trajectory(
                     c_gt = np.asarray(c_gt)
                     per_chunk_vms.append(
                         video_frame_metrics(
-                            c_pred,
-                            c_gt,
-                            crop_fraction,
-                            video_lpips_net,
+                            c_pred, c_gt, crop_fraction, video_lpips_net,
                             crop_transform=crop_transform,
                         )
                     )
@@ -485,11 +479,7 @@ def evaluate_single_trajectory(
                 logging.info(
                     "Whole-path video metrics (%d chunks @stride %d from step %d, "
                     "%d GT clamped, crop=%.2f): %s",
-                    len(chunks),
-                    action_horizon,
-                    start_step,
-                    n_clamped,
-                    crop_fraction,
+                    len(chunks), action_horizon, start_step, n_clamped, crop_fraction,
                     ", ".join(f"{k}={v:.3f}" for k, v in vm.items()),
                 )
                 if video_embedder is not None and video_embed_out is not None and embed_pred_pf:
@@ -502,14 +492,9 @@ def evaluate_single_trajectory(
                 if projection_fn is not None:
                     try:
                         proj_metrics = projection_fn(
-                            loader=loader,
-                            traj_id=traj_id,
-                            traj=traj,
-                            start_step=start_step,
-                            pred_frames=pred_frames,
-                            pred_deltas=pred_deltas,
-                            pred_action=first_chunk_action,
-                            save_video_path=save_video_path,
+                            loader=loader, traj_id=traj_id, traj=traj, start_step=start_step,
+                            pred_frames=pred_frames, pred_deltas=pred_deltas,
+                            pred_action=first_chunk_action, save_video_path=save_video_path,
                             gt_frames=np.asarray(gt_raw) if log_video else None,
                             gt_action=first_chunk_gt_action if log_video else None,
                             return_frames=log_video,
@@ -519,13 +504,13 @@ def evaluate_single_trajectory(
                                 metrics[k] = v
                             else:
                                 metrics[k] = v
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         logging.exception("projection_fn failed; skipping projection overlays")
                 # When no projection fn but video logging requested: store raw frames.
                 if log_video and "_pred_frames" not in metrics:
                     metrics["_pred_frames"] = np.asarray(pred_frames)
                     metrics["_gt_frames"] = np.asarray(gt_raw)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logging.exception("video metrics failed; skipping (action metrics unaffected)")
 
     logging.info(f"state_joints vs time {state_joints_across_time.shape}")
@@ -653,10 +638,6 @@ class ArgsConfig:
     reports ``wrist_reproj_px`` (pred-action vs GT-action wrist, px) and writes overlay
     mp4s under <save_video_path>/projection. Requires --compute-video-metrics."""
 
-    projection_module_path: str | None = None
-    """Optional directory containing the ``ol_projection`` module used by the Batch7
-    projection. The module must otherwise be installed or available on ``PYTHONPATH``."""
-
 
 def compute_pooled_wasserstein(
     pooled: list[tuple[np.ndarray, np.ndarray]],
@@ -678,7 +659,7 @@ def compute_pooled_wasserstein(
     would OOM/hang at this step. The minibatch-OT estimate it yields is the same
     one the in-process training callback uses by default.
     """
-    from groot.core.training.open_loop.metrics import (
+    from groot.core.training.open_loop.metrics import (  # noqa: PLC0415
         pooled_wasserstein_report,
     )
 
@@ -779,7 +760,9 @@ def main(args: ArgsConfig):
     per_metric: dict[str, list[float]] = {}
     # Per-window (pred, gt) arrays, concatenated after the loop for the
     # dataset-level pooled Wasserstein.
-    pooled: list[tuple[np.ndarray, np.ndarray]] | None = [] if args.enable_wasserstein else None
+    pooled: list[tuple[np.ndarray, np.ndarray]] | None = (
+        [] if args.enable_wasserstein else None
+    )
 
     # Build LPIPS once (shared across trajectories) when video metrics are requested.
     video_lpips_net = None
@@ -790,7 +773,7 @@ def main(args: ArgsConfig):
 
             _dev = "cuda" if _torch.cuda.is_available() else "cpu"
             video_lpips_net = _lpips.LPIPS(net="alex").to(_dev).eval()
-        except Exception:
+        except Exception:  # noqa: BLE001
             logging.exception("LPIPS unavailable; video LPIPS will be skipped")
 
     # The policy truncates the video modality to the cond (<=0) deltas for the
@@ -808,7 +791,7 @@ def main(args: ArgsConfig):
             _vc = _mc.get(_emb) or _mc[next(iter(_mc))]
             video_full_deltas = [int(d) for d in _vc["video"]["delta_indices"]]
             logging.info(f"Full video deltas from processor_config: {video_full_deltas}")
-        except Exception:
+        except Exception:  # noqa: BLE001
             logging.exception(
                 "Could not read full video deltas from processor_config; "
                 "falling back to the (truncated) loader modality config"
@@ -820,14 +803,13 @@ def main(args: ArgsConfig):
         try:
             import sys as _sys
 
-            if args.projection_module_path:
-                _sys.path.insert(0, args.projection_module_path)
+            _sys.path.insert(0, "/mnt/amlfs-07/shared/hanjungk/batch7_egowm/code")
             from ol_projection import make_batch7_projection_fn
 
             _proj_dir = (args.save_video_path or "/tmp/open_loop_eval") + "/projection"
             projection_fn = make_batch7_projection_fn(_proj_dir)
             logging.info(f"batch7 projection overlays -> {_proj_dir}")
-        except Exception:
+        except Exception:  # noqa: BLE001
             logging.exception("Could not build batch7 projection_fn; skipping projection")
 
     for traj_id in args.traj_ids:

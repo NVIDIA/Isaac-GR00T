@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+# Client-side path mapping: local paths (e.g. Lustre) → remote paths (e.g. S3).
+#
+# whitelist
+#   List of local path prefixes that are eligible for remote resolution.
+#   Only paths that start with an entry here will be looked up in mappings
+#   or auto-derived; all others fall back to the local (LustreFS) path unchanged.
+#   If whitelist is absent or empty, all paths are eligible (no restriction).
+#
+#   Does NOT apply when the config already uses an explicit s3:// path — the
+#   whitelist only gates local→remote rewriting; explicit S3 URIs are always honored.
+#
+#   Add a dataset here once it has been migrated and you want training configs
+#   to transparently read it from S3/PDX instead of Lustre.
+#
+# Example:
+#   whitelist:
+#     - /mnt/aws-lfs-02/shared/datasets/agibot-custom-converted-1104-diverse-fullres
+#     - /mnt/aws-lfs-02/shared/datasets/gr1-diverse-2025
+#
+whitelist:
+  - /mnt/aws-lfs-02/shared/datasets/agibot-custom*
+  
+# mappings
+#   Static prefix → s3:// URI entries. Longest prefix wins.
+#   Keys and values must not have trailing slashes.
+#   Values are used as-is — write the complete bucket name.
+#   No region suffix is appended automatically for static mappings.
+#
+# Example:
+#   mappings:
+#     /mnt/aws-lfs-02/shared/datasets: s3://GrootDatasets
+#
+mappings:
+  /mnt/aws-lfs-02/shared/datasets: s3://GrootDatasets
+
+# pool_to_region
+#   Maps pool / cluster names to AWS regions.  Osmo: pool from WORKFLOW_ID via osmo CLI.
+#   Sky: CLUSTER_TYPE env (e.g. gb300) when WORKFLOW_ID is unset.
+#
+pool_to_region:
+  groot-gb200-01: us-west-2
+  groot-gb200-02: us-west-2
+  groot-gb200-ci-01: us-west-2
+  groot-gb200-ci-02: us-west-2
+  groot-gb200-nvlink-02: us-west-2
+  gb300: us-east-2
+
+# Set to true to disable all path mapping (static and auto-detect) and pass
+# every path through unchanged.  Useful when running fully locally or when
+# you want to suppress automatic S3 resolution entirely.
+disable_path_mapping: false

@@ -7,15 +7,14 @@ evaluation.
 
 Use these three OSS agent definitions as the defaults for this package:
 
-- [`autoresearch`](.agents/autoresearch.toml) for model-driven research and OSS
-  post-training/evaluation. Its configured skills are
+- [`autoresearch`](.agents/autoresearch/autoresearch.toml) for model-driven
+  research and OSS post-training/evaluation. Its configured skills are
   [`insights`](skills/insights/SKILL.md),
-  [`onboarding`](skills/onboarding/SKILL.md), and
-  [`autoresearch`](skills/autoresearch/SKILL.md).
-- [`autodebug`](.agents/autodebug.toml) for debugging repository issues. Its
-  configured skills are [`insights`](skills/insights/SKILL.md) and
-  [`autodebug`](skills/autodebug/SKILL.md).
-- [`faq`](.agents/faq.toml) for concise, source-grounded documentation and
+  [`evaluation`](skills/evaluation/SKILL.md), and
+  [`post-train`](skills/post-train/SKILL.md).
+- [`autodebug`](.agents/autodebug/autodebug.toml) for debugging repository
+  issues. Its configured skill is [`insights`](skills/insights/SKILL.md).
+- [`faq`](.agents/faq/faq.toml) for concise, source-grounded documentation and
   FAQ answers. Its configured skill is
   [`insights`](skills/insights/SKILL.md).
 
@@ -24,10 +23,13 @@ follow the task-specific local post-training and evaluation rules below.
 
 ## Default Action
 
-When the user asks to set up OSS GR00T or locally train, evaluate, or serve a
-policy, use the `onboarding` skill. Use the `autoresearch` agent to improve an
-existing post-training recipe, `autodebug` to diagnose a repository failure,
-and `faq` for product, support, concept, or documentation questions.
+When the user asks to launch, inspect, retry, or debug OSS post-training, use the
+`post-train` Codex skill.
+
+When the user asks to evaluate an existing checkpoint, use the `evaluation`
+Codex skill. When the user asks for post-train and evaluation
+together, use `uv run python -m groot.infra.oss train-eval` so both jobs run in one
+local process chain.
 
 Do not use OSMO, GitLab staging pipelines, or the `golden-run` skill for local
 OSS post-train work.
@@ -38,16 +40,14 @@ Run from the OSS package root:
 
 ```bash
 uv run python -m groot.infra.oss train \
-  --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag <dataset-embodiment-tag>
+  --dataset-path /path/to/lerobot_dataset
 ```
 
 Run local post-train followed by evaluation:
 
 ```bash
 uv run python -m groot.infra.oss train-eval \
-  --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag <dataset-embodiment-tag>
+  --dataset-path /path/to/lerobot_dataset
 ```
 
 Run evaluation for an existing checkpoint:
@@ -56,8 +56,7 @@ Run evaluation for an existing checkpoint:
 uv run python -m groot.infra.oss eval --checkpoint <hf-uri-or-local-path>
 ```
 
-The public CLI uses its fixed `n2_oss_pretrain` experiment. Do not pass an
-experiment name positionally.
+If the user does not specify an experiment, use the default configured by the skill.
 
 ## Required Inputs
 
@@ -71,8 +70,7 @@ authentication.
 
 1. Confirm the user wants a local run and has a dataset path and required HF access.
 2. Use `--dry-run` first when setup is unclear.
-3. Use the `onboarding` skill to run the shared `python -m groot.infra.oss` CLI
-   from the OSS package root.
+3. Run the shared `python -m groot.infra.oss` CLI from the OSS package root.
 4. Report the local command, output checkpoint or eval JSON path, and first actionable failure if one occurs.
 
 ## Source of Truth

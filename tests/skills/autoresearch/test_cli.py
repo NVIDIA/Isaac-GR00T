@@ -17,7 +17,7 @@ import subprocess
 from types import SimpleNamespace
 
 import pytest
-from skills.autoresearch import agent_editor, cli
+from skills.autoresearch import cli
 import yaml
 
 
@@ -162,7 +162,7 @@ def test_controller_forwards_explicit_codex_sandbox(
     config_path.write_text(yaml.safe_dump(payload))
     captured = []
     monkeypatch.setattr(
-        agent_editor,
+        cli,
         "CodexEditor",
         lambda config: captured.append(config) or SimpleNamespace(),
     )
@@ -185,14 +185,13 @@ def test_controller_rejects_invalid_codex_sandbox(tmp_path: Path, value: object)
 
 def test_validate_rejects_credential_bearing_remote(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
-    credential_remote = "https://oauth2" + ":secret@" + "example.test/project.git"
     subprocess.run(
         [
             "git",
             "remote",
             "add",
             "origin",
-            credential_remote,
+            "https://oauth2:secret@example.test/project.git",
         ],
         cwd=tmp_path,
         check=True,

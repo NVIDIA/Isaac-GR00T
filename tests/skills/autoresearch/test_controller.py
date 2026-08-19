@@ -261,12 +261,11 @@ def test_controller_runs_one_resumable_trial_to_new_best(tmp_path: Path) -> None
     state_path = output_dir / "state.json"
     workspace_manager = FakeWorkspaceManager(tmp_path / "worktrees")
     runner = FakeRunner()
-    editor = FakeEditor()
     progress: list[str] = []
     controller = WaveController(
         config=config,
         workspace_manager=workspace_manager,
-        editor=editor,
+        editor=FakeEditor(),
         runner=runner,
         progress=progress.append,
     )
@@ -290,9 +289,6 @@ def test_controller_runs_one_resumable_trial_to_new_best(tmp_path: Path) -> None
     assert state.trials[0].is_new_best is True
     assert runner.cleaned == ["yam-smoke_wave1_trial1"]
     assert (output_dir / state.trials[0].trial_id / "codex" / "result.json").is_file()
-    assert not (output_dir / "insights").exists()
-    assert "Prior Insights:" in editor.calls[0][1]
-    assert "No relevant published Insights were available" in editor.calls[0][1]
     assert not (output_dir / "trials").exists()
     output = "\n".join(progress)
     trial_prefix = "[Wave 1][Trial 1/1 yam-smoke_wave1_trial1]"
@@ -308,49 +304,6 @@ def test_controller_runs_one_resumable_trial_to_new_best(tmp_path: Path) -> None
     assert f"{trial_prefix} action=eval_succeeded" in output
     assert "evaluation succeeded; score=0.025" in output
     assert "[Wave 1] settled | winner=yam-smoke_wave1_trial1" in output
-
-
-def test_controller_reuses_prior_insights_interface_per_wave(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    output_dir = tmp_path / "state"
-    config = replace(
-        _config(tmp_path),
-        output_dir=output_dir,
-        max_trials=2,
-        max_parallel_trials=2,
-    )
-    waves: list[int] = []
-
-    def fake_provider(*, config, state, wave_index):
-        del config, state
-        waves.append(wave_index)
-        return "- Reserved prior knowledge."
-
-    monkeypatch.setattr(
-        "skills.autoresearch.trial_controller.prior_insights_for_wave",
-        fake_provider,
-    )
-    editor = FakeEditor()
-    controller = WaveController(
-        config=config,
-        workspace_manager=FakeWorkspaceManager(tmp_path / "worktrees"),
-        editor=editor,
-        runner=FakeRunner(),
-    )
-    controller.initialize()
-
-    assert [controller.run_once().action for _ in range(4)] == [
-        "wave_created",
-        "candidate_committed",
-        "candidate_published",
-        "candidate_committed",
-    ]
-    assert waves == [1]
-    assert len(editor.calls) == 2
-    assert all("- Reserved prior knowledge." in prompt for _, prompt in editor.calls)
-    assert not (output_dir / "insights").exists()
 
 
 def test_controller_requires_explicit_initialization(tmp_path: Path) -> None:

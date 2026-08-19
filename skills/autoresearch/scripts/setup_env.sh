@@ -38,7 +38,6 @@ fi
 printf '[setup_env] build settings: MAX_JOBS=%s NVCC_THREADS=%s FLASH_ATTN_CUDA_ARCHS=%s\n' \
   "${MAX_JOBS}" "${NVCC_THREADS}" "${FLASH_ATTN_CUDA_ARCHS:-default}"
 
-# Sync all locked dependencies in case the public image does not provide them.
 # Install Torch first, then build FlashAttention against that pinned Torch.
 uv sync --locked --extra training --extra dev --no-install-package flash-attn
 exec uv sync --locked --extra training --extra dev \

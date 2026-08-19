@@ -9,9 +9,9 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# ruff: noqa: B006, D415, T201, TID252
-
-"""Custom data collators for conversation datasets."""
+"""
+Custom data collators for conversation datasets.
+"""
 
 import random
 from typing import Any
@@ -22,7 +22,8 @@ from ..types import VLAStepDataId
 
 
 class BasicDataCollator:
-    """Minimal data collator that stacks tensor fields into a batch.
+    """
+    Minimal data collator that stacks tensor fields into a batch.
 
     Only fields whose values are ``torch.Tensor`` instances are included in the
     returned batch.  Non-tensor fields (e.g. string metadata, integer scalars)
@@ -42,8 +43,10 @@ class BasicDataCollator:
         return batch
 
 
+
 class FilteringDataCollator:
-    """Memory-efficient data collator that filters fields and pads sequences.
+    """
+    Memory-efficient data collator that filters fields and pads sequences.
 
     Only keeps the essential fields needed for training:
     - input_ids
@@ -53,7 +56,8 @@ class FilteringDataCollator:
     """
 
     def __init__(self, pad_token_id: int, padding_side: str = "left", max_length: int = 2048):
-        """Initialize the filtering collator.
+        """
+        Initialize the filtering collator.
 
         Args:
             pad_token_id: Token ID to use for padding
@@ -65,7 +69,8 @@ class FilteringDataCollator:
         self.max_length = max_length
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
-        """Collate and filter batch of samples with memory-efficient padding.
+        """
+        Collate and filter batch of samples with memory-efficient padding.
 
         Args:
             features: List of sample dictionaries
@@ -118,6 +123,7 @@ class FilteringDataCollator:
         # process vision fields
         # qwen does not expect a batch dimension, see
         # NOTE: I don't know how well this works with sequences of variable number of images
+        # /mnt/amlfs-01/home/maxf/miniconda3/envs/icrt/lib/python3.10/site-packages/transformers/models/qwen2_5_vl/modeling_qwen2_5_vl.py
         if any("pixel_values" in f for f in features):
             batch["pixel_values"] = torch.cat(
                 [f["pixel_values"].squeeze(0) for f in features if "pixel_values" in f], dim=0
@@ -138,7 +144,8 @@ class FilteringDataCollator:
 
 
 class MixedTrainingCollator(FilteringDataCollator):
-    """Chop up trajectory by turn and pad to the same length
+    """
+    Chop up trajectory by turn and pad to the same length
 
     Only keeps the essential fields needed for training:
     - input_ids
@@ -155,7 +162,8 @@ class MixedTrainingCollator(FilteringDataCollator):
         end_of_turn_tokens: list[int] = [153706, 151645, 198],  # action eos, im_end, newline
         random_chop: float = 0.0,
     ):
-        """Initialize the filtering collator.
+        """
+        Initialize the filtering collator.
 
         Args:
             pad_token_id: Token ID to use for padding
@@ -170,7 +178,9 @@ class MixedTrainingCollator(FilteringDataCollator):
         self.text_fields = ["input_ids", "attention_mask", "labels"]
 
     def chop_trajectory_by_turn(self, features: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
-        """Chop up the trajectory by turn"""
+        """
+        Chop up the trajectory by turn
+        """
         # find the end of turn tokens
         # remove batch dimension if present
         new_features = {}
@@ -202,7 +212,9 @@ class MixedTrainingCollator(FilteringDataCollator):
         return new_feature_list, max_length
 
     def chop_trajectories(self, features: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-        """Chop up the trajectories by turn"""
+        """
+        Chop up the trajectories by turn
+        """
         new_feature_list = []
         max_length = -1
         for feature in features:
@@ -212,7 +224,8 @@ class MixedTrainingCollator(FilteringDataCollator):
         return new_feature_list, max_length
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
-        """Collate and filter batch of samples with memory-efficient padding.
+        """
+        Collate and filter batch of samples with memory-efficient padding.
 
         Args:
             features: List of sample dictionaries

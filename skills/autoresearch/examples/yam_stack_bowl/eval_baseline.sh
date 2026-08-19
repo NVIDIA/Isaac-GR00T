@@ -20,8 +20,7 @@ else
 fi
 PYTHON="${PYTHON:-${PACKAGE_ROOT}/.venv/bin/python}"
 CONFIG_PATH="${CONFIG_PATH:-${PACKAGE_ROOT}/skills/autoresearch/examples/yam_stack_bowl/eval_config.yaml}"
-AUTORESEARCH_ROOT="${AUTORESEARCH_ROOT:?Set AUTORESEARCH_ROOT to a writable shared directory}"
-RUN_ROOT="${RUN_ROOT:-${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline}"
+RUN_ROOT="${RUN_ROOT:-/mnt/amlfs-01/home/yuhlu/AutoResearch_yam_stack_bowl_full/baseline}"
 MODEL_PATH="${CHECKPOINT_PATH:-${MODEL_PATH:-${RUN_ROOT}/training}}"
 EVAL_DIR="${EVAL_OUTPUT_DIR:-${RUN_ROOT}/eval}"
 RESULT_PATH="${RESULT_PATH:-${EVAL_DIR}/results.json}"

@@ -15,7 +15,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import math
-import os
 from pathlib import Path
 import re
 import subprocess
@@ -28,27 +27,7 @@ from skills.autoresearch.study_state import Objective
 # Schema guards keep study IDs and commits deterministic.
 _STUDY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _FULL_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
-_ENVIRONMENT_VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 TRIAL_EVAL_RESULT = "eval/results.json"
-_PLACEHOLDER_ENVIRONMENT_VALUES = frozenset({"your-osmo-pool"})
-
-
-def expand_environment_variables(value: Any, source: Path) -> Any:
-    """Expand ${NAME} values recursively and reject missing variables."""
-    if isinstance(value, str):
-
-        def replace(match: re.Match[str]) -> str:
-            name = match.group(1)
-            if name not in os.environ:
-                raise ValueError(f"{source}: environment variable {name} is not set")
-            return os.environ[name]
-
-        return _ENVIRONMENT_VARIABLE_RE.sub(replace, value)
-    if isinstance(value, list):
-        return [expand_environment_variables(item, source) for item in value]
-    if isinstance(value, dict):
-        return {key: expand_environment_variables(item, source) for key, item in value.items()}
-    return value
 
 
 # StudyConfig is the normalized contract used by the controller.
@@ -71,7 +50,6 @@ class StudyConfig:
     output_dir: Path
     train_script: Path
     eval_script: Path
-    user_guidance: str = ""
     base_branch: str | None = None
     max_parallel_trials: int = 1
     max_retry: int = 0
@@ -108,9 +86,6 @@ class StudyConfig:
             not isinstance(self.base_branch, str) or not self.base_branch.strip()
         ):
             raise TypeError("base_branch must be a non-empty string")
-        if not isinstance(self.user_guidance, str):
-            raise TypeError("user_guidance must be a string")
-        object.__setattr__(self, "user_guidance", self.user_guidance.strip())
         # Trial scheduling limits are validated before any controller uses them.
         if not isinstance(self.workspace, Path):
             raise TypeError("workspace must be a pathlib.Path")
@@ -150,9 +125,6 @@ class StudyConfig:
         _string_mapping(self.env, "env")
         _string_mapping(self.train_env, "train environment")
         _string_mapping(self.eval_env, "eval environment")
-        _reject_placeholder_environment_values(self.env, "env")
-        _reject_placeholder_environment_values(self.train_env, "train environment")
-        _reject_placeholder_environment_values(self.eval_env, "eval environment")
         # Tuple fields and opaque agent settings must be stable and JSON-safe.
         if not self.idea_types:
             raise ValueError("idea_types must not be empty")
@@ -166,9 +138,7 @@ class StudyConfig:
         """Load one study from a YAML mapping."""
         # Load raw YAML first so all validation errors can cite this file.
         config_path = Path(path).expanduser().resolve()
-        raw = expand_environment_variables(
-            yaml.safe_load(config_path.read_text(encoding="utf-8")), config_path
-        )
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         if not isinstance(raw, Mapping):
             raise TypeError(f"{config_path}: top-level YAML must be a mapping")
 
@@ -224,7 +194,6 @@ class StudyConfig:
             output_dir=output_dir,
             train_script=train_script,
             eval_script=eval_script,
-            user_guidance=_optional_text(raw, "user_guidance", config_path),
             checkpoint_path=_optional_nonempty_string(checkpoint_path, "train.checkpoint"),
             output_dir_name=_nonempty_string(output_dir_name, "train.output_dir"),
             script_timeout_s=_nonnegative_float(baseline, "script_timeout_s"),
@@ -343,14 +312,6 @@ def _optional_dict(data: Mapping[str, Any], key: str, path: Path) -> dict[str, A
     return _copy_json_mapping(value, f"{path}: {key}")
 
 
-def _optional_text(data: Mapping[str, Any], key: str, path: Path) -> str:
-    """Read an optional free-text field and normalize surrounding whitespace."""
-    value = data.get(key, "")
-    if not isinstance(value, str):
-        raise TypeError(f"{path}: {key} must be a string")
-    return value.strip()
-
-
 def _required_string_tuple(data: Mapping[str, Any], key: str, path: Path) -> tuple[str, ...]:
     """Validate one required config field with a focused error message."""
     if key not in data:
@@ -408,13 +369,6 @@ def _string_mapping(value: Any, label: str) -> dict[str, str]:
     if any(not isinstance(key, str) or not isinstance(item, str) for key, item in value.items()):
         raise TypeError(f"{label} must map strings to strings")
     return dict(value)
-
-
-def _reject_placeholder_environment_values(value: Mapping[str, str], label: str) -> None:
-    """Reject checked-in examples that still need an operator-supplied value."""
-    for key, item in value.items():
-        if item.strip().lower() in _PLACEHOLDER_ENVIRONMENT_VALUES:
-            raise ValueError(f"{label} {key} must be set; replace placeholder {item!r}")
 
 
 def _validate_string_tuple(value: tuple[str, ...], label: str) -> None:

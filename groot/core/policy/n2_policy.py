@@ -401,7 +401,7 @@ class Gr00tN2Policy(Gr00tPolicy):
         # Decode actions
         batched_states = {}
         for k in self.modality_configs["state"].modality_keys:
-            batched_states[k] = np.stack([s[k] for s in states], axis=0)
+            batched_states[k] = np.concatenate([s[k] for s in states], axis=0)
         unnormalized_action = self.processor.decode_action(
             normalized_action.cpu().numpy(), self.embodiment_tag, batched_states
         )

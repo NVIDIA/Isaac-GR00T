@@ -21,7 +21,7 @@ import subprocess
 import tempfile
 from typing import Any, TextIO
 
-# Agent output is schema-constrained so controller state stays structured.
+# Codex output is schema-constrained so controller state stays structured.
 _RESULT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -75,7 +75,7 @@ class CodexEditorConfig:
 # Hold the validated structured result from Codex.
 @dataclass(frozen=True)
 class EditResult:
-    """Structured result emitted after an agent edits a worktree."""
+    """Structured result emitted by Codex after editing a worktree."""
 
     hypothesis: str
     validation: tuple[str, ...]
@@ -230,18 +230,17 @@ def _load_edit_result(
     result_path: Path,
     jsonl_path: Path,
     stderr_path: Path,
-    source: str = "Codex",
 ) -> EditResult:
-    """Validate structured agent output before git changes are accepted."""
+    """Result parsing validates Codex output before git changes are accepted."""
     try:
         payload = json.loads(result_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(
-            f"{source} did not produce a valid structured result: {result_path}"
+            f"Codex did not produce a valid structured result: {result_path}"
         ) from exc
     if not isinstance(payload, dict):
         raise RuntimeError(  # noqa: TRY004
-            f"{source} structured result must be an object: {result_path}"
+            f"Codex structured result must be an object: {result_path}"
         )
 
     # Enforce the schema again locally before accepting git changes.
@@ -249,22 +248,20 @@ def _load_edit_result(
     missing = sorted(required - payload.keys())
     extra = sorted(payload.keys() - required)
     if missing:
-        raise RuntimeError(f"{source} result is missing required fields: {', '.join(missing)}")
+        raise RuntimeError(f"Codex result is missing required fields: {', '.join(missing)}")
     if extra:
-        raise RuntimeError(f"{source} result has unexpected fields: {', '.join(extra)}")
+        raise RuntimeError(f"Codex result has unexpected fields: {', '.join(extra)}")
 
     # Strip user-facing text fields while preserving their required meaning.
     hypothesis = payload["hypothesis"]
     if not isinstance(hypothesis, str) or not hypothesis.strip():
-        raise RuntimeError(f"{source} result field hypothesis must be a non-empty string")
+        raise RuntimeError("Codex result field hypothesis must be a non-empty string")
 
     validation = payload["validation"]
     if not isinstance(validation, list) or any(
         not isinstance(item, str) or not item.strip() for item in validation
     ):
-        raise RuntimeError(
-            f"{source} result field 'validation' must be a list of non-empty strings"
-        )
+        raise RuntimeError("Codex result field 'validation' must be a list of non-empty strings")
     return EditResult(
         hypothesis=hypothesis.strip(),
         validation=tuple(item.strip() for item in validation),
