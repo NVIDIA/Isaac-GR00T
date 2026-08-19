@@ -283,13 +283,6 @@ def _install_external_artifact_fakes(
 
     hf_calls = _install_fake_hf_resolver(monkeypatch, tmp_path)
 
-    from groot.infra.eval.oss_open_loop_evaluator import OssOpenLoopEvaluator
-
-    monkeypatch.setattr(
-        OssOpenLoopEvaluator,
-        "ensure_dreamcosmos_model_deps",
-        lambda *_args, **_kwargs: None,
-    )
     return hf_calls
 
 

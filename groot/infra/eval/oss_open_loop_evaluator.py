@@ -324,23 +324,12 @@ class OssOpenLoopEvaluator:
     def make_local_policy(self, model_path: Path):
         from groot.core.policy.n2_policy import Gr00tN2Policy
 
-        self.ensure_dreamcosmos_model_deps(model_path)
         return Gr00tN2Policy(
             embodiment_tag=self.embodiment_tag(),
             model_path=str(model_path),
             device=self.device(),
             num_inference_timesteps=self.config.denoising_steps,
         )
-
-    def ensure_dreamcosmos_model_deps(self, model_path: Path) -> None:
-        try:
-            from groot.vla.omni.utils.dreamcosmos_model_deps import (
-                ensure_dreamcosmos_model_deps,
-            )
-        except ModuleNotFoundError:
-            logging.info("dreamcosmos_model_deps is unavailable; using checkpoint paths as-is.")
-            return
-        ensure_dreamcosmos_model_deps(str(model_path))
 
     def check_finite_metrics(self, label: str, summary: MetricSummary) -> None:
         for metric, value in summary.average.items():

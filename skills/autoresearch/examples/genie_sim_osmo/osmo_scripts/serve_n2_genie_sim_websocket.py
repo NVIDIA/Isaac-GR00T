@@ -423,15 +423,8 @@ def main(args: ServeArgs) -> None:
 
     from groot.core.policy.n2_policy import Gr00tN2Policy
 
-    try:
-        from groot.vla.omni.utils.dreamcosmos_model_deps import ensure_dreamcosmos_model_deps
-    except ModuleNotFoundError:
-        ensure_dreamcosmos_model_deps = None
-
     if args.seed is not None:
         _seed_everything(args.seed)
-    if ensure_dreamcosmos_model_deps is not None:
-        ensure_dreamcosmos_model_deps(str(args.model_path))
 
     tag = _normalize_embodiment_tag(args.embodiment_tag)
     policy = Gr00tN2Policy(
