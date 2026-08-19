@@ -401,3 +401,113 @@ class SingleDeviceMuonWithAuxAdam(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
 
         return loss
+
+
+class TorchMuonWithAuxAdam(torch.optim.Optimizer):
+    """One Optimizer that wraps ``torch.optim.Muon`` + ``torch.optim.AdamW``.
+
+    Official ``torch.optim.Muon`` (torch>=2.9) for the ``use_muon=True`` groups and
+    ``torch.optim.AdamW`` for the rest. Same group contract as :class:`MuonWithAuxAdam`
+    (each group carries a ``use_muon`` flag), so it is a drop-in ``muon_impl`` for a
+    trainer that assumes a single ``self.optimizer`` with unified ``param_groups``
+    (KL-adaptive lr edits, accelerate wrapping, checkpointing). It holds two real
+    sub-optimizers and exposes their ``param_groups`` as one live view -- in-place
+    ``group["lr"]`` edits propagate because the group dicts are shared references. This
+    lets you A/B the official torch Muon (fused kernels, DTensor/distributed
+    integration) against the vendored :class:`MuonWithAuxAdam` without touching the
+    rest of the trainer.
+    """
+
+    def __init__(self, param_groups):
+        if not hasattr(torch.optim, "Muon"):
+            raise RuntimeError(
+                "torch.optim.Muon is unavailable (needs torch>=2.9). Use "
+                "muon_impl=dist or single_batched for the vendored reference impl."
+            )
+        # Split into muon / adam sub-optimizers, remembering each group's original
+        # position so param_groups re-exposes them in input order: the trainer tags
+        # groups by zipping with a same-order role list, and the KL controller reads
+        # each group's use_muon flag to hold the muon lr fixed.
+        muon_groups, adam_groups = [], []
+        self._group_order = []  # ("muon"|"adam", index within that sub-optimizer)
+        for group in param_groups:
+            assert "use_muon" in group, "each param group needs a use_muon flag"
+            g = dict(group)
+            if group["use_muon"]:
+                self._group_order.append(("muon", len(muon_groups)))
+                muon_groups.append(g)
+            else:
+                self._group_order.append(("adam", len(adam_groups)))
+                adam_groups.append(g)
+
+        # match_rms_adamw scaling (lr*0.2*sqrt(max(rows,cols))) lets an AdamW-scale
+        # muon_lr be reused, matching how these groups are tuned.
+        self._muon_opt = (
+            torch.optim.Muon(muon_groups, adjust_lr_fn="match_rms_adamw") if muon_groups else None
+        )
+        self._adam_opt = torch.optim.AdamW(adam_groups) if adam_groups else None
+        self.optimizers = [o for o in (self._muon_opt, self._adam_opt) if o is not None]
+        if not self.optimizers:
+            raise ValueError("TorchMuonWithAuxAdam received no param groups")
+
+        # Register an EMPTY param group so torch.optim.Optimizer.__init__ builds the real
+        # machinery (defaults + step/state hooks) for us: no params means nothing is
+        # double-registered, and the base's writes to param_groups/state land on the
+        # no-op setters below (the real groups/state live in the sub-optimizers).
+        super().__init__([{"params": []}], self.optimizers[0].defaults)
+
+    @property
+    def param_groups(self):
+        # Original input order (so the trainer's lr_role zip and in-place lr edits line
+        # up with how the groups were built), with use_muon restored on each dict.
+        return [
+            (self._muon_opt if kind == "muon" else self._adam_opt).param_groups[idx]
+            for kind, idx in self._group_order
+        ]
+
+    @param_groups.setter
+    def param_groups(self, value):
+        # Groups are owned by the sub-optimizers; in-place edits of the dicts the
+        # getter returns still propagate, so external reassignment is a no-op.
+        pass
+
+    @property
+    def state(self):
+        merged = {}
+        for opt in self.optimizers:
+            merged.update(opt.state)
+        return merged
+
+    @state.setter
+    def state(self, value):
+        # Owned by the sub-optimizers; the base __init__ assigns an empty dict here,
+        # which we ignore (the getter merges the real per-sub-optimizer state).
+        pass
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for opt in self.optimizers:
+            opt.step()
+        return loss
+
+    def zero_grad(self, set_to_none=True):
+        for opt in self.optimizers:
+            opt.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self):
+        return {"sub_optimizers": [opt.state_dict() for opt in self.optimizers]}
+
+    def load_state_dict(self, state_dict):
+        for opt, sd in zip(self.optimizers, state_dict["sub_optimizers"], strict=True):
+            opt.load_state_dict(sd)
+
+    def add_param_group(self, param_group):
+        # torch.optim.Optimizer.__init__ calls this to register our empty bootstrap
+        # group -> ignore it (param_groups delegates to the sub-optimizers). Any real
+        # post-construction addition is unsupported.
+        if param_group.get("params"):
+            raise NotImplementedError("TorchMuonWithAuxAdam has fixed param groups")
