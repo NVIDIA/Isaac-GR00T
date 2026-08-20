@@ -14,6 +14,7 @@ image.train.arm64:
   extends: .image
   tags:
     - cpu/arm64
+    - gpu/none
   stage: premerge
   script:
     - |
