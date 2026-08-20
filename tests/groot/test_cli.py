@@ -746,7 +746,7 @@ def _package_root() -> Path:
 
 
 def _is_internal_monorepo(package_root: Path) -> bool:
-    return (package_root.parent / "ci/internal/sync").is_dir()
+    return (package_root.parent / "ci/sync").is_dir()
 
 
 def _monorepo_root() -> Path:
