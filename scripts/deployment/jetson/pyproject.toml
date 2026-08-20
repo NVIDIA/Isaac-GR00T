@@ -1,6 +1,8 @@
-# Orin platform pyproject.toml — Jetson Orin (aarch64, JetPack 6.2, CUDA 12.6, Python 3.10)
-# Uses jetson-jp6-cu126 index for torch/torchvision/triton/flash-attn/diffusers
-# (generic pytorch-cu128 wheels don't support Orin's sm_87 GPU).
+# JetPack 7.2 pyproject.toml — Jetson Orin and Thor (aarch64,
+# Jetson Linux 39.2, CUDA 13.2, Python 3.12).
+# Uses PyTorch cu132 aarch64 wheels for the CUDA-bound runtime packages.
+# flash-attn is installed as a locally-built wheel by install_deps.sh because
+# upstream does not publish a CUDA 13.2 aarch64 wheel for these targets.
 
 [build-system]
 requires = ["setuptools>=67", "wheel", "pip"]
@@ -9,10 +11,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gr00t"
 version = "0.1.0"
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "albumentations==1.4.18",
-    "diffusers==0.35.0.dev0",
+    "diffusers==0.35.1",
     "dm-tree==0.1.8",
     "huggingface-hub[cli]",
     "jsonlines==4.0.0",
@@ -23,9 +25,9 @@ dependencies = [
     "pandas==2.2.3",
     "peft==0.17.1",
     "termcolor==3.2.0",
-    "torch==2.10.0",
-    "triton==3.5.1",
-    "torchvision==0.25.0",
+    "torch==2.13.0",
+    "triton==3.7.1",
+    "torchvision==0.28.0",
     "transformers==4.57.6",
     "tyro==0.9.17",
     "click==8.1.8",
@@ -40,9 +42,11 @@ dependencies = [
     "scipy==1.15.3",
     "wandb==0.23.0",
     "pyzmq==27.0.1",
-    "flash-attn==2.8.3",
+    "torchcodec==0.15.0",
     "onnx>=1.20.0",
     "onnxscript",
+    "tensorrt-cu13>=10.16.0.72,<11",
+    "tensorrt-cu13-libs>=10.16.0.72,<11",
 ]
 
 [project.optional-dependencies]
@@ -62,11 +66,12 @@ include = ["gr00t*"]
 [tool.uv]
 
 [tool.uv.sources]
-torch = [{ index = "jetson-jp6-cu126" }]
-torchvision = [{ index = "jetson-jp6-cu126" }]
-triton = [{ index = "jetson-jp6-cu126" }]
-flash-attn = [{ index = "jetson-jp6-cu126" }]
-diffusers = [{ index = "jetson-jp6-cu126" }]
+torch = [{ index = "pytorch-cu132" }]
+torchvision = [{ index = "pytorch-cu132" }]
+torchcodec = [{ index = "pytorch-cu132" }]
+triton = [{ index = "pytorch-cu132" }]
+tensorrt-cu13 = [{ index = "nvidia-pypi" }]
+tensorrt-cu13-libs = [{ index = "nvidia-pypi" }]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
@@ -80,7 +85,7 @@ junit_duration_report = "total"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 src = ["gr00t"]
 exclude = [
     "__pycache__",
@@ -122,6 +127,6 @@ url = "https://pypi.nvidia.com"
 explicit = true
 
 [[tool.uv.index]]
-name = "jetson-jp6-cu126"
-url = "https://pypi.jetson-ai-lab.io/jp6/cu126/+simple"
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
 explicit = true

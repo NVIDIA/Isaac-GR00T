@@ -20,8 +20,8 @@ The TRT ``dit_only`` setup monkey-patches ``action_head.get_action_with_features
 (``action_input`` / ``options`` included); a drift where the patch drops those
 keywords compiles fine but explodes at verify/inference time with a
 ``TypeError: ... got an unexpected keyword argument 'action_input'`` — the only
-TRT mode documented for Orin. This test reproduces the contract without a GPU or
-TRT engine by stubbing ``Engine``, so the signature can't silently drift again.
+legacy TRT mode. This test reproduces the contract without a GPU or TRT engine
+by stubbing ``Engine``, so the signature can't silently drift again.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def trt_model_forward():
 
 def test_dit_only_patch_binds_get_action_caller_kwargs(trt_model_forward, monkeypatch):
     """``_setup_dit_only`` must install a forward that binds every keyword
-    ``get_action`` passes — otherwise verify/inference crashes on Orin."""
+    ``get_action`` passes — otherwise verify/inference crashes."""
     monkeypatch.setattr(trt_model_forward, "Engine", lambda *a, **k: object())
     monkeypatch.setattr(trt_model_forward.torch.cuda, "empty_cache", lambda: None)
 

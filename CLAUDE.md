@@ -5,7 +5,7 @@
 Isaac GR00T N1.7 is an open vision-language-action (VLA) model for generalized humanoid robot skills.
 The repo contains the model, training pipeline, evaluation harness, and deployment tooling.
 
-- **Language:** Python 3.12 (dGPU, Thor, DGX Spark); Python 3.10 (Orin — see deployment dir)
+- **Language:** Python 3.12
 - **Package manager:** [uv](https://docs.astral.sh/uv/)
 - **Build system:** setuptools (see `pyproject.toml`)
 
@@ -72,8 +72,8 @@ getting_started/    # User-facing guides and notebooks
 ## Deployment platforms
 
 - **dGPU (H100, A100, RTX):** CUDA 12.8 — install via `scripts/deployment/dgpu/install_deps.sh`, container via top-level `docker/Dockerfile` (supports x86_64 and aarch64)
-- **Jetson Orin:** CUDA 12.6 — install via `scripts/deployment/orin/install_deps.sh`, container via `scripts/deployment/orin/Dockerfile`
-- **Jetson Thor:** CUDA 13.0 — install via `scripts/deployment/thor/install_deps.sh`, container via `scripts/deployment/thor/Dockerfile`
+- **Jetson Orin:** JetPack 7.2 / CUDA 13.2 — install via `scripts/deployment/orin/install_deps.sh`, container via `scripts/deployment/orin/Dockerfile`
+- **Jetson Thor:** JetPack 7.2 / CUDA 13.2 — install via `scripts/deployment/thor/install_deps.sh`, container via `scripts/deployment/thor/Dockerfile`
 - **DGX Spark:** CUDA 13.0 — install via `scripts/deployment/spark/install_deps.sh`, container via `scripts/deployment/spark/Dockerfile`
 
 Each Jetson/Spark platform ships an `activate_*.sh` helper (`scripts/activate_orin.sh`, `scripts/activate_spark.sh`, `scripts/activate_thor.sh`) that exports platform-specific library paths. For dGPU, the standard `source .venv/bin/activate` is sufficient.

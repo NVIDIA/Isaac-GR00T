@@ -89,9 +89,9 @@ Lightweight ops remain in PyTorch: `embed_tokens`, `masked_scatter`, `get_rope_i
 
 | Export mode | TRT components | PyTorch components | Typical use |
 |-------------|----------------|--------------------|-------------|
-| `dit_only` | DiT only | Backbone, state encoder, action encoder, action decoder | Legacy path and Orin |
+| `dit_only` | DiT only | Backbone, state encoder, action encoder, action decoder | Legacy path and fallback/debug |
 | `action_head` | State encoder, action encoder, DiT, action decoder | Backbone | Isolate action-head TRT accuracy/performance |
-| `full_pipeline` | Backbone and action head | Lightweight glue ops listed above | Recommended fast path on dGPU, Thor, and Spark |
+| `full_pipeline` | Backbone and action head | Lightweight glue ops listed above | Recommended fast path on dGPU, Thor, Spark, and Orin |
 
 <details>
 <summary>DiT-only mode (legacy from N1.6)</summary>
@@ -175,14 +175,12 @@ GR00T N1.7 Inference Timing (4 denoising steps, 1 camera):
 | DGX Spark | PyTorch Eager | 13.14 ms | 38.22 ms | 74.94 ms | 126.4 ms | 7.9 Hz | 1.00x |
 | | torch.compile | 13.14 ms | 39.23 ms | 56.49 ms | 108.8 ms | 9.2 Hz | 1.16x |
 | | **TensorRT (Full Pipeline)** | **13.14 ms** | **33.43 ms** | **52.37 ms** | **98.6 ms** | **10.1 Hz** | **1.28x** |
-| AGX Thor | PyTorch Eager | 8.21 ms | 55.26 ms | 81.65 ms | 144.9 ms | 6.9 Hz | 1.00x |
-| | torch.compile | 8.21 ms | 55.59 ms | 64.66 ms | 128.4 ms | 7.8 Hz | 1.13x |
-| | **TensorRT (Full Pipeline)** | **8.21 ms** | **28.89 ms** | **56.64 ms** | **93.8 ms** | **10.7 Hz** | **1.54x** |
-| Orin | PyTorch Eager | 9.45 ms | 127.6 ms | 205.39 ms | 342.8 ms | 2.9 Hz | 1.00x |
-| | torch.compile | 9.45 ms | 128.59 ms | 78.94 ms | 217.0 ms | 4.6 Hz | 1.58x |
-| | **TensorRT (DiT-only)** | **9.45 ms** | **128.38 ms** | **78.6 ms** | **216.5 ms** | **4.6 Hz** | **1.58x** |
-
-> **Note:** Orin uses DiT-only TensorRT (`--inference-mode tensorrt`) because TRT 10.3 does not support the backbone engine. All other platforms use the full pipeline (`--inference-mode trt_full_pipeline`).
+| AGX Thor | PyTorch Eager | 7.18 ms | 45.41 ms | 59.94 ms | 112.8 ms | 8.9 Hz | 1.00x |
+| | torch.compile | 7.18 ms | 46.31 ms | 48.79 ms | 102.3 ms | 9.8 Hz | 1.10x |
+| | **TensorRT (Full Pipeline)** | **7.18 ms** | **26.17 ms** | **46.93 ms** | **80.4 ms** | **12.4 Hz** | **1.40x** |
+| Jetson Orin | PyTorch Eager | 9.03 ms | 134.39 ms | 210.41 ms | 354.0 ms | 2.8 Hz | 1.00x |
+| | torch.compile | 9.03 ms | 135.68 ms | 82.24 ms | 227.1 ms | 4.4 Hz | 1.56x |
+| | **TensorRT (Full Pipeline)** | **9.03 ms** | **63.62 ms** | **78.16 ms** | **150.9 ms** | **6.6 Hz** | **2.35x** |
 
 <details>
 <summary>Raw benchmark output (H100 80GB HBM3)</summary>
@@ -265,7 +263,7 @@ python gr00t/eval/rollout_policy.py \
 
 ## Platform-Specific Setup
 
-> Jetson and Spark platforms use different dependency stacks than dGPU. Thor and Spark use CUDA 13 with PyTorch 2.10.0 from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130). Orin uses CUDA 12.6 with PyTorch 2.10.0 from the [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126).
+> Jetson and Spark platforms use different dependency stacks than dGPU. Thor and Orin use JetPack 7.2 / CUDA 13.2 with PyTorch 2.13.0 from the [PyTorch cu132 index](https://download.pytorch.org/whl/cu132). Spark uses CUDA 13.0 with PyTorch 2.10.0 from the [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130).
 
 > ⚠️ **aarch64 users (Spark / Thor / Orin):** After running `install_deps.sh`, always
 > activate the venv with `source .venv/bin/activate && source scripts/activate_<platform>.sh`
@@ -302,8 +300,11 @@ Then run the platform's TRT pipeline command inside the container (shown per pla
 
 ### Jetson Thor Setup
 
-Thor uses CUDA 13 and Python 3.12, which require a different dependency stack than x86 or Orin.
-Tested with JetPack 7.1.
+Thor uses JetPack 7.2 / Jetson Linux 39.2, CUDA 13.2, Python 3.12, and
+PyTorch 2.13.0 from the PyTorch cu132 index. Older JetPack releases are no
+longer supported. Thor and Orin share one CUDA 13.2 / PyTorch 2.13.0
+`flash-attn` wheel containing both `sm_87` and `sm_110` kernels. The installer
+builds it when a local or cached wheel is unavailable.
 There are two ways to run on Thor: Docker (recommended) or bare metal.
 
 <details>
@@ -329,9 +330,8 @@ python scripts/deployment/build_trt_pipeline.py \
 <summary><strong>Bare Metal</strong></summary>
 
 ```bash
-# One-time install (temporarily copies the Thor pyproject.toml and uv.lock to repo root,
-# installs NVPL libs, uv, Python deps, and builds torchcodec from source against the
-# system FFmpeg runtime)
+# One-time install (validates JetPack 7.x/R39, installs FFmpeg, uv, CUDA 13.2
+# dev packages when needed, Python deps, and a source-built flash-attn wheel)
 bash scripts/deployment/thor/install_deps.sh
 
 # In each new shell
@@ -342,6 +342,7 @@ source scripts/activate_thor.sh
 Then run the TRT pipeline or PyTorch inference as shown in the [TensorRT Acceleration](#tensorrt-acceleration) and [Quick Start](#quick-start-pytorch-inference) sections above.
 The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
 and `torch.compile` need on Thor.
+If you later run `uv sync`, rerun the Thor installer to restore the locally built wheel.
 </details>
 
 ---
@@ -375,8 +376,7 @@ python scripts/deployment/build_trt_pipeline.py \
 <summary><strong>Bare Metal</strong></summary>
 
 ```bash
-# One-time install (temporarily copies the Spark pyproject.toml and uv.lock to repo root,
-# installs NVPL libs, uv, Python deps, source-builds flash-attn for sm121, and builds
+# One-time install (installs NVPL libs, uv, Python deps, source-builds flash-attn for sm121, and builds
 # torchcodec from source against the system FFmpeg runtime)
 bash scripts/deployment/spark/install_deps.sh
 
@@ -394,10 +394,7 @@ Spark-specific `flash-attn` build is restored and revalidated.
 
 ### Jetson Orin Setup
 
-> **Note:** On Orin, only the DiT (action head) TRT export is currently supported. Use `--export-mode dit_only` instead of `full_pipeline`. Full pipeline support is in progress.
-
-Orin uses CUDA 12.6 and Python 3.10 (JetPack 6.2), which require a different dependency stack than x86 or Thor.
-Tested with JetPack 6.2.
+Orin uses JetPack 7.2 / Jetson Linux 39.2, CUDA 13.2, Python 3.12, and PyTorch 2.13.0 from the PyTorch cu132 index. JetPack 6.x / Jetson Linux R36 is no longer supported. Orin and Thor share one CUDA 13.2 / PyTorch 2.13.0 `flash-attn` wheel containing both `sm_87` and `sm_110` kernels; the installer builds it when a local or cached wheel is unavailable.
 There are two ways to run on Orin: Docker (recommended) or bare metal.
 
 <details>
@@ -409,14 +406,13 @@ Build the Orin container from the repo root:
 cd docker && bash build.sh --profile=orin && cd ..
 ```
 
-Then follow the [Shared Docker Workflow](#shared-docker-workflow) (image `gr00t-orin`) to download the model and start the container. Inside the container, run the TRT pipeline (DiT-only on Orin):
+Then follow the [Shared Docker Workflow](#shared-docker-workflow) (image `gr00t-orin`) to download the model and start the container. Inside the container, run the full TRT pipeline (export, build, verify, benchmark):
 
 ```bash
 python scripts/deployment/build_trt_pipeline.py \
   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
   --dataset-path demo_data/libero_demo \
-  --embodiment-tag LIBERO_PANDA \
-  --export-mode dit_only
+  --embodiment-tag LIBERO_PANDA
 ```
 </details>
 
@@ -424,9 +420,8 @@ python scripts/deployment/build_trt_pipeline.py \
 <summary><strong>Bare Metal</strong></summary>
 
 ```bash
-# One-time install (temporarily copies the Orin pyproject.toml and uv.lock to repo root,
-# installs uv, Python deps, and builds torchcodec from source against JetPack's FFmpeg
-# runtime)
+# One-time install (validates JetPack 7.x/R39, installs FFmpeg, uv, CUDA 13.2
+# dev packages when needed, Python deps, and a source-built flash-attn wheel)
 bash scripts/deployment/orin/install_deps.sh
 
 # In each new shell
@@ -434,29 +429,13 @@ source .venv/bin/activate
 source scripts/activate_orin.sh
 ```
 
-Then run the TRT pipeline (with `--export-mode dit_only`) or PyTorch inference as shown in the [TensorRT Acceleration](#tensorrt-acceleration) and [Quick Start](#quick-start-pytorch-inference) sections above.
+Then run the TRT pipeline or PyTorch inference as shown in the [TensorRT Acceleration](#tensorrt-acceleration) and [Quick Start](#quick-start-pytorch-inference) sections above.
 The activation script exports the PyTorch and CUDA library/include paths that `torchcodec`
 and `torch.compile` need on Orin.
+If you later run `uv sync`, rerun the Orin installer to restore the locally built wheel.
 </details>
 
 > **Orin storage tip:** If your eMMC root is low on space, redirect the HuggingFace cache to an NVMe SSD with `export HF_HOME=/path/to/ssd/.cache/huggingface` before downloading models.
-
-> **Orin TRT limitations:** TRT 10.3 on Orin does not support the backbone (LLM) engine. Use `--export-mode dit_only` for the unified pipeline and `--inference-mode tensorrt` (DiT-only TRT, backbone runs in PyTorch) for inference:
-> ```bash
-> python scripts/deployment/build_trt_pipeline.py \
->   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
->   --dataset-path demo_data/libero_demo \
->   --embodiment-tag LIBERO_PANDA \
->   --export-mode dit_only
->
-> python scripts/deployment/standalone_inference_script.py \
->   --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
->   --dataset-path demo_data/libero_demo \
->   --embodiment-tag LIBERO_PANDA \
->   --traj-ids 0 \
->   --inference-mode tensorrt \
->   --trt-engine-path ./gr00t_trt_deployment/engines
-> ```
 
 ---
 
@@ -503,7 +482,7 @@ and `torch.compile` need on Orin.
 | File | Description |
 |------|-------------|
 | `build_trt_pipeline.py` | Unified pipeline: export ONNX, build engines, verify, benchmark |
-| `standalone_inference_script.py` | Main inference script (PyTorch + DiT-only TensorRT) |
+| `standalone_inference_script.py` | Main inference script (PyTorch + DiT-only or full-pipeline TensorRT) |
 | `trt_torch.py` | TRT Engine wrapper class (load, bind, execute) |
 | `trt_model_forward.py` | TRT forward functions and setup (backbone + action head) |
 

@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Regression tests for the /tmp source-build cleanup trap.
+"""Regression tests for deployment installer /tmp source-build cleanup traps.
 
-The thor and spark install_deps.sh scripts source-build flash-attn /
-torchcodec under /tmp. Before this guard, a failure in `pip install`
-left /tmp/flash-attn or /tmp/torchcodec behind because `set -e` aborted
-the script before the explicit cleanup ran. The next install on the
-same host (CI runner / Docker build cache / dev machine) would then
-silently reuse the stale clone.
+The Spark and Jetson install_deps.sh scripts source-build under /tmp.
+Before this guard, a failure in `pip install` left
+/tmp/flash-attn or /tmp/torchcodec behind because `set -e` aborted the
+script before the explicit cleanup ran. The next install on the same
+host (CI runner / Docker build cache / dev machine) would then silently
+reuse the stale clone.
 
 These tests extract the exact trap prelude from the real installer
 scripts and replay it inside a controlled subprocess, asserting that
@@ -39,8 +39,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 INSTALLER_SCRIPTS = {
-    "thor": REPO_ROOT / "scripts/deployment/thor/install_deps.sh",
     "spark": REPO_ROOT / "scripts/deployment/spark/install_deps.sh",
+    "jetson": REPO_ROOT / "scripts/deployment/jetson/install_deps.sh",
 }
 
 
@@ -48,7 +48,7 @@ def _extract_trap_prelude(script_path: Path) -> str:
     """Pull the trap-cleanup prelude bytes verbatim from the real installer.
 
     Anchors on the substring between `set -euo pipefail` and the first
-    `SCRIPT_DIR=` line — both installers follow that layout.
+    `SCRIPT_DIR=` line.
     """
     text = script_path.read_text()
     match = re.search(r"(set -euo pipefail.*?)^SCRIPT_DIR=", text, re.DOTALL | re.MULTILINE)

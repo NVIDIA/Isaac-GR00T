@@ -133,7 +133,7 @@ the N1.6 model package and runtime behavior.
 
 **Fine-tuning:** 1 or more GPUs with 40 GB+ VRAM recommended. We recommend H100 or L40 nodes for optimal performance. Other hardware (e.g., A6000) works but may require longer training time. See the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md) for detailed specs.
 
-**CUDA / Python per platform:** dGPU on CUDA 12.8 with Python 3.12; Jetson Orin on CUDA 12.6 with Python 3.10; Jetson Thor and DGX Spark on CUDA 13.0 with Python 3.12. The per-platform install scripts and Dockerfiles live under `scripts/deployment/`; see the [Deployment & Inference Guide](scripts/deployment/README.md) for the full matrix.
+**CUDA / Python per platform:** dGPU on CUDA 12.8 with Python 3.12; Jetson Thor and Orin on JetPack 7.2 / CUDA 13.2 with Python 3.12; DGX Spark on CUDA 13.0 with Python 3.12. The per-platform install scripts and Dockerfiles live under `scripts/deployment/`; see the [Deployment & Inference Guide](scripts/deployment/README.md) for the full matrix.
 
 ### Clone the Repository
 
@@ -207,7 +207,7 @@ Note: GPU dependencies (flash-attn, TensorRT) may require manual installation wi
 
 > **GB300 (sm_103) Users:** Triton 3.3.1 (pinned by PyTorch 2.7) does not support the GB300 GPU architecture (sm_103). `torch.compile` will fail on GB300. Use PyTorch eager mode or TensorRT inference instead. Triton 3.5.1+ adds sm_103 support but is not yet compatible with the pinned PyTorch version.
 
-> **Video Backend:** GR00T uses [`torchcodec`](https://github.com/pytorch/torchcodec) as its sole video decoding backend. Backends such as `decord` and `pyav` are no longer supported. `torchcodec` 0.8.0 requires **FFmpeg 4-7** (FFmpeg 8 is not supported — see the FFmpeg version note above) and supports H.264 on all platforms; AV1 decoding is not guaranteed (convert AV1 datasets to H.264 with `examples/SimplerEnv/convert_av1_to_h264.py`). On aarch64 platforms (Thor, Orin), `torchcodec` is built from source during `install_deps.sh` because pre-built wheels are not available — if you encounter a `NotImplementedError`, ensure the build completed successfully.
+> **Video Backend:** GR00T uses [`torchcodec`](https://github.com/pytorch/torchcodec) as its sole video decoding backend. Backends such as `decord` and `pyav` are no longer supported. The default dGPU install pins `torchcodec` 0.8.0, which requires **FFmpeg 4-7** (FFmpeg 8 is not supported — see the FFmpeg version note above) and supports H.264 on all platforms; AV1 decoding is not guaranteed (convert AV1 datasets to H.264 with `examples/SimplerEnv/convert_av1_to_h264.py`). JetPack 7.2 Thor and Orin use the PyTorch cu132 `torchcodec` 0.15.0 wheel; Spark may build `torchcodec` from source during `install_deps.sh` when a platform wheel is not available.
 
 <details>
 <summary><strong>DGX Spark</strong> (tested with DGX Spark GB10)</summary>
@@ -222,13 +222,7 @@ See the [Spark setup guide](scripts/deployment/README.md#dgx-spark-setup) for Do
 </details>
 
 <details>
-<summary><strong>Jetson AGX Thor</strong> (tested with JetPack 7.1)</summary>
-
-> **flash-attn on older systems (e.g., Ubuntu 20.04 with glibc < 2.35):** The pre-built `flash-attn` wheel may fail with `ImportError: glibc_compat.so: cannot open shared object file`. To fix this, build from source:
-> ```sh
-> uv pip install flash-attn==2.7.4.post1 --no-binary flash-attn --no-cache
-> ```
-> This compiles locally (~10-30 minutes) and avoids the glibc compatibility issue.
+<summary><strong>Jetson AGX Thor</strong> (tested with JetPack 7.2)</summary>
 
 ```bash
 bash scripts/deployment/thor/install_deps.sh
@@ -240,7 +234,7 @@ See the [Thor setup guide](scripts/deployment/README.md#jetson-thor-setup) for D
 </details>
 
 <details>
-<summary><strong>Jetson Orin</strong> (tested with JetPack 6.2)</summary>
+<summary><strong>Jetson Orin</strong> (tested with JetPack 7.2)</summary>
 
 ```bash
 bash scripts/deployment/orin/install_deps.sh

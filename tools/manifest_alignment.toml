@@ -6,14 +6,12 @@
 # tolerates. CUDA / wheel-index-tied packages are auto-skipped by name
 # pattern in the script and do NOT need an entry here.
 
-# `diffusers` versions are pinned to the per-Jetson-family wheel index
-# (orin uses jp6/cu126, spark/thor use sbsa/cu130, main uses PyPI
-# 0.35.1). The dev pins (`0.35.0.dev0`, `0.36.0.dev0`) only resolve
-# against the Jetson AI Lab indices, so this is effectively HW-forced
-# but doesn't match the auto-skip pattern (the package name has no
-# CUDA / nvidia prefix).
+# `diffusers` versions are pinned to the available platform wheel stacks.
+# Main, Orin, and Thor use PyPI stable 0.35.1; Spark uses the Jetson AI Lab
+# sbsa/cu130 dev pin. This is effectively HW-forced but doesn't match
+# the auto-skip pattern (the package name has no CUDA / nvidia prefix).
 [allowed_drifts.diffusers]
-reason = "HW-forced via jetson-jp6-cu126 / jetson-sbsa-cu130 wheel indices"
+reason = "Spark is HW-forced via jetson-sbsa-cu130; main/Orin/Thor use PyPI stable"
 
 # `transformers==4.57.3` (main, spark) vs `==4.57.6` (orin, thor) is a
 # patch-level sync lag, not a HW constraint. Aligning requires owner

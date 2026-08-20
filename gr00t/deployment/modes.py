@@ -45,7 +45,7 @@ import enum
 
 
 class _StrEnum(str, enum.Enum):
-    """``enum.StrEnum`` stand-in for Python 3.10 (dGPU/Orin).
+    """``enum.StrEnum`` compatibility shim for older Python deployments.
 
     Members are ``str`` subclasses whose value equals their name, so ``==``,
     ``in``, dict-keying, JSON, f-strings, and ``tyro`` choices all see the bare

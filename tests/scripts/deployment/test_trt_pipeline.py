@@ -35,6 +35,7 @@ Environment variables (all optional):
 from __future__ import annotations
 
 import contextlib
+import gc
 import logging
 import os
 import subprocess
@@ -64,6 +65,7 @@ from test_support.runtime import (  # noqa: E402
     resolve_libero_demo_dataset_path,
     resolve_libero_n17_libero10_checkpoint_path,
 )
+import torch  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
@@ -97,10 +99,22 @@ def _truncated_policy():
         yield
 
 
+@pytest.fixture
+def _release_cuda_memory():
+    yield
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+
+
 @pytest.mark.gpu
-@pytest.mark.timeout(600)
+@pytest.mark.edge_device
+@pytest.mark.timeout(1200)
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_trt_full_pipeline(batch_size: int, tmp_path, load_hf_model_weights) -> None:
+def test_trt_full_pipeline(
+    batch_size: int, tmp_path, load_hf_model_weights, _release_cuda_memory
+) -> None:
     """Export ONNX, build TRT engines, and verify cosine similarity >= threshold."""
 
     model_path = str(
