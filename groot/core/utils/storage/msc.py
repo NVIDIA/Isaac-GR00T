@@ -32,35 +32,6 @@ HF_MODEL_URI_PREFIX = "hf://model/"
 DEFAULT_HF_ARTIFACT_CACHE_ROOT = "/tmp/groot_hf_artifacts"
 
 
-def _msc_telemetry_stack_ready() -> bool:
-    """Return True only if MSC's ``_otlp_mtls_vault`` telemetry stack can initialize.
-
-    MSC runs telemetry inside a multiprocessing manager and, when the exporter fails to
-    import, swallows the ImportError/AttributeError and returns a ``None`` instrument.
-    Across the manager that ``None`` becomes an ``AutoProxy`` with no ``.add``/``.set``,
-    so the first storage operation crashes the job with
-    ``'AutoProxy[opentelemetry.metrics.Counter]' object has no attribute 'add'``.
-    MSC does not honor ``OTEL_SDK_DISABLED``, so verify the whole stack here and only
-    enable telemetry when it can actually work; otherwise metrics are disabled and
-    training is unaffected.
-    """
-    try:
-        import inspect
-
-        from cryptography import x509  # noqa: F401
-        import hvac  # noqa: F401
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-        import opentelemetry.sdk.metrics  # noqa: F401
-
-        params = inspect.signature(OTLPMetricExporter.__init__).parameters
-        if "client_certificate_file" not in params:
-            raise RuntimeError("OTLP HTTP exporter < 1.32.1 lacks mTLS cert kwargs")
-    except Exception as e:
-        logging.warning("MSC telemetry deps unavailable (%s); disabling metrics.", e)
-        return False
-    return True
-
-
 class DataSyncConfigBuilder:
 
     def __init__(
@@ -154,89 +125,13 @@ class DataSyncConfigBuilder:
         self.config["cache"]["size"] = size
         self.config["cache"]["check_source_version"] = False
 
-    def _configure_telemetry(self):
-        """
-        Enable OpenTelemetry metrics collection and export.
-        """
-        if not os.environ.get("MSC_VAULT_APPROLE_ID") or not os.environ.get(
-            "MSC_VAULT_APPROLE_SECRET"
-        ):
-            return
-
-        # Only emit the telemetry config when MSC's exporter stack can actually
-        # initialize; otherwise MSC returns a None instrument that crashes the storage
-        # data path across its multiprocessing manager (see _msc_telemetry_stack_ready).
-        if not _msc_telemetry_stack_ready():
-            return
-
-        self.config["opentelemetry"] = {
-            "metrics": {
-                "attributes": [
-                    {
-                        "type": "static",
-                        "options": {
-                            "attributes": {
-                                "msc.ppp": "GR00T",
-                                "msc.cluster": "OSMO",
-                                "msc.job": os.environ.get("SUBMISSION_ID", "data_sync"),
-                            }
-                        },
-                    },
-                    {"type": "host", "options": {"attributes": {"msc.node": "name"}}},
-                    {"type": "process", "options": {"attributes": {"msc.process": "pid"}}},
-                    {
-                        "type": "msc_config",
-                        "options": {
-                            "attributes": {
-                                "msc.vault_approle_id": {
-                                    "expression": "opentelemetry.metrics.exporter.options.auth.approle_id"
-                                },
-                                "msc.vault_approle_secret": {
-                                    "expression": "hash('sha3-224', opentelemetry.metrics.exporter.options.auth.approle_secret)"
-                                },
-                            }
-                        },
-                    },
-                ],
-                "reader": {
-                    "options": {
-                        # ≤ 100 Hz collect frequency.
-                        "collect_interval_millis": 10,
-                        "collect_timeout_millis": 100,
-                        # ≤ 1 Hz export frequency.
-                        "export_interval_millis": 1000,
-                        "export_timeout_millis": 500,
-                    }
-                },
-                "exporter": {
-                    "type": "_otlp_mtls_vault",
-                    "options": {
-                        "exporter": {
-                            "endpoint": "https://otlp.us-west-2.aws.telemetry.dgxc.ngc.nvidia.com/v1/metrics"
-                        },
-                        "auth": {
-                            "vault_endpoint": "https://prod.vault.nvidia.com",
-                            "vault_namespace": "ngc-multi-storage-client",
-                            "approle_id": os.environ.get("MSC_VAULT_APPROLE_ID", ""),
-                            "approle_secret": os.environ.get("MSC_VAULT_APPROLE_SECRET", ""),
-                            "mount_point": "panoptes/mtls",
-                            "secret_path": "certs/prod-customers",
-                            "cert_key": "multi-storage-client-prod-customers-ingest-cert.crt",
-                            "key_key": "multi-storage-client-prod-customers-ingest-key.key",
-                            "ca_key": "multi-storage-client-prod-customers-ingest-ca-chain.crt",
-                        },
-                    },
-                },
-            }
-        }
-
     def build(self):
         """
         Build the MSC configuration file and set the environment variable.
-        """
-        if self.enable_telemetry:
-            self._configure_telemetry()
 
+        ``enable_telemetry`` is retained for API compatibility with the internal
+        implementation. The public implementation never configures internal telemetry.
+        """
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yaml") as temp_file:
             yaml.dump(self.config, temp_file)
             os.environ["MSC_CONFIG"] = temp_file.name
@@ -292,7 +187,7 @@ def sync_s3_uri_to_local(
         profile_name: MSC profile name to create for this sync.
         credentials_file: Gear data credentials file.
         credentials_profile: Credentials profile to read from ``credentials_file``.
-        enable_telemetry: Whether to enable MSC telemetry in the generated config.
+        enable_telemetry: Retained for API compatibility; ignored in the OSS package.
     """
     if not MSC_AVAILABLE:
         raise ImportError("multistorageclient is required to sync S3 assets")
