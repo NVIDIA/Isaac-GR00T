@@ -7,8 +7,7 @@ artifacts are large, so treat this as an integration smoke test rather than a
 meaningful training run.
 
 Run every command below from the package root, the directory containing
-`pyproject.toml`. This is the repository root in a staging or release checkout
-and the `oss/` directory in the internal monorepo.
+`pyproject.toml`.
 
 ## Requirements
 

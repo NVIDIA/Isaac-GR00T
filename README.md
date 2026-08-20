@@ -19,7 +19,7 @@ the supported workflow and success criteria. To run the same onboarding
 manually, follow the
 [minimal end-to-end example](docs/minimal_example.md).
 
-This package exposes OSS-local post-training, open-loop evaluation, and policy
+This package exposes local post-training, open-loop evaluation, and policy
 serving through `uv run --no-sync python -m groot.infra.oss` after installing
 the training environment.
 
@@ -68,7 +68,7 @@ arguments used for each input.
 
 ## Train
 
-Run from the OSS package root with a local LeRobot dataset:
+Run from the repository root with a local LeRobot dataset:
 
 ```bash
 uv run --no-sync python -m groot.infra.oss train \
@@ -87,8 +87,8 @@ uv run --no-sync python -m groot.infra.oss train \
   --max-steps 2
 ```
 
-The OSS CLI defaults to its public N2 training experiment, so no experiment
-name is required. OSS training requires an explicit `--embodiment-tag` and
+The training CLI uses its fixed N2 training experiment, so no experiment name
+is required. Training requires an explicit `--embodiment-tag` and
 either `--dataset-path` or an intentional replacement of the complete
 `data.datasets` list with `--set`.
 
@@ -130,7 +130,7 @@ server.
 
 ## Model Artifacts
 
-By default the OSS training entrypoint loads GR00T 2 model dependencies from
+By default the training entrypoint loads GR00T 2 model dependencies from
 Hugging Face:
 
 - `hf://model/nvidia/Cosmos-Reason1-7B@375e24000b24baed78f4618d3dd779e47cd96323`
@@ -140,29 +140,10 @@ Hugging Face:
 
 Pass `--pretrain-checkpoint` if you want to override the default pretrain
 checkpoint with another `hf://model/...` URI or a local checkpoint path.
-The default `base_200k` checkpoint and OSS training configuration both retain
+The default `base_200k` checkpoint and training configuration both retain
 all 32 embodiment-specific robot heads. The dataset's `--embodiment-tag`
 selects the head used by each training example.
 
 Set `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`, or `HUGGINGFACE_TOKEN` when training
 or evaluation needs to download a private Hugging Face checkpoint or model
 dependency.
-
-## Boundary
-
-The OSS package includes reusable launcher and evaluation code:
-
-- `groot.infra.launcher`
-- `groot.infra.experiments.training.configs.n2_oss_pretrain`
-- `groot.infra.experiments.training.configs._n2_base_*`
-- `groot.infra.experiments.training.configs._n2_model_config`
-- `groot.infra.eval`
-- `groot.infra.oss`
-- `groot.infra.job.data_credentials` (temporary symlink for hydrator credential loading)
-
-TODO: remove the temporary `groot.infra.job.data_credentials` symlink once the
-hydrator credential helper no longer lives under job infra.
-
-It intentionally does not package the rest of `groot.infra.job`,
-`groot.infra.ci`, or `groot.internal`, which contain internal GitLab, OSMO, and
-cluster submission code.
