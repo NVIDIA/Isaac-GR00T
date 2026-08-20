@@ -61,10 +61,16 @@ GROOT_DATA_ROOT="${GROOT_DATA_ROOT:-/data/groot_ol}"
 MODEL_DEPS_URI="${MODEL_DEPS_URI:-s3://GearCheckpoints/model_deps}"
 POST_TRAINING_CHECKPOINT_URI="${POST_TRAINING_CHECKPOINT_URI:-${GROOT_OL_POST_TRAINING_CHECKPOINT_URI:-}}"
 POST_TRAINING_CHECKPOINT_DESTINATION="${POST_TRAINING_CHECKPOINT_DESTINATION:-post_training_golden_run/checkpoint-20000}"
+ADDITIONAL_POST_TRAINING_CHECKPOINT_URI="${ADDITIONAL_POST_TRAINING_CHECKPOINT_URI:-}"
+ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION="${ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION:-}"
 DATASET_ARCHIVE_URI="${DATASET_ARCHIVE_URI:-}"
 DATASET_ARCHIVE_SHA256="${DATASET_ARCHIVE_SHA256:-}"
 ROBOCASA_RUNTIME_ARCHIVE_URI="${ROBOCASA_RUNTIME_ARCHIVE_URI:-}"
 ROBOCASA_RUNTIME_ARCHIVE_SHA256="${ROBOCASA_RUNTIME_ARCHIVE_SHA256:-}"
+ROBODOJO_DATASET_ARCHIVE_URI="${ROBODOJO_DATASET_ARCHIVE_URI:-}"
+ROBODOJO_DATASET_ARCHIVE_SHA256="${ROBODOJO_DATASET_ARCHIVE_SHA256:-}"
+ROBODOJO_RUNTIME_ARCHIVE_URI="${ROBODOJO_RUNTIME_ARCHIVE_URI:-}"
+ROBODOJO_RUNTIME_ARCHIVE_SHA256="${ROBODOJO_RUNTIME_ARCHIVE_SHA256:-}"
 ARTIFACT_MAX_MIB_PER_SECOND="${ARTIFACT_MAX_MIB_PER_SECOND:-0}"
 BUCKET_ACCESS_KEY_ID_ENV="${BUCKET_ACCESS_KEY_ID_ENV:-BUCKET_ACCESS_KEY_ID}"
 BUCKET_SECRET_ACCESS_KEY_ENV="${BUCKET_SECRET_ACCESS_KEY_ENV:-BUCKET_SECRET_ACCESS_KEY}"
@@ -101,6 +107,7 @@ readonly HEAD_CONTAINER="groot-ray-head"
 readonly WORKER_CONTAINER="groot-ray-worker"
 readonly REMOTE_ROOT="/tmp/groot-ray-cluster"
 readonly RAY_PORT="6379"
+readonly TARGET_GPU_TAG="GB300"
 readonly TARGET_GPU_NAME="NVIDIA GB300"
 readonly SECONDARY_GPU_NAME_PATTERN="RTX PRO 2000"
 GPU_PROFILE="${GPU_PROFILE:-gb300}"
@@ -206,12 +213,25 @@ Options:
                                 Can also be set with GROOT_OL_POST_TRAINING_CHECKPOINT_URI.
   --post-training-checkpoint-destination PATH
                                 Relative directory under data-root/checkpoints.
+  --additional-post-training-checkpoint-uri URI
+                                Optional second S3 checkpoint prefix to mirror.
+  --additional-post-training-checkpoint-destination PATH
+                                Relative directory for the optional second checkpoint.
   --dataset-archive-uri URI     Optional S3 tar archive extracted under data-root/datasets.
   --dataset-archive-sha256 HEX  Required SHA-256 when --dataset-archive-uri is set.
   --robocasa-runtime-archive-uri URI
                                 Optional S3 tar archive extracted under data-root/runtime.
   --robocasa-runtime-archive-sha256 HEX
                                 Required SHA-256 when the runtime archive is set.
+  --robodojo-dataset-archive-uri URI
+                                Optional S3 tar archive extracted under
+                                data-root/datasets/robodojo_benchmark.
+  --robodojo-dataset-archive-sha256 HEX
+                                Required SHA-256 when the RoboDojo dataset archive is set.
+  --robodojo-runtime-archive-uri URI
+                                Optional S3 tar archive extracted under data-root/runtime.
+  --robodojo-runtime-archive-sha256 HEX
+                                Required SHA-256 when the RoboDojo runtime archive is set.
   --artifact-max-mib-per-second RATE
                                 Limit each host's artifact download rate. Zero disables
                                 throttling. Default: ${ARTIFACT_MAX_MIB_PER_SECOND}.
@@ -507,6 +527,16 @@ parse_args() {
         POST_TRAINING_CHECKPOINT_DESTINATION="$2"
         shift 2
         ;;
+      --additional-post-training-checkpoint-uri)
+        require_value "$1" "${2:-}"
+        ADDITIONAL_POST_TRAINING_CHECKPOINT_URI="$2"
+        shift 2
+        ;;
+      --additional-post-training-checkpoint-destination)
+        require_value "$1" "${2:-}"
+        ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION="$2"
+        shift 2
+        ;;
       --dataset-archive-uri)
         require_value "$1" "${2:-}"
         DATASET_ARCHIVE_URI="$2"
@@ -525,6 +555,26 @@ parse_args() {
       --robocasa-runtime-archive-sha256)
         require_value "$1" "${2:-}"
         ROBOCASA_RUNTIME_ARCHIVE_SHA256="$2"
+        shift 2
+        ;;
+      --robodojo-dataset-archive-uri)
+        require_value "$1" "${2:-}"
+        ROBODOJO_DATASET_ARCHIVE_URI="$2"
+        shift 2
+        ;;
+      --robodojo-dataset-archive-sha256)
+        require_value "$1" "${2:-}"
+        ROBODOJO_DATASET_ARCHIVE_SHA256="$2"
+        shift 2
+        ;;
+      --robodojo-runtime-archive-uri)
+        require_value "$1" "${2:-}"
+        ROBODOJO_RUNTIME_ARCHIVE_URI="$2"
+        shift 2
+        ;;
+      --robodojo-runtime-archive-sha256)
+        require_value "$1" "${2:-}"
+        ROBODOJO_RUNTIME_ARCHIVE_SHA256="$2"
         shift 2
         ;;
       --artifact-max-mib-per-second)
@@ -795,6 +845,12 @@ validate_args() {
       die "--post-training-checkpoint-destination must be a safe relative path"
       ;;
   esac
+  case "${ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION}" in
+    "") ;;
+    /*|*..*|*[!A-Za-z0-9._/-]*)
+      die "--additional-post-training-checkpoint-destination must be a safe relative path"
+      ;;
+  esac
   case "${SYNC_POST_TRAINING_ARTIFACTS}" in
     0|1) ;;
     *) die "SYNC_POST_TRAINING_ARTIFACTS must be 0 or 1" ;;
@@ -808,6 +864,14 @@ validate_args() {
       [[ "${POST_TRAINING_CHECKPOINT_URI}" == s3://* ]] || die "--post-training-checkpoint-uri must be an s3:// URI"
     elif [[ "${DRY_RUN}" == "0" ]]; then
       die "provide --post-training-checkpoint-uri as an s3:// URI"
+    fi
+    if [[ -n "${ADDITIONAL_POST_TRAINING_CHECKPOINT_URI}" ]]; then
+      [[ "${ADDITIONAL_POST_TRAINING_CHECKPOINT_URI}" == s3://* ]] \
+        || die "--additional-post-training-checkpoint-uri must be an s3:// URI"
+      [[ -n "${ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION}" ]] \
+        || die "--additional-post-training-checkpoint-uri requires --additional-post-training-checkpoint-destination"
+    elif [[ -n "${ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION}" ]]; then
+      die "--additional-post-training-checkpoint-destination requires --additional-post-training-checkpoint-uri"
     fi
     if [[ -n "${DATASET_ARCHIVE_URI}" ]]; then
       [[ "${DATASET_ARCHIVE_URI}" == s3://* ]] \
@@ -824,6 +888,22 @@ validate_args() {
         || die "--robocasa-runtime-archive-sha256 must contain 64 hexadecimal characters"
     elif [[ -n "${ROBOCASA_RUNTIME_ARCHIVE_SHA256}" ]]; then
       die "--robocasa-runtime-archive-sha256 requires --robocasa-runtime-archive-uri"
+    fi
+    if [[ -n "${ROBODOJO_DATASET_ARCHIVE_URI}" ]]; then
+      [[ "${ROBODOJO_DATASET_ARCHIVE_URI}" == s3://* ]] \
+        || die "--robodojo-dataset-archive-uri must be an s3:// URI"
+      [[ "${ROBODOJO_DATASET_ARCHIVE_SHA256}" =~ ^[[:xdigit:]]{64}$ ]] \
+        || die "--robodojo-dataset-archive-sha256 must contain 64 hexadecimal characters"
+    elif [[ -n "${ROBODOJO_DATASET_ARCHIVE_SHA256}" ]]; then
+      die "--robodojo-dataset-archive-sha256 requires --robodojo-dataset-archive-uri"
+    fi
+    if [[ -n "${ROBODOJO_RUNTIME_ARCHIVE_URI}" ]]; then
+      [[ "${ROBODOJO_RUNTIME_ARCHIVE_URI}" == s3://* ]] \
+        || die "--robodojo-runtime-archive-uri must be an s3:// URI"
+      [[ "${ROBODOJO_RUNTIME_ARCHIVE_SHA256}" =~ ^[[:xdigit:]]{64}$ ]] \
+        || die "--robodojo-runtime-archive-sha256 must contain 64 hexadecimal characters"
+    elif [[ -n "${ROBODOJO_RUNTIME_ARCHIVE_SHA256}" ]]; then
+      die "--robodojo-runtime-archive-sha256 requires --robodojo-runtime-archive-uri"
     fi
   fi
   case "${SSH_CONNECT_TIMEOUT}" in
@@ -1016,7 +1096,7 @@ discover_colossus_candidates() {
 
   validate_colossus_pool_access
   if ! colossus_cli bm resource list \
-    --filters "poolId=${COLOSSUS_POOL_ID}" status=AVAILABLE gpuTag=GB300 \
+    --filters "poolId=${COLOSSUS_POOL_ID}" status=AVAILABLE "gpuTag=${TARGET_GPU_TAG}" \
     --authorized-to-reserve \
     --json > "${resources_path}"; then
     die "failed to list available resources in Colossus pool ${COLOSSUS_POOL_ID}"
@@ -1034,6 +1114,7 @@ discover_colossus_candidates() {
       "${active_path}" \
       "${pending_path}" \
       "${COLOSSUS_POOL_ID}" \
+      "${TARGET_GPU_TAG}" \
       "${COLOSSUS_OS}" \
       "${COLOSSUS_RESOURCE_GPU_COUNT}" \
       "${excluded_names}" <<'PY'
@@ -1047,6 +1128,7 @@ import sys
     active_path,
     pending_path,
     pool_id,
+    required_gpu_tag,
     requested_os,
     gpu_count_text,
     excluded_names_text,
@@ -1082,9 +1164,12 @@ for resource in load_records(resources_path):
         continue
     if str(resource.get("status", "")).upper() != "AVAILABLE":
         continue
-    if resource.get("gpuTag") != "GB300":
+    if resource.get("gpuTag") != required_gpu_tag:
         continue
-    if required_gpu_count is not None and resource.get("gpuCount") != required_gpu_count:
+    if required_gpu_count is not None and (
+        type(resource.get("gpuCount")) is not int
+        or resource.get("gpuCount") != required_gpu_count
+    ):
         continue
     name = resource.get("name")
     if (
@@ -1169,13 +1254,24 @@ load_existing_colossus_host() {
     python3 - \
       "${existing_path}" \
       "${COLOSSUS_EXISTING_LEASE_ID}" \
+      "${COLOSSUS_POOL_ID}" \
+      "${TARGET_GPU_TAG}" \
+      "${COLOSSUS_RESOURCE_GPU_COUNT}" \
       "${include_credentials}" <<'PY'
 import json
 import re
 import shlex
 import sys
 
-path, expected_id, include_credentials = sys.argv[1:]
+(
+    path,
+    expected_id,
+    expected_pool_id,
+    expected_gpu_tag,
+    gpu_count_text,
+    include_credentials,
+) = sys.argv[1:]
+required_gpu_count = int(gpu_count_text) if gpu_count_text else None
 with open(path) as f:
     data = json.load(f)
 records = data if isinstance(data, list) else [data]
@@ -1195,6 +1291,24 @@ entity = record.get("entity_details") or {}
 secrets = record.get("lease_secrets") or {}
 if str(details.get("status", "")).upper() != "ACTIVE":
     raise SystemExit("existing lease is not active")
+if entity.get("poolId") != expected_pool_id:
+    raise SystemExit(
+        f"existing lease resource poolId is {entity.get('poolId')!r}, "
+        f"expected {expected_pool_id!r}"
+    )
+if entity.get("gpuTag") != expected_gpu_tag:
+    raise SystemExit(
+        f"existing lease resource gpuTag is {entity.get('gpuTag')!r}, "
+        f"expected {expected_gpu_tag!r}"
+    )
+if required_gpu_count is not None and (
+    type(entity.get("gpuCount")) is not int
+    or entity.get("gpuCount") != required_gpu_count
+):
+    raise SystemExit(
+        f"existing lease resource gpuCount is {entity.get('gpuCount')!r}, "
+        f"expected {required_gpu_count}"
+    )
 name = details.get("resourceName") or entity.get("name")
 host = entity.get("fqdn")
 if (
@@ -1581,8 +1695,12 @@ print_dry_run() {
     log "model deps source: ${MODEL_DEPS_URI}"
     log "post-training checkpoint source: ${POST_TRAINING_CHECKPOINT_URI:-<required for real run>}"
     log "post-training checkpoint destination: ${POST_TRAINING_CHECKPOINT_DESTINATION}"
+    log "additional post-training checkpoint source: ${ADDITIONAL_POST_TRAINING_CHECKPOINT_URI:-<disabled>}"
+    log "additional post-training checkpoint destination: ${ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION:-<disabled>}"
     log "dataset archive: ${DATASET_ARCHIVE_URI:-<disabled>}"
     log "RoboCasa runtime archive: ${ROBOCASA_RUNTIME_ARCHIVE_URI:-<disabled>}"
+    log "RoboDojo dataset archive: ${ROBODOJO_DATASET_ARCHIVE_URI:-<disabled>}"
+    log "RoboDojo runtime archive: ${ROBODOJO_RUNTIME_ARCHIVE_URI:-<disabled>}"
     log "bucket credential env vars: ${BUCKET_ACCESS_KEY_ID_ENV}, ${BUCKET_SECRET_ACCESS_KEY_ENV}, ${BUCKET_ENDPOINT_URL_ENV}, ${BUCKET_REGION_ENV}"
   else
     log "post-training artifacts: disabled"
@@ -2062,22 +2180,23 @@ common_ray_args=(
   "--disable-usage-stats"
   "--block"
 )
-if [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
+if [[ "${gpu_profile}" == "gb300" ]]; then
+  common_ray_args+=("--resources='{\"GB300\":1}'")
+elif [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
   # ray_start is passed through a second Bash parser below. Preserve literal
   # quotes around the JSON so brace expansion cannot split it into two args.
   common_ray_args+=("--resources='{\"GB300\":1,\"RTXPRO2000\":1}'")
 fi
 
 declare -a control_gpu_telemetry_args=()
-if [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
-  # Ray schedules the logical GPUs into sibling Podman containers. Give the
-  # control container utility-only access to the physical devices so its
-  # dashboard agent can read NVML telemetry without exposing CUDA compute.
-  control_gpu_telemetry_args+=(
-    --gpus 'all,"capabilities=utility"'
-    --env "NVIDIA_DRIVER_CAPABILITIES=utility"
-  )
-fi
+# Ray schedules the logical GPUs into sibling Podman containers. Give the
+# control container utility-only access to the physical devices so its
+# dashboard agent can read NVML telemetry without exposing CUDA compute.
+# This is required for both the one-GPU and mixed two-GPU profiles.
+control_gpu_telemetry_args+=(
+  --gpus 'all,"capabilities=utility"'
+  --env "NVIDIA_DRIVER_CAPABILITIES=utility"
+)
 
 declare -a head_metrics_env_args=()
 if [[ "${role}" == "head" ]]; then
@@ -2613,6 +2732,12 @@ def main() -> None:
     model_deps = required_env("GROOT_MODEL_DEPS_URI").rstrip("/")
     post_training_checkpoint = required_env("GROOT_POST_TRAINING_CHECKPOINT_URI")
     checkpoint_destination = required_env("GROOT_POST_TRAINING_CHECKPOINT_DESTINATION")
+    additional_post_training_checkpoint = os.environ.get(
+        "GROOT_ADDITIONAL_POST_TRAINING_CHECKPOINT_URI", ""
+    ).strip()
+    additional_checkpoint_destination = os.environ.get(
+        "GROOT_ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION", ""
+    ).strip()
     s3 = s3_client()
 
     sync_prefix(
@@ -2637,6 +2762,12 @@ def main() -> None:
         post_training_checkpoint,
         root / "checkpoints" / checkpoint_destination,
     )
+    if additional_post_training_checkpoint:
+        sync_prefix(
+            s3,
+            additional_post_training_checkpoint,
+            root / "checkpoints" / additional_checkpoint_destination,
+        )
     stage_archive(
         s3,
         os.environ.get("GROOT_DATASET_ARCHIVE_URI", "").strip(),
@@ -2652,6 +2783,18 @@ def main() -> None:
             os.environ.get("GROOT_ROBOCASA_RUNTIME_ARCHIVE_SHA256", "").strip(),
             root / "runtime",
         )
+    stage_archive(
+        s3,
+        os.environ.get("GROOT_ROBODOJO_DATASET_ARCHIVE_URI", "").strip(),
+        os.environ.get("GROOT_ROBODOJO_DATASET_ARCHIVE_SHA256", "").strip(),
+        root / "datasets/robodojo_benchmark",
+    )
+    stage_archive(
+        s3,
+        os.environ.get("GROOT_ROBODOJO_RUNTIME_ARCHIVE_URI", "").strip(),
+        os.environ.get("GROOT_ROBODOJO_RUNTIME_ARCHIVE_SHA256", "").strip(),
+        root / "runtime",
+    )
     log("post-training artifacts are ready")
 
 
@@ -2952,10 +3095,16 @@ PY
       printf 'GROOT_MODEL_DEPS_URI=%s\n' "${MODEL_DEPS_URI}"
       printf 'GROOT_POST_TRAINING_CHECKPOINT_URI=%s\n' "${POST_TRAINING_CHECKPOINT_URI}"
       printf 'GROOT_POST_TRAINING_CHECKPOINT_DESTINATION=%s\n' "${POST_TRAINING_CHECKPOINT_DESTINATION}"
+      printf 'GROOT_ADDITIONAL_POST_TRAINING_CHECKPOINT_URI=%s\n' "${ADDITIONAL_POST_TRAINING_CHECKPOINT_URI}"
+      printf 'GROOT_ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION=%s\n' "${ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION}"
       printf 'GROOT_DATASET_ARCHIVE_URI=%s\n' "${DATASET_ARCHIVE_URI}"
       printf 'GROOT_DATASET_ARCHIVE_SHA256=%s\n' "${DATASET_ARCHIVE_SHA256}"
       printf 'GROOT_ROBOCASA_RUNTIME_ARCHIVE_URI=%s\n' "${ROBOCASA_RUNTIME_ARCHIVE_URI}"
       printf 'GROOT_ROBOCASA_RUNTIME_ARCHIVE_SHA256=%s\n' "${ROBOCASA_RUNTIME_ARCHIVE_SHA256}"
+      printf 'GROOT_ROBODOJO_DATASET_ARCHIVE_URI=%s\n' "${ROBODOJO_DATASET_ARCHIVE_URI}"
+      printf 'GROOT_ROBODOJO_DATASET_ARCHIVE_SHA256=%s\n' "${ROBODOJO_DATASET_ARCHIVE_SHA256}"
+      printf 'GROOT_ROBODOJO_RUNTIME_ARCHIVE_URI=%s\n' "${ROBODOJO_RUNTIME_ARCHIVE_URI}"
+      printf 'GROOT_ROBODOJO_RUNTIME_ARCHIVE_SHA256=%s\n' "${ROBODOJO_RUNTIME_ARCHIVE_SHA256}"
       printf 'GROOT_ARTIFACT_MAX_MIB_PER_SECOND=%s\n' "${ARTIFACT_MAX_MIB_PER_SECOND}"
     } > "${TMP_DIR}/data-credentials.env"
     chmod 0600 "${TMP_DIR}/data-credentials.env"
@@ -3626,9 +3775,10 @@ nodes = {
     for node in ray.nodes()
     if node.get('Alive')
 }
-ready = all(
+ready = bool(expected) and all(
     ip in nodes
     and float(nodes[ip].get('Resources', {}).get('GPU', 0)) >= ${expected_node_gpus}
+    and float(nodes[ip].get('Resources', {}).get('GB300', 0)) >= 1
     and (
         '${GPU_PROFILE}' != 'gb300-rtx-pro-2000'
         or (
@@ -3646,25 +3796,40 @@ PY
 
 wait_for_cluster_gpus() {
   local expected_gpus="$1"
+  local expected_ips expected_node_gpus="1"
   local host="${HOSTS[0]}"
   local user="${USERS[0]}"
   local password="${PASSWORDS[0]}"
 
+  expected_ips="$(IFS=,; printf '%s' "${NODE_IPS[*]}")"
+  if [[ "${GPU_PROFILE}" == "gb300-rtx-pro-2000" ]]; then
+    expected_node_gpus="2"
+  fi
   log "${host}: waiting for Ray cluster to report ${expected_gpus} profile-backed GPU(s)"
   remote_sudo_bash_lc "${host}" "${user}" "${password}" \
-    "for i in \$(seq 1 60); do actual=\$(docker exec -i ${HEAD_CONTAINER} python - <<'PY' 2>/dev/null | awk '/^[0-9]+$/ {value=\$1} END {print value}' || true
+    "for i in \$(seq 1 60); do actual=\$(docker exec -e EXPECTED_NODE_IPS=$(shell_quote "${expected_ips}") -i ${HEAD_CONTAINER} python - <<'PY' 2>/dev/null | awk '/^[0-9]+$/ {value=\$1} END {print value}' || true
+import os
 import ray
 ray.init(address='auto', logging_level='ERROR')
 resources = ray.cluster_resources()
 gpu = int(resources.get('GPU', 0))
-if '${GPU_PROFILE}' == 'gb300-rtx-pro-2000':
-    ready = (
-        int(resources.get('GB300', 0)) * 2 == gpu
-        and int(resources.get('RTXPRO2000', 0)) * 2 == gpu
+expected = set(filter(None, os.environ['EXPECTED_NODE_IPS'].split(',')))
+nodes = {
+    node['NodeManagerAddress']: node
+    for node in ray.nodes()
+    if node.get('Alive')
+}
+ready = bool(expected) and all(
+    ip in nodes
+    and float(nodes[ip].get('Resources', {}).get('GPU', 0)) >= ${expected_node_gpus}
+    and float(nodes[ip].get('Resources', {}).get('GB300', 0)) >= 1
+    and (
+        '${GPU_PROFILE}' != 'gb300-rtx-pro-2000'
+        or float(nodes[ip].get('Resources', {}).get('RTXPRO2000', 0)) >= 1
     )
-    print(gpu if ready else -1)
-else:
-    print(gpu)
+    for ip in expected
+)
+print(gpu if ready else -1)
 PY
 ); if [[ \"\${actual}\" =~ ^[0-9]+$ && \"\${actual}\" -ge ${expected_gpus} ]]; then exit 0; fi; sleep 2; done; docker exec ${HEAD_CONTAINER} ray status; exit 1"
 }

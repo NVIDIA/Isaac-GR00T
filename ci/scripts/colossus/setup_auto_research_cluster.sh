@@ -10,8 +10,9 @@
 # its affiliates is strictly prohibited.
 
 # Assemble the heterogeneous Colossus pool used by GR00T auto-research.
-# Reuse eligible service-user leases first, then reserve every available
-# two-GPU station that fits under the service user's lease limit.
+# Reuse eligible service-user GB300 leases first, then reserve every available
+# one-GPU GB300 and two-GPU GB300-plus-RTX station that fits under the service
+# user's lease limit.
 
 set -euo pipefail
 umask 077
@@ -22,12 +23,20 @@ RAY_SETUP="${SCRIPT_DIR}/setup_ray_cluster.sh"
 readonly POOL_ID="${COLOSSUS_POOL_ID:-gear-gb300-automation}"
 readonly LEASE_DURATION="${COLOSSUS_LEASE_DURATION:-180d}"
 readonly LEASE_JUSTIFICATION="GR00T auto research Ray cluster"
-readonly CHECKPOINT_URI="${GROOT_OL_POST_TRAINING_CHECKPOINT_URI:-s3://GearCheckpoints/trinity-ckpt-repository/amaddukuri_n2_posttrain_0528_230150_min_wam_robocasa365_pretrain_human300/checkpoint-80000}"
-readonly CHECKPOINT_DESTINATION="robocasa_benchmark/new-robocasa/midtrained_checkpoints/n2_posttrain_0528_230150_min_wam_robocasa365_pretrain_human300/checkpoint-80000"
+# Keep the RoboCasa override for operators that need to pin a replacement base
+# checkpoint, while always staging the RoboDojo base alongside it.
+readonly ROBOCASA_CHECKPOINT_URI="${GROOT_OL_POST_TRAINING_CHECKPOINT_URI:-s3://GearCheckpoints/trinity-ckpt-repository/11451_n2_posttrain_min_wam_robocasa365_pretrain_human300_20260812_r2/checkpoint-120000}"
+readonly ROBOCASA_CHECKPOINT_DESTINATION="robocasa_benchmark/new-robocasa/wam_checkpoints/11451_n2_posttrain_min_wam_robocasa365_pretrain_human300_20260812_r2/checkpoint-120000"
+readonly ROBODOJO_CHECKPOINT_URI="${GROOT_OL_ROBODOJO_POST_TRAINING_CHECKPOINT_URI:-s3://GearCheckpoints/trinity-ckpt-repository/10959_n2_posttrain_min_wam_robodojo_posttrain/checkpoint-30000}"
+readonly ROBODOJO_CHECKPOINT_DESTINATION="robodojo_benchmark/wam_checkpoints/10959_n2_posttrain_min_wam_robodojo_posttrain/checkpoint-30000"
 readonly DATASET_URI="s3://GrootDatasets/robocasa_benchmark/new-robocasa/robocasa-datasets/v1.0/archives/pretrain-112958637747-227001.tar"
 readonly DATASET_SHA256="0de7d998712edee3f0503de858defefb25cf9877d19ecacbcf94122abf8a290e"
 readonly RUNTIME_URI="s3://GrootDatasets/robocasa_benchmark/runtime-assets/20260731/robocasa365-runtime.tar"
 readonly RUNTIME_SHA256="f03046021b5fff6d07888aaed17ef52e2dbe231de12703fb2f7003b04ed8e837"
+readonly ROBODOJO_DATASET_URI="s3://GrootDatasets/robodojo_benchmark/archives/20260820/robodojo-training-h264.tar"
+readonly ROBODOJO_DATASET_SHA256="ce09b980143c3842aa5ba7d4dc41ace7a3aa95eeef273fc44dda81540a6a4cd0"
+readonly ROBODOJO_RUNTIME_URI="s3://GrootDatasets/robodojo_benchmark/archives/20260820/robodojo-runtime.tar"
+readonly ROBODOJO_RUNTIME_SHA256="22c7ae8d96cfe7f0e425691efc4b3b21d308c61232769e11612295e035a71067"
 readonly STATE_OUTPUT="${AUTO_RESEARCH_STATE_OUTPUT:-${PWD}/auto-research-colossus-cluster.json}"
 readonly SETUP_CONCURRENCY="${AUTO_RESEARCH_SETUP_CONCURRENCY:-24}"
 readonly USE_DEDICATED_ETHERNET="${AUTO_RESEARCH_USE_DEDICATED_ETHERNET:-0}"
@@ -54,6 +63,7 @@ declare -a REUSABLE_LEASE_IDS=()
 declare -a REUSABLE_RESOURCE_NAMES=()
 declare -a REUSABLE_FQDNS=()
 declare -a REUSABLE_IPS=()
+declare -a REUSABLE_GPU_COUNTS=()
 declare -a SUCCESS_STATE_FILES=()
 declare -a PROVISIONING_PGIDS=()
 declare -A SKIPPED_LEASE_IDS=()
@@ -238,8 +248,10 @@ Configuration environment:
                                    the current Colossus maximum).
 
 The script must run under the Colossus service account. It reuses active
-service-owned two-GPU leases, but never touches CI leases, the explicit
-human-shared exclusions, or one-GPU resources. Unreachable hosts are skipped.
+service-owned GB300 leases from ${POOL_ID} with either one physical GB300 or the
+supported two-GPU GB300-plus-RTX profile. It never touches CI leases, the
+explicit human-shared exclusions, non-GB300 resources, or other GPU layouts.
+Unreachable hosts are skipped.
 EOF
 }
 
@@ -301,13 +313,14 @@ load_inventory() {
   assignments="$(python3 - \
     "${inventory_file}" \
     "${PREFERRED_HEAD_RESOURCE}" \
-    "$(IFS=,; printf '%s' "${EXCLUDED_RESOURCES[*]}")" <<'PY'
+    "$(IFS=,; printf '%s' "${EXCLUDED_RESOURCES[*]}")" \
+    "${POOL_ID}" <<'PY'
 import json
 import re
 import shlex
 import sys
 
-inventory_file, preferred_head, excluded_text = sys.argv[1:]
+inventory_file, preferred_head, excluded_text, pool_id = sys.argv[1:]
 excluded = set(filter(None, excluded_text.split(",")))
 with open(inventory_file) as source:
     records = json.load(source)
@@ -331,46 +344,77 @@ for record in records:
         continue
     is_service_owned = isinstance(owner, str) and owner.startswith("nvssa-")
     is_ci = justification.startswith("Dedicated GR00T GitLab CI")
-    if entity.get("gpuCount") != 2 or not is_service_owned or is_ci:
+    gpu_count = entity.get("gpuCount")
+    if (
+        entity.get("poolId") != pool_id
+        or entity.get("gpuTag") != "GB300"
+        or type(gpu_count) is not int
+        or gpu_count not in {1, 2}
+        or not is_service_owned
+        or is_ci
+    ):
         continue
     if name in excluded:
         continue
     values = (name, lease_id, entity.get("fqdn", ""), entity.get("ipAddress", ""))
     if not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:-]+", value) for value in values):
         continue
-    candidates.append(values)
+    candidates.append((*values, gpu_count))
 
 print("REUSABLE_LEASE_IDS=()")
 print("REUSABLE_RESOURCE_NAMES=()")
 print("REUSABLE_FQDNS=()")
 print("REUSABLE_IPS=()")
-for name, lease_id, fqdn, ip_address in sorted(
-    candidates, key=lambda values: (values[0] != preferred_head, values[0])
+print("REUSABLE_GPU_COUNTS=()")
+for name, lease_id, fqdn, ip_address, gpu_count in sorted(
+    candidates,
+    key=lambda values: (values[0] != preferred_head, -values[4], values[0]),
 ):
     print(f"REUSABLE_LEASE_IDS+=({shlex.quote(lease_id)})")
     print(f"REUSABLE_RESOURCE_NAMES+=({shlex.quote(name)})")
     print(f"REUSABLE_FQDNS+=({shlex.quote(fqdn)})")
     print(f"REUSABLE_IPS+=({shlex.quote(ip_address)})")
+    print(f"REUSABLE_GPU_COUNTS+=({gpu_count})")
 PY
 )" || die "could not discover reusable service-user leases"
   eval "${assignments}"
 }
 
-available_two_gpu_count() {
-  local inventory_file="${WORK_DIR}/resources.json"
-  colossus_cli bm resource list \
+available_profile_count() {
+  local gpu_count="$1"
+  case "${gpu_count}" in
+    1|2) ;;
+    *) die "unsupported auto-research physical GPU count: ${gpu_count}" ;;
+  esac
+  local inventory_file="${WORK_DIR}/resources-${gpu_count}gpu.json"
+  if ! colossus_cli bm resource list \
     --filters "poolId=${POOL_ID}" status=AVAILABLE gpuTag=GB300 \
     --authorized-to-reserve \
     --page-size 500 \
-    --json > "${inventory_file}" \
-    || die "could not list available Colossus resources"
-  python3 - \
-    "${inventory_file}" \
-    "$(IFS=,; printf '%s' "${EXCLUDED_RESOURCES[*]}")" <<'PY'
+    --json > "${inventory_file}"; then
+    # The Colossus CLI exits 1 for a successful empty JSON search. Accept only
+    # that exact result; malformed output and real API failures remain fatal.
+    python3 - "${inventory_file}" <<'PY' \
+      || die "could not list available Colossus resources"
 import json
 import sys
 
-inventory_file, excluded_text = sys.argv[1:]
+with open(sys.argv[1]) as source:
+    resources = json.load(source)
+if resources != []:
+    raise SystemExit("failed Colossus query did not return an empty resource list")
+PY
+  fi
+  python3 - \
+    "${inventory_file}" \
+    "$(IFS=,; printf '%s' "${EXCLUDED_RESOURCES[*]}")" \
+    "${POOL_ID}" \
+    "${gpu_count}" <<'PY'
+import json
+import sys
+
+inventory_file, excluded_text, pool_id, gpu_count_text = sys.argv[1:]
+required_gpu_count = int(gpu_count_text)
 excluded = set(filter(None, excluded_text.split(",")))
 with open(inventory_file) as source:
     resources = json.load(source)
@@ -378,7 +422,10 @@ print(sum(
     1
     for resource in resources
     if resource.get("status") == "AVAILABLE"
-    and resource.get("gpuCount") == 2
+    and resource.get("poolId") == pool_id
+    and resource.get("gpuTag") == "GB300"
+    and type(resource.get("gpuCount")) is int
+    and resource.get("gpuCount") == required_gpu_count
     and resource.get("name") not in excluded
 ))
 PY
@@ -387,8 +434,6 @@ PY
 common_setup_args() {
   COMMON_SETUP_ARGS=(
     --pool-id "${POOL_ID}"
-    --gpu-profile gb300-rtx-pro-2000
-    --resource-gpu-count 2
     --allow-socket-transport
     --lease-duration "${LEASE_DURATION}"
     --lease-justification "${LEASE_JUSTIFICATION}"
@@ -396,12 +441,18 @@ common_setup_args() {
     --nvcr-token-env NVCR_TOKEN
     --ssl-cert-local "${TLS_CERT}"
     --ssl-key-local "${TLS_KEY}"
-    --post-training-checkpoint-uri "${CHECKPOINT_URI}"
-    --post-training-checkpoint-destination "${CHECKPOINT_DESTINATION}"
+    --post-training-checkpoint-uri "${ROBOCASA_CHECKPOINT_URI}"
+    --post-training-checkpoint-destination "${ROBOCASA_CHECKPOINT_DESTINATION}"
+    --additional-post-training-checkpoint-uri "${ROBODOJO_CHECKPOINT_URI}"
+    --additional-post-training-checkpoint-destination "${ROBODOJO_CHECKPOINT_DESTINATION}"
     --dataset-archive-uri "${DATASET_URI}"
     --dataset-archive-sha256 "${DATASET_SHA256}"
     --robocasa-runtime-archive-uri "${RUNTIME_URI}"
     --robocasa-runtime-archive-sha256 "${RUNTIME_SHA256}"
+    --robodojo-dataset-archive-uri "${ROBODOJO_DATASET_URI}"
+    --robodojo-dataset-archive-sha256 "${ROBODOJO_DATASET_SHA256}"
+    --robodojo-runtime-archive-uri "${ROBODOJO_RUNTIME_URI}"
+    --robodojo-runtime-archive-sha256 "${ROBODOJO_RUNTIME_SHA256}"
     --artifact-max-mib-per-second "${ARTIFACT_MAX_MIB_PER_SECOND}"
   )
   if [[ "${USE_DEDICATED_ETHERNET}" == "1" ]]; then
@@ -420,6 +471,23 @@ common_setup_args() {
   for excluded in "${EXCLUDED_RESOURCES[@]}"; do
     COMMON_SETUP_ARGS+=(--exclude-resource "${excluded}")
   done
+}
+
+setup_args_for_gpu_count() {
+  local gpu_count="$1"
+  local output_name="$2"
+  local gpu_profile
+  case "${gpu_count}" in
+    1) gpu_profile="gb300" ;;
+    2) gpu_profile="gb300-rtx-pro-2000" ;;
+    *) die "unsupported auto-research physical GPU count: ${gpu_count}" ;;
+  esac
+  local -n output_args="${output_name}"
+  output_args=(
+    "${COMMON_SETUP_ARGS[@]}"
+    --gpu-profile "${gpu_profile}"
+    --resource-gpu-count "${gpu_count}"
+  )
 }
 
 generate_tls_material() {
@@ -457,16 +525,19 @@ PY
 }
 
 try_reused_head() {
-  local idx lease_id name state_file log_file
+  local idx lease_id name gpu_count state_file log_file
+  local -a setup_args=()
   for idx in "${!REUSABLE_LEASE_IDS[@]}"; do
     lease_id="${REUSABLE_LEASE_IDS[$idx]}"
     name="${REUSABLE_RESOURCE_NAMES[$idx]}"
+    gpu_count="${REUSABLE_GPU_COUNTS[$idx]}"
+    setup_args_for_gpu_count "${gpu_count}" setup_args
     SKIPPED_LEASE_IDS["${lease_id}"]=1
     state_file="${WORK_DIR}/head-${name}.json"
     log_file="${LOG_DIR}/head-${name}.log"
-    log "${name}: trying reusable lease as Ray head"
+    log "${name}: trying reusable ${gpu_count}-GPU lease as Ray head"
     if run_provisioning_group "${RAY_SETUP}" \
-      "${COMMON_SETUP_ARGS[@]}" \
+      "${setup_args[@]}" \
       --nodes 1 \
       --existing-lease-id "${lease_id}" \
       --state-output "${state_file}" \
@@ -483,23 +554,29 @@ try_reused_head() {
 }
 
 try_new_head() {
-  local available state_file log_file
-  available="$(available_two_gpu_count)"
-  (( available > 0 )) || return 1
-  state_file="${WORK_DIR}/head-new.json"
-  log_file="${LOG_DIR}/head-new.log"
-  log "requesting one newly leased head because no reusable lease was ready"
-  if run_provisioning_group "${RAY_SETUP}" \
-    "${COMMON_SETUP_ARGS[@]}" \
-    --nodes 1 \
-    --best-effort-hosts \
-    --state-output "${state_file}" \
-    > >(tee "${log_file}") 2>&1; then
-    HEAD_ADDRESS="$(state_value "${state_file}" ray_address)"
-    HEAD_DOMAIN="$(state_value "${state_file}" head_domain)"
-    SUCCESS_STATE_FILES+=("${state_file}")
-    return 0
-  fi
+  local gpu_count available state_file log_file
+  local -a setup_args=()
+  # Prefer a heterogeneous station for the head so the persistent head GPU
+  # reservation does not consume a train-only node when both profiles exist.
+  for gpu_count in 2 1; do
+    available="$(available_profile_count "${gpu_count}")"
+    (( available > 0 )) || continue
+    setup_args_for_gpu_count "${gpu_count}" setup_args
+    state_file="${WORK_DIR}/head-new-${gpu_count}gpu.json"
+    log_file="${LOG_DIR}/head-new-${gpu_count}gpu.log"
+    log "requesting one newly leased ${gpu_count}-GPU head because no reusable lease was ready"
+    if run_provisioning_group "${RAY_SETUP}" \
+      "${setup_args[@]}" \
+      --nodes 1 \
+      --best-effort-hosts \
+      --state-output "${state_file}" \
+      > >(tee "${log_file}") 2>&1; then
+      HEAD_ADDRESS="$(state_value "${state_file}" ray_address)"
+      HEAD_DOMAIN="$(state_value "${state_file}" head_domain)"
+      SUCCESS_STATE_FILES+=("${state_file}")
+      return 0
+    fi
+  done
   return 1
 }
 
@@ -507,14 +584,17 @@ setup_reused_worker() {
   local idx="$1"
   local lease_id="${REUSABLE_LEASE_IDS[$idx]}"
   local name="${REUSABLE_RESOURCE_NAMES[$idx]}"
+  local gpu_count="${REUSABLE_GPU_COUNTS[$idx]}"
   local state_file="${WORK_DIR}/worker-${name}.json"
   local log_file="${LOG_DIR}/worker-${name}.log"
+  local -a setup_args=()
   if [[ -n "${SKIPPED_LEASE_IDS[${lease_id}]:-}" ]]; then
     return 0
   fi
-  log "${name}: preparing reusable lease as a Ray worker"
+  setup_args_for_gpu_count "${gpu_count}" setup_args
+  log "${name}: preparing reusable ${gpu_count}-GPU lease as a Ray worker"
   if "${RAY_SETUP}" \
-    "${COMMON_SETUP_ARGS[@]}" \
+    "${setup_args[@]}" \
     --nodes 1 \
     --existing-lease-id "${lease_id}" \
     --join-ray-address "${HEAD_ADDRESS}" \
@@ -544,18 +624,21 @@ setup_reused_workers() {
   done
 }
 
-reserve_available_workers() {
+reserve_available_workers_for_gpu_count() {
+  local gpu_count="$1"
   local available state_file log_file
-  available="$(available_two_gpu_count)"
+  local -a setup_args=()
+  available="$(available_profile_count "${gpu_count}")"
   if (( available == 0 )); then
-    log "no additional available two-GPU station remains"
+    log "no additional available ${gpu_count}-GPU GB300 station remains"
     return 0
   fi
-  state_file="${WORK_DIR}/workers-new.json"
-  log_file="${LOG_DIR}/workers-new.log"
-  log "requesting all ${available} currently available two-GPU stations best-effort"
+  setup_args_for_gpu_count "${gpu_count}" setup_args
+  state_file="${WORK_DIR}/workers-new-${gpu_count}gpu.json"
+  log_file="${LOG_DIR}/workers-new-${gpu_count}gpu.log"
+  log "requesting all ${available} currently available ${gpu_count}-GPU GB300 stations best-effort"
   if "${RAY_SETUP}" \
-    "${COMMON_SETUP_ARGS[@]}" \
+    "${setup_args[@]}" \
     --nodes "${available}" \
     --best-effort-hosts \
     --join-ray-address "${HEAD_ADDRESS}" \
@@ -565,6 +648,20 @@ reserve_available_workers() {
   else
     log "new reservations yielded no usable worker (lease limit/race/SSH); keeping reused capacity"
   fi
+}
+
+reserve_available_workers() {
+  local gpu_count pid
+  local -a reservation_pids=()
+  # Both children inherit the outer supervisor's process group, so the
+  # existing interruption path still terminates the whole reservation tree.
+  for gpu_count in 1 2; do
+    reserve_available_workers_for_gpu_count "${gpu_count}" &
+    reservation_pids+=("$!")
+  done
+  for pid in "${reservation_pids[@]}"; do
+    wait "${pid}" || true
+  done
 }
 
 setup_all_workers() {
@@ -621,27 +718,51 @@ node_ips = []
 created_lease_ids = []
 created_lease_names = []
 reused_lease_ids = []
+gpu_profiles = []
+host_gpu_profiles = {}
 for state_file in state_files:
     with open(state_file) as source:
         state = json.load(source)
-    hosts.extend(state.get("hosts", []))
+    state_hosts = state.get("hosts", [])
+    profile = state.get("gpu_profile")
+    hosts.extend(state_hosts)
     node_ips.extend(state.get("node_ips", []))
     created_lease_ids.extend(state.get("created_lease_ids", []))
     created_lease_names.extend(state.get("created_lease_names", []))
     if state.get("existing_lease_id"):
         reused_lease_ids.append(state["existing_lease_id"])
+    if isinstance(profile, str) and profile:
+        gpu_profiles.append(profile)
+        for host in state_hosts:
+            host_gpu_profiles[host] = profile
 
 
 def unique(values):
     return list(dict.fromkeys(values))
 
 
+unique_gpu_profiles = unique(gpu_profiles)
+cuda_device_order_by_profile = {
+    "gb300": {"0": "NVIDIA GB300"},
+    "gb300-rtx-pro-2000": {
+        "0": "NVIDIA GB300",
+        "1": "NVIDIA RTX PRO 2000",
+    },
+}
+cuda_device_order = (
+    cuda_device_order_by_profile[unique_gpu_profiles[0]]
+    if len(unique_gpu_profiles) == 1
+    else {"0": "NVIDIA GB300"}
+)
 payload = {
     "head_address": head_address,
     "head_domain": head_domain,
     "ray_jobs_url": f"https://{head_domain}/ray/",
-    "gpu_profile": "gb300-rtx-pro-2000",
-    "cuda_device_order": {"0": "NVIDIA GB300", "1": "NVIDIA RTX PRO 2000"},
+    "gpu_profile": unique_gpu_profiles[0] if len(unique_gpu_profiles) == 1 else "mixed",
+    "gpu_profiles": unique_gpu_profiles,
+    "host_gpu_profiles": host_gpu_profiles,
+    "cuda_device_order": cuda_device_order,
+    "cuda_device_order_by_profile": cuda_device_order_by_profile,
     "transport": "preferred_ethernet_with_management_fallback",
     "lease_justification": justification,
     "hosts": unique(hosts),
@@ -673,10 +794,12 @@ main() {
   validate_inputs
   WORK_DIR="$(mktemp -d /tmp/groot-auto-research-cluster.XXXXXX)"
   load_inventory
-  local available
-  available="$(available_two_gpu_count)"
-  log "eligible reusable two-GPU leases: ${#REUSABLE_LEASE_IDS[@]}"
-  log "currently available two-GPU resources: ${available}"
+  local available_one_gpu available_two_gpu
+  available_one_gpu="$(available_profile_count 1)"
+  available_two_gpu="$(available_profile_count 2)"
+  log "eligible reusable one- or two-GPU GB300 leases: ${#REUSABLE_LEASE_IDS[@]}"
+  log "currently available one-GPU GB300 resources: ${available_one_gpu}"
+  log "currently available two-GPU GB300-plus-RTX resources: ${available_two_gpu}"
   log "preferred Ray head: ${PREFERRED_HEAD_RESOURCE}"
   log "explicitly excluded resources: ${EXCLUDED_RESOURCES[*]}"
   log "new lease justification: ${LEASE_JUSTIFICATION}"
@@ -691,7 +814,7 @@ main() {
   if [[ "${DRY_RUN}" == "1" ]]; then
     local idx
     for idx in "${!REUSABLE_LEASE_IDS[@]}"; do
-      log "reusable: ${REUSABLE_RESOURCE_NAMES[$idx]} (${REUSABLE_LEASE_IDS[$idx]})"
+      log "reusable: ${REUSABLE_RESOURCE_NAMES[$idx]} (${REUSABLE_LEASE_IDS[$idx]}, ${REUSABLE_GPU_COUNTS[$idx]} GPU)"
     done
     return 0
   fi
