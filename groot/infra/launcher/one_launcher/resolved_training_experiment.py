@@ -202,12 +202,14 @@ class ResolvedTrainingExperiment:
                 "local_checkpoint",
                 "task",
                 "num_trials",
+                "num_parallel_trials",
                 "remote_checkpoint",
                 "seed",
                 "persist",
             }:
                 raise ValueError(
                     "Evaluation overrides must target evaluation.task, evaluation.num_trials, "
+                    "evaluation.num_parallel_trials, "
                     "evaluation.seed, evaluation.persist, evaluation.local_checkpoint, or "
                     "evaluation.remote_checkpoint"
                 )
@@ -389,6 +391,7 @@ class ResolvedTrainingExperiment:
             "local_checkpoint",
             "task",
             "num_trials",
+            "num_parallel_trials",
             "remote_checkpoint",
             "seed",
             "persist",
@@ -406,6 +409,7 @@ class ResolvedTrainingExperiment:
             config = TrainingExperimentEvaluationConfig(
                 task=value["task"],
                 num_trials=value["num_trials"],
+                num_parallel_trials=value.get("num_parallel_trials", 1),
                 seed=value.get("seed", 0),
                 persist=value.get("persist", False),
                 local_checkpoint=value.get("local_checkpoint"),
@@ -418,12 +422,15 @@ class ResolvedTrainingExperiment:
             for key, item in {
                 "task": config.task,
                 "num_trials": config.num_trials,
+                "num_parallel_trials": config.num_parallel_trials,
                 "seed": config.seed,
                 "persist": config.persist,
                 "local_checkpoint": config.local_checkpoint,
                 "remote_checkpoint": config.remote_checkpoint,
             }.items()
-            if item is not None and not (key == "persist" and item is False)
+            if item is not None
+            and not (key == "persist" and item is False)
+            and not (key == "num_parallel_trials" and item == 1)
         }
 
     def optional_string(self, payload: Mapping[str, Any], key: str) -> str | None:

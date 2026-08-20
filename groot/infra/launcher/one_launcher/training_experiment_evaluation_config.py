@@ -24,6 +24,7 @@ class TrainingExperimentEvaluationConfig:
 
     task: str
     num_trials: int
+    num_parallel_trials: int = 1
     seed: int = 0
     persist: bool = False
     local_checkpoint: str | None = None
@@ -36,6 +37,12 @@ class TrainingExperimentEvaluationConfig:
             raise TypeError("Evaluation num_trials must be an integer")
         if self.num_trials <= 0:
             raise ValueError("Evaluation num_trials must be greater than 0")
+        if isinstance(self.num_parallel_trials, bool) or not isinstance(
+            self.num_parallel_trials, int
+        ):
+            raise TypeError("Evaluation num_parallel_trials must be an integer")
+        if self.num_parallel_trials <= 0:
+            raise ValueError("Evaluation num_parallel_trials must be greater than 0")
         if isinstance(self.seed, bool) or not isinstance(self.seed, int):
             raise TypeError("Evaluation seed must be an integer")
         if self.seed < 0:
