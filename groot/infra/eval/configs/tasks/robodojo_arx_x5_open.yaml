@@ -1,0 +1,8 @@
+- robodojo/align_blocks
+- robodojo/general_pickup
+- robodojo/stack_blocks_by_language
+- robodojo/solve_equation
+- robodojo/classify_objects_by_language
+- robodojo/pick_from_conveyor_by_image
+- robodojo/store_tools_in_toolbox
+- robodojo/pour_by_language

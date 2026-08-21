@@ -641,8 +641,8 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
     ]
     exported_directories = [
         package_root / "groot/infra/launcher",
-        package_root / "groot/infra/eval",
     ]
+    eval_dir = package_root / "groot/infra/eval"
     assert (package_root / "groot/infra/experiments").is_dir()
     public_configs = package_root / "groot/infra/experiments/training/configs"
     exported_files.extend(
@@ -659,15 +659,27 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
         assert exported_file.is_file()
     for exported_directory in exported_directories:
         assert exported_directory.is_dir()
+    assert eval_dir.is_dir()
 
     # The internal package uses links to share implementation. The sync intentionally
     # materializes those links into regular files and directories in staging.
     if _is_internal_monorepo(package_root):
         for exported_path in [*exported_files, *exported_directories]:
             assert exported_path.is_symlink()
+        assert not eval_dir.is_symlink()
     else:
         for exported_path in [*exported_files, *exported_directories]:
             assert not exported_path.is_symlink()
+
+    task_config_dir = eval_dir / "configs/tasks"
+    approved_prefixes = ("libero_pro_", "robocasa365_", "robodojo_")
+    exported_task_configs = sorted(task_config_dir.glob("*.yaml"))
+    assert exported_task_configs
+    assert all(path.name.startswith(approved_prefixes) for path in exported_task_configs)
+    if _is_internal_monorepo(package_root):
+        assert all(path.is_symlink() for path in exported_task_configs)
+    else:
+        assert all(not path.is_symlink() for path in exported_task_configs)
 
     assert not (public_configs / "n2_egoscale_mega_soup_pretrain.py").exists()
     assert not (public_configs / "n2_yam_simulation_stack_bowls.py").exists()
