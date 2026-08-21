@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from copy import deepcopy
+import inspect
 import json
 import logging
 import os
@@ -809,6 +810,11 @@ class Gr00tN1d7Processor(BaseProcessor):
         transformers_loading_kwargs = kwargs.pop(
             "transformers_loading_kwargs", {"trust_remote_code": True}
         )
+        # setup.py also spreads that dict at the call site so the hub keys below arrive
+        # as top-level kwargs; trust_remote_code rides along and belongs with the dict.
+        transformers_loading_kwargs.setdefault(
+            "trust_remote_code", kwargs.pop("trust_remote_code", True)
+        )
         hub_keys = (
             "_commit_hash",
             "cache_dir",
@@ -865,24 +871,20 @@ class Gr00tN1d7Processor(BaseProcessor):
             modality_configs = kwargs.pop("modality_configs", {})
             for embodiment_tag, modality_config in modality_configs.items():
                 processor_kwargs["modality_configs"][embodiment_tag] = modality_config
-            override_keys = [
-                "random_rotation_angle",
-                "color_jitter_params",
-                "use_relative_action",
-                "exclude_state",
-                "state_dropout_prob",
-                "use_mean_std",
-                "model_name",
-                "model_type",
-                "max_action_horizon",
-                "max_state_dim",
-                "max_action_dim",
-            ]
-            for key in override_keys:
-                if key in kwargs:
-                    override = kwargs.pop(key)
-                    if override is not None:
-                        processor_kwargs[key] = override
+            # Every constructor argument is overridable; an allowlist silently drops
+            # whatever it forgets, and setup.py sends 20 of these on the finetune path.
+            override_keys = set(inspect.signature(cls.__init__).parameters) - {"self"}
+            for key in override_keys & set(kwargs):
+                override = kwargs.pop(key)
+                # None means "inherit the checkpoint value": callers pass unset
+                # config fields straight through.
+                if override is not None:
+                    processor_kwargs[key] = override
+            if kwargs:
+                raise TypeError(
+                    f"Unrecognised processor kwargs: {sorted(kwargs)}. "
+                    f"Accepted: {sorted(override_keys)}"
+                )
         return cls(**processor_kwargs, transformers_loading_kwargs=transformers_loading_kwargs)
 
 
