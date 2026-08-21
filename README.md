@@ -1,59 +1,125 @@
 # Isaac GR00T 2
 
-## Start With an Officially Supported Agent
+Choose either an agent-guided workflow or direct CLI commands. Both paths use
+the same supported training, evaluation, and serving implementation.
+
+## Agent or CLI Quickstart
 
 > [!WARNING]
 > The agentic workflows in this repository are officially supported only with
-> **Codex, Claude Code, and Cursor**. Other coding agents may be able to read the
+> **Codex, Claude Code, and Cursor**. Other coding agents may be able to follow the
 > instructions, but are not officially supported or tested.
 
-Start Codex, Claude Code, or Cursor in the package root, the directory
-containing this README and `pyproject.toml`, then ask:
+Start your agent or terminal in the repository root—the directory containing
+this README and `pyproject.toml`—then choose the row matching your goal.
 
-> Onboard me to Isaac GR00T 2 using the minimal end-to-end example. Set up the
-> uv environment, prepare the example dataset, and verify training, open-loop
-> evaluation, and the policy server.
-
-The repository guidance and [`onboarding` skill](skills/onboarding/SKILL.md) give the agent
-the supported workflow and success criteria. To run the same onboarding
-manually, follow the
-[minimal end-to-end example](docs/minimal_example.md).
-
-This package exposes local post-training, open-loop evaluation, and policy
-serving through `uv run --no-sync python -m groot.infra.oss` after installing
-the training environment.
-
-See the [agentic workflows and skills guide](skills/README.md) to choose among
-the onboarding, AutoResearch, AutoResearch visualization, AutoDebug, and FAQ
-workflows and start them with copy-ready prompts.
-
-## Minimal End-to-End Example
-
-The [minimal example](docs/minimal_example.md) uses a pinned, small public
-LeRobot dataset to run one post-training step, a short open-loop evaluation,
-and the policy server. It installs the locked environment directly with `uv`
-and keeps data, caches, and outputs on explicit local paths.
-
-TorchCodec requires FFmpeg shared libraries. On Ubuntu or Debian, install
-FFmpeg before creating the uv environment:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y ffmpeg
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Agentic</th>
+      <th scope="col">CLI</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th colspan="2" scope="rowgroup">Set up GR00T and run the minimal end-to-end example</th>
+    </tr>
+    <tr>
+      <td>
+        <pre><code>Onboard me to Isaac GR00T 2 using the minimal end-to-end example. Set
+up the uv environment, prepare the example dataset, and verify
+training, open-loop evaluation, and the policy server.</code></pre>
+      </td>
+      <td>
+        <pre><code class="language-bash">apt-get update
+apt-get install -y ffmpeg
 uv sync --frozen --extra training
-```
 
-When running as `root`, omit `sudo`.
-
-Prepare the example dataset after completing the environment setup in the
-walkthrough:
-
-```bash
 uv run --no-sync python examples/prepare_minimal_dataset.py \
-  --output-dir "$HOME/gr00t2/data/gr00t_red_test"
-```
+  --output-dir "$HOME/gr00t2/data/gr00t_red_test"</code></pre>
+        <p>Continue with the exact smoke-test commands in the
+        <a href="docs/minimal_example.md">minimal end-to-end example</a>.</p>
+      </td>
+    </tr>
+    <tr>
+      <th colspan="2" scope="rowgroup">Post-train on your own dataset</th>
+    </tr>
+    <tr>
+      <td>
+        <pre><code>Use the onboarding skill to validate my setup, then post-train GR00T
+on /path/to/lerobot_dataset with embodiment tag
+&lt;dataset-embodiment-tag&gt;.</code></pre>
+      </td>
+      <td>
+        <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss train \
+  --dataset-path /path/to/lerobot_dataset \
+  --embodiment-tag &lt;dataset-embodiment-tag&gt;</code></pre>
+        <p>Add <code>--dry-run</code> to inspect the resolved command without starting
+        training.</p>
+      </td>
+    </tr>
+    <tr>
+      <th colspan="2" scope="rowgroup">Evaluate a checkpoint</th>
+    </tr>
+    <tr>
+      <td>
+        <pre><code>Use the onboarding skill to run open-loop evaluation of
+&lt;hf-uri-or-local-path&gt; on /path/to/lerobot_dataset with embodiment
+tag &lt;dataset-embodiment-tag&gt;.</code></pre>
+      </td>
+      <td>
+        <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss eval \
+  --checkpoint &lt;hf-uri-or-local-path&gt; \
+  --dataset-path /path/to/lerobot_dataset \
+  --embodiment-tag &lt;dataset-embodiment-tag&gt;</code></pre>
+      </td>
+    </tr>
+    <tr>
+      <th colspan="2" scope="rowgroup">Train and evaluate in one workflow</th>
+    </tr>
+    <tr>
+      <td>
+        <pre><code>Use the onboarding skill to post-train and then evaluate GR00T on
+/path/to/lerobot_dataset with embodiment tag
+&lt;dataset-embodiment-tag&gt;.</code></pre>
+      </td>
+      <td>
+        <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss train-eval \
+  --dataset-path /path/to/lerobot_dataset \
+  --embodiment-tag &lt;dataset-embodiment-tag&gt;</code></pre>
+      </td>
+    </tr>
+    <tr>
+      <th colspan="2" scope="rowgroup">Serve a policy</th>
+    </tr>
+    <tr>
+      <td>
+        <pre><code>Use the onboarding skill to start a policy server for
+&lt;hf-uri-or-local-path&gt; with embodiment tag
+&lt;dataset-embodiment-tag&gt; on port 5555.</code></pre>
+      </td>
+      <td>
+        <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss policy-server \
+  --checkpoint &lt;hf-uri-or-local-path&gt; \
+  --embodiment-tag &lt;dataset-embodiment-tag&gt; \
+  --host 0.0.0.0 \
+  --port 5555</code></pre>
+        <p>Add <code>--dry-run</code> to inspect the resolved server command without
+        starting it.</p>
+      </td>
+    </tr>
+  </tbody>
+</table>
 
-Each workflow has a different input boundary:
+For agent-guided AutoResearch, AutoResearch visualization, AutoDebug, and FAQ
+workflows, see the [agentic workflows and skills guide](skills/README.md).
+
+## Inputs and Outputs
+
+The [minimal end-to-end example](docs/minimal_example.md) uses a pinned, small
+public LeRobot dataset to run one post-training step, a short open-loop
+evaluation, and the policy server. Each workflow has a different input
+boundary:
 
 | Workflow | Required inputs | Primary output |
 | --- | --- | --- |
@@ -63,70 +129,10 @@ Each workflow has a different input boundary:
 | Policy server | Matching embodiment tag, local checkpoint or accessible HF URI, GPU | TCP policy endpoint |
 | Train and eval | All post-training and open-loop evaluation inputs | Checkpoint and JSON report |
 
-See the detailed guide for the exact environment variables and command-line
-arguments used for each input.
-
-## Train
-
-Run from the repository root with a local LeRobot dataset:
-
-```bash
-uv run --no-sync python -m groot.infra.oss train \
-  --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag <dataset-embodiment-tag>
-```
-
-For a smaller local smoke run:
-
-```bash
-uv run --no-sync python -m groot.infra.oss train \
-  --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag <dataset-embodiment-tag> \
-  --num-gpus 8 \
-  --batch-size 4 \
-  --max-steps 2
-```
-
-The training CLI uses its fixed N2 training experiment, so no experiment name
-is required. Training requires an explicit `--embodiment-tag` and
+See the detailed guide for the exact smoke-test environment variables and
+command-line arguments. Training requires an explicit `--embodiment-tag` and
 either `--dataset-path` or an intentional replacement of the complete
 `data.datasets` list with `--set`.
-
-## Evaluate
-
-Run open-loop evaluation for an existing checkpoint:
-
-```bash
-uv run --no-sync python -m groot.infra.oss eval \
-  --checkpoint <hf-uri-or-local-path> \
-  --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag <dataset-embodiment-tag>
-```
-
-Run post-training followed by evaluation:
-
-```bash
-uv run --no-sync python -m groot.infra.oss train-eval \
-  --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag <dataset-embodiment-tag>
-```
-
-Use `--dry-run` with any command to print the resolved command or evaluation
-configuration without starting training or evaluation.
-
-## Policy Server
-
-Start a GR00T policy server for a local or Hugging Face checkpoint:
-
-```bash
-uv run --no-sync python -m groot.infra.oss policy-server \
-  --checkpoint <hf-uri-or-local-path> \
-  --host 0.0.0.0 \
-  --port 5555
-```
-
-Use `--dry-run` to print the resolved core server command without starting the
-server.
 
 ## Model Artifacts
 
