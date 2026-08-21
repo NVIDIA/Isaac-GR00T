@@ -21,6 +21,13 @@ convention: the robot's euler->matrix rotation is post-multiplied by
 the rotation-verify script, and the real-robot client must all agree on this
 matrix; a drifted copy silently produces wrong eef rotations with no crash.
 
+DROID stores euler angles in the extrinsic fixed-frame ``xyz`` convention,
+i.e. ``R = Rz(yaw) @ Ry(pitch) @ Rx(roll)`` (see ``droid/misc/transformations.py``
+in the DROID codebase). This matches scipy ``Rotation.from_euler("xyz", ...)``
+and ``tfg.rotation_matrix_3d.from_euler``. Note that scipy ``"XYZ"`` (uppercase)
+is the *intrinsic* (rotating-frame) convention ``R = Rx @ Ry @ Rz`` and produces
+a different matrix for the same angles, so the lowercase spelling is load-bearing.
+
 ``examples/DROID/main_gr00t.py`` runs on a slim robot install without the
 ``gr00t`` package and cannot import this module, so it vendors a tagged mirror.
 """
@@ -42,7 +49,7 @@ DROID_EEF_ROTATION_CORRECT = np.array(
 def euler_to_rot6d(euler_angles: np.ndarray) -> np.ndarray:
     """Convert euler angles (3D) to rotation 6D representation.
 
-    Uses extrinsic XYZ Euler convention (scipy ``"XYZ"``, equivalent to
+    Uses extrinsic xyz Euler convention (scipy ``"xyz"``, equivalent to
     ``tfg.rotation_matrix_3d.from_euler``) and post-multiplies by
     ``DROID_EEF_ROTATION_CORRECT`` to match the pretrained model.
 
@@ -54,7 +61,7 @@ def euler_to_rot6d(euler_angles: np.ndarray) -> np.ndarray:
     """
     shape = euler_angles.shape[:-1]
     flat = euler_angles.reshape(-1, 3)
-    rot_matrices = Rotation.from_euler("XYZ", flat).as_matrix()  # (N, 3, 3)
+    rot_matrices = Rotation.from_euler("xyz", flat).as_matrix()  # (N, 3, 3)
     rot_matrices = rot_matrices @ DROID_EEF_ROTATION_CORRECT
     rot6d = rot_matrices[:, :2, :].reshape(-1, 6)  # (N, 6)
     return rot6d.reshape(*shape, 6)
