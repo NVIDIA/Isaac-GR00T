@@ -60,12 +60,6 @@ declare -a injected=(
   --volume "${job_root}:${job_root}"
 )
 
-if [[ -d "${data_root}/runtime/robocasa" ]]; then
-  injected+=(--volume "${data_root}/runtime/robocasa:/opt/grootrobocasa/robocasa")
-fi
-if [[ -d "${data_root}/runtime/robosuite" ]]; then
-  injected+=(--volume "${data_root}/runtime/robosuite:/opt/grootrobosuite/robosuite:ro")
-fi
 if [[ -d "${data_root}/ckpts" ]]; then
   injected+=(--volume "${data_root}/ckpts:/data/model_deps:ro")
 fi
@@ -243,7 +237,7 @@ if [[ "${worker_probe}" != "1" ]] && {
     --env "MUJOCO_GL=egl"
     --env "PYOPENGL_PLATFORM=egl"
     --env "NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics"
-    --env "PYTHONPATH=${data_root}/runtime/python:/opt/grootrobosuite:/opt/grootrobocasa:${PYTHONPATH:-}"
+    --env "PYTHONPATH=/opt/grootrobosuite:/opt/grootrobocasa:${PYTHONPATH:-}"
     --ulimit "memlock=-1"
     --ulimit "stack=67108864"
   )
