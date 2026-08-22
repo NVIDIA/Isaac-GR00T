@@ -34,6 +34,7 @@ from groot.core.data.hydrator import client as _hydrator_client
 from groot.core.data.hydrator import config as hydrator_config
 from groot.core.data.hydrator import data_source_resolver as _dsr
 from groot.core.data.hydrator import modality as hydrator_modality
+from groot.core.data.hydrator.cache import manager as cache_manager
 from groot.core.data.hydrator.utils import io
 from groot.core.utils.distributed import worker_logging
 
@@ -323,8 +324,9 @@ class Hydrator:
             else _default_max_workers()
         )
 
-        # Job directory groups all data for this (workflow, ray-job) pair so that
-        # shutdown() can clean it up with a single rmtree.
+        # Job directory groups all data for this (workflow, ray-job) pair. Workers sharing a
+        # job share it: each owns a subdirectory under it, and when the download index is on it
+        # holds their shared index too, so shutdown reclaims it a piece at a time.
         self._job_dir = os.path.join(base_cache_dir, self.job_name)
 
         # Each worker syncs s5cmd files into its own subdirectory.
@@ -787,28 +789,38 @@ class Hydrator:
         local_dir: str,
         rank: int = 0,
         world_size: int = 1,
+        partition: str = "prefix",
     ) -> None:
-        """Async: submit s5cmd sync tasks for this rank's prefix slice (default: all 65).
+        """Async: submit this rank's slice of a directory transfer.
 
         Returns immediately. Workers stream synced file locations into the shared
         DuckDB download_index so get_file() pollers can find them within seconds.
+
+        ``partition="prefix"`` (default) slices by filename first character, which needs no
+        listing but leaves a directory of similarly-named large files on one rank.
+        ``partition="hash"`` lists first and slices by a hash of each URI, which balances whatever
+        the names look like and mirrors the remote layout locally. Ranks must pass the same value.
 
         Args:
             s3_path: S3 prefix URI (e.g. s3://bucket/prefix)
             local_dir: Local directory to sync files into
             rank: This process's rank (default 0)
             world_size: Total number of ranks (default 1 = no sharding)
+            partition: How to cut the directory into slices (default "prefix")
         """
         import logging
 
         logging.getLogger(__name__).info(
-            "[Hydrator] register_directory: async start %s -> %s (rank=%d/%d)",
+            "[Hydrator] register_directory: async start %s -> %s (rank=%d/%d partition=%s)",
             s3_path,
             local_dir,
             rank,
             world_size,
+            partition,
         )
-        self.cache_manager.register_directory_sync(s3_path, local_dir, rank, world_size)
+        self.cache_manager.register_directory_sync(
+            s3_path, local_dir, rank, world_size, partition, self.config.credentials_profile
+        )
 
     def list_directory(self, s3_path: str) -> list[str]:
         """List all object URIs under an S3 prefix (metadata only, no download).
@@ -999,9 +1011,21 @@ class Hydrator:
     def shutdown(self, wait: bool = True) -> None:
         """Shutdown the service.
 
-        NOTE: This is currently the only point where disk space is reclaimed.
-        When cleanup_on_shutdown=True, the entire job directory (_job_dir) is removed
-        with a single rmtree — covering both downloaded file cache and s5cmd-synced dirs.
+        NOTE: Apart from the sweep of a crashed run's leftovers at startup, this is where disk
+        space is reclaimed. When cleanup_on_shutdown=True, this worker's own cache directory is
+        removed with a single rmtree — covering both downloaded file cache and s5cmd-synced dirs.
+
+        Only this worker's own directory, because the job directory is not this worker's to
+        delete. Workers sharing a job share it, and when the download index is enabled they share
+        that too — an index whose entire purpose is to be read by the other processes. Removing
+        the job directory would take their caches and that index with it, and a worker still
+        waiting on a neighbour's file would then look up a table that no longer exists: it gets
+        nothing back for as long as it is willing to wait, while the file sits complete on disk.
+
+        The shared index still has to go, or every distributed run leaves one behind: it is the
+        last worker out that takes it, along with the job directory. A worker creates its own
+        directory before it opens the index, so a job directory with no worker directory left in
+        it has nobody who could still read one.
 
         Args:
             wait: If True, wait for active downloads to complete
@@ -1012,9 +1036,20 @@ class Hydrator:
                 return
             self.cache_manager.shutdown(wait=wait)
             if self.config.cleanup_on_shutdown:
+                import contextlib
                 import shutil
 
-                shutil.rmtree(self._job_dir, ignore_errors=True)
+                shutil.rmtree(self.cache_root, ignore_errors=True)
+                with contextlib.suppress(OSError):
+                    if not any(
+                        entry.name.startswith("worker_") for entry in os.scandir(self._job_dir)
+                    ):
+                        shutil.rmtree(
+                            os.path.join(self._job_dir, cache_manager.DOWNLOAD_INDEX_DIRNAME),
+                            ignore_errors=True,
+                        )
+                    # Succeeds once the index is gone and no sibling is left holding a cache.
+                    os.rmdir(self._job_dir)
             self._is_shutdown = True
 
     def __enter__(self):

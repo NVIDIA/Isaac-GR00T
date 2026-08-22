@@ -330,3 +330,12 @@ class WorkerPool:
 
     def enqueue_sync_dir(self, s3_path: str, local_dir: str, profile: str | None = None) -> None:
         self._task_queue.put(("sync_dir", s3_path, local_dir.encode("utf-8"), profile))
+
+    def enqueue_sync_files(
+        self, s3_base: str, pairs: list[tuple[str, str]], profile: str | None = None
+    ) -> None:
+        """Enqueue a copy of an explicit (remote_uri, local_path) set under ``s3_base``."""
+        import json
+
+        payload = json.dumps([list(pair) for pair in pairs]).encode("utf-8")
+        self._task_queue.put(("sync_files", s3_base, payload, profile))
