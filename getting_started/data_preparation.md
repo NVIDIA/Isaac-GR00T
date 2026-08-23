@@ -16,6 +16,15 @@ If you have a dataset in the LeRobot v3.0 format, please use [this script](../sc
 
 If you have a dataset in another format, please convert it to the LeRobot v2 format satisfying the following requirements.
 
+After conversion, run the metadata validator to catch common compatibility gaps:
+
+```bash
+python scripts/lerobot_conversion/validate_v2_dataset.py \
+  --dataset-root /path/to/lerobot_v2_dataset
+```
+
+If the checker reports missing `meta/episodes.jsonl` or missing `chunk_index` fields in episode metadata, rerun with `--write-fixes` to patch metadata in-place.
+
 ### Structure Requirements
 
 The folder should follow a similar structure as below and contain these core folders and files:
