@@ -34,6 +34,7 @@ from groot.core.data.hydrator.cache.dir_sync_job import DirSyncJob
 from groot.core.data.hydrator.cache.download_index import DownloadIndex, DownloadRecord
 from groot.core.data.hydrator.cache.partition_strategy import (
     AlphanumericPrefixStrategy,
+    HashPartitionStrategy,
     IdentityStrategy,
     PartitionStrategy,
 )
@@ -41,6 +42,11 @@ from groot.core.data.hydrator.utils import io as _io_utils
 from groot.core.utils.distributed import worker_logging
 
 log = worker_logging.get_unified_logger()
+
+# The shared index's directory, a sibling of the per-worker caches under the job
+# directory. Shutdown names it too, to tell the shared index apart from a worker's own
+# cache when it decides what it may remove.
+DOWNLOAD_INDEX_DIRNAME = "download_index"
 
 # Prevents GC of ctypes callbacks pending on the main thread (Py_AddPendingCall
 # stores only a raw C pointer; if the Python wrapper is collected the pointer
@@ -154,7 +160,7 @@ class CacheManager:
         # Shared DuckDB index for cross-rank file discovery.
         # Lives at {job_dir}/download_index — sibling of the per-worker dirs.
         if enable_download_index:
-            download_index_db_dir = str(self.cache_root.parent / "download_index")
+            download_index_db_dir = str(self.cache_root.parent / DOWNLOAD_INDEX_DIRNAME)
             self.download_index: DownloadIndex | None = DownloadIndex(
                 download_index_db_dir, partition_strategy=self.partition_strategy
             )
@@ -426,18 +432,38 @@ class CacheManager:
         local_dir: str,
         rank: int = 0,
         world_size: int = 1,
+        partition: str = "prefix",
+        profile: str | None = None,
     ) -> None:
-        """Async: enqueue s5cmd sync tasks for this rank's prefix slice.
+        """Async: enqueue this rank's slice of a directory transfer.
 
         Returns immediately; tasks run in the background on the WorkerPool.
         Workers stream file pairs directly into DuckDB (download_index) as
         they complete — get_file() pollers see entries within seconds.
+
+        Two ways to cut the directory into slices:
+
+        ``"prefix"`` gives each rank a set of filename-first-character globs, and lays the files
+        out under one subdirectory per prefix. One listing is never taken, so nothing is known
+        about the directory before the transfer starts -- but balance is only as good as the
+        filenames. A directory whose large files share a first character (``model-*.safetensors``,
+        ``shard-*.parquet``) puts all of them on a single rank while the others idle.
+
+        ``"hash"`` lists the directory first and assigns each object by a hash of its URI, which
+        balances regardless of how the files are named, and mirrors the remote layout locally
+        rather than grouping by prefix. The cost is the listing, and that the object set is fixed
+        when the slice is computed.
+
+        Ranks must agree on ``partition``: each covers only its own slice, and the union is the
+        directory only if they were cut the same way.
 
         Args:
             s3_path: S3 prefix URI (e.g. s3://bucket/prefix)
             local_dir: Local directory to sync files into
             rank: This process's rank (default 0)
             world_size: Total number of ranks (default 1 = no sharding)
+            partition: ``"prefix"`` (default) or ``"hash"``
+            profile: Credentials profile for listing and transfer (None = default pool)
         """
         if self.download_index is None:
             raise RuntimeError(
@@ -445,17 +471,43 @@ class CacheManager:
                 "Directory sync relies on DuckDB to stream file locations across "
                 "ranks and processes. Re-create CacheManager with enable_download_index=True."
             )
-        strategy = AlphanumericPrefixStrategy()
+        if partition not in ("prefix", "hash"):
+            raise ValueError(f"unknown partition {partition!r}; expected 'prefix' or 'hash'")
         s3_base = _io_utils.normalize_path(s3_path).rstrip("/")
+        # Recorded before any transfer is enqueued, and for the whole directory rather than this
+        # rank's slice: it is what get_file() polls against, and every rank has to wait on objects
+        # its neighbours own.
         with self._lock:
             self._dir_sync_jobs[s3_base] = DirSyncJob(
                 s3_base=s3_base,
                 local_dir=local_dir,
             )
+
+        if partition == "hash":
+            strategy = HashPartitionStrategy()
+            pairs = [
+                (uri, os.path.join(local_dir, uri[len(s3_base) + 1 :]))
+                for uri in _io_utils.glob_paths(s3_base, "*", profile=profile)
+                if strategy.is_owner(uri, rank, world_size)
+            ]
+            log.info(
+                "[CacheManager] directory sync s3_base=%s rank=%d/%d partition=hash owned=%d",
+                s3_base,
+                rank,
+                world_size,
+                len(pairs),
+            )
+            if pairs:
+                self.workers.enqueue_sync_files(s3_base, pairs, profile=profile)
+            return
+
+        strategy = AlphanumericPrefixStrategy()
         for prefix in strategy.all_prefixes():
             if not strategy.is_owner(prefix, rank, world_size):
                 continue
-            self.workers.enqueue_sync_dir(f"{s3_base}/{prefix}*", os.path.join(local_dir, prefix))
+            self.workers.enqueue_sync_dir(
+                f"{s3_base}/{prefix}*", os.path.join(local_dir, prefix), profile=profile
+            )
 
     def get_covering_dir_sync(self, remote_path: str) -> "DirSyncJob | None":
         """Return the DirSyncJob whose s3_base is a prefix of remote_path, or None.
