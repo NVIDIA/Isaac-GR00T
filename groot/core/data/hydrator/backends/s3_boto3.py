@@ -320,63 +320,14 @@ class S3Boto3Backend(base.StorageBackend):
                 other than no matching objects (e.g. auth failure, I/O error).
         """
         import os
+        import subprocess
+        import tempfile
 
         os.makedirs(local_dir, exist_ok=True)
         normalized = io.normalize_path(remote_path)
         # If caller already provided a glob (e.g. "s3://bucket/prefix/a*" for
         # letter-based distributed sync), use it as-is; otherwise append "/*".
         s3_glob = normalized if "*" in normalized else normalized.rstrip("/") + "/*"
-        return self._run_s5cmd(["sync", s3_glob, local_dir + "/"], on_pair)
-
-    def sync_files(
-        self,
-        pairs: list[tuple[str, str]],
-        on_pair: base.OnPair | None = None,
-    ) -> list[tuple[str, str]]:
-        """Copy an explicit list of (remote_uri, local_path) pairs.
-
-        Where :meth:`sync_directory` takes a glob and lets s5cmd decide what it covers, this takes
-        the exact set. That is what lets a caller split a directory across ranks by something other
-        than the object's name -- a hash, say -- and choose where each object lands, rather than
-        being limited to what one glob can express.
-
-        Args:
-            pairs: (remote_uri, local_path) to copy. Destination directories are created.
-            on_pair: Fired for each pair as it is written, as in :meth:`sync_directory`.
-
-        Returns:
-            List of (remote_uri, local_path) pairs successfully copied.
-        """
-        import os
-        import tempfile
-
-        if not pairs:
-            return []
-        for _, local_path in pairs:
-            parent = os.path.dirname(local_path)
-            if parent:
-                os.makedirs(parent, exist_ok=True)
-
-        # s5cmd's own command file, so one process copies the whole set with its usual concurrency
-        # instead of paying a process launch per object.
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".s5cmd", delete=False) as f:
-            for remote_uri, local_path in pairs:
-                f.write(f"cp {io.normalize_path(remote_uri)} {local_path}\n")
-            script = f.name
-        try:
-            return self._run_s5cmd(["run", script], on_pair)
-        finally:
-            os.unlink(script)
-
-    def _run_s5cmd(
-        self,
-        operation: list[str],
-        on_pair: base.OnPair | None = None,
-    ) -> list[tuple[str, str]]:
-        """Run one s5cmd invocation and return the (source, destination) pairs it reported."""
-        import os
-        import subprocess
-        import tempfile
 
         # Resolve credentials once; _load_credentials is lazy but triggers I/O
         # on first call, so avoid re-invoking it per field below.
@@ -405,7 +356,7 @@ class S3Boto3Backend(base.StorageBackend):
         ]
         if creds.get("endpoint_url"):
             cmd += ["--endpoint-url", creds["endpoint_url"]]
-        cmd += operation
+        cmd += ["sync", s3_glob, local_dir + "/"]
 
         # Stream stdout line by line and parse s5cmd's default per-operation log
         # format: ``cp <src> <dst>`` (one line per successfully-copied object).

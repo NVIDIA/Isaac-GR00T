@@ -3,258 +3,258 @@
   "findings": [
     {
       "body": "DreamDojo does not natively support multi-view simulation, which is identified as crucial for state-of-the-art policies",
-      "concepts": [
+      "id": "finding:doc:0138bc4e4d32",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:0138bc4e4d32",
       "title": "DreamDojo natively support multi-view simulation identified crucial state-of-the-art"
     },
     {
       "body": "Embodiment-specific state and action projector modules enable support for different robot embodiments including latent and IDM-based actions.",
-      "concepts": [
+      "id": "finding:doc:03fa1a1c5ca4",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:03fa1a1c5ca4",
       "title": "Embodiment-specific state action projector modules enable support different"
     },
     {
       "body": "GR00T N1 uses Eagle-2 as the base VLM, fine-tuned together with a flow-matching action generation model with action chunking.",
-      "concepts": [
+      "id": "finding:doc:13dfb5b2eb34",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:13dfb5b2eb34",
       "title": "GR00T N1 uses Eagle-2 base VLM fine-tuned together"
     },
     {
       "body": "Co-training combines synthetic simulation data (MimicGen, DexMimicGen), neural-generated video data (~300k trajectories, 827 hours), and real-world robot data.",
-      "concepts": [
+      "id": "finding:doc:1b6289b891a7",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:1b6289b891a7",
       "title": "Co-training combines synthetic simulation data MimicGen DexMimicGen neural-generated"
     },
     {
       "body": "Video generative models can produce neural trajectories at ~300k trajectory scale for robot training data augmentation.",
-      "concepts": [
+      "id": "finding:doc:215771b0ade9",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:215771b0ade9",
       "title": "Video generative models produce neural trajectories 300k trajectory"
     },
     {
       "body": "The System 1 and System 2 modules are jointly optimized during training rather than trained separately, facilitating coordination between reasoning and actuation",
-      "concepts": [
+      "id": "finding:doc:295d923dfc61",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:295d923dfc61",
       "title": "System 1 2 modules jointly optimized during training"
     },
     {
       "body": "Cross-attention mechanism bridges the VLM and action generation model instead of mixture-of-experts architecture, providing flexibility in model architecture choices.",
-      "concepts": [
+      "id": "finding:doc:2d8f72256c73",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:2d8f72256c73",
       "title": "Cross-attention mechanism bridges VLM action generation model instead"
     },
     {
       "body": "Initializing the last layer of the action MLP with zeros when adding action conditioning to a pretrained model prevents perturbation of the pretrained state and empirically improves physics modeling.",
-      "concepts": [
+      "id": "finding:doc:2f920d000448",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:2f920d000448",
       "title": "Initializing last layer action MLP zeros adding conditioning"
     },
     {
       "body": "Training data is organized as a pyramid structure with web data and human videos at the base, synthetic/simulation data in the middle, and real robot data at the top, enabling effective use of heterogeneous data sources",
-      "concepts": [
+      "id": "finding:doc:43d316282016",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:43d316282016",
       "title": "Training data organized pyramid structure web human videos"
     },
     {
       "body": "A single unified model with one set of weights can generate manipulation behaviors across single-arm, bimanual, and humanoid embodiments through embodiment-specific encoders and decoders",
-      "concepts": [
+      "id": "finding:doc:556dbd75005b",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:556dbd75005b",
       "title": "single unified model set weights generate manipulation behaviors"
     },
     {
       "body": "DexMimicGen scaled limited human demonstrations to 780,000 simulation trajectories (6,500 hours equivalent) in just 11 hours of compute time.",
-      "concepts": [
+      "id": "finding:doc:56e21b50ce2e",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:56e21b50ce2e",
       "title": "DexMimicGen scaled limited human demonstrations 780 000 simulation"
     },
     {
       "body": "DexMimicGen generates 10,000 demonstrations per source-target receptacle pair from a few dozen teleoperated source demonstrations, yielding 540k total simulation trajectories across 54 receptacle combinations.",
-      "concepts": [
+      "id": "finding:doc:5bcec1a81c3f",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:5bcec1a81c3f",
       "title": "DexMimicGen generates 10 000 demonstrations source-target receptacle pair"
     },
     {
       "body": "Post-training on task-specific data can cause capability regression: models post-trained exclusively with right-hand demonstrations lose the ability to perform bimanual handover behaviors present in the pre-trained checkpoint.",
-      "concepts": [
+      "id": "finding:doc:6011793cf633",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:6011793cf633",
       "title": "Post-training task-specific data cause capability regression models post-trained"
     },
     {
       "body": "Increasing human video data diversity during pretraining improves both physics modeling and controllability for out-of-distribution actions on downstream robot tasks.",
-      "concepts": [
+      "id": "finding:doc:622047a785de",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:622047a785de",
       "title": "Increasing human video data diversity during pretraining improves"
     },
     {
       "body": "Using middle-layer LLM embeddings (layer 12 for the 2B model) instead of final-layer embeddings resulted in both faster inference speed and higher downstream policy success rate.",
-      "concepts": [
+      "id": "finding:doc:680f952d148d",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:680f952d148d",
       "title": "middle-layer LLM embeddings layer 12 2B model instead"
     },
     {
       "body": "For embodiments with few tasks and limited training data (DexMimicGen Cross-Embodiment Suite), reducing batch size from 1024 to 128 for GR00T-N1-2B was necessary.",
-      "concepts": [
+      "id": "finding:doc:7270d9ae7255",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:7270d9ae7255",
       "title": "embodiments few tasks limited training data DexMimicGen Cross-Embodiment"
     },
     {
       "body": "IDM-labeled neural trajectories outperform LAPA labels as training data increases, with the performance gap widening from 30 to 300 demonstrations per task.",
-      "concepts": [
+      "id": "finding:doc:8250409b0276",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:8250409b0276",
       "title": "IDM-labeled neural trajectories outperform LAPA labels training data"
     },
     {
       "body": "Relative action transformation and chunked action injection each significantly improve simulation quality and action controllability; combining them with temporal consistency loss further enhances both action following and object modeling.",
-      "concepts": [
+      "id": "finding:doc:8606659766f7",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:8606659766f7",
       "title": "Relative action transformation chunked injection significantly improve simulation"
     },
     {
-      "body": "For distillation to real-time autoregressive generation, having the student model generate N\u2032>N frames (more than the teacher's horizon N) during training and randomly selecting an N-sized window for supervision improves robustness against compounding errors over long horizons.",
-      "concepts": [
+      "body": "For distillation to real-time autoregressive generation, having the student model generate N′>N frames (more than the teacher's horizon N) during training and randomly selecting an N-sized window for supervision improves robustness against compounding errors over long horizons.",
+      "id": "finding:doc:860d7d13ab25",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:860d7d13ab25",
       "title": "distillation real-time autoregressive generation having student model generate"
     },
     {
-      "body": "Adding a temporal consistency loss (matching predicted velocity transitions between consecutive frames) with coefficient \u03bb=0.1 to standard flow matching loss accelerates learning of action controllability, enhances object completeness, and reduces artifacts.",
-      "concepts": [
+      "body": "Adding a temporal consistency loss (matching predicted velocity transitions between consecutive frames) with coefficient λ=0.1 to standard flow matching loss accelerates learning of action controllability, enhances object completeness, and reduces artifacts.",
+      "id": "finding:doc:8fcb00a1a0de",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:8fcb00a1a0de",
       "title": "Adding temporal consistency loss matching predicted velocity transitions"
     },
     {
       "body": "Pretraining on human videos despite embodiment gap transfers underlying interaction physics to robot world models due to consistency of physical dynamics between humans and robots",
-      "concepts": [
+      "id": "finding:doc:92269971080a",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:92269971080a",
       "title": "Pretraining human videos despite embodiment gap transfers underlying"
     },
     {
       "body": "Human video datasets (Ego4D, Ego-Exo4D, Assembly-101, EPIC-KITCHENS, HOI4D, HoloAssist, RH20T-Human) provide affordances, task semantics, and motion patterns without explicit action labels for pre-training.",
-      "concepts": [
+      "id": "finding:doc:aca694b14af7",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:aca694b14af7",
       "title": "Human video datasets Ego4D Ego-Exo4D Assembly-101 EPIC-KITCHENS HOI4D"
     },
     {
       "body": "K=4 inference steps for flow-matching denoising works well across all tested robot embodiments.",
-      "concepts": [
+      "id": "finding:doc:c1362ffb2cab",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:c1362ffb2cab",
       "title": "K 4 inference steps flow-matching denoising works well"
     },
     {
       "body": "Latent action conditioning during pretraining on human videos significantly narrows the performance gap to ground-truth action conditioning, while action-free pretraining provides only marginal benefits over no pretraining.",
-      "concepts": [
+      "id": "finding:doc:c30c96090896",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:c30c96090896",
       "title": "Latent action conditioning during pretraining human videos significantly"
     },
     {
       "body": "Injecting actions into latent frames as temporally-aligned chunks (4 consecutive actions per chunk matching the 4-frame temporal compression ratio) rather than as global conditions mitigates causality confusion and improves action controllability and learning efficiency.",
-      "concepts": [
+      "id": "finding:doc:ca493345b08c",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:ca493345b08c",
       "title": "Injecting actions latent frames temporally-aligned chunks 4 consecutive"
     },
     {
       "body": "Policy evaluation in DreamDojo produces absolute success rates that are systematically higher than real-world counterparts, suggesting the model fails to accurately generate nuanced failure modes",
-      "concepts": [
+      "id": "finding:doc:ca8fc433f263",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:ca8fc433f263",
       "title": "Policy evaluation DreamDojo produces absolute success rates systematically"
     },
     {
       "body": "Transforming robot joint poses to relative actions (rebaselining inputs with pose at beginning of each latent frame every 4 timesteps) reduces modeling complexity and enhances generalization to continuous and compositional robot actions compared to absolute poses.",
-      "concepts": [
+      "id": "finding:doc:d56436a7eba7",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:d56436a7eba7",
       "title": "Transforming robot joint poses relative actions rebaselining inputs"
     },
     {
       "body": "GR00T N1 uses a dual-system architecture where a Vision-Language Model (System 2) performs reasoning while a Diffusion Transformer (System 1) generates closed-loop motor actions.",
-      "concepts": [
+      "id": "finding:doc:d9b8264a204f",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:d9b8264a204f",
       "title": "GR00T N1 uses dual-system architecture Vision-Language Model System"
     },
     {
       "body": "Human video pretraining benefits transfer through distillation, with distilled students from pretrained teachers significantly outperforming those from non-pretrained teachers across all evaluation datasets.",
-      "concepts": [
+      "id": "finding:doc:dea58a476651",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:dea58a476651",
       "title": "Human video pretraining benefits transfer through distillation distilled"
     },
     {
       "body": "Using continuous latent actions as unified proxy actions enables self-supervised extraction of semantically meaningful actions between frames, allowing effective transfer of physics and controllability from internet-scale passive video data",
-      "concepts": [
+      "id": "finding:doc:e5b34db843fb",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:e5b34db843fb",
       "title": "continuous latent actions unified proxy enables self-supervised extraction"
     },
     {
       "body": "Action-less data sources like human videos can be incorporated into VLA training by using a latent-action codebook and inverse dynamics model to infer pseudo-actions",
-      "concepts": [
+      "id": "finding:doc:eae11e66f6de",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:eae11e66f6de",
       "title": "Action-less data sources like human videos incorporated VLA"
     },
     {
       "body": "DreamDojo struggles to accurately simulate uncommon actions such as slapping and fast waving, indicating limitations in handling actions outside the common distribution of training data",
-      "concepts": [
+      "id": "finding:doc:f7df31406572",
+      "tags": [
         "paper"
       ],
-      "id": "finding:doc:f7df31406572",
       "title": "DreamDojo struggles accurately simulate uncommon actions slapping fast"
     }
   ],

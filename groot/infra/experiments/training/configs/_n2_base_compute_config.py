@@ -23,16 +23,12 @@ from groot.infra.launcher.one_launcher.training_experiment_compute_config import
 
 @dataclass(frozen=True)
 class N2BaseComputeConfig:
-    h100_batch_size: int | None = None
+    h100_batch_size: int
     gb300_batch_size: int | None = None
     env_vars: Mapping[str, str] = field(default_factory=dict)
 
     def to_compute_config(self) -> TrainingExperimentComputeConfig:
-        families = {}
-        if self.h100_batch_size is not None:
-            families["h100"] = ExperimentComputeConfig(per_device_batch_size=self.h100_batch_size)
+        families = {"h100": ExperimentComputeConfig(per_device_batch_size=self.h100_batch_size)}
         if self.gb300_batch_size is not None:
             families["gb300"] = ExperimentComputeConfig(per_device_batch_size=self.gb300_batch_size)
-        if not families:
-            raise ValueError("N2 compute config requires at least one compute-family batch size")
         return TrainingExperimentComputeConfig(families=families, env_vars=self.env_vars)
