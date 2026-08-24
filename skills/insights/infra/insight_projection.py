@@ -167,7 +167,6 @@ class InsightProjection:
         id_field = "id" if kind == "finding" else "chunk_id"
         text_field = "body" if kind == "finding" else "text"
         record_id = value.get(id_field)
-        title = value.get("title")
         text = value.get(text_field)
         if "concepts" not in value:
             raise ValueError(f"Insight {kind} requires concepts in {path}")
@@ -178,18 +177,27 @@ class InsightProjection:
             raise ValueError(
                 f"Insight finding id must start with {FINDING_ID_PREFIX!r}: {record_id}"
             )
-        if not isinstance(title, str) or not isinstance(text, str):
+        if not isinstance(text, str):
             raise ValueError(  # noqa: TRY004
-                f"Insight {kind} requires string title and {text_field}: {record_id}"
+                f"Insight {kind} requires string {text_field}: {record_id}"
             )
-        return {
+        record = {
             "id": record_id,
             "kind": kind,
             "topic": topic,
-            "title": title,
             "text": text,
             "concepts": concepts,
         }
+        # A chunk is a raw passage whose section heading is its "Sources:" handle, so its title
+        # is required and carried. A finding has no title in its schema at all: the reader never
+        # reads or emits one, so nothing a finding ships can reach the title-weighted term index
+        # in search() -- it is ranked on body and concepts, and any stray title is inert.
+        if kind == "chunk":
+            title = value.get("title")
+            if not isinstance(title, str):
+                raise ValueError(f"Insight chunk requires a string title: {record_id}")
+            record["title"] = title
+        return record
 
     def search(self, query: str, limit: int = 5) -> dict[str, Any]:
         query = " ".join(query.split())

@@ -6,16 +6,14 @@
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:06136f473dc0",
-      "title": "camera ceiling better head left right wrist cameras"
+      "id": "finding:doc:06136f473dc0"
     },
     {
       "body": "Importance of keeping task definition and environment consistent across simulation and real-robot runs when comparing results.",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:0cf371294ffb",
-      "title": "Importance keeping task definition environment consistent across simulation"
+      "id": "finding:doc:0cf371294ffb"
     },
     {
       "body": "If the robot action looks jerky, first check if the training data has the same problem. Try apply low-pass filter to training data. Try more denoising steps in inference.",
@@ -23,16 +21,14 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:18e6ea2de815",
-      "title": "robot action looks jerky first check training data"
+      "id": "finding:doc:18e6ea2de815"
     },
     {
       "body": "Common pattern: open-loop looks acceptable, but robot jitters, misses grasp, does not lift, twists joints, or executes wrong action.",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:2889ade8cbac",
-      "title": "Common pattern open-loop looks acceptable robot jitters misses"
+      "id": "finding:doc:2889ade8cbac"
     },
     {
       "body": "suggest: add history; camera footage=>better understand edge/corner location from image; collect data only through robot cameras than 3rd person view",
@@ -40,16 +36,14 @@
         "playbook",
         "topic:deployment failure analysis"
       ],
-      "id": "finding:doc:28d6c90f4b68",
-      "title": "suggest add history camera footage better understand edge/corner"
+      "id": "finding:doc:28d6c90f4b68"
     },
     {
       "body": "collected 100 episodes, suggest post-train directly, task is easy to overfit with 100-200 episodes",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:317767693999",
-      "title": "collected 100 episodes suggest post-train directly task easy"
+      "id": "finding:doc:317767693999"
     },
     {
       "body": "Which is more important for training data, consistency or diversity? If you aim at medium SR, keeping consistent is OK; if you want very high SR, then diversity is necessary.",
@@ -57,8 +51,7 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:35dfea403abc",
-      "title": "important training data consistency diversity aim medium SR"
+      "id": "finding:doc:35dfea403abc"
     },
     {
       "body": "Start with a small operational area, achieve high success rate, then expand distribution.",
@@ -66,8 +59,7 @@
         "playbook",
         "topic:data diversity"
       ],
-      "id": "finding:doc:4b34752b9c66",
-      "title": "Start small operational area achieve high success rate"
+      "id": "finding:doc:4b34752b9c66"
     },
     {
       "body": "GR00T N1.7 supports additional observation history via delta_indices (state or image or both). You will find an explanation in https://github.com/NVIDIA/Isaac-GR00T/blob/main/getting_started/data_config.md. We recommend adding video/image observation history for your task, before experimenting further with action_prefix conditioning. The reason is that N1.7 was trained with mixed",
@@ -75,8 +67,7 @@
         "playbook",
         "topic:observation history"
       ],
-      "id": "finding:doc:569fc26ebcf2",
-      "title": "GR00T N1.7 supports additional observation history delta indices"
+      "id": "finding:doc:569fc26ebcf2"
     },
     {
       "body": "Finally, we recommend verifying that the control stack used during data collection matches deployment as closely as possible, including IK solver, low-level controller, control frequency, action representation, and any smoothing or filtering.",
@@ -84,8 +75,7 @@
         "playbook",
         "topic:real2sim gap"
       ],
-      "id": "finding:doc:5959751af09a",
-      "title": "Finally recommend verifying control stack during data collection"
+      "id": "finding:doc:5959751af09a"
     },
     {
       "body": "We recommend starting with video/image history only. State history can be tried afterward, but some internal experiments found that adding state history can make the model more likely to overfit.",
@@ -93,16 +83,14 @@
         "playbook",
         "topic:observation history"
       ],
-      "id": "finding:doc:5f1980b435cf",
-      "title": "recommend starting video/image history only. State tried afterward"
+      "id": "finding:doc:5f1980b435cf"
     },
     {
       "body": "stiff control is preferable if possible, easier to learn as reducing latency",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:616b9e236908",
-      "title": "stiff control preferable possible easier learn reducing latency"
+      "id": "finding:doc:616b9e236908"
     },
     {
       "body": "When collecting data by tele-op, look at camera images but not the real robot. Make sure you see what the robot sees. It may affect speed and quality at the beginning, but will be fine after some practice.",
@@ -110,8 +98,7 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:67c3d99d8d71",
-      "title": "collecting data tele-op look camera images real robot."
+      "id": "finding:doc:67c3d99d8d71"
     },
     {
       "body": "If the inference latency is too large, try to add torch.compile.",
@@ -119,8 +106,7 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:6b78f46d643f",
-      "title": "inference latency too large try add torch.compile."
+      "id": "finding:doc:6b78f46d643f"
     },
     {
       "body": "Especially since you wrote your own trainers, you should make sure to recompute post-training dataset stats (see flag in https://github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/configs/data/data_config.py#L76). In the Isaac-GR00T repo, the flag controls whether the dataset stats computed from your finetuning dataset should replace the normalization stats baked into the pretrained checkpoint. You should make sure the recomputed stats are used during training and inference.",
@@ -128,8 +114,7 @@
         "playbook",
         "topic:dataset statistics"
       ],
-      "id": "finding:doc:6baf791530f8",
-      "title": "Especially since wrote own trainers sure recompute post-training"
+      "id": "finding:doc:6baf791530f8"
     },
     {
       "body": "You are collecting data in real and evaluating in Sim. It is important for the Sim environment to accurately reflect the real environment. It is worth testing if the policy works well, if trained on data collected in Sim, but also validating performance on the real setup.",
@@ -137,8 +122,7 @@
         "playbook",
         "topic:real2sim gap"
       ],
-      "id": "finding:doc:9a187ffb3319",
-      "title": "collecting data real evaluating Sim. important Sim environment"
+      "id": "finding:doc:9a187ffb3319"
     },
     {
       "body": "N1.7 supports relative action representations, and we recommend checking whether your 29D action vector should be configured as relative actions where applicable, if not yet. See getting_started/finetune_new_embodiment.md for guidance on configuring relative EEF for your robot. Representing actions as deltas from the current pose (rather than absolute targets) improves generalization and is a key factor in the model's cross-embodiment performance.",
@@ -146,8 +130,7 @@
         "playbook",
         "topic:relative actions"
       ],
-      "id": "finding:doc:9cb4730abac5",
-      "title": "N1.7 supports relative action representations recommend checking whether"
+      "id": "finding:doc:9cb4730abac5"
     },
     {
       "body": "If the task is not common or unseen in pretraining, you better turn on tune_llm and tune_visual to finetune parameters in the LLM backbone and vision encoder. In that case, you should use a lower LR than tuning the action head only. It will use more GPU memories.",
@@ -155,16 +138,14 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:a05c433443f1",
-      "title": "task common unseen pretraining better turn tune llm"
+      "id": "finding:doc:a05c433443f1"
     },
     {
       "body": "fail + retry behavior in data collection: avoid them, or only keep recovered parts (dagger, annotate good/bad intervals, only train with good)",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:a13a3bd0456a",
-      "title": "fail retry behavior data collection avoid them only"
+      "id": "finding:doc:a13a3bd0456a"
     },
     {
       "body": "When collecting DAgger data, use the human trajectory only and discard the robot trajectory, because the robot trajectory leads the robot to a bad state. We do not want the model to imitate bad robot trajectories.",
@@ -172,8 +153,7 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:a4c1885c5e63",
-      "title": "collecting DAgger data human trajectory only discard robot"
+      "id": "finding:doc:a4c1885c5e63"
     },
     {
       "body": "Relative action/state is usually better than absolute action/state.",
@@ -181,8 +161,7 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:ac28c475a9d7",
-      "title": "Relative action/state usually better absolute action/state."
+      "id": "finding:doc:ac28c475a9d7"
     },
     {
       "body": "rl training should be the final step to further boost the performance, dangerous on real robot (need to protect arm from collisions)",
@@ -190,16 +169,14 @@
         "playbook",
         "topic:sim2real gap"
       ],
-      "id": "finding:doc:b27540d08703",
-      "title": "training final step further boost performance dangerous real"
+      "id": "finding:doc:b27540d08703"
     },
     {
       "body": "harder tasks >400, cover all states including after first completion/recovery.",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:b3d873f3d6e7",
-      "title": "harder tasks 400 cover states including after first"
+      "id": "finding:doc:b3d873f3d6e7"
     },
     {
       "body": "Avoid collecting repetitive, identical demonstrations.",
@@ -207,16 +184,14 @@
         "playbook",
         "topic:data diversity"
       ],
-      "id": "finding:doc:b47b576df248",
-      "title": "Avoid collecting repetitive identical demonstrations."
+      "id": "finding:doc:b47b576df248"
     },
     {
       "body": "Batch size 1024, learning rate 1e-4 (same as N1.5).",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:b93387ad3f81",
-      "title": "Batch size 1024 learning rate 1e-4 same N1.5"
+      "id": "finding:doc:b93387ad3f81"
     },
     {
       "body": "Include controlled variation (grasp angle, object pose, limited workspace changes).",
@@ -224,32 +199,28 @@
         "playbook",
         "topic:data diversity"
       ],
-      "id": "finding:doc:be0d33729060",
-      "title": "Include controlled variation grasp angle object pose limited"
+      "id": "finding:doc:be0d33729060"
     },
     {
       "body": "Single-task experiment (pick_block_shape): Training only on a single task performs worse than joint training on all tasks.",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:c28ab68be8e8",
-      "title": "Single-task experiment pick block shape Training only single"
+      "id": "finding:doc:c28ab68be8e8"
     },
     {
       "body": "Recommendation to simplify first: Focus on single-object pick-and-place before moving to multi-step or long-horizon tasks.",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:cb553a080f92",
-      "title": "Recommendation simplify first Focus single-object pick-and-place before moving"
+      "id": "finding:doc:cb553a080f92"
     },
     {
       "body": "abs vs. rel: rel. action space predict may be too small to move; abs. may cause jump; rel. is smoother, generally better on real and def. better in sim.",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:d8ce5a3e39f3",
-      "title": "abs vs. rel rel. action space predict too"
+      "id": "finding:doc:d8ce5a3e39f3"
     },
     {
       "body": "If the task requires high visual details, e.g., finding towel corners, you can try increase the image resolution.",
@@ -257,8 +228,7 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:db1816f1de66",
-      "title": "task requires high visual details e.g. finding towel"
+      "id": "finding:doc:db1816f1de66"
     },
     {
       "body": "Short horizon in inference is good for action precision, while long horizon is good for action continuity.",
@@ -266,8 +236,7 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:e302b92950f3",
-      "title": "Short horizon inference good action precision long continuity."
+      "id": "finding:doc:e302b92950f3"
     },
     {
       "body": "It is not recommended to start with UMI data in post-training, because there is an embodiment gap between the 3rd-party UMI gloves and your robot.",
@@ -275,8 +244,7 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:e8b33227dd0f",
-      "title": "recommended start UMI data post-training because embodiment gap"
+      "id": "finding:doc:e8b33227dd0f"
     },
     {
       "body": "If it is a new embodiment and unseen task, you can try two-stage training. First, turn off tune_llm and tune_visual and train action head only, it helps the action head to warm up on the new action space. Then turn on tune_llm and tune_visual, it helps the model to better adapt to the new task. If you turn on all parameters from the beginning, the action can be very noisy and may cause loss spikes.",
@@ -284,8 +252,7 @@
         "playbook",
         "know-how"
       ],
-      "id": "finding:doc:ee3c9911138e",
-      "title": "new embodiment unseen task try two-stage training. First"
+      "id": "finding:doc:ee3c9911138e"
     },
     {
       "body": "close loop first asap, see how it fails->adjust collection next",
@@ -293,16 +260,14 @@
         "playbook",
         "topic:data"
       ],
-      "id": "finding:doc:f48806525c63",
-      "title": "close loop first asap see fails- adjust collection"
+      "id": "finding:doc:f48806525c63"
     },
     {
       "body": "policy hesitates: task is ambiguous, multiple ways from current obs",
       "concepts": [
         "playbook"
       ],
-      "id": "finding:doc:f64c3c56f91a",
-      "title": "policy hesitates task ambiguous multiple ways current obs"
+      "id": "finding:doc:f64c3c56f91a"
     },
     {
       "body": "As a first experiment, use one frame of history plus the current frame. Since your current replan interval is 8, this corresponds to video delta_indices=[-8, 0]. This matches our recommendation to use step_size = replan_frequency for the observation history.",
@@ -310,8 +275,7 @@
         "playbook",
         "topic:observation history"
       ],
-      "id": "finding:doc:f89d12a2885a",
-      "title": "first experiment frame history plus current frame. Since"
+      "id": "finding:doc:f89d12a2885a"
     }
   ],
   "topic": "playbook"
