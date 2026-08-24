@@ -78,11 +78,13 @@ def _write_projection(repository: Path) -> Path:
         "findings": [
             {
                 "id": "finding:doc:relative",
+                "title": "Check relative EEF normalization",
                 "body": "Use a matched open-loop comparison before changing training.",
                 "concepts": ["playbook", "evaluation"],
             },
             {
                 "id": "finding:doc:unpaired",
+                "title": "Inspect camera timing",
                 "body": "Camera timing can affect deployment.",
                 "concepts": ["playbook"],
             },
@@ -188,77 +190,6 @@ def test_the_projection_shipped_in_this_repository_loads() -> None:
         if finding_id.removeprefix(FINDING_ID_PREFIX) in projection.chunks
     ]
     assert paired, "no shipped finding pairs with its evidence chunk"
-
-
-def test_a_finding_carries_no_title_and_is_searched_by_body(tmp_path: Path) -> None:
-    # A finding is a distilled claim and carries no title. The reader loads it, and search
-    # reaches it through its body alone, with no 8x title term standing in for the claim.
-    root = tmp_path / ".insights"
-    nodes = root / "nodes"
-    nodes.mkdir(parents=True)
-    (root / "index.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "groot_insights_projection.v0",
-                "generated_at": "2026-07-22T23:49:33+00:00",
-                "topics": ["playbook"],
-                "findings": ["finding:doc:untitled"],
-                "chunks": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (nodes / "playbook.json").write_text(
-        json.dumps(
-            {
-                "topic": "playbook",
-                "findings": [
-                    {
-                        "id": "finding:doc:untitled",
-                        "body": "Pin the evaluation seed before comparing checkpoints.",
-                        "concepts": ["evaluation"],
-                    }
-                ],
-                "chunks": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    projection = InsightProjection.load(root)
-    assert "title" not in projection.findings["finding:doc:untitled"]
-
-    result = projection.search("pin evaluation seed")
-    assert result["record_ids"] == ["finding:doc:untitled"]
-
-
-def test_a_stray_finding_title_is_inert_not_indexed(tmp_path: Path) -> None:
-    # A finding has no title in its schema: the reader neither rejects a stray one nor lets
-    # it into the record, so it cannot reach the title-weighted term index. A word that lives
-    # only in that stray title must not match, or the 8x boost would be back through a field
-    # that is meant not to exist.
-    root = _write_projection(tmp_path)
-    node_path = root / "nodes" / "playbook.json"
-    bucket = json.loads(node_path.read_text(encoding="utf-8"))
-    bucket["findings"][0]["title"] = "zzsentinel restated claim"
-    node_path.write_text(json.dumps(bucket), encoding="utf-8")
-
-    projection = InsightProjection.load(root)
-    assert "title" not in projection.findings["finding:doc:relative"]
-    assert projection.search("zzsentinel")["record_ids"] == []
-
-
-def test_a_chunk_still_requires_its_title(tmp_path: Path) -> None:
-    # A finding carries no title, but a chunk's title is its "Sources:" handle, so dropping
-    # it must still fail loudly rather than silently ship a title-less passage.
-    root = _write_projection(tmp_path)
-    node_path = root / "nodes" / "general.json"
-    bucket = json.loads(node_path.read_text(encoding="utf-8"))
-    del bucket["chunks"][0]["title"]
-    node_path.write_text(json.dumps(bucket), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="chunk requires a string title"):
-        InsightProjection.load(root)
 
 
 def test_missing_projection_is_a_nonfatal_grounding_gap(tmp_path: Path) -> None:

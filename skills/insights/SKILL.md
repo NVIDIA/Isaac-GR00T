@@ -133,8 +133,8 @@ The machine-readable contract is `index.json` + `nodes/` only:
 .insights/
 ├── index.json            # {schema_version, generated_at, topics[], findings[], chunks[]}
 └── nodes/<topic>.json    # {topic,
-                          #   findings: [{id, body, concepts}],
-                          #   chunks:   [{chunk_id, title, text, concepts}]}
+                          #   findings: [{id, title, body, tags}],
+                          #   chunks:   [{chunk_id, title, text, tags}]}
 ```
 
 Read it **structurally**, not with `rg`:
@@ -142,7 +142,7 @@ Read it **structurally**, not with `rg`:
 1. Read `index.json` for the available `topics`.
 2. Load the relevant `nodes/<topic>.json` (scan `general.json` and the closest topics when
    unsure).
-3. Retrieve the findings whose `body` matches, and chunks whose `title` / `text` match, the question
+3. Retrieve the findings/chunks whose `title` / `body` / `text` best match the question
    (keyword or embedding similarity over the loaded records).
 4. Answer from the retrieved records only; cite each claim by its `finding.id` or `chunk_id`.
 

@@ -13,7 +13,6 @@
 name = "faq"
 description = "GR00T Documentation-focused agent for answering frequently asked questions with concise, source-grounded responses."
 model = ""
-model_reasoning_effort = ""
 developer_instructions = """
 Answer frequently asked questions using the repository's documentation and other available authoritative sources.
 Lead with a direct answer, keep responses concise, and include relevant file or section references when possible.

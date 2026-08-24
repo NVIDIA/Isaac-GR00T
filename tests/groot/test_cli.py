@@ -30,30 +30,6 @@ def test_oss_cli_does_not_eagerly_import_optional_policy_server_runtime() -> Non
     assert not hasattr(oss, "run_gr00t_server")
 
 
-def test_oss_closed_loop_dry_run_uses_generic_backend(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path
-) -> None:
-    status = oss.main(
-        [
-            "closed-loop-eval",
-            "--checkpoint",
-            "checkpoint",
-            "--backend",
-            "custom.backend:Backend",
-            "--suite",
-            "suite-a",
-            "--embodiment-tag",
-            "custom_tag",
-            "--output-dir",
-            str(tmp_path),
-            "--dry-run",
-        ]
-    )
-
-    assert status == 0
-    assert "backend=custom.backend:Backend" in capsys.readouterr().out
-
-
 def test_oss_public_hf_dependencies_are_commit_pinned() -> None:
     for uri in (
         oss.OSS_COSMOS_MODEL_URI,

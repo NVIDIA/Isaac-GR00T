@@ -126,7 +126,6 @@ boundary:
 | Prepare dataset | Network access to the public dataset; writable dataset path | Local LeRobot dataset |
 | Post-train | Local dataset, embodiment tag, accessible pretrain/model artifacts, GPU, writable output path | Local checkpoint |
 | Open-loop eval | Local dataset, matching embodiment tag, local checkpoint or accessible HF URI, GPU | JSON evaluation report |
-| Closed-loop eval | Simulator backend plugin, suite assets, matching embodiment tag, checkpoint, GPU | Success-rate report and optional videos |
 | Policy server | Matching embodiment tag, local checkpoint or accessible HF URI, GPU | TCP policy endpoint |
 | Train and eval | All post-training and open-loop evaluation inputs | Checkpoint and JSON report |
 
@@ -134,79 +133,6 @@ See the detailed guide for the exact smoke-test environment variables and
 command-line arguments. Training requires an explicit `--embodiment-tag` and
 either `--dataset-path` or an intentional replacement of the complete
 `data.datasets` list with `--set`.
-
-## Closed-loop Evaluation
-
-Run the N2 policy against any simulator plugin that implements the shared backend contract:
-
-```bash
-uv run --no-sync python -m groot.infra.oss closed-loop-eval \
-  --checkpoint <hf-uri-or-local-path> \
-  --backend <python-module:BackendClass> \
-  --suite <suite-name> \
-  --embodiment-tag <checkpoint-embodiment-tag> \
-  --output-dir ./benchmark-results
-```
-
-Without `--ray-address`, the command starts local Ray. Pass a Ray client or GCS
-address to use an existing cluster. A run writes its resolved request,
-success-rate report, comparison history, and optional videos below the output
-directory. Simulator-specific setup and supported suites are documented by
-each backend.
-
-### LIBERO-PRO
-
-Install the pinned simulator and assets, then select its shared backend:
-
-```bash
-groot/infra/closed_loop/backends/libero_pro/setup.sh
-
-uv run --no-sync python -m groot.infra.oss closed-loop-eval \
-  --checkpoint <hf-uri-or-local-path> \
-  --backend groot.infra.closed_loop.backends.libero_pro.backend:LiberoProBackend \
-  --suite libero_pro_10_all \
-  --embodiment-tag libero_sim
-```
-
-The suite name resolves the same checked-in task YAML used by internal
-evaluation. Use `--tasks` for a subset and `--episodes-per-task` for a smoke
-run.
-
-### RoboCasa365
-
-Install the pinned simulator checkout, then run an approved shared suite:
-
-```bash
-groot/infra/closed_loop/backends/robocasa365/setup.sh
-
-uv run --no-sync python -m groot.infra.oss closed-loop-eval \
-  --checkpoint <hf-uri-or-local-path> \
-  --backend groot.infra.closed_loop.backends.robocasa365.backend:RoboCasa365Backend \
-  --suite robocasa365_target50 \
-  --embodiment-tag robocasa365_panda_omron
-```
-
-The backend uses the same per-task horizons as internal evaluation. Set
-`--backend-option robocasa_root='"/path/to/robocasa"'` to use an existing
-checkout instead of the setup script's default.
-
-### RoboDojo
-
-RoboDojo requires Linux, an NVIDIA GPU, and acceptance of the Isaac Sim EULA.
-Install its pinned runtime, then select one of the approved ARX X5 suites:
-
-```bash
-groot/infra/closed_loop/backends/robodojo/setup.sh
-
-uv run --no-sync python -m groot.infra.oss closed-loop-eval \
-  --checkpoint <hf-uri-or-local-path> \
-  --backend groot.infra.closed_loop.backends.robodojo.backend:RoboDojoBackend \
-  --suite robodojo_arx_x5_generalization \
-  --embodiment-tag arx_x5
-```
-
-The shared actor automatically replaces unstable layout seeds while preserving
-the requested episode count.
 
 ## Model Artifacts
 
