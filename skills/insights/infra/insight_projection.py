@@ -188,10 +188,9 @@ class InsightProjection:
             "text": text,
             "concepts": concepts,
         }
-        # A chunk is a raw passage whose section heading is its "Sources:" handle, so its title
-        # is required and carried. A finding has no title in its schema at all: the reader never
-        # reads or emits one, so nothing a finding ships can reach the title-weighted term index
-        # in search() -- it is ranked on body and concepts, and any stray title is inert.
+        # A title belongs to a chunk alone: its section heading is the citable "Sources:"
+        # handle a raw passage needs. A finding is a distilled claim ranked on its body and
+        # concepts, which needs no such handle.
         if kind == "chunk":
             title = value.get("title")
             if not isinstance(title, str):
