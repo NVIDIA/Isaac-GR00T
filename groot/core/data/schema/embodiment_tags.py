@@ -259,6 +259,9 @@ class EmbodimentTag(Enum):
     The Libero Sim dataset.
     """
 
+    VLABENCH_SIM = "vlabench_sim"
+    """The VLABench simulation dataset."""
+
     DROID_SIM = "droid_sim"
     """
     The Droid dataset in sim.
