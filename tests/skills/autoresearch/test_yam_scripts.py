@@ -103,13 +103,6 @@ printf 'final weights\n' > "${output_dir}/model.safetensors"
         encoding="utf-8",
     )
 
-    # train_baseline.sh resolves CONFIG_PATH under PACKAGE_ROOT, which follows
-    # REPO_ROOT. The fake repo only exists so train_local.sh can be stubbed, so
-    # the example yaml has to live there too or render_config.py exits 1.
-    fake_config = fake_repo / "skills/autoresearch/examples/yam_stack_bowl/train_config.yaml"
-    fake_config.parent.mkdir(parents=True)
-    fake_config.write_text("training: {}\n", encoding="utf-8")
-
     for exit_code in (0, 7):
         run_root = tmp_path / f"baseline-{exit_code}"
         output_dir = run_root / "training"
@@ -132,7 +125,7 @@ printf 'final weights\n' > "${output_dir}/model.safetensors"
             check=False,
         )
 
-        assert completed.returncode == exit_code, completed.stderr
+        assert completed.returncode == exit_code
         checkpoints = list(output_dir.glob("checkpoint-*"))
         if exit_code == 0:
             assert not checkpoints

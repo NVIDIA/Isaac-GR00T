@@ -20,9 +20,6 @@ import re
 from typing import Any
 
 SCHEMA_VERSION = "groot_insights_projection.v0"
-# Published ids are the producer's graph ids. The prefix separates a finding from a
-# chunk, and the remainder is what relates the two.
-FINDING_ID_PREFIX = "finding:"
 _TOPIC_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+(?:[._+-][a-z0-9]+)*")
 _STOP_WORDS = {
@@ -167,36 +164,25 @@ class InsightProjection:
         id_field = "id" if kind == "finding" else "chunk_id"
         text_field = "body" if kind == "finding" else "text"
         record_id = value.get(id_field)
+        title = value.get("title")
         text = value.get(text_field)
-        if "concepts" not in value:
-            raise ValueError(f"Insight {kind} requires concepts in {path}")
-        concepts = _string_list(value["concepts"], f"{kind}.concepts")
+        tags = _string_list(value.get("tags", []), f"{kind}.tags")
         if not isinstance(record_id, str) or not record_id:
             raise ValueError(f"Insight {kind} requires {id_field} in {path}")
-        if kind == "finding" and not record_id.startswith(FINDING_ID_PREFIX):
-            raise ValueError(
-                f"Insight finding id must start with {FINDING_ID_PREFIX!r}: {record_id}"
-            )
-        if not isinstance(text, str):
+        if kind == "finding" and not record_id.startswith("finding:"):
+            raise ValueError(f"Insight finding id must start with 'finding:': {record_id}")
+        if not isinstance(title, str) or not isinstance(text, str):
             raise ValueError(  # noqa: TRY004
-                f"Insight {kind} requires string {text_field}: {record_id}"
+                f"Insight {kind} requires string title and {text_field}: {record_id}"
             )
-        record = {
+        return {
             "id": record_id,
             "kind": kind,
             "topic": topic,
+            "title": title,
             "text": text,
-            "concepts": concepts,
+            "tags": tags,
         }
-        # A title belongs to a chunk alone: its section heading is the citable "Sources:"
-        # handle a raw passage needs. A finding is a distilled claim ranked on its body and
-        # concepts, which needs no such handle.
-        if kind == "chunk":
-            title = value.get("title")
-            if not isinstance(title, str):
-                raise ValueError(f"Insight chunk requires a string title: {record_id}")
-            record["title"] = title
-        return record
 
     def search(self, query: str, limit: int = 5) -> dict[str, Any]:
         query = " ".join(query.split())
@@ -214,7 +200,7 @@ class InsightProjection:
 
         items: dict[str, dict[str, dict[str, Any]]] = {}
         for record in self.findings.values():
-            key = record["id"].removeprefix(FINDING_ID_PREFIX)
+            key = record["id"][len("finding:") :]
             items.setdefault(key, {})["finding"] = record
         for record in self.chunks.values():
             items.setdefault(record["id"], {})["chunk"] = record
@@ -231,7 +217,7 @@ class InsightProjection:
             metadata_text = " ".join(
                 [
                     *(record["topic"] for record in item.values()),
-                    *(concept for record in item.values() for concept in record["concepts"]),
+                    *(tag for record in item.values() for tag in record.get("tags", [])),
                 ]
             ).casefold()
             title_tokens = set(_TOKEN_PATTERN.findall(title_text))

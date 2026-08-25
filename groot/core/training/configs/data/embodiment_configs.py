@@ -783,24 +783,6 @@ MODALITY_CONFIGS = {
             modality_keys=["annotation.human.action.task_description"],
         ),
     },
-    "vlabench_sim": {
-        "video": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=["image", "second_image", "wrist_image"],
-        ),
-        "state": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
-        ),
-        "action": ModalityConfig(
-            delta_indices=list(range(0, 16)),
-            modality_keys=["x", "y", "z", "roll", "pitch", "yaw", "gripper"],
-        ),
-        "language": ModalityConfig(
-            delta_indices=[0],
-            modality_keys=["annotation.human.action.task_description"],
-        ),
-    },
     "droid_sim": {
         "video": ModalityConfig(
             delta_indices=[0],

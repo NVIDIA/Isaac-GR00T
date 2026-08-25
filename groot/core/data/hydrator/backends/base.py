@@ -178,25 +178,3 @@ class StorageBackend(abc.ABC):
             NotImplementedError: If this backend does not support directory sync
         """
         raise NotImplementedError("This backend does not support sync_directory")
-
-    def sync_files(
-        self,
-        pairs: list[tuple[str, str]],
-        on_pair: OnPair | None = None,
-    ) -> list[tuple[str, str]]:
-        """Copy an explicit list of (remote_uri, local_path) pairs.
-
-        The counterpart to :meth:`sync_directory` for callers that need to choose the exact set of
-        objects and where each one lands, rather than whatever a single prefix glob covers.
-
-        Args:
-            pairs: (remote_uri, local_path) to copy.
-            on_pair: Optional callback fired for each pair as it is written.
-
-        Returns:
-            List of (remote_uri, local_path) pairs for every file successfully copied.
-
-        Raises:
-            NotImplementedError: If this backend does not support explicit-pair copying
-        """
-        raise NotImplementedError("This backend does not support sync_files")

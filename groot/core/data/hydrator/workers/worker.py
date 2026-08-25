@@ -10,13 +10,12 @@
 
 """Xenna worker class for storage I/O (download and upload)."""
 
-from collections.abc import Callable
 from pathlib import Path
 import time
 from typing import Any
 
-from groot.core.data.hydrator import backends
 from groot.core.utils.distributed import worker_logging
+from groot.core.data.hydrator import backends
 
 logger = worker_logging.get_unified_logger()
 
@@ -56,9 +55,10 @@ class StorageIOWorker:
         self._backends: dict[str | None, backends.StorageBackend] = {}
         if download_index_db_dir:
             from groot.core.data.hydrator.cache.download_index import DownloadIndex
-
             self._download_index = DownloadIndex(download_index_db_dir)
-            logger.info("[StorageIOWorker] __init__: DownloadIndex at %s", download_index_db_dir)
+            logger.info(
+                "[StorageIOWorker] __init__: DownloadIndex at %s", download_index_db_dir
+            )
         else:
             self._download_index = None
         self._total_duckdb_inserts = 0
@@ -91,13 +91,6 @@ class StorageIOWorker:
         if kind == "sync_dir":
             local_dir = content.decode("utf-8") if content else ""
             return self._sync_dir(remote_path, local_dir, profile)
-        if kind == "sync_files":
-            import json
-
-            file_pairs = (
-                [tuple(pair) for pair in json.loads(content.decode("utf-8"))] if content else []
-            )
-            return self._sync_files(remote_path, file_pairs, profile)
         return (kind, remote_path, None, f"Unknown task kind: {kind!r}")
 
     def _download(self, remote_path: str, profile: str | None) -> _Result:
@@ -119,37 +112,6 @@ class StorageIOWorker:
         )
 
     def _sync_dir(self, s3_path: str, local_dir: str, profile: str | None = None) -> _Result:
-        """Sync everything a prefix glob covers into one directory."""
-        return self._sync_with_index(
-            "sync_dir",
-            s3_path,
-            lambda backend, on_pair: backend.sync_directory(s3_path, local_dir, on_pair=on_pair),
-            profile,
-        )
-
-    def _sync_files(
-        self, s3_base: str, file_pairs: list[tuple[str, str]], profile: str | None = None
-    ) -> _Result:
-        """Copy an explicit set of objects, each to a chosen path.
-
-        Same indexing and retry behaviour as a directory sync -- what differs is only that the set
-        was chosen by the caller rather than by a glob, so a rank can own objects that share a name
-        prefix with objects it does not own.
-        """
-        return self._sync_with_index(
-            "sync_files",
-            s3_base,
-            lambda backend, on_pair: backend.sync_files(file_pairs, on_pair=on_pair),
-            profile,
-        )
-
-    def _sync_with_index(
-        self,
-        kind: str,
-        s3_path: str,
-        transfer: Callable[[Any, Any], list[tuple[str, str]]],
-        profile: str | None = None,
-    ) -> _Result:
         from groot.core.data.hydrator.cache.download_index import DownloadRecord
 
         last_exception: Exception | None = None
@@ -159,9 +121,7 @@ class StorageIOWorker:
 
             def _on_pair(s3_uri: str, local_path: str, _buf: list = buf) -> None:
                 nonlocal flush_count
-                _buf.append(
-                    DownloadRecord(s3_uri=s3_uri, local_path=local_path, error_message=None)
-                )
+                _buf.append(DownloadRecord(s3_uri=s3_uri, local_path=local_path, error_message=None))
                 if self._download_index is not None and len(_buf) >= _DUCKDB_FLUSH_EVERY:
                     self._download_index.batch_insert(_buf[:])
                     flush_count += 1
@@ -177,7 +137,7 @@ class StorageIOWorker:
                     _buf.clear()
 
             try:
-                pairs = transfer(self._get_backend(profile), _on_pair)
+                pairs = self._get_backend(profile).sync_directory(s3_path, local_dir, on_pair=_on_pair)
                 # flush remainder not yet flushed
                 if buf and self._download_index is not None:
                     self._download_index.batch_insert(buf)
@@ -197,7 +157,7 @@ class StorageIOWorker:
                     total_pairs,
                     self._total_duckdb_inserts,
                 )
-                return (kind, s3_path, pairs, None)
+                return ("sync_dir", s3_path, pairs, None)
             except Exception as e:  # noqa: BLE001
                 last_exception = e
                 stderr = getattr(e, "stderr", None) or ""
@@ -217,14 +177,16 @@ class StorageIOWorker:
 
         stderr = getattr(last_exception, "stderr", None) or ""
         return (
-            kind,
+            "sync_dir",
             s3_path,
             None,
             f"Failed after {self.retry_attempts} attempts: {last_exception}"
             + (f"\nstderr: {stderr.strip()[-500:]}" if stderr else ""),
         )
 
-    def _upload(self, remote_path: str, content: bytes | Path, profile: str | None) -> _Result:
+    def _upload(
+        self, remote_path: str, content: bytes | Path, profile: str | None
+    ) -> _Result:
         last_exception = None
         backend = self._get_backend(profile)
         for attempt in range(self.retry_attempts):

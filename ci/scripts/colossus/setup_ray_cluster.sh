@@ -65,10 +65,12 @@ ADDITIONAL_POST_TRAINING_CHECKPOINT_URI="${ADDITIONAL_POST_TRAINING_CHECKPOINT_U
 ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION="${ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION:-}"
 DATASET_ARCHIVE_URI="${DATASET_ARCHIVE_URI:-}"
 DATASET_ARCHIVE_SHA256="${DATASET_ARCHIVE_SHA256:-}"
+ROBOCASA_RUNTIME_ARCHIVE_URI="${ROBOCASA_RUNTIME_ARCHIVE_URI:-}"
+ROBOCASA_RUNTIME_ARCHIVE_SHA256="${ROBOCASA_RUNTIME_ARCHIVE_SHA256:-}"
 ROBODOJO_DATASET_ARCHIVE_URI="${ROBODOJO_DATASET_ARCHIVE_URI:-}"
 ROBODOJO_DATASET_ARCHIVE_SHA256="${ROBODOJO_DATASET_ARCHIVE_SHA256:-}"
-ROBODOJO_ASSETS_ARCHIVE_URI="${ROBODOJO_ASSETS_ARCHIVE_URI:-}"
-ROBODOJO_ASSETS_ARCHIVE_SHA256="${ROBODOJO_ASSETS_ARCHIVE_SHA256:-}"
+ROBODOJO_RUNTIME_ARCHIVE_URI="${ROBODOJO_RUNTIME_ARCHIVE_URI:-}"
+ROBODOJO_RUNTIME_ARCHIVE_SHA256="${ROBODOJO_RUNTIME_ARCHIVE_SHA256:-}"
 ARTIFACT_MAX_MIB_PER_SECOND="${ARTIFACT_MAX_MIB_PER_SECOND:-0}"
 BUCKET_ACCESS_KEY_ID_ENV="${BUCKET_ACCESS_KEY_ID_ENV:-BUCKET_ACCESS_KEY_ID}"
 BUCKET_SECRET_ACCESS_KEY_ENV="${BUCKET_SECRET_ACCESS_KEY_ENV:-BUCKET_SECRET_ACCESS_KEY}"
@@ -217,16 +219,19 @@ Options:
                                 Relative directory for the optional second checkpoint.
   --dataset-archive-uri URI     Optional S3 tar archive extracted under data-root/datasets.
   --dataset-archive-sha256 HEX  Required SHA-256 when --dataset-archive-uri is set.
+  --robocasa-runtime-archive-uri URI
+                                Optional S3 tar archive extracted under data-root/runtime.
+  --robocasa-runtime-archive-sha256 HEX
+                                Required SHA-256 when the runtime archive is set.
   --robodojo-dataset-archive-uri URI
                                 Optional S3 tar archive extracted under
                                 data-root/datasets/robodojo_benchmark.
   --robodojo-dataset-archive-sha256 HEX
                                 Required SHA-256 when the RoboDojo dataset archive is set.
-  --robodojo-assets-archive-uri URI
-                                Optional data-only RoboDojo Assets tar archive extracted under
-                                data-root/datasets/robodojo_benchmark.
-  --robodojo-assets-archive-sha256 HEX
-                                Required SHA-256 when the RoboDojo Assets archive is set.
+  --robodojo-runtime-archive-uri URI
+                                Optional S3 tar archive extracted under data-root/runtime.
+  --robodojo-runtime-archive-sha256 HEX
+                                Required SHA-256 when the RoboDojo runtime archive is set.
   --artifact-max-mib-per-second RATE
                                 Limit each host's artifact download rate. Zero disables
                                 throttling. Default: ${ARTIFACT_MAX_MIB_PER_SECOND}.
@@ -542,6 +547,16 @@ parse_args() {
         DATASET_ARCHIVE_SHA256="$2"
         shift 2
         ;;
+      --robocasa-runtime-archive-uri)
+        require_value "$1" "${2:-}"
+        ROBOCASA_RUNTIME_ARCHIVE_URI="$2"
+        shift 2
+        ;;
+      --robocasa-runtime-archive-sha256)
+        require_value "$1" "${2:-}"
+        ROBOCASA_RUNTIME_ARCHIVE_SHA256="$2"
+        shift 2
+        ;;
       --robodojo-dataset-archive-uri)
         require_value "$1" "${2:-}"
         ROBODOJO_DATASET_ARCHIVE_URI="$2"
@@ -552,14 +567,14 @@ parse_args() {
         ROBODOJO_DATASET_ARCHIVE_SHA256="$2"
         shift 2
         ;;
-      --robodojo-assets-archive-uri)
+      --robodojo-runtime-archive-uri)
         require_value "$1" "${2:-}"
-        ROBODOJO_ASSETS_ARCHIVE_URI="$2"
+        ROBODOJO_RUNTIME_ARCHIVE_URI="$2"
         shift 2
         ;;
-      --robodojo-assets-archive-sha256)
+      --robodojo-runtime-archive-sha256)
         require_value "$1" "${2:-}"
-        ROBODOJO_ASSETS_ARCHIVE_SHA256="$2"
+        ROBODOJO_RUNTIME_ARCHIVE_SHA256="$2"
         shift 2
         ;;
       --artifact-max-mib-per-second)
@@ -866,6 +881,14 @@ validate_args() {
     elif [[ -n "${DATASET_ARCHIVE_SHA256}" ]]; then
       die "--dataset-archive-sha256 requires --dataset-archive-uri"
     fi
+    if [[ -n "${ROBOCASA_RUNTIME_ARCHIVE_URI}" ]]; then
+      [[ "${ROBOCASA_RUNTIME_ARCHIVE_URI}" == s3://* ]] \
+        || die "--robocasa-runtime-archive-uri must be an s3:// URI"
+      [[ "${ROBOCASA_RUNTIME_ARCHIVE_SHA256}" =~ ^[[:xdigit:]]{64}$ ]] \
+        || die "--robocasa-runtime-archive-sha256 must contain 64 hexadecimal characters"
+    elif [[ -n "${ROBOCASA_RUNTIME_ARCHIVE_SHA256}" ]]; then
+      die "--robocasa-runtime-archive-sha256 requires --robocasa-runtime-archive-uri"
+    fi
     if [[ -n "${ROBODOJO_DATASET_ARCHIVE_URI}" ]]; then
       [[ "${ROBODOJO_DATASET_ARCHIVE_URI}" == s3://* ]] \
         || die "--robodojo-dataset-archive-uri must be an s3:// URI"
@@ -874,13 +897,13 @@ validate_args() {
     elif [[ -n "${ROBODOJO_DATASET_ARCHIVE_SHA256}" ]]; then
       die "--robodojo-dataset-archive-sha256 requires --robodojo-dataset-archive-uri"
     fi
-    if [[ -n "${ROBODOJO_ASSETS_ARCHIVE_URI}" ]]; then
-      [[ "${ROBODOJO_ASSETS_ARCHIVE_URI}" == s3://* ]] \
-        || die "--robodojo-assets-archive-uri must be an s3:// URI"
-      [[ "${ROBODOJO_ASSETS_ARCHIVE_SHA256}" =~ ^[[:xdigit:]]{64}$ ]] \
-        || die "--robodojo-assets-archive-sha256 must contain 64 hexadecimal characters"
-    elif [[ -n "${ROBODOJO_ASSETS_ARCHIVE_SHA256}" ]]; then
-      die "--robodojo-assets-archive-sha256 requires --robodojo-assets-archive-uri"
+    if [[ -n "${ROBODOJO_RUNTIME_ARCHIVE_URI}" ]]; then
+      [[ "${ROBODOJO_RUNTIME_ARCHIVE_URI}" == s3://* ]] \
+        || die "--robodojo-runtime-archive-uri must be an s3:// URI"
+      [[ "${ROBODOJO_RUNTIME_ARCHIVE_SHA256}" =~ ^[[:xdigit:]]{64}$ ]] \
+        || die "--robodojo-runtime-archive-sha256 must contain 64 hexadecimal characters"
+    elif [[ -n "${ROBODOJO_RUNTIME_ARCHIVE_SHA256}" ]]; then
+      die "--robodojo-runtime-archive-sha256 requires --robodojo-runtime-archive-uri"
     fi
   fi
   case "${SSH_CONNECT_TIMEOUT}" in
@@ -1675,8 +1698,9 @@ print_dry_run() {
     log "additional post-training checkpoint source: ${ADDITIONAL_POST_TRAINING_CHECKPOINT_URI:-<disabled>}"
     log "additional post-training checkpoint destination: ${ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION:-<disabled>}"
     log "dataset archive: ${DATASET_ARCHIVE_URI:-<disabled>}"
+    log "RoboCasa runtime archive: ${ROBOCASA_RUNTIME_ARCHIVE_URI:-<disabled>}"
     log "RoboDojo dataset archive: ${ROBODOJO_DATASET_ARCHIVE_URI:-<disabled>}"
-    log "RoboDojo Assets archive: ${ROBODOJO_ASSETS_ARCHIVE_URI:-<disabled>}"
+    log "RoboDojo runtime archive: ${ROBODOJO_RUNTIME_ARCHIVE_URI:-<disabled>}"
     log "bucket credential env vars: ${BUCKET_ACCESS_KEY_ID_ENV}, ${BUCKET_SECRET_ACCESS_KEY_ENV}, ${BUCKET_ENDPOINT_URL_ENV}, ${BUCKET_REGION_ENV}"
   else
     log "post-training artifacts: disabled"
@@ -1981,10 +2005,10 @@ if [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
 fi
 ray_num_gpus="${gpu_count}"
 
-install -d -m 0755 /etc/cdi "${host_ray_tmp}" "${job_root}" "${host_ray_tmp}/python"
+install -d -m 0755 /etc/cdi "${host_ray_tmp}" "${job_root}" "${data_root}/runtime/python"
 install -m 0644 \
   /tmp/groot-ray-cluster/colossus_ray_sitecustomize.py \
-  "${host_ray_tmp}/python/sitecustomize.py"
+  "${data_root}/runtime/python/sitecustomize.py"
 nvidia-ctk cdi generate \
   --device-name-strategy=uuid \
   --output=/etc/cdi/nvidia.yaml >/dev/null
@@ -2563,7 +2587,6 @@ def _stage_archive_locked(
     source_uri: str,
     expected_sha256: str,
     target: Path,
-    archive_subdirectory: str | None,
 ) -> None:
     marker = target / ".groot_archive_source"
     expected_marker = f"{source_uri}\n{expected_sha256.lower()}\n"
@@ -2603,15 +2626,8 @@ def _stage_archive_locked(
             log(f"extracting {archive} -> {prepared}")
             with tarfile.open(archive) as contents:
                 contents.extractall(prepared, filter="data")
-            published = prepared
-            if archive_subdirectory is not None:
-                published = prepared / archive_subdirectory
-                if not published.is_dir():
-                    raise FileNotFoundError(
-                        f"Archive {source_uri} is missing {archive_subdirectory}/"
-                    )
-            (published / marker.name).write_text(expected_marker)
-            atomic_publish_directory(published, target)
+            (prepared / marker.name).write_text(expected_marker)
+            atomic_publish_directory(prepared, target)
         finally:
             # After an exchange this name holds the old target. On extraction
             # failure it holds the incomplete new target. Neither may linger.
@@ -2619,26 +2635,96 @@ def _stage_archive_locked(
                 shutil.rmtree(prepared)
 
 
-def stage_archive(
-    s3,
-    source_uri: str,
-    expected_sha256: str,
-    target: Path,
-    *,
-    archive_subdirectory: str | None = None,
-) -> None:
+def stage_archive(s3, source_uri: str, expected_sha256: str, target: Path) -> None:
     if not source_uri:
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     with artifact_target_lock_path(target).open("a+") as target_lock:
         fcntl.flock(target_lock.fileno(), fcntl.LOCK_EX)
-        _stage_archive_locked(
-            s3,
-            source_uri,
-            expected_sha256,
-            target,
-            archive_subdirectory,
-        )
+        _stage_archive_locked(s3, source_uri, expected_sha256, target)
+
+
+def patch_robocasa_python312(runtime: Path) -> None:
+    replacements = {
+        "robocasa/utils/visuals_utls.py": {
+            "from dataclasses import dataclass": "from dataclasses import dataclass, field",
+            "rgba_a: np.ndarray = np.array([0, 0, 0, 1])": (
+                "rgba_a: np.ndarray = field(default_factory=lambda: np.array([0, 0, 0, 1]))"
+            ),
+            "rgba_b: np.ndarray = np.array([1, 1, 1, 1])": (
+                "rgba_b: np.ndarray = field(default_factory=lambda: np.array([1, 1, 1, 1]))"
+            ),
+        },
+        "robocasa/utils/scene/configs.py": {
+            "from dataclasses import dataclass": "from dataclasses import dataclass, field",
+            "x_range: np.ndarray = np.zeros(2)": (
+                "x_range: np.ndarray = field(default_factory=lambda: np.zeros(2))"
+            ),
+            "y_range: np.ndarray = np.zeros(2)": (
+                "y_range: np.ndarray = field(default_factory=lambda: np.zeros(2))"
+            ),
+            "rotation: np.ndarray = np.zeros(2)": (
+                "rotation: np.ndarray = field(default_factory=lambda: np.zeros(2))"
+            ),
+            "reference_pos: np.ndarray = np.zeros(3)": (
+                "reference_pos: np.ndarray = field(default_factory=lambda: np.zeros(3))"
+            ),
+        },
+    }
+    for relative, substitutions in replacements.items():
+        path = runtime / relative
+        if not path.is_file():
+            continue
+        text = path.read_text()
+        for source, replacement in substitutions.items():
+            if source in text and replacement not in text:
+                text = text.replace(source, replacement)
+        path.write_text(text)
+
+
+def install_robocasa_python_dependencies(runtime: Path) -> None:
+    target = runtime / "python"
+    marker = target / ".groot_robocasa_dependencies"
+    expected = "mink==0.0.10\ndaqp==0.8.7\nmujoco==3.3.1\n"
+    if marker.is_file() and marker.read_text() == expected:
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "--no-cache-dir",
+            "--no-deps",
+            "--target",
+            str(target),
+            "mink==0.0.10",
+            "daqp==0.8.7",
+            "mujoco==3.3.1",
+        ],
+        check=True,
+    )
+    marker.write_text(expected)
+
+
+def stage_robocasa_runtime(
+    s3,
+    source_uri: str,
+    expected_sha256: str,
+    runtime: Path,
+) -> None:
+    """Stage and postprocess one runtime under a single target-scoped lock."""
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    with artifact_target_lock_path(runtime).open("a+") as target_lock:
+        fcntl.flock(target_lock.fileno(), fcntl.LOCK_EX)
+        # Both markers are rechecked only after the target lock is held, so
+        # concurrent setup processes cannot extract, patch, or pip-install
+        # into this runtime simultaneously.
+        _stage_archive_locked(s3, source_uri, expected_sha256, runtime)
+        patch_robocasa_python312(runtime)
+        install_robocasa_python_dependencies(runtime)
 
 
 def main() -> None:
@@ -2689,6 +2775,14 @@ def main() -> None:
         root
         / "datasets/robocasa_benchmark/new-robocasa/robocasa-datasets/v1.0/pretrain",
     )
+    runtime_uri = os.environ.get("GROOT_ROBOCASA_RUNTIME_ARCHIVE_URI", "").strip()
+    if runtime_uri:
+        stage_robocasa_runtime(
+            s3,
+            runtime_uri,
+            os.environ.get("GROOT_ROBOCASA_RUNTIME_ARCHIVE_SHA256", "").strip(),
+            root / "runtime",
+        )
     stage_archive(
         s3,
         os.environ.get("GROOT_ROBODOJO_DATASET_ARCHIVE_URI", "").strip(),
@@ -2697,10 +2791,9 @@ def main() -> None:
     )
     stage_archive(
         s3,
-        os.environ.get("GROOT_ROBODOJO_ASSETS_ARCHIVE_URI", "").strip(),
-        os.environ.get("GROOT_ROBODOJO_ASSETS_ARCHIVE_SHA256", "").strip(),
-        root / "datasets/robodojo_benchmark/Assets",
-        archive_subdirectory="Assets",
+        os.environ.get("GROOT_ROBODOJO_RUNTIME_ARCHIVE_URI", "").strip(),
+        os.environ.get("GROOT_ROBODOJO_RUNTIME_ARCHIVE_SHA256", "").strip(),
+        root / "runtime",
     )
     log("post-training artifacts are ready")
 
@@ -3006,10 +3099,12 @@ PY
       printf 'GROOT_ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION=%s\n' "${ADDITIONAL_POST_TRAINING_CHECKPOINT_DESTINATION}"
       printf 'GROOT_DATASET_ARCHIVE_URI=%s\n' "${DATASET_ARCHIVE_URI}"
       printf 'GROOT_DATASET_ARCHIVE_SHA256=%s\n' "${DATASET_ARCHIVE_SHA256}"
+      printf 'GROOT_ROBOCASA_RUNTIME_ARCHIVE_URI=%s\n' "${ROBOCASA_RUNTIME_ARCHIVE_URI}"
+      printf 'GROOT_ROBOCASA_RUNTIME_ARCHIVE_SHA256=%s\n' "${ROBOCASA_RUNTIME_ARCHIVE_SHA256}"
       printf 'GROOT_ROBODOJO_DATASET_ARCHIVE_URI=%s\n' "${ROBODOJO_DATASET_ARCHIVE_URI}"
       printf 'GROOT_ROBODOJO_DATASET_ARCHIVE_SHA256=%s\n' "${ROBODOJO_DATASET_ARCHIVE_SHA256}"
-      printf 'GROOT_ROBODOJO_ASSETS_ARCHIVE_URI=%s\n' "${ROBODOJO_ASSETS_ARCHIVE_URI}"
-      printf 'GROOT_ROBODOJO_ASSETS_ARCHIVE_SHA256=%s\n' "${ROBODOJO_ASSETS_ARCHIVE_SHA256}"
+      printf 'GROOT_ROBODOJO_RUNTIME_ARCHIVE_URI=%s\n' "${ROBODOJO_RUNTIME_ARCHIVE_URI}"
+      printf 'GROOT_ROBODOJO_RUNTIME_ARCHIVE_SHA256=%s\n' "${ROBODOJO_RUNTIME_ARCHIVE_SHA256}"
       printf 'GROOT_ARTIFACT_MAX_MIB_PER_SECOND=%s\n' "${ARTIFACT_MAX_MIB_PER_SECOND}"
     } > "${TMP_DIR}/data-credentials.env"
     chmod 0600 "${TMP_DIR}/data-credentials.env"
