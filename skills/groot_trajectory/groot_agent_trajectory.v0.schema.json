@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "groot_agent_trajectory.v0",
+  "title": "GR00T agent trajectory",
+  "description": "One ordered account of what a GR00T suite agent run did, normalized across agents so the distillation pipeline needs a single reader. Producers outside the xagents repository write this document and hand the file over; xagents validates it with xagents.trajectory.ingest.load_trajectory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent_type", "run_id", "task"],
+  "properties": {
+    "schema_version": {
+      "description": "The versioned contract. A producer that cannot be updated in lockstep keeps working only while this string is stable.",
+      "const": "groot_agent_trajectory.v0",
+      "default": "groot_agent_trajectory.v0"
+    },
+    "agent_type": {
+      "description": "Which suite agent produced the run.",
+      "enum": ["groot_research", "groot_debug", "groot_faq"]
+    },
+    "run_id": {
+      "description": "The producer's id for this run. Carries the record's identity through the hand-off.",
+      "type": "string"
+    },
+    "task": {
+      "description": "What the run was asked to do, in the requester's words.",
+      "type": "string"
+    },
+    "inputs": {
+      "description": "What the whole run was pinned to: faq's corpus_version, research's base_commit / eval_metric / direction / min_delta / baseline_score, debug's repo_commit / report_sha256. Run-scoped, so a consumer reads them here rather than off whichever step happens to carry them.",
+      "type": "object",
+      "default": {}
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ended_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "default": null
+    },
+    "terminal_status": {
+      "description": "How the run ended, or null while it is still open. awaiting_evidence is the debug runner's waiting; cancelled is a run a human stopped.",
+      "type": ["string", "null"],
+      "enum": [
+        "completed",
+        "failed",
+        "budget_exhausted",
+        "awaiting_evidence",
+        "insufficient_evidence",
+        "cancelled",
+        null
+      ],
+      "default": null
+    },
+    "steps": {
+      "description": "The run's steps in the order they happened.",
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/step" }
+    }
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "summary"],
+      "properties": {
+        "phase": {
+          "description": "Where in its loop the run was. The allowed values depend on agent_type; see the conditional schemas below.",
+          "type": "string"
+        },
+        "summary": {
+          "description": "One line a human can read. Never the only home for a fact the pipeline needs: anything a consumer must act on belongs in a field.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Whether this step's outcome is usable as evidence. ok covers a hypothesis tested and rejected; failed is the step's own execution dying, which says nothing about the question it asked; waiting needs an input from a human; blocked needs the environment or the frozen evidence restored.",
+          "enum": ["ok", "waiting", "blocked", "failed"],
+          "default": "ok"
+        },
+        "unit_id": {
+          "description": "The loop iteration this step belongs to: a debug hypothesis-to-verify cycle, or a research trial.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "parent_unit_id": {
+          "description": "The unit this one descends from. Must name a unit_id an earlier step declares.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "inputs": {
+          "type": "object",
+          "default": {}
+        },
+        "outputs": {
+          "type": "object",
+          "default": {}
+        },
+        "evidence_refs": {
+          "description": "Paths or URIs to the logs, artifacts and diffs this step produced or read.",
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "agent_type": { "const": "groot_research" } },
+        "required": ["agent_type"]
+      },
+      "then": {
+        "properties": {
+          "steps": {
+            "items": {
+              "properties": {
+                "phase": { "enum": ["hypothesize", "execute", "observe", "decide"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "agent_type": { "const": "groot_debug" } },
+        "required": ["agent_type"]
+      },
+      "then": {
+        "properties": {
+          "steps": {
+            "items": {
+              "properties": {
+                "phase": {
+                  "enum": [
+                    "intake",
+                    "reproduce",
+                    "diagnose",
+                    "implementation",
+                    "verify",
+                    "terminal"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "agent_type": { "const": "groot_faq" } },
+        "required": ["agent_type"]
+      },
+      "then": {
+        "properties": {
+          "steps": {
+            "items": {
+              "properties": {
+                "phase": { "enum": ["intake", "retrieve", "read", "compose", "terminal"] }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
