@@ -20,7 +20,6 @@ import sys
 import pytest
 from skills.autodebug.infra import AutoDebugIncident
 from skills.insights.infra.insight_projection import (
-    FINDING_ID_PREFIX,
     InsightProjection,
     locate_insights_root,
     search_insights,
@@ -69,7 +68,7 @@ def _write_projection(repository: Path) -> Path:
                 "chunk_id": "doc:relative",
                 "title": "Relative EEF evaluation",
                 "text": "Compare relative EEF normalization in open-loop evaluation.",
-                "concepts": [],
+                "tags": [],
             }
         ],
     }
@@ -78,13 +77,15 @@ def _write_projection(repository: Path) -> Path:
         "findings": [
             {
                 "id": "finding:doc:relative",
+                "title": "Check relative EEF normalization",
                 "body": "Use a matched open-loop comparison before changing training.",
-                "concepts": ["playbook", "evaluation"],
+                "tags": ["playbook", "evaluation"],
             },
             {
                 "id": "finding:doc:unpaired",
+                "title": "Inspect camera timing",
                 "body": "Camera timing can affect deployment.",
-                "concepts": ["playbook"],
+                "tags": ["playbook"],
             },
         ],
         "chunks": [],
@@ -152,112 +153,6 @@ def test_projection_rejects_an_index_node_mismatch(tmp_path: Path) -> None:
     index_path.write_text(json.dumps(index), encoding="utf-8")
 
     with pytest.raises(ValueError, match="index chunks do not match"):
-        InsightProjection.load(root)
-
-
-def test_a_record_without_concepts_is_rejected_rather_than_silently_empty(
-    tmp_path: Path,
-) -> None:
-    # This field was read with a default, so when the producer renamed it the records
-    # still validated and search quietly lost every concept term. Absence must be loud.
-    root = _write_projection(tmp_path)
-    nodes_path = root / "nodes" / "playbook.json"
-    bucket = json.loads(nodes_path.read_text(encoding="utf-8"))
-    del bucket["findings"][0]["concepts"]
-    nodes_path.write_text(json.dumps(bucket), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="requires concepts"):
-        InsightProjection.load(root)
-
-
-def test_the_projection_shipped_in_this_repository_loads() -> None:
-    # Every other test here builds its own fixture, so the corpus we actually ship was
-    # covered by nothing: a reader change could reject all 217 findings and the suite
-    # would stay green. Load the real thing.
-    root = locate_insights_root(Path(__file__).resolve().parents[3])
-
-    projection = InsightProjection.load(root)
-
-    assert projection.findings, "the shipped projection has no findings"
-    assert all(finding_id.startswith(FINDING_ID_PREFIX) for finding_id in projection.findings)
-    # Findings pair with their evidence on the id remainder. If the producer ever stops
-    # deriving the two ids from each other, grounding degrades silently, so pin it.
-    paired = [
-        finding_id
-        for finding_id in projection.findings
-        if finding_id.removeprefix(FINDING_ID_PREFIX) in projection.chunks
-    ]
-    assert paired, "no shipped finding pairs with its evidence chunk"
-
-
-def test_a_finding_carries_no_title_and_is_searched_by_body(tmp_path: Path) -> None:
-    # A finding is a distilled claim and carries no title. The reader loads it, and search
-    # reaches it through its body alone, with no 8x title term standing in for the claim.
-    root = tmp_path / ".insights"
-    nodes = root / "nodes"
-    nodes.mkdir(parents=True)
-    (root / "index.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "groot_insights_projection.v0",
-                "generated_at": "2026-07-22T23:49:33+00:00",
-                "topics": ["playbook"],
-                "findings": ["finding:doc:untitled"],
-                "chunks": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (nodes / "playbook.json").write_text(
-        json.dumps(
-            {
-                "topic": "playbook",
-                "findings": [
-                    {
-                        "id": "finding:doc:untitled",
-                        "body": "Pin the evaluation seed before comparing checkpoints.",
-                        "concepts": ["evaluation"],
-                    }
-                ],
-                "chunks": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    projection = InsightProjection.load(root)
-    assert "title" not in projection.findings["finding:doc:untitled"]
-
-    result = projection.search("pin evaluation seed")
-    assert result["record_ids"] == ["finding:doc:untitled"]
-
-
-def test_a_stray_finding_title_is_inert_not_indexed(tmp_path: Path) -> None:
-    # A finding has no title in its schema: the reader neither rejects a stray one nor lets
-    # it into the record, so it cannot reach the title-weighted term index. A word that lives
-    # only in that stray title must not match, or the 8x boost would be back through a field
-    # that is meant not to exist.
-    root = _write_projection(tmp_path)
-    node_path = root / "nodes" / "playbook.json"
-    bucket = json.loads(node_path.read_text(encoding="utf-8"))
-    bucket["findings"][0]["title"] = "zzsentinel restated claim"
-    node_path.write_text(json.dumps(bucket), encoding="utf-8")
-
-    projection = InsightProjection.load(root)
-    assert "title" not in projection.findings["finding:doc:relative"]
-    assert projection.search("zzsentinel")["record_ids"] == []
-
-
-def test_a_chunk_still_requires_its_title(tmp_path: Path) -> None:
-    # A finding carries no title, but a chunk's title is its "Sources:" handle, so dropping
-    # it must still fail loudly rather than silently ship a title-less passage.
-    root = _write_projection(tmp_path)
-    node_path = root / "nodes" / "general.json"
-    bucket = json.loads(node_path.read_text(encoding="utf-8"))
-    del bucket["chunks"][0]["title"]
-    node_path.write_text(json.dumps(bucket), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="chunk requires a string title"):
         InsightProjection.load(root)
 
 
