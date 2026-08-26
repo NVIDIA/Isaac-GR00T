@@ -259,9 +259,6 @@ class EmbodimentTag(Enum):
     The Libero Sim dataset.
     """
 
-    VLABENCH_SIM = "vlabench_sim"
-    """The VLABench simulation dataset."""
-
     DROID_SIM = "droid_sim"
     """
     The Droid dataset in sim.
@@ -672,23 +669,8 @@ class EmbodimentTag(Enum):
     dataset (the `_with_tactile` suffix is what enables the F6 + deform streams), so
     it must exist for conversion to run and for existing tianji checkpoints to be
     servable -- ``run_gr00t_server.py`` types ``--embodiment-tag`` as this enum.
-
-    It DOES now have a MODALITY_CONFIGS entry, but only because ``generate_rel_stats``
-    indexes MODALITY_CONFIGS with a bare ``[tag]`` and the merge step passes the
-    dataset's own tag -- so every tianji merge died with KeyError at the last step,
-    after writing the whole dataset. That entry is an ALIAS of the base tag: the ten
-    fingertip F6 vectors are extra state COLUMNS on disk, not extra selected state.
-    The vanilla configs still declare ``real_tianji_sharpa_relative_eef`` and select
-    the 62D subset by named key from this same 136D data, which works because the
-    loader binds modalities by NAME, never by index or by ``meta/info.json``
-    ``robot_type`` (nothing in the training path reads that field at all).
-
-    To actually TRAIN on the tactile block, take the richer entry from
-    ``seungjael/dex_tactile_aug3_p2_override_fix``: it adds a separate ``tactile``
-    modality group (the ten ``*_f6`` keys, delta_indices overridden per arm because
-    the frozen Tactile-VAE consumes a 20-frame window) together with the loader
-    subclass and processor seam that group requires. Do not approximate it by folding
-    F6 into ``state``; that hands the state encoder 122D where it expects 62D.
+    It intentionally has no MODALITY_CONFIGS entry yet: nothing trains under it
+    (the vanilla configs select the 62D subset by named key from the same data).
     """
 
     # ------------- Real G1 Embodiments -------------

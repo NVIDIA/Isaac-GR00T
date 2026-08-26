@@ -18,8 +18,6 @@ import time
 
 import yaml
 
-from groot.core.utils.storage import load_msc_telemetry_settings
-
 try:
     import multistorageclient as msc
     from multistorageclient.types import ExecutionMode
@@ -45,8 +43,6 @@ class DataSyncConfigBuilder:
     ):
         self.use_rust_client = use_rust_client
         self.enable_telemetry = enable_telemetry
-        self.credentials_file = os.path.expanduser(credentials_file)
-        self.profile = profile
         self.config = {}
         self.config["profiles"] = {}
 
@@ -62,7 +58,7 @@ class DataSyncConfigBuilder:
             self.region = os.environ.get("AWS_DEFAULT_REGION")
             self.endpoint_url = os.environ.get("AWS_ENDPOINT_URL")
         else:
-            credentials_file = self.credentials_file
+            credentials_file = os.path.expanduser(credentials_file)
 
             if not os.path.exists(credentials_file):
                 raise FileNotFoundError(f"Credentials file not found at {credentials_file}")
@@ -132,15 +128,10 @@ class DataSyncConfigBuilder:
     def build(self):
         """
         Build the MSC configuration file and set the environment variable.
-        """
-        if self.enable_telemetry:
-            telemetry_settings = load_msc_telemetry_settings(
-                credentials_file=self.credentials_file,
-                profile=self.profile,
-            )
-            if telemetry_settings is not None:
-                self.config["opentelemetry"] = telemetry_settings
 
+        ``enable_telemetry`` is retained for API compatibility with the internal
+        implementation. The public implementation never configures internal telemetry.
+        """
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yaml") as temp_file:
             yaml.dump(self.config, temp_file)
             os.environ["MSC_CONFIG"] = temp_file.name
@@ -196,7 +187,7 @@ def sync_s3_uri_to_local(
         profile_name: MSC profile name to create for this sync.
         credentials_file: Gear data credentials file.
         credentials_profile: Credentials profile to read from ``credentials_file``.
-        enable_telemetry: Whether to enable MSC telemetry when settings are available.
+        enable_telemetry: Retained for API compatibility; ignored in the OSS package.
     """
     if not MSC_AVAILABLE:
         raise ImportError("multistorageclient is required to sync S3 assets")

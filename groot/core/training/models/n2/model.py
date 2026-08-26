@@ -1027,8 +1027,13 @@ class GrootN2(PreTrainedModel):
         ac = self.config.action_cfg
         T_action = ac.get("action_horizon", 48)
         max_action_dim = ac.get("max_action_dim", 32)
-        torch.manual_seed(seed)
-        action_latents = torch.randn(B, T_action, max_action_dim, device=device, dtype=dtype)
+        # Local Generator, not torch.manual_seed(): this runs on every rank during
+        # in-process open-loop eval and must not reset the global RNG, which would
+        # undo the per-rank offset in experiment.run. Identical draws either way.
+        noise_gen = torch.Generator(device=device).manual_seed(seed)
+        action_latents = torch.randn(
+            B, T_action, max_action_dim, device=device, dtype=dtype, generator=noise_gen
+        )
 
         # Encode state once (constant across denoising steps)
         states = data["state"].to(device=device, dtype=dtype)
@@ -1352,8 +1357,11 @@ class GrootN2(PreTrainedModel):
         vid_sched.set_timesteps(num_steps, device=device, shift=shift)
 
         # Initialize video noise
-        torch.manual_seed(seed)
-        latents = torch.randn(B, C, T_full, H, W, device=device, dtype=dtype)
+        # Local Generator, not torch.manual_seed(): this runs on every rank during
+        # in-process open-loop eval and must not reset the global RNG, which would
+        # undo the per-rank offset in experiment.run. Identical draws either way.
+        noise_gen = torch.Generator(device=device).manual_seed(seed)
+        latents = torch.randn(B, C, T_full, H, W, device=device, dtype=dtype, generator=noise_gen)
 
         # Build conditioning masks
         cond_mask = torch.zeros(B, 1, T_full, H, W, device=device, dtype=dtype)
@@ -1510,12 +1518,19 @@ class GrootN2(PreTrainedModel):
         act_sched.set_timesteps(num_action_steps, device=device)
 
         # ── Initialize noise ──────────────────────────────────────────
-        torch.manual_seed(seed)
-        video_latents = torch.randn(B, C, T_full, H, W, device=device, dtype=dtype)
+        # Local Generator, not torch.manual_seed(): this runs on every rank during
+        # in-process open-loop eval and must not reset the global RNG, which would
+        # undo the per-rank offset in experiment.run. Identical draws either way.
+        noise_gen = torch.Generator(device=device).manual_seed(seed)
+        video_latents = torch.randn(
+            B, C, T_full, H, W, device=device, dtype=dtype, generator=noise_gen
+        )
 
         T_action = ac.get("action_horizon", 48)
         max_action_dim = ac.get("max_action_dim", 32)
-        action_latents = torch.randn(B, T_action, max_action_dim, device=device, dtype=dtype)
+        action_latents = torch.randn(
+            B, T_action, max_action_dim, device=device, dtype=dtype, generator=noise_gen
+        )
 
         # ── Encode state (constant across steps) ─────────────────────
         states = data["state"].to(device=device, dtype=dtype)

@@ -49,15 +49,9 @@ test.oss.cpu:
       uv pip install --no-deps -e .
 
   script:
-    # tests/skills is excluded one file at a time rather than wholesale:
-    # local_open_loop_eval imports groot.infra.eval, whose package __init__ reaches av
-    # through groot.core.utils, and av ships in the training extra while this image
-    # installs base + dev. That is a collection error, which fails the whole run.
     - |
       python -m pytest \
         "$OSS_PACKAGE_ROOT/tests/groot" \
-        "$OSS_PACKAGE_ROOT/tests/skills" \
-        --ignore "$OSS_PACKAGE_ROOT/tests/skills/autoresearch/test_local_open_loop_eval.py" \
         -m "not gpu" \
         --junitxml "$CI_PROJECT_DIR/junit.oss.cpu.xml"
 
