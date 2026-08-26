@@ -484,6 +484,32 @@ def _get_wsd_schedule(
     return LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch)
 
 
+class DatasetResumeCallback(TrainerCallback):
+    """Restore dataset-owned progress after Trainer state has been loaded."""
+
+    def __init__(self, dataset: Any) -> None:
+        self.dataset = dataset
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        global_step = int(state.global_step)
+        if global_step <= 0:
+            return
+
+        resume_dataset = getattr(self.dataset, "resume_from_global_step", None)
+        if callable(resume_dataset):
+            resume_dataset(global_step)
+            logging.info("Restored dataset at complete global step %d", global_step)
+            return
+
+        new_seed = self.dataset.seed + global_step
+        self.dataset.reset_seed(new_seed)
+        logging.warning(
+            "Dataset has no resume_from_global_step(); reset seed to %d. "
+            "The resumed experiment will not be reproducible.",
+            new_seed,
+        )
+
+
 class GR00TTrainer(Trainer):
     """Trainer that bypasses torch dataloader and makes data collator async."""
 
@@ -512,6 +538,7 @@ class GR00TTrainer(Trainer):
             **kwargs,
             # compute_metrics=partial(compute_eval_accuracy, action_offset=self.action_offset),
         )
+        self.add_callback(DatasetResumeCallback(self.train_dataset))
         if self.args.sync_seq_len:
             assert self.args.seq_len_handle_strategy in (
                 "pad",
@@ -1824,14 +1851,6 @@ class GR00TTrainer(Trainer):
         # Fall back to default behaviour if not using the custom buffer.
         # During resume, don't skip the data
         self.args.ignore_data_skip = True
-        curr_global_step = self.state.global_step
-        print(f"Current global step: {curr_global_step}")
-        if curr_global_step > 0:
-            new_seed = self.train_dataset.seed + curr_global_step
-            self.train_dataset.reset_seed(new_seed)
-            print(
-                f"Resetting seed to {new_seed}. Please note that this will make the experiment non-reproducible."
-            )
 
         print("Creating custom train dataloader")
         if self._data_loading_log_dir:
