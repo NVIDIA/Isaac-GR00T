@@ -172,6 +172,24 @@ The suite name resolves the same checked-in task YAML used by internal
 evaluation. Use `--tasks` for a subset and `--episodes-per-task` for a smoke
 run.
 
+### RoboCasa365
+
+Install the pinned simulator checkout, then run an approved shared suite:
+
+```bash
+groot/infra/closed_loop/backends/robocasa365/setup.sh
+
+uv run --no-sync python -m groot.infra.oss closed-loop-eval \
+  --checkpoint <hf-uri-or-local-path> \
+  --backend groot.infra.closed_loop.backends.robocasa365.backend:RoboCasa365Backend \
+  --suite robocasa365_target50 \
+  --embodiment-tag robocasa365_panda_omron
+```
+
+The backend uses the same per-task horizons as internal evaluation. Set
+`--backend-option robocasa_root='"/path/to/robocasa"'` to use an existing
+checkout instead of the setup script's default.
+
 ## Model Artifacts
 
 By default the training entrypoint loads GR00T 2 model dependencies from

@@ -1402,14 +1402,6 @@ def run(
         #  msc_checkpoint_url, global_rank)` here (the helper is still
         # defined above for that purpose).
 
-        # Decorrelate the RNG across ranks. The set_seed() above -- and HF
-        # Trainer.__init__, via args.seed -- are both rank-invariant, so every
-        # rank draws the SAME flow-matching timestep and noise each step: a
-        # 384-rank global batch would carry only per_device_batch_size distinct
-        # (t, eps) draws. Re-seed here, after the model is built, so that random
-        # init stays identical across ranks.
-        set_seed(config.data.seed + global_rank)
-
         # Train
         logging.info("🚀 Starting training...")
         _emit_run_event(
