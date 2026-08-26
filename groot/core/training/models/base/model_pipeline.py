@@ -54,17 +54,9 @@ class ModelPipeline:
     def return_processor(self):
         return self.processor
 
-    def create_trainer_callbacks(self, trainer) -> list:  # noqa: ARG002
+    def create_trainer_callbacks(self, trainer) -> list:
         """Return model-family callbacks to install after Trainer construction."""
         return []
-
-    def get_trainer_class(self, default_trainer_class):
-        """Return the trainer class for this model family."""
-        return default_trainer_class
-
-    def trainer_init_kwargs(self) -> dict:
-        """Return model-family keyword arguments for trainer construction."""
-        return {}
 
     def stop(self) -> None:
         """Stop dataset/hydrator resources (e.g. IPC server). Call when training ends."""
@@ -114,10 +106,10 @@ class BasicPipeline(ModelPipeline):
     def _create_model(self):
         # Load model
         model = self.model_class(self.config.model)
-        logging.info("Model Config: %s", model.config)
+        print("Model Config: ", model.config)
 
         # unfreeze the model first
-        for _name, param in model.named_parameters():
+        for name, param in model.named_parameters():
             param.requires_grad = True
 
         # Print parameter statistics
