@@ -60,22 +60,14 @@ class PolicyServerProcess:
         ]
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
-        try:
-            self.proc = subprocess.Popen(
-                cmd,
-                stdout=self._log_file,
-                stderr=subprocess.STDOUT,
-                text=True,
-                env=env,
-            )
-            self._wait_until_ready()
-        except BaseException:
-            # A raise here (readiness timeout, server exit, spawn error)
-            # escapes __enter__, so __exit__/stop() never runs. Reap the
-            # subprocess and close the log file before re-raising so a failed
-            # startup does not orphan a GPU-holding process or the log handle.
-            self.stop()
-            raise
+        self.proc = subprocess.Popen(
+            cmd,
+            stdout=self._log_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+        )
+        self._wait_until_ready()
 
     def server_embodiment_tag(self) -> str:
         try:
@@ -86,27 +78,23 @@ class PolicyServerProcess:
     def stop(self) -> None:
         from groot.core.policy.server_client import PolicyClient
 
-        try:
-            if self.proc is not None and self.proc.poll() is None:
-                client = PolicyClient(address=self.address, timeout_ms=5_000)
-                try:
-                    client.kill_server()
-                except Exception:  # noqa: BLE001
-                    self.proc.terminate()
-                finally:
-                    client.close()
-                try:
-                    self.proc.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    self.proc.kill()
-                    self.proc.wait(timeout=30)
-        finally:
-            # Always release the log handle, including the Popen-failed path
-            # where self.proc is still None. Idempotent so a second stop()
-            # (e.g. start() cleanup then __exit__) does not double-close.
-            if self._log_file is not None:
-                self._log_file.close()
-                self._log_file = None
+        if self.proc is None:
+            return
+        if self.proc.poll() is None:
+            client = PolicyClient(address=self.address, timeout_ms=5_000)
+            try:
+                client.kill_server()
+            except Exception:  # noqa: BLE001
+                self.proc.terminate()
+            finally:
+                client.close()
+            try:
+                self.proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=30)
+        if self._log_file is not None:
+            self._log_file.close()
 
     def _wait_until_ready(self) -> None:
         from groot.core.policy.server_client import PolicyClient

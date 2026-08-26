@@ -295,31 +295,6 @@ def _setup_msc_config(config: Config):
     os.environ["SUPPRESS_PROGRESS_BAR"] = "True"
 
 
-def _materialize_model_source_checkpoint(config: Config, global_rank: int) -> None:
-    """Resolve only the checkpoint source that the model pipeline will consume."""
-    start_from_checkpoint = config.training.start_from_checkpoint
-    if start_from_checkpoint is not None:
-        if start_from_checkpoint.startswith("msc://"):
-            _setup_msc_config(config)
-            config.training.start_from_checkpoint = resolve_checkpoint_path(
-                checkpoint_path=start_from_checkpoint,
-                output_dir=config.training.output_dir,
-                global_rank=global_rank,
-            )
-        return
-
-    pretrained_base_model_path = getattr(config.model, "pretrained_base_model_path", None)
-    if isinstance(pretrained_base_model_path, str) and pretrained_base_model_path.startswith(
-        "msc://"
-    ):
-        _setup_msc_config(config)
-        config.model.pretrained_base_model_path = resolve_checkpoint_path(
-            checkpoint_path=pretrained_base_model_path,
-            output_dir=config.training.output_dir,
-            global_rank=global_rank,
-        )
-
-
 def warn_configs(config: Config):
     if config.data.video_backend != "torchcodec":
         warnings.warn(
@@ -1056,7 +1031,18 @@ def run(
             )
             sys.stdout.flush()
 
-        _materialize_model_source_checkpoint(config, global_rank)
+        # Resolve start_from_checkpoint if it's a remote URL
+        if (
+            config.training.start_from_checkpoint
+            and config.training.start_from_checkpoint.startswith("msc://")
+        ):
+            _setup_msc_config(config)
+            # this downloads remote checkpoint to shared file system and return the local path
+            config.training.start_from_checkpoint = resolve_checkpoint_path(
+                checkpoint_path=config.training.start_from_checkpoint,
+                output_dir=config.training.output_dir,
+                global_rank=global_rank,
+            )
 
         # Configure structlog BEFORE pipeline.setup() so events emitted from
         # inside `factory.build()` (e.g., V2 grouped factory's
@@ -1142,9 +1128,6 @@ def run(
             learning_rate=config.training.learning_rate,
             lr_scheduler_type=hf_lr_scheduler_type,
             weight_decay=config.training.weight_decay,
-            adam_beta1=config.training.adam_beta1,
-            adam_beta2=config.training.adam_beta2,
-            adam_epsilon=config.training.adam_epsilon,
             warmup_ratio=config.training.warmup_ratio,
             max_grad_norm=config.training.max_grad_norm,
             logging_steps=config.training.logging_steps,
@@ -1198,8 +1181,7 @@ def run(
         ), "muon_impl must be 'dist' or 'single_batched'"
 
         # Create trainer
-        trainer_class = pipeline.get_trainer_class(GR00TTrainer)
-        trainer = trainer_class(
+        trainer = GR00TTrainer(
             model=model,
             args=training_args,
             train_dataset=train_dataset,
@@ -1213,7 +1195,6 @@ def run(
             training_enable_struct_logs=config.training.enable_struct_logs,
             training_logging_level=config.training.training_logging_level,
             training_log_dir=config.training.training_log_dir,
-            **pipeline.trainer_init_kwargs(),
         )
 
         # Override save_steps after resume: HuggingFace Trainer restores save_steps from
@@ -1401,14 +1382,6 @@ def run(
         # `fetch_latest_checkpoint_from_remote_if_available(output_dir,
         #  msc_checkpoint_url, global_rank)` here (the helper is still
         # defined above for that purpose).
-
-        # Decorrelate the RNG across ranks. The set_seed() above -- and HF
-        # Trainer.__init__, via args.seed -- are both rank-invariant, so every
-        # rank draws the SAME flow-matching timestep and noise each step: a
-        # 384-rank global batch would carry only per_device_batch_size distinct
-        # (t, eps) draws. Re-seed here, after the model is built, so that random
-        # init stays identical across ranks.
-        set_seed(config.data.seed + global_rank)
 
         # Train
         logging.info("🚀 Starting training...")

@@ -83,12 +83,6 @@ class TrainingConfig:
     learning_rate: float = 1e-4
     lr_scheduler_type: str = "cosine"
     weight_decay: float = 1e-5
-    # Standard Hugging Face AdamW arguments.  Keeping them in the Core config
-    # makes the effective optimizer contract durable instead of relying on
-    # ambient TrainingArguments defaults.
-    adam_beta1: float = 0.9
-    adam_beta2: float = 0.999
-    adam_epsilon: float = 1e-8
     warmup_ratio: float = 0.05
     warmup_steps: int = 0  # this will override warmup_ratio
     max_grad_norm: float = 1.0
@@ -247,9 +241,9 @@ class TrainingConfig:
         """Coerce dict -> nested dataclass for YAML-loaded configs.
 
         ``Config.load_dict`` in ``groot/core/training/configs/base_config.py``
-        reconstructs this config through the training registry. With nested
-        dataclass fields, YAML delivers ``data["training"]["open_loop_eval"]``
-        as a ``dict``. Without coercion,
+        does ``TrainingConfig(**data["training"])``. With nested dataclass
+        fields, YAML delivers ``data["training"]["open_loop_eval"]`` as a
+        ``dict``. Without coercion,
         ``config.training.open_loop_eval.enabled`` raises ``AttributeError``
         on ``dict.enabled``. Mirrors ``DataConfig.__post_init__``.
         """
