@@ -2052,7 +2052,10 @@ class GR00TTrainer(Trainer):
         # Load RNG states
         rng_file = os.path.join(
             checkpoint_dir,
-            f"rng_state_{self.args.local_rank if self.args.local_rank != -1 else 0}.pth",
+            # HF saves these as rng_state_{process_index}.pth (GLOBAL rank);
+            # reading by local_rank made every node load rng_state_0..7, so
+            # ranks sharing a local_rank across nodes restored identical RNG.
+            f"rng_state_{self.args.process_index}.pth",
         )
         if os.path.exists(rng_file):
             import random
