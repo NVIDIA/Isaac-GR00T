@@ -154,6 +154,24 @@ success-rate report, comparison history, and optional videos below the output
 directory. Simulator-specific setup and supported suites are documented by
 each backend.
 
+### LIBERO-PRO
+
+Install the pinned simulator and assets, then select its shared backend:
+
+```bash
+groot/infra/closed_loop/backends/libero_pro/setup.sh
+
+uv run --no-sync python -m groot.infra.oss closed-loop-eval \
+  --checkpoint <hf-uri-or-local-path> \
+  --backend groot.infra.closed_loop.backends.libero_pro.backend:LiberoProBackend \
+  --suite libero_pro_10_all \
+  --embodiment-tag libero_sim
+```
+
+The suite name resolves the same checked-in task YAML used by internal
+evaluation. Use `--tasks` for a subset and `--episodes-per-task` for a smoke
+run.
+
 ## Model Artifacts
 
 By default the training entrypoint loads GR00T 2 model dependencies from
