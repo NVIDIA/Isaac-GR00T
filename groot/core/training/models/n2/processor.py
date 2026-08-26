@@ -69,7 +69,6 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "arx_x5": 0,
     "real_dexmate_sharpa_relative_eef": 2,
     "real_tianji_sharpa_relative_eef": 2,  # Shares the Sharpa projector
-    "real_tianji_sharpa_relative_eef_with_tactile": 2,  # Same projector as base tianji tag
     "real_dexmate_sharpa_relative_eef_relative_joint": 2,
     # New controller has a substantially different action distribution from the
     # old controller, so it gets its own projector index instead of sharing 2.

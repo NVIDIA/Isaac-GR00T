@@ -484,32 +484,6 @@ def _get_wsd_schedule(
     return LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch)
 
 
-class DatasetResumeCallback(TrainerCallback):
-    """Restore dataset-owned progress after Trainer state has been loaded."""
-
-    def __init__(self, dataset: Any) -> None:
-        self.dataset = dataset
-
-    def on_train_begin(self, args, state, control, **kwargs):
-        global_step = int(state.global_step)
-        if global_step <= 0:
-            return
-
-        resume_dataset = getattr(self.dataset, "resume_from_global_step", None)
-        if callable(resume_dataset):
-            resume_dataset(global_step)
-            logging.info("Restored dataset at complete global step %d", global_step)
-            return
-
-        new_seed = self.dataset.seed + global_step
-        self.dataset.reset_seed(new_seed)
-        logging.warning(
-            "Dataset has no resume_from_global_step(); reset seed to %d. "
-            "The resumed experiment will not be reproducible.",
-            new_seed,
-        )
-
-
 class GR00TTrainer(Trainer):
     """Trainer that bypasses torch dataloader and makes data collator async."""
 
@@ -538,7 +512,6 @@ class GR00TTrainer(Trainer):
             **kwargs,
             # compute_metrics=partial(compute_eval_accuracy, action_offset=self.action_offset),
         )
-        self.add_callback(DatasetResumeCallback(self.train_dataset))
         if self.args.sync_seq_len:
             assert self.args.seq_len_handle_strategy in (
                 "pad",
@@ -1851,6 +1824,14 @@ class GR00TTrainer(Trainer):
         # Fall back to default behaviour if not using the custom buffer.
         # During resume, don't skip the data
         self.args.ignore_data_skip = True
+        curr_global_step = self.state.global_step
+        print(f"Current global step: {curr_global_step}")
+        if curr_global_step > 0:
+            new_seed = self.train_dataset.seed + curr_global_step
+            self.train_dataset.reset_seed(new_seed)
+            print(
+                f"Resetting seed to {new_seed}. Please note that this will make the experiment non-reproducible."
+            )
 
         print("Creating custom train dataloader")
         if self._data_loading_log_dir:
@@ -1875,14 +1856,6 @@ class GR00TTrainer(Trainer):
         )
 
     @staticmethod
-    def _optimizer_reset_resume_enabled() -> bool:
-        return os.environ.get("GROOT_ALLOW_OPTIMIZER_RESET_RESUME", "").lower() in {
-            "1",
-            "true",
-            "yes",
-        }
-
-    @staticmethod
     def _is_dcp_checkpoint(checkpoint_dir: str) -> bool:
         """Check if a checkpoint uses async checkpoint format (vs DeepSpeed format).
 
@@ -1902,14 +1875,6 @@ class GR00TTrainer(Trainer):
         # Check for DCP metadata (old format, backward compat)
         if (Path(checkpoint_dir) / "dcp_state" / ".metadata").exists():
             return True
-        # Recovery-only fallback for durable uploads that contain the model,
-        # trainer state, and scheduler but omitted async optimizer metadata.
-        if GR00TTrainer._optimizer_reset_resume_enabled():
-            return (
-                (Path(checkpoint_dir) / TRAINER_STATE_NAME).exists()
-                and (Path(checkpoint_dir) / "scheduler.pt").exists()
-                and (Path(checkpoint_dir) / "model.safetensors.index.json").exists()
-            )
         return False
 
     def _resume_from_dcp_checkpoint(self, checkpoint_dir: str):
@@ -2006,7 +1971,7 @@ class GR00TTrainer(Trainer):
             # Each rank independently reads its own ZeRO-2 optimizer partition.
             print(f"[CP-SAVE] Loading optimizer from {opt_pt_file} (per-rank, no dist)")
             state_dict_to_load = torch.load(opt_pt_file, map_location="cpu", weights_only=False)
-        elif (Path(checkpoint_dir) / "dcp_state" / ".metadata").exists():
+        else:
             # Fallback: load from DCP format for older checkpoints.
             # WARNING: dcp.load() creates a second NCCL communicator which may fail at 32+ GPUs
             # on clusters with misconfigured EFA. Prefer per-rank .pt for new checkpoints.
@@ -2024,22 +1989,13 @@ class GR00TTrainer(Trainer):
                 "lr_scheduler": lr_scheduler_state,
             }
             dcp.load(state_dict=state_dict_to_load, checkpoint_id=dcp_dir)
-        elif self._optimizer_reset_resume_enabled():
-            state_dict_to_load = None
-            print(
-                "[CP-SAVE] WARNING: Durable checkpoint has no optimizer state; "
-                "continuing with fresh optimizer moments and restored scheduler"
-            )
-        else:
-            raise FileNotFoundError(f"No resumable optimizer state found in {checkpoint_dir}")
 
-        if state_dict_to_load is not None:
-            # DeepSpeed ZeRO-2 load_state_dict expects {dp_rank: state_dict}.
-            # Each rank loads its own partition, so wrap with current rank as key.
-            self.deepspeed.optimizer.load_state_dict({dp_rank: state_dict_to_load["optimizer"]})
-            if self.lr_scheduler and state_dict_to_load.get("lr_scheduler"):
-                self.lr_scheduler.load_state_dict(state_dict_to_load["lr_scheduler"])
-            print(f"[CP-SAVE] Optimizer state loaded in {time.time() - t_opt:.2f}s")
+        # DeepSpeed ZeRO-2 load_state_dict expects {dp_rank: state_dict}.
+        # Each rank loads its own partition, so wrap with current rank as key.
+        self.deepspeed.optimizer.load_state_dict({dp_rank: state_dict_to_load["optimizer"]})
+        if self.lr_scheduler and state_dict_to_load.get("lr_scheduler"):
+            self.lr_scheduler.load_state_dict(state_dict_to_load["lr_scheduler"])
+        print(f"[CP-SAVE] Optimizer state loaded in {time.time() - t_opt:.2f}s")
 
         # Load scheduler
         scheduler_file = os.path.join(checkpoint_dir, "scheduler.pt")

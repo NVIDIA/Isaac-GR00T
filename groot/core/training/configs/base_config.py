@@ -16,14 +16,8 @@ import yaml
 
 from groot.core.data.types import ActionConfig, ActionFormat, ActionRepresentation, ActionType
 from groot.core.training.configs.data.data_config import DataConfig, SingleDatasetConfig
-from groot.core.training.configs.data.registry import (
-    create_data_config,
-    resolve_data_validation_inputs,
-    validate_data_training_contract,
-)
 from groot.core.training.configs.model import create_model_union_type
 from groot.core.training.configs.model.n2 import GrootN2Config
-from groot.core.training.configs.training.registry import create_training_config
 from groot.core.training.configs.training.training_config import TrainingConfig
 
 ModelUnionType = create_model_union_type()
@@ -52,9 +46,9 @@ class Config:
         if isinstance(data, dict):  # for training
             self.load_dict(data)
         elif isinstance(data, self.__class__):
-            self = data  # noqa: PLW0642
+            self = data
         else:
-            raise ValueError(f"Invalid config file: {path}")  # noqa: TRY004
+            raise ValueError(f"Invalid config file: {path}")
         return self
 
     def load_dict(self, data: dict):
@@ -65,7 +59,7 @@ class Config:
             # Pop modality_configs overrides before creating DataConfig
             # so DataConfig gets the full MODALITY_CONFIGS default.
             yaml_modality_configs = data_data.pop("modality_configs", {})
-            self.data = create_data_config(data_data)
+            self.data = DataConfig(**data_data)
             # Ensure nested datasets are converted to dataclass instances
             converted: list[SingleDatasetConfig] = []
             for ds in self.data.datasets:
@@ -87,17 +81,19 @@ class Config:
                                 modality_name
                             )
                             if default_cfg is not None and isinstance(default_cfg, ModalityConfig):
-                                self.data.modality_configs[embodiment_tag][modality_name] = replace(
-                                    default_cfg, **modality_cfg
+                                self.data.modality_configs[embodiment_tag][modality_name] = (
+                                    replace(default_cfg, **modality_cfg)
                                 )
                             else:
                                 self.data.modality_configs[embodiment_tag][modality_name] = (
                                     ModalityConfig(**modality_cfg)
                                 )
                         else:
-                            self.data.modality_configs[embodiment_tag][modality_name] = modality_cfg
+                            self.data.modality_configs[embodiment_tag][modality_name] = (
+                                modality_cfg
+                            )
         if "training" in data:
-            self.training = create_training_config(data["training"])
+            self.training = TrainingConfig(**data["training"])
         return self
 
     @classmethod
@@ -113,15 +109,13 @@ class Config:
 
         omni_dir = Path(__file__).parent.parent
         if stage == 2 and offload:
-            config_path = omni_dir / "configs/deepspeed/zero2_offload_config.json"
+            config = json.load(open(omni_dir / "configs/deepspeed/zero2_offload_config.json"))
         elif stage == 2:
-            config_path = omni_dir / "configs/deepspeed/zero2_config.json"
+            config = json.load(open(omni_dir / "configs/deepspeed/zero2_config.json"))
         elif stage == 3:
-            config_path = omni_dir / "configs/deepspeed/zero3_config.json"
+            config = json.load(open(omni_dir / "configs/deepspeed/zero3_config.json"))
         else:
             raise ValueError(f"Invalid DeepSpeed stage: {stage}")
-        with config_path.open() as config_file:
-            config = json.load(config_file)
 
         bucket = self.training.deepspeed_reduce_bucket_size
         if bucket > 0:
@@ -132,17 +126,13 @@ class Config:
 
     def validate(self):
         """Validate configuration."""
-        validate_data_training_contract(self.data, self.model, self.training)
-        validation_inputs = resolve_data_validation_inputs(self.data)
-
         # Check dataset path(s)
         embodiment_tags = set()
-        for d_cfg in validation_inputs.datasets:
+        for d_cfg in self.data.datasets:
             if d_cfg.dataset_type == "physical_embodiment" and not d_cfg.embodiment_tag:
                 raise ValueError(f"Embodiment tag is empty for dataset {d_cfg.dataset_path}")
             if d_cfg.embodiment_tag is not None:
                 embodiment_tags.add(d_cfg.embodiment_tag)
-        embodiment_tags.update(validation_inputs.embodiment_tags)
 
         stripped_modality_configs = {}
         for embodiment_tag in embodiment_tags:
@@ -150,8 +140,8 @@ class Config:
         self.data.modality_configs = stripped_modality_configs
 
         # ensure mix ratios are valid
-        total_ratio = sum(d.mix_ratio for d in validation_inputs.datasets)
-        if total_ratio <= 0 and not validation_inputs.permits_empty_dataset_mix:
+        total_ratio = sum(d.mix_ratio for d in self.data.datasets)
+        if total_ratio <= 0:
             raise ValueError("Sum of mix_ratio must be greater than zero")
 
         # Fill in default values for action configs
@@ -170,10 +160,11 @@ class Config:
         import ray
         import torch
 
-        if not ray.is_initialized() and self.training.num_gpus > torch.cuda.device_count():
-            raise ValueError(
-                f"Requested {self.training.num_gpus} GPUs but only {torch.cuda.device_count()} available"
-            )
+        if not ray.is_initialized():
+            if self.training.num_gpus > torch.cuda.device_count():
+                raise ValueError(
+                    f"Requested {self.training.num_gpus} GPUs but only {torch.cuda.device_count()} available"
+                )
         # Validate precision settings
         if self.training.fp16 and self.training.bf16:
             raise ValueError("Cannot use both fp16 and bf16")

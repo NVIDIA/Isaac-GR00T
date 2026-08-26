@@ -16,20 +16,12 @@ from groot.core.training.configs.data.data_config import (
     SingleDatasetConfig,
 )
 from groot.core.training.configs.data.filter_config import FilterConfig
-from groot.core.training.configs.data.registry import (
-    DATA_CONFIG_TYPES,
-    create_data_config,
-    register_data_config,
-)
 
 __all__ = [
-    "DATA_CONFIG_TYPES",
     "DataConfig",
     "DeltaCatDatasetConfig",
     "DeltaCatStatsEmbodimentSamplingConfig",
     "DeltaCatStatsSamplingConfig",
     "FilterConfig",
     "SingleDatasetConfig",
-    "create_data_config",
-    "register_data_config",
 ]
