@@ -5800,6 +5800,23 @@ MODALITY_CONFIGS = {
     },
 }
 
+# convert_recorder_session_tianji DEFAULTS to the `_with_tactile` tag, so every tianji
+# dataset carries it in meta/info.json -- and generate_rel_stats indexes MODALITY_CONFIGS
+# with a bare [tag] while merge_lerobot_datasets passes the dataset's own tag. Without an
+# entry here every tianji merge died with KeyError at the very last step, after the whole
+# dataset had already been written.
+#
+# The four groups below are DELIBERATELY the base tag's, unchanged: the ten fingertip F6
+# vectors are extra STATE COLUMNS on disk (136D parquet vs 76D), not extra selected state.
+# Tactile is consumed as its own "tactile" modality group feeding the frozen Tactile-VAE --
+# see `seungjael/dex_tactile_aug3_p2_override_fix`, which carries the full entry plus the
+# loader/processor seam that group needs. Keep this an alias so that branch's richer entry
+# is a clean superset, not a conflict; do NOT fold F6 into "state" here, that would silently
+# hand the state encoder 122D instead of 62D.
+MODALITY_CONFIGS["real_tianji_sharpa_relative_eef_with_tactile"] = dict(
+    MODALITY_CONFIGS["real_tianji_sharpa_relative_eef"]
+)
+
 
 def register_modality_config(embodiment_tag: str, config: dict):
     MODALITY_CONFIGS[embodiment_tag] = config
