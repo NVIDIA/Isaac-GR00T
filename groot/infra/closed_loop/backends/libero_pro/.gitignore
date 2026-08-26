@@ -1,0 +1,5 @@
+.libero-config/
+.libero-pro/
+.libero-pro-data/
+.venv/
+uv.lock

@@ -48,8 +48,7 @@ OSS_DIFFUSION_TRANSFORMER_URI = (
     "hf://model/nvidia/Cosmos-Predict2.5-2B@0d37c7498f54cee3c599d438d895a0a4a8608064/transformer"
 )
 OSS_VAE_URI = (
-    "hf://model/Wan-AI/Wan2.1-I2V-14B-480P@6b73f84e66371cdfe870c72acd6826e1d61cf279/"
-    "Wan2.1_VAE.pth"
+    "hf://model/Wan-AI/Wan2.1-I2V-14B-480P@6b73f84e66371cdfe870c72acd6826e1d61cf279/Wan2.1_VAE.pth"
 )
 OSS_PRETRAIN_CHECKPOINT_URI = (
     "hf://model/nvidia/GR00T2Internal@4fe662abaf302ee46916881c447377da8c4bd15a/base_200k"
@@ -97,6 +96,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_eval(_eval_config(args, checkpoint=checkpoint), dry_run=False)
     if args.command == "policy-server":
         return _run_policy_server(_policy_server_config(args), dry_run=args.dry_run)
+    if args.command == "closed-loop-eval":
+        return _run_closed_loop_eval(args)
     raise AssertionError(f"unhandled command {args.command!r}")
 
 
@@ -167,6 +168,12 @@ def _run_eval(config: OssOpenLoopEvalConfig, *, dry_run: bool) -> int:
         return 0
     OssOpenLoopEvaluator(config).run()
     return 0
+
+
+def _run_closed_loop_eval(args: argparse.Namespace) -> int:
+    from groot.infra.closed_loop.cli import config_from_args, run
+
+    return run(config_from_args(args), dry_run=args.dry_run)
 
 
 def _run_policy_server(config: OssPolicyServerConfig, *, dry_run: bool) -> int:
@@ -311,6 +318,14 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     _add_eval_parser(subparsers.add_parser("eval", help="Run OSS open-loop evaluation."))
     _add_policy_server_parser(
         subparsers.add_parser("policy-server", help="Run an OSS GR00T policy server.")
+    )
+    from groot.infra.closed_loop.cli import add_arguments
+
+    add_arguments(
+        subparsers.add_parser(
+            "closed-loop-eval",
+            help="Run a simulator backend locally or on an existing Ray cluster.",
+        )
     )
     train_eval = subparsers.add_parser(
         "train-eval",
