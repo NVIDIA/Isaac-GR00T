@@ -191,13 +191,14 @@ def build_vis_data(projection: dict) -> tuple[list[dict], list[dict]]:
             fid = f["id"]
             r, ang = find_pos[j]
             fx, fy = cx + r * math.cos(ang), cy + r * math.sin(ang)
-            tooltip = f"finding · {fid}\n{f.get('title', '')}"
-            if f.get("body"):
-                tooltip += f"\n\n{_truncate(f['body'], 240)}"
+            body = f.get("body") or ""
+            tooltip = f"finding · {fid}"
+            if body:
+                tooltip += f"\n\n{_truncate(body, 240)}"
             vis_nodes.append(
                 {
                     "id": fid,
-                    "label": _truncate(f.get("title") or fid, 28),
+                    "label": _truncate(body or fid, 28),
                     "group": "finding",
                     "title": tooltip,
                     "x": round(fx),

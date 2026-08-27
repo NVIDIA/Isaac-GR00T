@@ -167,7 +167,6 @@ class InsightProjection:
         id_field = "id" if kind == "finding" else "chunk_id"
         text_field = "body" if kind == "finding" else "text"
         record_id = value.get(id_field)
-        title = value.get("title")
         text = value.get(text_field)
         if "concepts" not in value:
             raise ValueError(f"Insight {kind} requires concepts in {path}")
@@ -178,18 +177,26 @@ class InsightProjection:
             raise ValueError(
                 f"Insight finding id must start with {FINDING_ID_PREFIX!r}: {record_id}"
             )
-        if not isinstance(title, str) or not isinstance(text, str):
+        if not isinstance(text, str):
             raise ValueError(  # noqa: TRY004
-                f"Insight {kind} requires string title and {text_field}: {record_id}"
+                f"Insight {kind} requires string {text_field}: {record_id}"
             )
-        return {
+        record = {
             "id": record_id,
             "kind": kind,
             "topic": topic,
-            "title": title,
             "text": text,
             "concepts": concepts,
         }
+        # A title belongs to a chunk alone: its section heading is the citable "Sources:"
+        # handle a raw passage needs. A finding is a distilled claim ranked on its body and
+        # concepts, which needs no such handle.
+        if kind == "chunk":
+            title = value.get("title")
+            if not isinstance(title, str):
+                raise ValueError(f"Insight chunk requires a string title: {record_id}")
+            record["title"] = title
+        return record
 
     def search(self, query: str, limit: int = 5) -> dict[str, Any]:
         query = " ".join(query.split())
