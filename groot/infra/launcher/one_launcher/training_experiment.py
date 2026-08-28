@@ -17,6 +17,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any
 
+from groot.core.training.configs.training.registry import training_config_shortname
 from groot.infra.launcher.one_launcher.resolved_training_experiment import (
     ResolvedTrainingExperiment,
 )
@@ -90,10 +91,17 @@ class TrainingExperiment:
         return self.serializable_value(self.data_config.launcher_data)
 
     def training_section(self, global_batch_size: int) -> Mapping[str, Any]:
-        return self.merged_mapping(
+        body = self.merged_mapping(
             self.dataclass_overrides(self.training_config.training),
             {"global_batch_size": global_batch_size},
         )
+        # Preserve the historical mapping shape for the base config. Registered
+        # subtypes need a discriminator so YAML loading can reconstruct their
+        # additional fields instead of falling back to TrainingConfig.
+        shortname = training_config_shortname(self.training_config.training)
+        if shortname == "Training":
+            return body
+        return {"_config": shortname, **body}
 
     def model_section(self) -> Mapping[str, Any]:
         return self.merged_mapping(

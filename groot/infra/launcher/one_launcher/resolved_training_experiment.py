@@ -21,6 +21,7 @@ from typing import Any
 
 import yaml
 
+from groot.core.training.configs.training.training_config import TrainingConfig
 from groot.infra.launcher.one_launcher.resolved_training_experiment_files import (
     ResolvedTrainingExperimentFiles,
 )
@@ -455,9 +456,20 @@ class ResolvedTrainingExperiment:
             training_config=output_dir / "training.yaml",
             full_config=output_dir / "resolved_config.yaml",
         )
-        files.data_config.write_text(
-            yaml.safe_dump({"data": dict(self.data_section)}, sort_keys=False)
-        )
+        data_payload: dict[str, Any] = {"data": dict(self.data_section)}
+        training_discriminator = self.training_section.get("_config")
+        if training_discriminator is not None:
+            # The config loader needs subtype-only fields in data.yaml to construct
+            # the registered training dataclass. Base fields stay in training.yaml
+            # and on the CLI, preserving their existing override precedence;
+            # global_batch_size stays launcher-only and is expanded there as well.
+            base_fields = TrainingConfig.__dataclass_fields__
+            data_payload["training"] = {
+                key: value
+                for key, value in self.training_section.items()
+                if key == "_config" or (key not in base_fields and key != "global_batch_size")
+            }
+        files.data_config.write_text(yaml.safe_dump(data_payload, sort_keys=False))
         training_payload: dict[str, Any] = {}
         if self.data_cli_section:
             training_payload["data"] = dict(self.data_cli_section)

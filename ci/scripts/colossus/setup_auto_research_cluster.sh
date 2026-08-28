@@ -472,23 +472,16 @@ common_setup_args() {
 setup_args_for_gpu_count() {
   local gpu_count="$1"
   local output_name="$2"
-  local gpu_profile nvidia_driver_branch
+  local gpu_profile
   case "${gpu_count}" in
-    1)
-      gpu_profile="gb300"
-      nvidia_driver_branch="595"
-      ;;
-    2)
-      gpu_profile="gb300-rtx-pro-2000"
-      nvidia_driver_branch="580"
-      ;;
+    1) gpu_profile="gb300" ;;
+    2) gpu_profile="gb300-rtx-pro-2000" ;;
     *) die "unsupported auto-research physical GPU count: ${gpu_count}" ;;
   esac
   local -n output_args="${output_name}"
   output_args=(
     "${COMMON_SETUP_ARGS[@]}"
     --gpu-profile "${gpu_profile}"
-    --nvidia-driver-branch "${nvidia_driver_branch}"
     --resource-gpu-count "${gpu_count}"
   )
 }
@@ -723,13 +716,11 @@ created_lease_names = []
 reused_lease_ids = []
 gpu_profiles = []
 host_gpu_profiles = {}
-host_nvidia_driver_branches = {}
 for state_file in state_files:
     with open(state_file) as source:
         state = json.load(source)
     state_hosts = state.get("hosts", [])
     profile = state.get("gpu_profile")
-    nvidia_driver_branch = state.get("nvidia_driver_branch")
     hosts.extend(state_hosts)
     node_ips.extend(state.get("node_ips", []))
     created_lease_ids.extend(state.get("created_lease_ids", []))
@@ -740,9 +731,6 @@ for state_file in state_files:
         gpu_profiles.append(profile)
         for host in state_hosts:
             host_gpu_profiles[host] = profile
-    if isinstance(nvidia_driver_branch, str) and nvidia_driver_branch:
-        for host in state_hosts:
-            host_nvidia_driver_branches[host] = nvidia_driver_branch
 
 
 def unique(values):
@@ -769,7 +757,6 @@ payload = {
     "gpu_profile": unique_gpu_profiles[0] if len(unique_gpu_profiles) == 1 else "mixed",
     "gpu_profiles": unique_gpu_profiles,
     "host_gpu_profiles": host_gpu_profiles,
-    "host_nvidia_driver_branches": host_nvidia_driver_branches,
     "cuda_device_order": cuda_device_order,
     "cuda_device_order_by_profile": cuda_device_order_by_profile,
     "transport": "preferred_ethernet_with_management_fallback",

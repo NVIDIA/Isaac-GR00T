@@ -20,15 +20,10 @@ remote="${COLOSSUS_PODMAN_REMOTE:-/usr/bin/podman}"
 data_root="${COLOSSUS_DATA_ROOT:?COLOSSUS_DATA_ROOT is required}"
 job_root="${COLOSSUS_JOB_ROOT:?COLOSSUS_JOB_ROOT is required}"
 gpu_devices="${COLOSSUS_GPU_CDI_DEVICES:-${COLOSSUS_GPU_CDI_DEVICE:-}}"
-nvidia_runtime="${COLOSSUS_PODMAN_NVIDIA_RUNTIME:-}"
 [[ -n "${gpu_devices}" ]] || {
   echo "COLOSSUS_GPU_CDI_DEVICES or COLOSSUS_GPU_CDI_DEVICE is required" >&2
   exit 1
 }
-if [[ -n "${nvidia_runtime}" && "${nvidia_runtime}" != "/usr/bin/nvidia-container-runtime" ]]; then
-  echo "Unsupported Colossus Podman NVIDIA runtime: ${nvidia_runtime}" >&2
-  exit 1
-fi
 
 [[ -x "${remote}" ]] || {
   echo "Colossus Podman remote client is not executable: ${remote}" >&2
@@ -218,15 +213,6 @@ if [[ "${worker_probe}" != "1" ]] && {
     selected_gpu_indices=("${!ordered_gpu_devices[@]}")
   fi
   cuda_device_uuids=""
-  if [[ -n "${nvidia_runtime}" ]]; then
-    # NVIDIA Toolkit 1.20's CDI/JIT path intermittently fails while creating
-    # driver-library symlinks on the dedicated A40 host. Cluster bootstrap
-    # configures the rootful Podman service to use this exact NVIDIA runtime;
-    # Podman 4.9's remote client rejects the otherwise equivalent per-run
-    # --runtime flag. Preserve the value here as a fail-closed selector for
-    # the non-CDI device path.
-    : "${nvidia_runtime}"
-  fi
   for index in "${selected_gpu_indices[@]}"; do
     [[ "${index}" =~ ^[0-9]+$ && "${index}" -lt "${#ordered_gpu_devices[@]}" ]] || {
       echo "Requested CUDA device index ${index} is outside the configured CDI set" >&2
@@ -236,19 +222,14 @@ if [[ "${worker_probe}" != "1" ]] && {
       echo "Empty CDI GPU device at ordered index ${index}" >&2
       exit 1
     }
+    injected+=(--device "${ordered_gpu_devices[$index]}")
     gpu_uuid="${ordered_gpu_devices[$index]#nvidia.com/gpu=}"
     [[ "${gpu_uuid}" == GPU-* ]] || {
       echo "CDI GPU device does not contain a GPU UUID: ${ordered_gpu_devices[$index]}" >&2
       exit 1
     }
-    if [[ -z "${nvidia_runtime}" ]]; then
-      injected+=(--device "${ordered_gpu_devices[$index]}")
-    fi
     cuda_device_uuids+="${cuda_device_uuids:+,}${gpu_uuid}"
   done
-  if [[ -n "${nvidia_runtime}" ]]; then
-    injected+=(--env "NVIDIA_VISIBLE_DEVICES=${cuda_device_uuids}")
-  fi
   injected+=(
     # UUID visibility makes CUDA enumerate the logical Ray slots in this exact
     # order even when /dev/nvidia* retains a different host-physical order.

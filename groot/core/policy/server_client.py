@@ -301,31 +301,12 @@ class PolicyServer:
             self._handle_get_modality_config,
             requires_input=False,
         )
-        self.register_endpoint(
-            "get_runtime_contract",
-            self._handle_get_runtime_contract,
-            requires_input=False,
-        )
 
     def _handle_get_modality_config(self) -> dict[str, Any]:
         get_modality_config = getattr(self.policy, "get_modality_config", None)
         if get_modality_config is None:
             return {}
         return cast(dict[str, Any], _to_msgpack_safe(get_modality_config()))
-
-    def _handle_get_runtime_contract(self) -> dict[str, Any]:
-        """Return benchmark backend state through transparent policy wrappers."""
-        policy: Any = self.policy
-        visited: set[int] = set()
-        while policy is not None and id(policy) not in visited:
-            visited.add(id(policy))
-            contract = getattr(policy, "benchmark_runtime_contract", None)
-            if callable(contract):
-                contract = contract()
-            if isinstance(contract, dict):
-                return cast(dict[str, Any], _to_msgpack_safe(contract))
-            policy = getattr(policy, "policy", None)
-        return {}
 
     def _kill_server(self):
         """Kill the server."""
@@ -550,9 +531,7 @@ class PolicyClient(base.BasePolicy):
         transport_overhead_ms = None
         if isinstance(server_processing_ms, int | float):
             # Includes network/ZMQ time and server-side request/response serialization.
-            # Keep the signed nesting residual. Clamping would make invalid
-            # client/server timing order look like a valid zero-overhead RPC.
-            transport_overhead_ms = send_recv_ms - server_processing_ms
+            transport_overhead_ms = max(0.0, send_recv_ms - server_processing_ms)
         self.last_rpc_timing = {
             "request_id": request_id,
             "request_serialize_ms": request_serialize_ms,
@@ -606,11 +585,6 @@ class PolicyClient(base.BasePolicy):
 
     def get_modality_config(self) -> dict[str, types.ModalityConfig]:
         return self.call_endpoint("get_modality_config", requires_input=False)
-
-    def get_runtime_contract(self) -> dict[str, Any]:
-        """Return the server's benchmark backend state, if it exposes one."""
-        response = self.call_endpoint("get_runtime_contract", requires_input=False)
-        return dict(response) if isinstance(response, dict) else {}
 
     def check_observation(self, observation: dict[str, Any]) -> None:
         raise NotImplementedError(

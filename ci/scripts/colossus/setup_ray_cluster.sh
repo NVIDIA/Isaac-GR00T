@@ -35,7 +35,6 @@ COLOSSUS_LEASE_DURATION="${COLOSSUS_LEASE_DURATION:-7d}"
 COLOSSUS_LEASE_JUSTIFICATION="${COLOSSUS_LEASE_JUSTIFICATION:-GR00T persistent Ray cluster}"
 COLOSSUS_OS="${COLOSSUS_OS:-ubuntu-24.04-aarch64-standard-uefi}"
 COLOSSUS_PROVISION_MODE="${COLOSSUS_PROVISION_MODE:-CLEAN}"
-NVIDIA_DRIVER_BRANCH="${COLOSSUS_NVIDIA_DRIVER_BRANCH:-595}"
 COLOSSUS_LEASE_READY_TIMEOUT="${COLOSSUS_LEASE_READY_TIMEOUT:-3600}"
 COLOSSUS_LEASE_POLL_INTERVAL="${COLOSSUS_LEASE_POLL_INTERVAL:-15}"
 KEEP_COLOSSUS_LEASES_ON_FAILURE="${KEEP_COLOSSUS_LEASES_ON_FAILURE:-0}"
@@ -106,9 +105,9 @@ readonly HEAD_CONTAINER="groot-ray-head"
 readonly WORKER_CONTAINER="groot-ray-worker"
 readonly REMOTE_ROOT="/tmp/groot-ray-cluster"
 readonly RAY_PORT="6379"
-TARGET_GPU_TAG="GB300"
-TARGET_GPU_NAME="NVIDIA GB300"
-SECONDARY_GPU_NAME_PATTERN="RTX PRO 2000"
+readonly TARGET_GPU_TAG="GB300"
+readonly TARGET_GPU_NAME="NVIDIA GB300"
+readonly SECONDARY_GPU_NAME_PATTERN="RTX PRO 2000"
 GPU_PROFILE="${GPU_PROFILE:-gb300}"
 
 TMP_DIR=""
@@ -170,12 +169,7 @@ Options:
   --resource-gpu-count COUNT    Require this physical GPU count in Colossus inventory.
   --exclude-resource NAME       Never reserve this Colossus resource; may be repeated.
   --best-effort-hosts           Continue with successfully reserved and SSH-ready hosts.
-  --gpu-profile PROFILE         gb300, gb300-rtx-pro-2000, or a40. A40 hosts may
-                                expose any even GPU count; each GPU pair becomes one
-                                schedulable A40 evaluation station. Default: ${GPU_PROFILE}
-  --nvidia-driver-branch N      NVIDIA driver branch installed on every host.
-                                RTX PRO 2000 and A40 evaluation require 580;
-                                default: ${NVIDIA_DRIVER_BRANCH}
+  --gpu-profile PROFILE         gb300 or gb300-rtx-pro-2000. Default: ${GPU_PROFILE}
   --existing-lease-id ID        Reuse this active Colossus lease instead of reserving a
                                 host. Requires --nodes 1. The lease is never released by
                                 setup, including when setup fails.
@@ -278,9 +272,8 @@ Options:
   -h, --help                    Show this help.
 
 GPU policy:
-  gb300 exposes only NVIDIA GB300. gb300-rtx-pro-2000 exposes an ordered pair:
-  Ray/CUDA slot 0 is GB300 and slot 1 is RTX PRO 2000. a40 exposes an even number
-  of NVIDIA A40 GPUs on one x86_64 host and publishes one A40 resource per pair.
+  gb300 exposes only the ${TARGET_GPU_NAME}. gb300-rtx-pro-2000 exposes an
+  ordered pair: Ray/CUDA slot 0 is GB300 and slot 1 is RTX PRO 2000.
 
 If both --ray-auth-password-stdin and --nvcr-token-stdin are used, pass two lines:
   first line = Ray basic-auth password, second line = NVCR token.
@@ -380,11 +373,6 @@ parse_args() {
       --gpu-profile)
         require_value "$1" "${2:-}"
         GPU_PROFILE="$2"
-        shift 2
-        ;;
-      --nvidia-driver-branch)
-        require_value "$1" "${2:-}"
-        NVIDIA_DRIVER_BRANCH="$2"
         shift 2
         ;;
       --existing-lease-id)
@@ -752,36 +740,9 @@ validate_args() {
     *) die "BEST_EFFORT_HOSTS must be 0 or 1" ;;
   esac
   case "${GPU_PROFILE}" in
-    gb300)
-      TARGET_GPU_TAG="GB300"
-      TARGET_GPU_NAME="NVIDIA GB300"
-      SECONDARY_GPU_NAME_PATTERN="RTX PRO 2000"
-      ;;
-    gb300-rtx-pro-2000)
-      TARGET_GPU_TAG="GB300"
-      TARGET_GPU_NAME="NVIDIA GB300"
-      SECONDARY_GPU_NAME_PATTERN="RTX PRO 2000"
-      [[ "${NVIDIA_DRIVER_BRANCH}" == "580" ]] \
-        || die "--gpu-profile gb300-rtx-pro-2000 requires --nvidia-driver-branch 580"
-      ;;
-    a40)
-      if [[ -z "${COLOSSUS_RESOURCE_GPU_COUNT}" ]]; then
-        COLOSSUS_RESOURCE_GPU_COUNT="2"
-      fi
-      (( COLOSSUS_RESOURCE_GPU_COUNT >= 2 && COLOSSUS_RESOURCE_GPU_COUNT % 2 == 0 )) \
-        || die "--gpu-profile a40 requires an even --resource-gpu-count of at least 2"
-      TARGET_GPU_TAG="${COLOSSUS_RESOURCE_GPU_COUNT}XA40"
-      TARGET_GPU_NAME="NVIDIA A40"
-      SECONDARY_GPU_NAME_PATTERN=""
-      [[ "${COLOSSUS_OS}" == *x86_64* ]] \
-        || die "--gpu-profile a40 requires an x86_64 Colossus OS"
-      [[ "${NVIDIA_DRIVER_BRANCH}" == "580" ]] \
-        || die "--gpu-profile a40 requires --nvidia-driver-branch 580"
-      ;;
-    *) die "--gpu-profile must be gb300, gb300-rtx-pro-2000, or a40" ;;
+    gb300|gb300-rtx-pro-2000) ;;
+    *) die "--gpu-profile must be gb300 or gb300-rtx-pro-2000" ;;
   esac
-  [[ "${NVIDIA_DRIVER_BRANCH}" =~ ^[0-9]+$ ]] \
-    || die "--nvidia-driver-branch must contain only digits"
   local excluded_resource
   for excluded_resource in "${COLOSSUS_EXCLUDED_RESOURCE_NAMES[@]}"; do
     [[ "${excluded_resource}" =~ ^[A-Za-z0-9._-]+$ ]] \
@@ -1273,7 +1234,6 @@ load_existing_colossus_host() {
       "${COLOSSUS_POOL_ID}" \
       "${TARGET_GPU_TAG}" \
       "${COLOSSUS_RESOURCE_GPU_COUNT}" \
-      "${GPU_PROFILE}" \
       "${include_credentials}" <<'PY'
 import json
 import re
@@ -1286,7 +1246,6 @@ import sys
     expected_pool_id,
     expected_gpu_tag,
     gpu_count_text,
-    gpu_profile,
     include_credentials,
 ) = sys.argv[1:]
 required_gpu_count = int(gpu_count_text) if gpu_count_text else None
@@ -1314,44 +1273,10 @@ if entity.get("poolId") != expected_pool_id:
         f"existing lease resource poolId is {entity.get('poolId')!r}, "
         f"expected {expected_pool_id!r}"
     )
-gpu_tag = entity.get("gpuTag")
-inventory = entity.get("gpus")
-
-
-def has_exact_untagged_gb300_rtx_pro_pair():
-    if gpu_profile != "gb300-rtx-pro-2000" or gpu_tag != "NOT-ASSIGNED":
-        return False
-    if not isinstance(inventory, list) or len(inventory) != 2:
-        return False
-
-    expected = {
-        ("2D3010DE", "RTX PRO 2000 Blackwell"),
-        ("31C210DE", "Graphics Device"),
-    }
-    actual = {
-        (str(gpu.get("pciId", "")).upper(), gpu.get("retailProductName"))
-        for gpu in inventory
-        if isinstance(gpu, dict)
-    }
-    descriptions = {
-        gpu.get("description")
-        for gpu in inventory
-        if isinstance(gpu, dict)
-    }
-    return actual == expected and "DGX Station GB300" in descriptions
-
-
-exact_untagged_pair = has_exact_untagged_gb300_rtx_pro_pair()
-if gpu_tag != expected_gpu_tag and not exact_untagged_pair:
+if entity.get("gpuTag") != expected_gpu_tag:
     raise SystemExit(
-        f"existing lease resource gpuTag is {gpu_tag!r}, "
+        f"existing lease resource gpuTag is {entity.get('gpuTag')!r}, "
         f"expected {expected_gpu_tag!r}"
-    )
-if exact_untagged_pair:
-    print(
-        "existing lease gpuTag is NOT-ASSIGNED; accepted exact PCI inventory "
-        "RTX PRO 2000 Blackwell (2D3010DE) + DGX Station GB300 (31C210DE)",
-        file=sys.stderr,
     )
 if required_gpu_count is not None and (
     type(entity.get("gpuCount")) is not int
@@ -1698,7 +1623,6 @@ print_dry_run() {
   log "required physical GPU count: ${COLOSSUS_RESOURCE_GPU_COUNT:-<any>}"
   log "best-effort hosts: ${BEST_EFFORT_HOSTS}"
   log "GPU profile: ${GPU_PROFILE}"
-  log "NVIDIA driver branch: ${NVIDIA_DRIVER_BRANCH}"
   if [[ "${#COLOSSUS_EXCLUDED_RESOURCE_NAMES[@]}" -gt 0 ]]; then
     log "excluded resources: ${COLOSSUS_EXCLUDED_RESOURCE_NAMES[*]}"
   fi
@@ -1993,7 +1917,6 @@ case "${ethernet_only}" in
   0|1) ;;
   *) echo "invalid ethernet_only=${ethernet_only}" >&2; exit 1 ;;
 esac
-podman_nvidia_runtime=""
 case "${gpu_profile}" in
   gb300)
     [[ "${gpu_count}" == "1" ]] || {
@@ -2007,14 +1930,6 @@ case "${gpu_profile}" in
       exit 1
     }
     ;;
-  a40)
-    [[ "${gpu_count}" =~ ^[0-9]+$ && "${gpu_count}" -ge 2 \
-      && $((gpu_count % 2)) -eq 0 ]] || {
-      echo "expected an even exposed GPU count of at least two for profile ${gpu_profile}, got ${gpu_count}" >&2
-      exit 1
-    }
-    podman_nvidia_runtime="/usr/bin/nvidia-container-runtime"
-    ;;
   *) echo "invalid gpu_profile=${gpu_profile}" >&2; exit 1 ;;
 esac
 [[ -n "${target_gpu_name}" ]] || {
@@ -2027,33 +1942,24 @@ if ! gpu_inventory="$(timeout --kill-after=5s 20s nvidia-smi \
   echo "could not query host GPU UUIDs and model names" >&2
   exit 1
 fi
-mapfile -t target_gpu_uuids < <(printf '%s\n' "${gpu_inventory}" \
+gb300_gpu_uuid="$(printf '%s\n' "${gpu_inventory}" \
   | awk -F',' -v target="${target_gpu_name}" '
         {
           uuid=$1; name=$2
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", uuid)
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
-          if (name == target && uuid ~ /^GPU-[[:xdigit:]-]+$/) {
-            print uuid
+          if (name == target) {
+            selected=uuid
+            count++
           }
         }
-      ')
-gb300_gpu_uuid=""
+        END { if (count == 1 && selected ~ /^GPU-[[:xdigit:]-]+$/) print selected }
+      ')"
+[[ -n "${gb300_gpu_uuid}" ]] || {
+  echo "expected exactly one ${target_gpu_name} GPU in the host inventory" >&2
+  exit 1
+}
 rtx_gpu_uuid=""
-if [[ "${gpu_profile}" == "a40" ]]; then
-  [[ "${#target_gpu_uuids[@]}" -eq "${gpu_count}" ]] || {
-    echo "expected exactly ${gpu_count} ${target_gpu_name} GPUs in the host inventory" >&2
-    exit 1
-  }
-  gb300_gpu_uuid="${target_gpu_uuids[0]}"
-  rtx_gpu_uuid="${target_gpu_uuids[1]}"
-else
-  [[ "${#target_gpu_uuids[@]}" -eq 1 ]] || {
-    echo "expected exactly one ${target_gpu_name} GPU in the host inventory" >&2
-    exit 1
-  }
-  gb300_gpu_uuid="${target_gpu_uuids[0]}"
-fi
 if [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
   rtx_gpu_uuid="$(printf '%s\n' "${gpu_inventory}" \
     | awk -F',' -v target="${secondary_gpu_name_pattern}" '
@@ -2121,42 +2027,15 @@ with tempfile.NamedTemporaryFile(
 os.chmod(temporary_path, mode)
 os.replace(temporary_path, path)
 PYTHON
-if [[ "${gpu_profile}" == "a40" ]]; then
-  for gpu_uuid in "${target_gpu_uuids[@]}"; do
-    nvidia-ctk cdi list | grep -Fxq "nvidia.com/gpu=${gpu_uuid}"
-  done
-else
-  nvidia-ctk cdi list | grep -Fxq "nvidia.com/gpu=${gb300_gpu_uuid}"
-  if [[ -n "${rtx_gpu_uuid}" ]]; then
-    nvidia-ctk cdi list | grep -Fxq "nvidia.com/gpu=${rtx_gpu_uuid}"
-  fi
+nvidia-ctk cdi list | grep -Fxq "nvidia.com/gpu=${gb300_gpu_uuid}"
+if [[ -n "${rtx_gpu_uuid}" ]]; then
+  nvidia-ctk cdi list | grep -Fxq "nvidia.com/gpu=${rtx_gpu_uuid}"
 fi
-podman_runtime_config="/etc/containers/containers.conf.d/99-groot-ray-runtime.conf"
-if [[ -n "${podman_nvidia_runtime}" ]]; then
-  [[ -x "${podman_nvidia_runtime}" ]] || {
-    echo "configured NVIDIA OCI runtime is not executable: ${podman_nvidia_runtime}" >&2
-    exit 1
-  }
-  install -d -m 0755 "$(dirname "${podman_runtime_config}")"
-  printf '[engine]\nruntime = "%s"\n' "${podman_nvidia_runtime}" > "${podman_runtime_config}"
-  chmod 0644 "${podman_runtime_config}"
-else
-  rm -f -- "${podman_runtime_config}"
-fi
-# Podman 4.9 does not accept --runtime through its remote client. Restart the
-# idle rootful service so A40 image_uri workers inherit the exact configured
-# runtime before Ray starts or any placement group can exist.
-systemctl stop podman.service podman.socket >/dev/null 2>&1 || true
 systemctl enable --now podman.socket
 [[ -S "${podman_socket}" ]] || {
   echo "rootful Podman socket is unavailable: ${podman_socket}" >&2
   exit 1
 }
-observed_podman_runtime="$(podman info --format '{{.Host.OCIRuntime.Path}}')"
-if [[ -n "${podman_nvidia_runtime}" && "${observed_podman_runtime}" != "${podman_nvidia_runtime}" ]]; then
-  echo "rootful Podman runtime ${observed_podman_runtime} does not match ${podman_nvidia_runtime}" >&2
-  exit 1
-fi
 [[ -r "${podman_auth}" ]] || {
   echo "rootful Podman registry auth is unavailable: ${podman_auth}" >&2
   exit 1
@@ -2283,23 +2162,6 @@ elif [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
   # ray_start is passed through a second Bash parser below. Preserve literal
   # quotes around the JSON so brace expansion cannot split it into two args.
   common_ray_args+=("--resources='{\"GB300\":1,\"RTXPRO2000\":1}'")
-elif [[ "${gpu_profile}" == "a40" ]]; then
-  a40_station_count=$((gpu_count / 2))
-  common_ray_args+=("--resources='{\"A40\":${a40_station_count}}'")
-fi
-
-ordered_gpu_cdi_devices="nvidia.com/gpu=${gb300_gpu_uuid}"
-ordered_gpu_uuid_csv="${gb300_gpu_uuid}"
-if [[ "${gpu_profile}" == "a40" ]]; then
-  ordered_gpu_cdi_devices=""
-  ordered_gpu_uuid_csv=""
-  for gpu_uuid in "${target_gpu_uuids[@]}"; do
-    ordered_gpu_cdi_devices+="${ordered_gpu_cdi_devices:+,}nvidia.com/gpu=${gpu_uuid}"
-    ordered_gpu_uuid_csv+="${ordered_gpu_uuid_csv:+,}${gpu_uuid}"
-  done
-elif [[ -n "${rtx_gpu_uuid}" ]]; then
-  ordered_gpu_cdi_devices+=",nvidia.com/gpu=${rtx_gpu_uuid}"
-  ordered_gpu_uuid_csv+=",${rtx_gpu_uuid}"
 fi
 
 declare -a control_gpu_telemetry_args=()
@@ -2307,21 +2169,10 @@ declare -a control_gpu_telemetry_args=()
 # control container utility-only access to the physical devices so its
 # dashboard agent can read NVML telemetry without exposing CUDA compute.
 # This is required for both the one-GPU and mixed two-GPU profiles.
-if [[ "${gpu_profile}" == "a40" ]]; then
-  # See the A40 host gate: avoid Docker's broken JIT-CDI --gpus injection.
-  # This control container receives NVML utility access only; exact compute
-  # assignment remains owned by Ray and the Podman CDI worker wrapper.
-  control_gpu_telemetry_args+=(
-    --runtime=nvidia
-    --env "NVIDIA_VISIBLE_DEVICES=all"
-    --env "NVIDIA_DRIVER_CAPABILITIES=utility"
-  )
-else
-  control_gpu_telemetry_args+=(
-    --gpus 'all,"capabilities=utility"'
-    --env "NVIDIA_DRIVER_CAPABILITIES=utility"
-  )
-fi
+control_gpu_telemetry_args+=(
+  --gpus 'all,"capabilities=utility"'
+  --env "NVIDIA_DRIVER_CAPABILITIES=utility"
+)
 
 declare -a head_metrics_env_args=()
 if [[ "${role}" == "head" ]]; then
@@ -2402,9 +2253,8 @@ docker run -d \
   -e "COLOSSUS_DATA_ROOT=${data_root}" \
   -e "COLOSSUS_JOB_ROOT=${job_root}" \
   -e "COLOSSUS_GPU_CDI_DEVICE=nvidia.com/gpu=${gb300_gpu_uuid}" \
-  -e "COLOSSUS_GPU_CDI_DEVICES=${ordered_gpu_cdi_devices}" \
-  -e "COLOSSUS_PODMAN_NVIDIA_RUNTIME=${podman_nvidia_runtime}" \
-  -e "CUDA_VISIBLE_DEVICES=${ordered_gpu_uuid_csv}" \
+  -e "COLOSSUS_GPU_CDI_DEVICES=nvidia.com/gpu=${gb300_gpu_uuid}${rtx_gpu_uuid:+,nvidia.com/gpu=${rtx_gpu_uuid}}" \
+  -e "CUDA_VISIBLE_DEVICES=${gb300_gpu_uuid}${rtx_gpu_uuid:+,${rtx_gpu_uuid}}" \
   -e "COLOSSUS_RDMA_DEVICES=${rdma_devices}" \
   -e "COLOSSUS_FIPS_MASK=${container_fips_mask:-}" \
   -e "RAY_RUNTIME_ENV_LOG_TO_DRIVER_ENABLED=0" \
@@ -2447,7 +2297,7 @@ visible_gpu_name="$(printf '%s' "${visible_gpu_name}" | sed 's/^[[:space:]]*//;s
   echo "Podman Ray job sees ${visible_gpu_name}, expected ${target_gpu_name}" >&2
   exit 1
 }
-if [[ -n "${rtx_gpu_uuid}" ]]; then
+if [[ "${gpu_profile}" == "gb300-rtx-pro-2000" ]]; then
   visible_gpu="$(
     timeout --kill-after=10s 120s docker exec \
       -e CUDA_VISIBLE_DEVICES=1 \
@@ -2461,37 +2311,6 @@ if [[ -n "${rtx_gpu_uuid}" ]]; then
     echo "Podman Ray logical GPU 1 sees ${visible_gpu_uuid}, expected ${rtx_gpu_uuid}" >&2
     exit 1
   }
-  if [[ "${gpu_profile}" == "a40" ]]; then
-    visible_gpu_name="${visible_gpu#*,}"
-    visible_gpu_name="$(printf '%s' "${visible_gpu_name}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    [[ "${visible_gpu_name}" == "${target_gpu_name}" ]] || {
-      echo "Podman Ray logical GPU 1 sees ${visible_gpu_name}, expected ${target_gpu_name}" >&2
-      exit 1
-    }
-  fi
-fi
-if [[ "${gpu_profile}" == "a40" && "${gpu_count}" -gt 2 ]]; then
-  for logical_gpu_index in $(seq 2 $((gpu_count - 1))); do
-    visible_gpu="$(
-      timeout --kill-after=10s 120s docker exec \
-        -e CUDA_VISIBLE_DEVICES="${logical_gpu_index}" \
-        "${container}" \
-        podman run --rm "${gpu_test_image}" \
-        nvidia-smi --query-gpu=uuid,name --format=csv,noheader
-    )"
-    visible_gpu_uuid="${visible_gpu%%,*}"
-    visible_gpu_uuid="${visible_gpu_uuid//[[:space:]]/}"
-    visible_gpu_name="${visible_gpu#*,}"
-    visible_gpu_name="$(printf '%s' "${visible_gpu_name}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    [[ "${visible_gpu_uuid}" == "${target_gpu_uuids[$logical_gpu_index]}" ]] || {
-      echo "Podman Ray logical GPU ${logical_gpu_index} sees ${visible_gpu_uuid}, expected ${target_gpu_uuids[$logical_gpu_index]}" >&2
-      exit 1
-    }
-    [[ "${visible_gpu_name}" == "${target_gpu_name}" ]] || {
-      echo "Podman Ray logical GPU ${logical_gpu_index} sees ${visible_gpu_name}, expected ${target_gpu_name}" >&2
-      exit 1
-    }
-  done
 fi
 
 if [[ "${require_rdma}" == "1" ]]; then
@@ -3272,14 +3091,9 @@ run_host_setup() {
   local user="${USERS[$idx]}"
   local password="${PASSWORDS[$idx]}"
   local -a setup_args=(
-    "--nvidia-driver-branch" "${NVIDIA_DRIVER_BRANCH}"
     "--nvidia-test-image" "${GPU_TEST_IMAGE}"
     "--nvcr-token-file" "${REMOTE_ROOT}/nvcr-token"
   )
-
-  if [[ "${GPU_PROFILE}" == "a40" ]]; then
-    setup_args+=("--docker-gpu-legacy-env")
-  fi
 
   if [[ "${REQUIRE_RDMA}" == "1" ]]; then
     setup_args+=(
@@ -3363,15 +3177,6 @@ remote_nvidia_numa_param() {
     | tr -d '[:space:]'
 }
 
-remote_nvidia_driver_version() {
-  local host="$1"
-  local user="$2"
-  local password="$3"
-  remote_sudo_capture "${host}" "${user}" "${password}" \
-    "timeout --kill-after=5s 20s nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits 2>/dev/null | head -n 1" \
-    | tr -d '[:space:]'
-}
-
 remove_remote_nvcr_token() {
   local host="$1"
   local user="$2"
@@ -3384,16 +3189,14 @@ ensure_nvidia_ready_with_reboot() {
   local host="${HOSTS[$idx]}"
   local user="${USERS[$idx]}"
   local password="${PASSWORDS[$idx]}"
-  local live_driver live_driver_branch live_numa
+  local live_numa
 
   live_numa="$(remote_nvidia_numa_param "${host}" "${user}" "${password}" || true)"
-  live_driver="$(remote_nvidia_driver_version "${host}" "${user}" "${password}" || true)"
-  live_driver_branch="${live_driver%%.*}"
-  if [[ "${live_numa}" == "0" && "${live_driver_branch}" == "${NVIDIA_DRIVER_BRANCH}" ]]; then
+  if [[ "${live_numa}" == "0" ]]; then
     return 0
   fi
 
-  log "${host}: requested NVIDIA driver/module state is not active yet (requested_branch=${NVIDIA_DRIVER_BRANCH}, live_driver=${live_driver:-missing}, EnableUserNUMAManagement=${live_numa:-missing}); rebooting before Ray bootstrap"
+  log "${host}: NVIDIA driver/module options are not active yet (EnableUserNUMAManagement=${live_numa:-missing}); rebooting before Ray bootstrap"
   reboot_host_and_wait "${host}" "${user}" "${password}" || return 1
 
   log "${host}: refreshing remote setup files after reboot"
@@ -3407,10 +3210,8 @@ ensure_nvidia_ready_with_reboot() {
   }
 
   live_numa="$(remote_nvidia_numa_param "${host}" "${user}" "${password}" || true)"
-  live_driver="$(remote_nvidia_driver_version "${host}" "${user}" "${password}" || true)"
-  live_driver_branch="${live_driver%%.*}"
-  if [[ "${live_numa}" != "0" || "${live_driver_branch}" != "${NVIDIA_DRIVER_BRANCH}" ]]; then
-    log "${host}: NVIDIA driver is still not ready after reboot (requested_branch=${NVIDIA_DRIVER_BRANCH}, live_driver=${live_driver:-missing}, EnableUserNUMAManagement=${live_numa:-missing})"
+  if [[ "${live_numa}" != "0" ]]; then
+    log "${host}: NVIDIA driver is still not loaded with EnableUserNUMAManagement=0 after reboot"
     return 1
   fi
 }
@@ -3483,26 +3284,13 @@ setup_one_host() {
           if (profile == "gb300-rtx-pro-2000") {
             exit !(total == 2 && primary_count == 1 && secondary_count == 1)
           }
-          if (profile == "a40") {
-            exit !(total >= 2 && total % 2 == 0 && primary_count == total)
-          }
           exit !(primary_count == 1)
         }
       '; then
     log "${host}: GPU inventory does not match profile ${GPU_PROFILE}"
     return 1
   fi
-  if [[ "${GPU_PROFILE}" == "a40" ]]; then
-    gpu_count="$(printf '%s\n' "${gpu_inventory}" | awk -F',' \
-      -v target="${TARGET_GPU_NAME}" '
-        {
-          name=$2
-          gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
-          if (name == target) count++
-        }
-        END { print count + 0 }
-      ')"
-  elif [[ "${GPU_PROFILE}" == "gb300-rtx-pro-2000" ]]; then
+  if [[ "${GPU_PROFILE}" == "gb300-rtx-pro-2000" ]]; then
     gpu_count="2"
   else
     gpu_count="1"
@@ -3871,16 +3659,12 @@ verify_existing_ray_head_reachable() {
 wait_for_joined_workers() {
   local expected_ips
   local expected_node_gpus="1"
-  local expected_node_a40_stations="0"
   local host="${HOSTS[0]}"
   local user="${USERS[0]}"
   local password="${PASSWORDS[0]}"
 
   expected_ips="$(IFS=,; printf '%s' "${NODE_IPS[*]}")"
-  if [[ "${GPU_PROFILE}" == "a40" ]]; then
-    expected_node_gpus="${GPU_COUNTS[0]}"
-    expected_node_a40_stations=$((expected_node_gpus / 2))
-  elif [[ "${GPU_PROFILE}" == "gb300-rtx-pro-2000" ]]; then
+  if [[ "${GPU_PROFILE}" == "gb300-rtx-pro-2000" ]]; then
     expected_node_gpus="2"
   fi
   log "${host}: waiting for ${#NODE_IPS[@]} new worker(s) to appear in ${JOIN_RAY_ADDRESS}"
@@ -3899,18 +3683,12 @@ nodes = {
 ready = bool(expected) and all(
     ip in nodes
     and float(nodes[ip].get('Resources', {}).get('GPU', 0)) >= ${expected_node_gpus}
+    and float(nodes[ip].get('Resources', {}).get('GB300', 0)) >= 1
     and (
-        (
-            '${GPU_PROFILE}' == 'a40'
-            and float(nodes[ip].get('Resources', {}).get('A40', 0)) >= ${expected_node_a40_stations}
-        )
+        '${GPU_PROFILE}' != 'gb300-rtx-pro-2000'
         or (
-            '${GPU_PROFILE}' != 'a40'
-            and float(nodes[ip].get('Resources', {}).get('GB300', 0)) >= 1
-            and (
-                '${GPU_PROFILE}' != 'gb300-rtx-pro-2000'
-                or float(nodes[ip].get('Resources', {}).get('RTXPRO2000', 0)) >= 1
-            )
+            float(nodes[ip].get('Resources', {}).get('GB300', 0)) >= 1
+            and float(nodes[ip].get('Resources', {}).get('RTXPRO2000', 0)) >= 1
         )
     )
     for ip in expected
@@ -3924,16 +3702,12 @@ PY
 wait_for_cluster_gpus() {
   local expected_gpus="$1"
   local expected_ips expected_node_gpus="1"
-  local expected_node_a40_stations="0"
   local host="${HOSTS[0]}"
   local user="${USERS[0]}"
   local password="${PASSWORDS[0]}"
 
   expected_ips="$(IFS=,; printf '%s' "${NODE_IPS[*]}")"
-  if [[ "${GPU_PROFILE}" == "a40" ]]; then
-    expected_node_gpus="${GPU_COUNTS[0]}"
-    expected_node_a40_stations=$((expected_node_gpus / 2))
-  elif [[ "${GPU_PROFILE}" == "gb300-rtx-pro-2000" ]]; then
+  if [[ "${GPU_PROFILE}" == "gb300-rtx-pro-2000" ]]; then
     expected_node_gpus="2"
   fi
   log "${host}: waiting for Ray cluster to report ${expected_gpus} profile-backed GPU(s)"
@@ -3953,19 +3727,10 @@ nodes = {
 ready = bool(expected) and all(
     ip in nodes
     and float(nodes[ip].get('Resources', {}).get('GPU', 0)) >= ${expected_node_gpus}
+    and float(nodes[ip].get('Resources', {}).get('GB300', 0)) >= 1
     and (
-        (
-            '${GPU_PROFILE}' == 'a40'
-            and float(nodes[ip].get('Resources', {}).get('A40', 0)) >= ${expected_node_a40_stations}
-        )
-        or (
-            '${GPU_PROFILE}' != 'a40'
-            and float(nodes[ip].get('Resources', {}).get('GB300', 0)) >= 1
-            and (
-                '${GPU_PROFILE}' != 'gb300-rtx-pro-2000'
-                or float(nodes[ip].get('Resources', {}).get('RTXPRO2000', 0)) >= 1
-            )
-        )
+        '${GPU_PROFILE}' != 'gb300-rtx-pro-2000'
+        or float(nodes[ip].get('Resources', {}).get('RTXPRO2000', 0)) >= 1
     )
     for ip in expected
 )
@@ -4134,7 +3899,6 @@ write_cluster_state() {
     "${RAY_PORT}" \
     "${HEAD_DOMAIN}" \
     "${GPU_PROFILE}" \
-    "${NVIDIA_DRIVER_BRANCH}" \
     "${hosts}" \
     "${node_ips}" \
     "${data_interfaces}" \
@@ -4151,7 +3915,6 @@ import sys
     ray_port,
     head_domain,
     gpu_profile,
-    nvidia_driver_branch,
     hosts,
     node_ips,
     data_interfaces,
@@ -4170,7 +3933,6 @@ payload = {
     "ray_address": f"{head_ip}:{ray_port}",
     "head_domain": head_domain,
     "gpu_profile": gpu_profile,
-    "nvidia_driver_branch": nvidia_driver_branch,
     "hosts": split(hosts),
     "node_ips": split(node_ips),
     "data_interfaces": data_interfaces.split(","),

@@ -38,7 +38,6 @@ NVIDIA_NUMA_WORKAROUND="${NVIDIA_NUMA_WORKAROUND:-1}"
 NVIDIA_TEST_IMAGE="${NVIDIA_TEST_IMAGE:-}"
 NVIDIA_TEST_IMAGE_PULL_TIMEOUT="${NVIDIA_TEST_IMAGE_PULL_TIMEOUT:-3600}"
 NVIDIA_DOCKER_GPU_GATE_TIMEOUT="${NVIDIA_DOCKER_GPU_GATE_TIMEOUT:-300}"
-DOCKER_GPU_LEGACY_ENV="${DOCKER_GPU_LEGACY_ENV:-0}"
 GROOT_CI_TRAIN_IMAGE="${GROOT_CI_TRAIN_IMAGE:-nvcr.io/nvidian/groot-ci-train:c7a32a6d}"
 VALIDATE_GROOT_IMAGE="${VALIDATE_GROOT_IMAGE:-0}"
 NVCR_TOKEN="${NVCR_TOKEN:-}"
@@ -77,12 +76,8 @@ Usage:
   sudo ci/scripts/colossus/setup_bare_metal_gpu_host.sh [options]
 
 Options:
-  --nvidia-driver-branch N   NVIDIA driver branch to install.
   --validate-groot-image       Run Docker GPU validation with ${GROOT_CI_TRAIN_IMAGE}.
   --nvidia-test-image IMAGE    Run Docker GPU validation with a custom image.
-  --docker-gpu-legacy-env      Validate Docker through the NVIDIA runtime and
-                               NVIDIA_VISIBLE_DEVICES instead of Docker's
-                               --gpus device request.
   --nvcr-token TOKEN           Login to nvcr.io with an NGC/NVCR API token.
   --nvcr-token-file PATH       Read the nvcr.io token from a file.
   --nvcr-token-stdin           Read the nvcr.io token from stdin.
@@ -125,11 +120,6 @@ read_token_file() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --nvidia-driver-branch)
-        require_value "$1" "${2:-}"
-        NVIDIA_DRIVER_BRANCH="$2"
-        shift 2
-        ;;
       --validate-groot-image)
         VALIDATE_GROOT_IMAGE="1"
         shift
@@ -138,10 +128,6 @@ parse_args() {
         require_value "$1" "${2:-}"
         NVIDIA_TEST_IMAGE="$2"
         shift 2
-        ;;
-      --docker-gpu-legacy-env)
-        DOCKER_GPU_LEGACY_ENV="1"
-        shift
         ;;
       --nvcr-token)
         require_value "$1" "${2:-}"
@@ -196,9 +182,6 @@ parse_args() {
   if [[ "${VALIDATE_GROOT_IMAGE}" == "1" && -z "${NVIDIA_TEST_IMAGE}" ]]; then
     NVIDIA_TEST_IMAGE="${GROOT_CI_TRAIN_IMAGE}"
   fi
-
-  [[ "${NVIDIA_DRIVER_BRANCH}" =~ ^[0-9]+$ ]] \
-    || die "--nvidia-driver-branch must contain only digits"
 }
 
 validate_rdma_args() {
@@ -464,13 +447,6 @@ live_nvidia_param() {
   fi
 }
 
-live_nvidia_driver_version() {
-  if [[ -r /proc/driver/nvidia/version ]]; then
-    grep -Eo '[0-9]{3}\.[0-9]+(\.[0-9]+)?' /proc/driver/nvidia/version \
-      | head -n 1
-  fi
-}
-
 validate_rdma_host() {
   if [[ "${VALIDATE_RDMA}" != "1" ]]; then
     return
@@ -605,14 +581,7 @@ validate_installation() {
     return
   fi
 
-  local live_driver live_driver_branch live_numa
-  live_driver="$(live_nvidia_driver_version || true)"
-  live_driver_branch="${live_driver%%.*}"
-  if [[ -n "${live_driver_branch}" && "${live_driver_branch}" != "${NVIDIA_DRIVER_BRANCH}" ]]; then
-    log "Loaded NVIDIA branch ${live_driver_branch} differs from installed branch ${NVIDIA_DRIVER_BRANCH}; reboot before running GPU validation"
-    return
-  fi
-
+  local live_numa
   live_numa="$(live_nvidia_param EnableUserNUMAManagement || true)"
   if [[ "${live_numa}" != "0" && "${ALLOW_UNSAFE_NVIDIA_SMI}" != "1" ]]; then
     log "Skipping nvidia-smi validation because the loaded driver has EnableUserNUMAManagement=${live_numa:-unknown}"
@@ -628,22 +597,7 @@ validate_installation() {
   if [[ -n "${NVIDIA_TEST_IMAGE}" ]]; then
     ensure_validation_image_available
     log "Running bounded Docker GPU gate with ${NVIDIA_TEST_IMAGE}"
-    local -a docker_args=(--rm)
-    if [[ "${DOCKER_GPU_LEGACY_ENV}" == "1" ]]; then
-      # Docker's native --gpus request enters JIT-CDI on current Toolkit/Docker
-      # releases. On the dedicated A40 image that path fails while creating a
-      # driver-library symlink in Docker's overlayfs snapshot. The documented
-      # NVIDIA runtime environment contract selects the same devices and
-      # utility/compute capabilities without that broken JIT-CDI hook. Ray job
-      # containers still use exact per-GPU CDI devices through Podman.
-      docker_args+=(
-        --runtime=nvidia
-        --env NVIDIA_VISIBLE_DEVICES=all
-        --env NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      )
-    else
-      docker_args+=(--gpus all)
-    fi
+    local -a docker_args=(--rm --gpus all)
     if [[ "${VALIDATE_RDMA}" == "1" ]]; then
       local uverbs expected_uverbs=""
       docker_args+=(--network host --ipc=host --ulimit memlock=-1)
@@ -679,10 +633,6 @@ main() {
   if [[ ! "${NVIDIA_DOCKER_GPU_GATE_TIMEOUT}" =~ ^[1-9][0-9]*$ ]]; then
     die "NVIDIA_DOCKER_GPU_GATE_TIMEOUT must be a positive integer"
   fi
-  case "${DOCKER_GPU_LEGACY_ENV}" in
-    0|1) ;;
-    *) die "DOCKER_GPU_LEGACY_ENV must be 0 or 1" ;;
-  esac
   require_root
   load_os_release
   check_architecture

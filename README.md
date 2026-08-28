@@ -190,24 +190,6 @@ The backend uses the same per-task horizons as internal evaluation. Set
 `--backend-option robocasa_root='"/path/to/robocasa"'` to use an existing
 checkout instead of the setup script's default.
 
-### RoboDojo
-
-RoboDojo requires Linux, an NVIDIA GPU, and acceptance of the Isaac Sim EULA.
-Install its pinned runtime, then select one of the approved ARX X5 suites:
-
-```bash
-groot/infra/closed_loop/backends/robodojo/setup.sh
-
-uv run --no-sync python -m groot.infra.oss closed-loop-eval \
-  --checkpoint <hf-uri-or-local-path> \
-  --backend groot.infra.closed_loop.backends.robodojo.backend:RoboDojoBackend \
-  --suite robodojo_arx_x5_generalization \
-  --embodiment-tag arx_x5
-```
-
-The shared actor automatically replaces unstable layout seeds while preserving
-the requested episode count.
-
 ## Model Artifacts
 
 By default the training entrypoint loads GR00T 2 model dependencies from

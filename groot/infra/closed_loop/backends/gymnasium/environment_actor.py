@@ -18,8 +18,6 @@ import importlib
 from pathlib import Path
 from typing import Any
 
-from groot.infra.closed_loop.backends.gymnasium.errors import ResetSeedReplacementError
-
 
 @dataclass(frozen=True)
 class ArrayPayload:
@@ -85,7 +83,7 @@ class GymnasiumEnvironmentActor:
         self._backend = backend_class(suite=suite, options=backend_options)
         self._env = self._backend.make_env(task=task, seed=seed)
         self._task = task
-        self._next_seed = seed
+        self._seed = seed
         self._max_episode_steps = max_episode_steps
         self._record_video = record_video
         self._video_dir = Path(video_dir)
@@ -94,7 +92,7 @@ class GymnasiumEnvironmentActor:
         self._frames: list[Any] = []
 
     def reset(self) -> Any:
-        observation, info = self._reset_environment()
+        observation, info = self._env.reset(seed=self._seed + self._episode_index)
         self._steps = 0
         self._frames = []
         self._append_frame(observation)
@@ -111,7 +109,7 @@ class GymnasiumEnvironmentActor:
         if done:
             self._write_video()
             self._episode_index += 1
-            observation, _ = self._reset_environment()
+            observation, _ = self._env.reset(seed=self._seed + self._episode_index)
             self._steps = 0
             self._frames = []
             self._append_frame(observation)
@@ -125,16 +123,6 @@ class GymnasiumEnvironmentActor:
     def _append_frame(self, observation: Mapping[str, Any]) -> None:
         if self._record_video:
             self._frames.append(self._backend.render_frame(self._env, observation))
-
-    def _reset_environment(self) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
-        for _ in range(100):
-            seed = self._next_seed
-            self._next_seed += 1
-            try:
-                return self._env.reset(seed=seed)
-            except ResetSeedReplacementError:
-                continue
-        raise RuntimeError("simulator rejected 100 consecutive reset seeds")
 
     def _write_video(self) -> None:
         if not self._record_video or not self._frames:

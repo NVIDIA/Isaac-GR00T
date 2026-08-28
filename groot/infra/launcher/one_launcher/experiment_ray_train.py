@@ -21,6 +21,7 @@ from typing import Any
 
 import yaml
 
+from groot.core.training.configs.training.training_config import TrainingConfig
 from groot.infra.launcher.one_launcher.training_experiment_resolver import (
     TrainingExperimentResolver,
 )
@@ -142,8 +143,18 @@ class ExperimentRayTrainCommand:
         values: Mapping[str, str],
     ) -> list[str]:
         body = dict(body)
-        body.setdefault("output_dir", _DEFAULT_OUTPUT_DIR)
+        discriminator = body.pop("_config", None)
+        if discriminator is not None and not isinstance(discriminator, str):
+            raise TypeError(f"{self.training_config}: training._config must be a string")
+        # Capture this launcher-only sizing value before subtype filtering;
+        # TrainingConfig does not declare it, but the CLI expansion below needs it.
         global_batch_size = body.pop("global_batch_size", None)
+        if discriminator is not None:
+            # `_config` and subtype-only fields are YAML inputs, not arguments on
+            # the base training CLI. They were already materialized in data.yaml.
+            base_fields = TrainingConfig.__dataclass_fields__
+            body = {key: value for key, value in body.items() if key in base_fields}
+        body.setdefault("output_dir", _DEFAULT_OUTPUT_DIR)
         args = self.section_args("training", body, values)
         if global_batch_size is None:
             return args
