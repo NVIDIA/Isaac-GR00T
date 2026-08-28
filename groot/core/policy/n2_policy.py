@@ -33,6 +33,7 @@ import torch
 import transformers
 
 from groot.core.data import schema, types
+from groot.core.policy.benchmark_contract import resolve_policy_acceleration_state
 from groot.core.policy.gr00t_policy import Gr00tPolicy, _rec_to_dtype
 
 N2_VIEW_NAMES = ("top", "left", "right", "bottom")
@@ -297,6 +298,24 @@ class Gr00tN2Policy(Gr00tPolicy):
             f"kv_cache_cond={self.kv_cache_cond}, "
             f"codec_roundtrip={self.codec_roundtrip}"
         )
+        acceleration_state = resolve_policy_acceleration_state(
+            self,
+            use_torch_compile=use_torch_compile,
+        )
+        self.benchmark_runtime_contract = {
+            **acceleration_state,
+            "precision": "bf16",
+            "policy_class": f"{type(self).__module__}.{type(self).__qualname__}",
+            "codec": self.codec_roundtrip,
+            "num_video_steps": self.num_video_steps,
+            "num_action_steps": self.num_inference_steps,
+            "shift": self.shift,
+            "joint_denoise": self.joint_denoise,
+            "kv_cache_cond": self.kv_cache_cond,
+            "video_guidance_scale": self.video_guidance_scale,
+            "action_guidance_scale": self.action_guidance_scale,
+            "seed": self.seed,
+        }
 
         # Video buffer for save_video
         self.video_latents_buffer: list[torch.Tensor] = []

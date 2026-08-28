@@ -124,6 +124,11 @@ class ServerConfig:
     """For groot_n2: run video prediction and return decoded frames for pred-vs-real
     comparison PNGs even when --save-video-dir is unset (no traj_*.mp4 on server)."""
 
+    benchmark_timing: bool = False
+    """For groot_n2 benchmarks, return synchronized policy and model-predict
+    timing in response metadata. Disabled by default because synchronization
+    changes production scheduling."""
+
     task_config: str | None = None
     """Optional strict rl100_n2.task_config.v2 YAML, resolved together with the
     RL100_N2_TASK_CONFIG environment override (a conflicting pair fails closed).
@@ -292,6 +297,22 @@ def main(config: ServerConfig) -> None:
             strict=config.strict,
             num_inference_timesteps=config.num_inference_timesteps,
         )
+
+    if config.benchmark_timing:
+        if policy_type != "groot_n2":
+            raise ValueError("--benchmark-timing is supported only for groot_n2")
+        import groot
+        from groot.core.policy.benchmark_contract import server_process_identity
+        from groot.core.policy.benchmark_timing import instrument_policy_timing
+
+        server_process = server_process_identity(
+            runtime_root=Path(groot.__file__).resolve().parents[1],
+            checkpoint=Path(config.model_path),
+            device=config.device,
+        )
+        instrument_policy_timing(policy, server_process=server_process)
+        logger.info("  Benchmark timing:         synchronized policy and model spans")
+        logger.info("  Benchmark server identity: live runtime/checkpoint/GPU authenticated")
 
     policy = Gr00tFlatPolicyWrapper(policy, strict=config.strict)
 

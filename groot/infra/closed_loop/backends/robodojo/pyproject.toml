@@ -1,0 +1,84 @@
+[project]
+name = "groot-simulator-robodojo"
+version = "0.1.0"
+description = "Isolated RoboDojo runtime for GR00T closed-loop evaluation"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "chardet==5.2.0",
+    "click==8.1.7",
+    "ffmpeg",
+    "filelock==3.13.1",
+    "gymnasium==1.2.1",
+    "huggingface-hub",
+    "imageio==2.37.0",
+    "isaaclab @ git+https://github.com/yuechen0614/IsaacLab.git@afca7b09d60d8beb9c1cb28b43066499940b969b#subdirectory=source/isaaclab",
+    "isaaclab-assets @ git+https://github.com/yuechen0614/IsaacLab.git@afca7b09d60d8beb9c1cb28b43066499940b969b#subdirectory=source/isaaclab_assets",
+    "isaaclab-mimic @ git+https://github.com/yuechen0614/IsaacLab.git@afca7b09d60d8beb9c1cb28b43066499940b969b#subdirectory=source/isaaclab_mimic",
+    "isaaclab-rl @ git+https://github.com/yuechen0614/IsaacLab.git@afca7b09d60d8beb9c1cb28b43066499940b969b#subdirectory=source/isaaclab_rl",
+    "isaaclab-tasks @ git+https://github.com/yuechen0614/IsaacLab.git@afca7b09d60d8beb9c1cb28b43066499940b969b#subdirectory=source/isaaclab_tasks",
+    "isaacsim[all,extscache]==5.1.0",
+    "msgpack-numpy",
+    "nvidia-curobo[cu12] @ git+https://github.com/yuechen0614/curobo.git@d17b54ce32cba095c0b000c4c58777075d11de0e",
+    "numpy==1.26.0",
+    "omegaconf==2.3.1",
+    "onnx>=1.18,<1.22",
+    "open3d",
+    "opencv-python-headless==4.11.0.86",
+    "packaging==23.0",
+    "pillow",
+    "psutil==5.9.8",
+    "pyyaml>=6.0",
+    "ray==2.56.1",
+    "scikit-learn",
+    "scipy==1.15.3",
+    "setuptools-scm==8.3.1",
+    "starlette==0.45.3",
+    "torchaudio==2.7.0",
+    "torch==2.7.0",
+    "torchvision==0.22.0",
+    "transforms3d",
+    "typing-extensions==4.12.2",
+    "urllib3==2.2.3",
+    "virtualenv==20.30.0",
+    "warp-lang==1.11.0",
+    "websockets==12.0",
+    "wheel==0.45.1",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+override-dependencies = [
+    "chardet==5.2.0",
+    "click==8.1.7",
+    "filelock==3.13.1",
+    "numpy==1.26.0",
+    "packaging==23.0",
+    "psutil==5.9.8",
+    "scipy==1.15.3",
+    "starlette==0.45.3",
+    "typing-extensions==4.12.2",
+    "urllib3==2.2.3",
+    "virtualenv==20.30.0",
+    "websockets==12.0",
+    "wheel==0.45.1",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
