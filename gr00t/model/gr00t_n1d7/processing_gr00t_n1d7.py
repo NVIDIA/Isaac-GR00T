@@ -849,6 +849,12 @@ class Gr00tN1d7Processor(BaseProcessor):
         processor_kwargs["statistics"] = statistics
         processor_kwargs["embodiment_id_mapping"] = embodiment_id_mapping
 
+        # Checkpoints written before use_mean_std was removed still carry the
+        # flag in processor_kwargs. It was never wired to the normalizer (the
+        # per-key mean_std_embedding_keys path is the real one), so drop it on
+        # load instead of failing on the now-unknown kwarg.
+        processor_kwargs.pop("use_mean_std", None)
+
         # Backfill fields that older checkpoints may not have serialized.
         # Without these, __init__ defaults silently apply — correct today but
         # fragile if defaults ever change.
