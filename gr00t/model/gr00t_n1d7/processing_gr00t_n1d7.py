@@ -242,7 +242,6 @@ class Gr00tN1d7Processor(BaseProcessor):
         exclude_state: bool = False,
         state_dropout_prob: float = 0.0,
         # Normalization
-        use_mean_std: bool = False,
         letter_box_transform: bool = False,
     ):
         self.modality_configs = parse_modality_configs(modality_configs)
@@ -259,7 +258,6 @@ class Gr00tN1d7Processor(BaseProcessor):
 
         # Save state action processor settings
         self.use_percentiles = use_percentiles
-        self.use_mean_std = use_mean_std
         self.clip_outliers = clip_outliers
         self.apply_sincos_state_encoding = apply_sincos_state_encoding
         self.use_relative_action = use_relative_action
@@ -781,7 +779,6 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "max_action_horizon": self.max_action_horizon,
                 # StateActionProcessor settings
                 "use_percentiles": self.use_percentiles,
-                "use_mean_std": self.use_mean_std,
                 "clip_outliers": self.clip_outliers,
                 "apply_sincos_state_encoding": self.apply_sincos_state_encoding,
                 "use_relative_action": self.use_relative_action,
@@ -871,7 +868,6 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "use_relative_action",
                 "exclude_state",
                 "state_dropout_prob",
-                "use_mean_std",
                 "model_name",
                 "model_type",
                 "max_action_horizon",
