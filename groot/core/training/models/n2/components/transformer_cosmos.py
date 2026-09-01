@@ -19,7 +19,6 @@ Stripped: ControlNet support, img_context, ONNX paths, GQA (unused for Cosmos 2B
 
 from dataclasses import dataclass
 import math
-from typing import Any, Protocol
 
 import numpy as np
 import torch
@@ -61,24 +60,10 @@ def _video_non_video_indices(
     video_mask = video_mask.to(device)
     video_idx = video_mask.nonzero(as_tuple=True)[0]
     non_video_mask = ~video_mask
-    non_video_idx = non_video_mask.nonzero(as_tuple=True)[0] if non_video_mask.any() else None
+    non_video_idx = (
+        non_video_mask.nonzero(as_tuple=True)[0] if non_video_mask.any() else None
+    )
     return video_idx, non_video_idx
-
-
-class LayerwiseSequenceTransform(Protocol):
-    """Generic sequence-layout change applied across a contiguous layer range."""
-
-    start_layer: int
-    end_layer: int
-    reduced_token_indices: torch.Tensor
-    reduced_attention_mask: BlockMask | None
-    reduced_pad: int
-    reduced_video_token_indices: torch.Tensor
-    reduced_non_video_token_indices: torch.Tensor | None
-
-    def reduce_sequence(self, latents: torch.Tensor) -> tuple[torch.Tensor, Any]: ...
-
-    def restore_sequence(self, latents: torch.Tensor, state: Any) -> torch.Tensor: ...
 
 
 def get_timestep_embedding(
@@ -469,7 +454,7 @@ class CosmosRotaryPosEmbed(nn.Module):
         rope_scale: tuple[float, float, float] = (2.0, 1.0, 1.0),
     ):
         super().__init__()
-        self.max_size = [s // p for s, p in zip(max_size, patch_size, strict=False)]
+        self.max_size = [s // p for s, p in zip(max_size, patch_size)]
         self.patch_size = patch_size
         self.base_fps = base_fps
 
@@ -566,7 +551,7 @@ class CosmosLearnablePositionalEmbed(nn.Module):
         eps: float = 1e-6,
     ):
         super().__init__()
-        self.max_size = [s // p for s, p in zip(max_size, patch_size, strict=False)]
+        self.max_size = [s // p for s, p in zip(max_size, patch_size)]
         self.patch_size = patch_size
         self.eps = eps
         self.pos_emb_t = nn.Parameter(torch.zeros(self.max_size[0], hidden_size))
@@ -691,7 +676,9 @@ class CosmosTransformerConfig:
     crossattn_proj_in_channels: int = 1024
     # Multiview
     max_n_cameras: int = 4
-    view_embed_dim: int = 0  # 7 for official AV multiview
+    view_embed_dim: int = (
+        0  # per-view embedding dim concatenated to input channels before patchification (7 for official AV multiview)
+    )
     per_view_text: bool = False
 
 
@@ -779,7 +766,6 @@ class CosmosTransformer3DModel(nn.Module):
 
         self.gradient_checkpointing = False
         self.compile_flex_attention = True
-        self.requires_sequence_transform = False
 
     def forward(
         self,
@@ -805,10 +791,6 @@ class CosmosTransformer3DModel(nn.Module):
                 Added at the start of every block (matching Cosmos convention).
             modality_ids: (B, L) int per-token modality. Ignored by Dense blocks;
                 used by MoTBlock (Phase 3).
-            attention_mask: Optional flex-attention BlockMask.
-            pad: Number of padding positions appended for flex BlockMask
-                alignment. The transformer blocks consume this internally; no
-                padded rows are stored in ``latents`` itself.
             kv_cache: unified KV cache. When empty (len 0), each block's
                 self-attention stores its K/V into the cache (capture mode).
                 When populated, each block prepends the cached K/V to its
@@ -850,7 +832,6 @@ class CosmosTransformer3DModel(nn.Module):
         store_kv: bool = True,
         video_token_indices: torch.Tensor | None = None,
         non_video_token_indices: torch.Tensor | None = None,
-        sequence_transform: LayerwiseSequenceTransform | None = None,
     ) -> torch.Tensor:
         """Forward path with optional packer-derived routing indices.
 
@@ -881,63 +862,14 @@ class CosmosTransformer3DModel(nn.Module):
             video_token_indices,
             non_video_token_indices,
         )
-        if (
-            self.requires_sequence_transform
-            and sequence_transform is None
-            and video_idx.numel() > 0
-        ):
-            raise ValueError("token merge full-sequence forward requires sequence_transform")
 
         # 4. Transformer block loop
-        if (
-            kv_cache is not None
-            and len(kv_cache) > 0
-            and len(kv_cache) != len(self.transformer_blocks)
-        ):
+        if kv_cache is not None and len(kv_cache) > 0 and len(kv_cache) != len(self.transformer_blocks):
             raise ValueError(
                 f"kv_cache has {len(kv_cache)} layers but transformer has "
                 f"{len(self.transformer_blocks)}"
             )
-        if sequence_transform is not None and kv_cache is not None and len(kv_cache) > 0:
-            # Splice-mode forwards contain only the live suffix, so a transform
-            # defined over the original full sequence cannot be applied safely.
-            raise ValueError("sequence_transform cannot ride a cached (splice-mode) forward")
-        transform_state = transform_saved = None
         for layer_idx, block in enumerate(self.transformer_blocks):
-            if sequence_transform is not None and layer_idx == sequence_transform.end_layer:
-                latents = sequence_transform.restore_sequence(latents, transform_state)
-                (
-                    rope_freqs,
-                    temb,
-                    embedded_timestep,
-                    extra_pos_emb,
-                    attention_mask,
-                    pad,
-                    video_idx,
-                    non_video_idx,
-                ) = transform_saved
-            if sequence_transform is not None and layer_idx == sequence_transform.start_layer:
-                latents, transform_state = sequence_transform.reduce_sequence(latents)
-                transform_saved = (
-                    rope_freqs,
-                    temb,
-                    embedded_timestep,
-                    extra_pos_emb,
-                    attention_mask,
-                    pad,
-                    video_idx,
-                    non_video_idx,
-                )
-                idx = sequence_transform.reduced_token_indices
-                rope_freqs = (rope_freqs[0][idx], rope_freqs[1][idx])
-                temb = temb[:, idx]
-                embedded_timestep = embedded_timestep[:, idx]
-                if extra_pos_emb is not None:
-                    extra_pos_emb = extra_pos_emb[:, idx]
-                attention_mask = sequence_transform.reduced_attention_mask
-                pad = sequence_transform.reduced_pad
-                video_idx = sequence_transform.reduced_video_token_indices
-                non_video_idx = sequence_transform.reduced_non_video_token_indices
             if torch.is_grad_enabled() and self.gradient_checkpointing:
                 latents = torch_checkpoint(
                     block,
@@ -973,14 +905,6 @@ class CosmosTransformer3DModel(nn.Module):
                     layer_idx,
                     store_kv,
                 )
-
-        if sequence_transform is not None and sequence_transform.end_layer == len(
-            self.transformer_blocks
-        ):
-            # The in-loop restore never fires after the last block; norm_out
-            # still requires the original sequence layout.
-            latents = sequence_transform.restore_sequence(latents, transform_state)
-            temb, embedded_timestep = transform_saved[1], transform_saved[2]
 
         # 5. Final norm (AdaLN applied to all tokens)
         latents = self.norm_out(latents, embedded_timestep, temb)

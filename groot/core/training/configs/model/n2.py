@@ -100,14 +100,6 @@ class GrootN2Config(PretrainedConfig):
     # Owns the DiT's patch_embed/proj_out widths and the VAE class, so the two
     # latent spaces are not checkpoint-compatible in either direction.
     vae_type: str = "wan21"
-    # Token merge: spatially mean-pool video tokens by (1, kh, kw) for layers
-    # [token_merge_layers[0], token_merge_layers[1]), then broadcast-upsample with
-    # an additive detail skip before the remaining fine layers. Zero new
-    # parameters — checkpoints load unchanged in both directions, so a
-    # token-merge-posttrained checkpoint silently runs as baseline architecture
-    # on code without this flag; eval must use branch code.
-    token_merge_kernel: tuple[int, int, int] | None = None
-    token_merge_layers: tuple[int, int] = (2, 23)
     tiled: bool = True
     tile_size_height: int = 34
     tile_size_width: int = 34
@@ -176,36 +168,6 @@ class GrootN2Config(PretrainedConfig):
     def __init__(self, **kwargs):
         if "action_cfg" in kwargs:
             kwargs["action_cfg"] = _normalize_action_cfg(kwargs["action_cfg"])
-        token_merge_kernel = kwargs.get("token_merge_kernel")
-        if token_merge_kernel is not None:
-            if (
-                not isinstance(token_merge_kernel, list | tuple)
-                or len(token_merge_kernel) != 3
-                or any(not isinstance(size, int) or size < 1 for size in token_merge_kernel)
-            ):
-                raise ValueError("token_merge_kernel must contain three positive integers")
-            if token_merge_kernel[0] != 1:
-                # Temporal pooling would merge cond and denoise frames inside one
-                # block; spatial-only keeps modality/timestep/validity uniform per
-                # block, which is what makes corner-indexing exact.
-                raise ValueError("token_merge_kernel must be spatial-only: (1, kh, kw)")
-            action_cfg = kwargs.get("action_cfg")
-            pattern = action_cfg.get("attention_mask_pattern") if action_cfg else None
-            if pattern is not None and len(pattern) > 1:
-                raise ValueError(
-                    "token_merge requires a single attention_mask_pattern: stochastic "
-                    "pattern mixing would sample different patterns for the fine and "
-                    "coarse masks"
-                )
-            kwargs["token_merge_kernel"] = tuple(token_merge_kernel)
-        token_merge_layers = kwargs.get("token_merge_layers")
-        if token_merge_layers is not None:
-            start, end = token_merge_layers
-            if not 0 <= start < end:
-                raise ValueError(
-                    f"token_merge_layers must satisfy 0 <= start < end, got {token_merge_layers}"
-                )
-            kwargs["token_merge_layers"] = (int(start), int(end))
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
