@@ -18,7 +18,6 @@ import json
 import logging
 import os
 from pathlib import Path
-import random
 import re
 from typing import Any, Dict
 import warnings
@@ -240,6 +239,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         transformers_loading_kwargs: dict = {"trust_remote_code": True},
         # State augmentation
         exclude_state: bool = False,
+        # Retained for processor checkpoint compatibility; the action head applies dropout.
         state_dropout_prob: float = 0.0,
         # Normalization
         use_mean_std: bool = False,
@@ -639,16 +639,13 @@ class Gr00tN1d7Processor(BaseProcessor):
             normalized_actions = None
             action_mask = None
 
-        # Concatenate states with optional dropout/noise augmentation
+        # Concatenate states. Stochastic state dropout is applied once, after
+        # batching, by Gr00tN1d7ActionHead.
         state_keys = self.modality_configs[embodiment_tag.value]["state"].modality_keys
         exclude_state = self.exclude_state or getattr(
             self.modality_configs[embodiment_tag.value]["state"], "exclude_state", False
         )
-        if exclude_state or (
-            self.state_dropout_prob > 0
-            and random.random() < self.state_dropout_prob
-            and self.training
-        ):
+        if exclude_state:
             normalized_states = torch.cat(
                 [torch.from_numpy(np.zeros_like(state_data[key])) for key in state_keys], dim=-1
             )

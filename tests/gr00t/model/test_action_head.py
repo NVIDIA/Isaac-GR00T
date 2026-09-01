@@ -117,11 +117,12 @@ class TestActionHeadForward:
         assert out["action_loss"].shape == (2, config.action_horizon, config.max_action_dim)
 
     def test_forward_with_state_dropout(self):
-        config = _small_config(state_dropout_prob=0.5)
+        config = _small_config(state_dropout_prob=1.0)
         head = Gr00tN1d7ActionHead(config)
         head.train()
         out = head.forward(_make_backbone_output(config), _make_action_input(config))
         assert torch.isfinite(out["loss"])
+        assert out["state_features"].count_nonzero() == 0
 
 
 class TestActionHeadGetAction:

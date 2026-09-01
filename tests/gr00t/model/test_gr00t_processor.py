@@ -180,6 +180,20 @@ class TestProcessorCall:
         result = processor(messages)
         assert isinstance(result["embodiment_id"], (int, np.integer))
 
+    def test_training_does_not_apply_state_dropout_in_processor(self, processor, proc_config):
+        """State dropout belongs to the batched action head, not per-item preprocessing."""
+        step_data = _make_step_data(proc_config)
+        messages = [{"type": MessageType.EPISODE_STEP.value, "content": step_data}]
+        processor.state_dropout_prob = 1.0
+
+        processor.eval()
+        expected_state = processor(messages)["state"]
+        assert expected_state.count_nonzero() > 0
+
+        processor.train()
+        actual_state = processor(messages)["state"]
+        assert actual_state.equal(expected_state)
+
 
 class TestProcessorVLMInputs:
     """Test VLM input generation."""
