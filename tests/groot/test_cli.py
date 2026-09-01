@@ -97,6 +97,7 @@ def test_oss_train_dry_run_uses_one_launcher(monkeypatch, capsys, tmp_path: Path
     assert "python -m groot.core.training.experiment.experiment_ray" in output
     assert f"{oss.OSS_TRAINING_EXPERIMENT}/h100/data.yaml" in output
     assert "--training.no-upload_checkpoints" in output
+    assert "--training.no-use_async_checkpoint_save" in output
     assert "--training.num_gpus 8" in output
     assert f"--model.tokenizer_path {oss.OSS_COSMOS_MODEL_URI}" in output
     expected_diffusion_arg = (
@@ -123,6 +124,8 @@ def test_oss_train_user_overrides_follow_defaults_for_last_wins_resolution(
             str(tmp_path / "dataset"),
             "--set",
             "training.upload-checkpoints=true",
+            "--set",
+            "training.use-async-checkpoint-save=true",
         ]
     )
 
@@ -130,6 +133,9 @@ def test_oss_train_user_overrides_follow_defaults_for_last_wins_resolution(
 
     assert overrides.index("training.upload_checkpoints=false") < overrides.index(
         "training.upload-checkpoints=true"
+    )
+    assert overrides.index("training.use_async_checkpoint_save=false") < overrides.index(
+        "training.use-async-checkpoint-save=true"
     )
 
 

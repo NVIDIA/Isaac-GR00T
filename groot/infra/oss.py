@@ -241,6 +241,7 @@ def _oss_train_overrides(args: argparse.Namespace) -> tuple[str, ...]:
     defaults = {
         "training.upload_checkpoints": "false",
         "training.upload_every": "null",
+        "training.use_async_checkpoint_save": "false",
         "training.msc_profile_url": "''",
         "training.experiment_tracking": "disabled",
         "training.model.tokenizer_path": f"'{OSS_COSMOS_MODEL_URI}'",
