@@ -24,7 +24,7 @@ printf 'scikit-build-core<0.10\n' > "$BUILD_CONSTRAINTS"
 # Core deps (match cluster’s pyproject pattern)
 uv pip install \
   gymnasium==0.29.1 \
-  json-numpy>=2.1.1 \
+  "json-numpy>=2.1.1" \
   numpy=="$SIMPLER_NUMPY" \
   opencv-python-headless==4.10.0.84 \
   ray==2.48.0
