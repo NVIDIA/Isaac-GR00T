@@ -60,6 +60,7 @@ class RoboDojoBackend:
         video_dir: str,
     ) -> RaySingleVectorEnv:
         """Create a one-slot facade over the isolated Isaac Sim runtime."""
+        del max_episode_steps
         if num_envs != 1:
             raise ValueError("RoboDojo portable workers currently require num_envs=1")
         executable = str(
@@ -88,7 +89,8 @@ class RoboDojoBackend:
             backend_options=self._options,
             task=task,
             seed=seed,
-            max_episode_steps=max_episode_steps,
+            # RoboDojo owns each task's horizon through its official ``step_lim``.
+            max_episode_steps=None,
             record_video=record_video,
             video_dir=video_dir,
             py_executable=executable,

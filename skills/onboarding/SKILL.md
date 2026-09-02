@@ -59,9 +59,11 @@ export GROOT_HF_ARTIFACT_CACHE_ROOT=/workspace/cache/groot
 export TRAINING_OUTPUT_ROOT=/workspace/outputs
 ```
 
-If the environment is not installed yet, follow `docs/minimal_example.md` to
-build the repository's training Dockerfile from the public
-`nvcr.io/nvidia/pytorch:25.04-py3` base image.
+If the environment is not installed yet, follow `docs/minimal_example.md`. For
+a new container, start from its documented public CUDA development image,
+install the listed system libraries, and run exactly
+`uv sync --frozen --extra training`. Do not invent a repository Dockerfile or
+reconcile an arbitrary preinstalled Python environment package by package.
 
 ### 2. Prepare the public onboarding dataset
 
@@ -69,7 +71,7 @@ Download the pinned three-episode SO100 LeRobot dataset and generate its GR00T
 metadata:
 
 ```bash
-python examples/prepare_minimal_dataset.py \
+uv run --no-sync python examples/prepare_minimal_dataset.py \
   --output-dir /workspace/data/gr00t_red_test
 ```
 

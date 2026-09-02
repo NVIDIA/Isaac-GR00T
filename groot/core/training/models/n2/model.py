@@ -28,6 +28,7 @@ import logging
 
 from peft import LoraConfig, get_peft_model
 import torch
+from torch.nn.attention.flex_attention import BlockMask
 import torch.nn.functional as F
 from torchvision.transforms import v2
 from transformers import AutoConfig, AutoModel, PreTrainedModel
@@ -49,6 +50,7 @@ from groot.core.training.models.n2.components.sequence_packing import (
     AttentionMaskPattern,
     ConcatPacker,
     PackedSequence,
+    _build_attention_mask,
     unpack,
 )
 from groot.core.training.models.n2.components.text_encoder import CosmosTextEncoder
@@ -74,6 +76,99 @@ ACTION_ROPE_SEQ_KEYS = frozenset(("action_rope.seq", "state_rope.seq"))
 ACTION_TEMPORAL_POS_EMB_KEY = "action_encoder.temporal_pos_emb"
 
 VAE_TEMPORAL_FACTOR = 4  # Wan VAE temporal compression ratio
+
+
+@dataclasses.dataclass
+class TokenMergePlan:
+    """Video-specific geometry and routing for a mid-layer sequence reduction."""
+
+    start_layer: int
+    end_layer: int
+    num_video_tokens: int
+    num_frames: int
+    reduced_height: int
+    kernel_height: int
+    reduced_width: int
+    kernel_width: int
+    reduced_token_indices: torch.Tensor
+    reduced_attention_mask: BlockMask | None
+    reduced_pad: int
+    reduced_video_token_indices: torch.Tensor
+    reduced_non_video_token_indices: torch.Tensor | None
+
+    def is_reduced_layer(self, layer_idx: int) -> bool:
+        return self.start_layer <= layer_idx < self.end_layer
+
+    def keep_indices_per_segment(self, keep: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return fine and reduced row indices for a fine-length keep mask."""
+        return (
+            keep.nonzero(as_tuple=True)[0],
+            keep[self.reduced_token_indices].nonzero(as_tuple=True)[0],
+        )
+
+    def reduce_sequence(
+        self, latents: torch.Tensor
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        """Mean-pool the video prefix and retain inputs needed to restore it."""
+        batch_size, _, hidden_size = latents.shape
+        video, rest = (
+            latents[:, : self.num_video_tokens],
+            latents[:, self.num_video_tokens :],
+        )
+        video_blocks = video.view(
+            batch_size,
+            self.num_frames,
+            self.reduced_height,
+            self.kernel_height,
+            self.reduced_width,
+            self.kernel_width,
+            hidden_size,
+        )
+        pooled = video_blocks.mean(dim=(3, 5))
+        return torch.cat([pooled.flatten(1, 3), rest], dim=1), (video, pooled)
+
+    def restore_sequence(
+        self,
+        latents: torch.Tensor,
+        state: tuple[torch.Tensor, torch.Tensor],
+    ) -> torch.Tensor:
+        """Restore fine video tokens with the reduced layer range's change."""
+        # load-bearing: an identity kernel must leave a non-identity middle
+        # range bitwise unchanged; subtracting and re-adding would round it.
+        if self.kernel_height == 1 and self.kernel_width == 1:
+            return latents
+
+        batch_size, _, hidden_size = latents.shape
+        video_input, pooled_input = state
+        num_reduced_video_tokens = self.num_frames * self.reduced_height * self.reduced_width
+        reduced_video, rest = (
+            latents[:, :num_reduced_video_tokens],
+            latents[:, num_reduced_video_tokens:],
+        )
+        reduced_delta = (
+            reduced_video.view(
+                batch_size,
+                self.num_frames,
+                self.reduced_height,
+                self.reduced_width,
+                hidden_size,
+            )
+            - pooled_input
+        )
+        video_delta = (
+            reduced_delta[:, :, :, None, :, None, :]
+            .expand(
+                batch_size,
+                self.num_frames,
+                self.reduced_height,
+                self.kernel_height,
+                self.reduced_width,
+                self.kernel_width,
+                hidden_size,
+            )
+            .reshape(batch_size, self.num_video_tokens, hidden_size)
+        )
+        return torch.cat([video_input + video_delta, rest], dim=1)
 
 
 class GrootN2(PreTrainedModel):
@@ -105,8 +200,17 @@ class GrootN2(PreTrainedModel):
             rope_scale=dit_config.rope_scale,
         )
         transformer_config = dataclasses.replace(dit_config, max_n_cameras=self.max_n_cameras)
+        token_merge_kernel = getattr(config, "token_merge_kernel", None)
+        if token_merge_kernel is not None:
+            _, tm_end = config.token_merge_layers
+            if tm_end > transformer_config.num_layers:
+                raise ValueError(
+                    f"token_merge_layers end {tm_end} exceeds "
+                    f"num_layers {transformer_config.num_layers}"
+                )
         self.transformer = self._create_transformer(transformer_config)
         self.transformer.compile_flex_attention = config.compile_flex_attention
+        self.transformer.requires_sequence_transform = token_merge_kernel is not None
         self.packer = ConcatPacker(flex_attention_block_size=config.flex_attention_block_size)
 
         # 1b. Action modules (conditional on action_cfg)
@@ -372,6 +476,73 @@ class GrootN2(PreTrainedModel):
             video_token_indices=packed.video_token_indices,
             non_video_token_indices=packed.non_video_token_indices,
             **transformer_kwargs,
+        )
+
+    def _build_token_merge_plan(
+        self,
+        packed: PackedSequence,
+        shape_info: dict,
+        token_valid_mask: torch.Tensor | None,
+    ) -> TokenMergePlan | None:
+        """Coarse-sequence plan for the mid-layer video token merge, or None.
+
+        Must stay traceable (NOT ``@torch.compiler.disable``): an eagerly built
+        BlockMask entering a compiled region has its mask closure tensors lifted
+        as CUDA-graph static inputs. Built in-graph, like the packer's fine mask,
+        those tensors remain graph intermediates. The single-pattern config
+        constraint also keeps the mask build off the RNG stream.
+
+        Callers must thread the returned plan as a CONDITIONAL kwarg (never
+        pass sequence_transform=None explicitly): external installers may
+        monkeypatch `_call_transformer` with transform-unaware signatures.
+        """
+        kernel = getattr(self.config, "token_merge_kernel", None)
+        if kernel is None:
+            return None
+        start, end = self.config.token_merge_layers
+        _, kh, kw = kernel
+        post_T, post_H, post_W = shape_info["post_T"], shape_info["post_H"], shape_info["post_W"]
+        assert (
+            post_H % kh == 0 and post_W % kw == 0
+        ), f"token_merge kernel ({kh},{kw}) must divide (post_H, post_W)=({post_H},{post_W})"
+        device = packed.tokens.device
+        L_video = post_T * post_H * post_W
+        L_total = packed.tokens.shape[1]
+        video_corners = (
+            torch.arange(L_video, device=device)
+            .view(post_T, post_H, post_W)[:, ::kh, ::kw]
+            .reshape(-1)
+        )
+        coarse_token_idx = torch.cat([video_corners, torch.arange(L_video, L_total, device=device)])
+        attention_mask, pad = None, 0
+        if packed.attention_mask is not None:
+            attention_mask, pad = _build_attention_mask(
+                packed.modality_ids[:, coarse_token_idx],
+                device,
+                getattr(self, "attention_mask_pattern", None),
+                token_valid_mask[:, coarse_token_idx] if token_valid_mask is not None else None,
+                block_size=self.packer.flex_attention_block_size,
+            )
+        L_video_coarse = video_corners.numel()
+        L_nonvideo = L_total - L_video
+        return TokenMergePlan(
+            start_layer=start,
+            end_layer=end,
+            num_video_tokens=L_video,
+            num_frames=post_T,
+            reduced_height=post_H // kh,
+            kernel_height=kh,
+            reduced_width=post_W // kw,
+            kernel_width=kw,
+            reduced_token_indices=coarse_token_idx,
+            reduced_attention_mask=attention_mask,
+            reduced_pad=pad,
+            reduced_video_token_indices=torch.arange(L_video_coarse, device=device),
+            reduced_non_video_token_indices=(
+                torch.arange(L_video_coarse, L_video_coarse + L_nonvideo, device=device)
+                if L_nonvideo > 0
+                else None
+            ),
         )
 
     @torch.compiler.disable()
@@ -660,6 +831,9 @@ class GrootN2(PreTrainedModel):
                 attention_mask_pattern=getattr(self, "attention_mask_pattern", None),
                 token_valid_mask=token_valid_mask,
             )
+            token_merge = self._build_token_merge_plan(packed, shape_info, token_valid_mask)
+            if token_merge is not None:
+                transformer_kwargs = {**transformer_kwargs, "sequence_transform": token_merge}
             out_tokens = self._call_transformer(packed, prompt_embs, **transformer_kwargs)
             video_out = packed.unpack(out_tokens, (MODALITY_VIDEO, MODALITY_VIDEO_COND))
             pred_video = self.video_tokenizer.unpatchify(video_out, shape_info)
@@ -1011,6 +1185,9 @@ class GrootN2(PreTrainedModel):
         prompts need separate caches (cross-attention to text changes the
         static-token trajectory through the stack).
 
+        When ``use_kv_cache`` is False, each step retains the original full
+        ``[video_cond | state | action]`` packed forward.
+
         Returns:
             (B, T_action, max_action_dim) denoised action latents.
         """
@@ -1078,6 +1255,7 @@ class GrootN2(PreTrainedModel):
         )
 
         static_inputs = {
+            "shape_info": cond_shape_info,
             "video_tokens": video_tokens,
             "video_token_sigmas": video_token_sigmas,
             "video_rope_freqs": video_rope_freqs,
@@ -1089,12 +1267,12 @@ class GrootN2(PreTrainedModel):
             "token_valid_mask": token_valid_mask,
         }
 
-        pos_cache: CondKVCache | None = None
-        neg_cache: CondKVCache | None = None
+        needs_neg_cache = neg_prompt_embs is not None and guidance_scale != 1.0
+        pos_cache = neg_cache = None
         if use_kv_cache:
             with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda"):
                 pos_cache = self._precompute_cond_kv_cache(static_inputs, prompt_embs)
-                if neg_prompt_embs is not None and guidance_scale != 1.0:
+                if needs_neg_cache:
                     neg_cache = self._precompute_cond_kv_cache(static_inputs, neg_prompt_embs)
 
         # Denoising loop
@@ -1131,7 +1309,7 @@ class GrootN2(PreTrainedModel):
                 )
 
             # CFG for action
-            if neg_prompt_embs is not None and guidance_scale != 1.0:
+            if needs_neg_cache:
                 with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda"):
                     action_noise_pred_neg = self._run_action_step(
                         static_inputs=static_inputs,
@@ -1221,8 +1399,10 @@ class GrootN2(PreTrainedModel):
             attention_mask_pattern=getattr(self, "attention_mask_pattern", None),
             token_valid_mask=tvm,
         )
+        token_merge = self._build_token_merge_plan(packed, static_inputs.get("shape_info"), tvm)
         cache = CondKVCache()
-        self._call_transformer(packed, prompt_embs, kv_cache=cache)
+        tm_kwargs = {"sequence_transform": token_merge} if token_merge is not None else {}
+        self._call_transformer(packed, prompt_embs, kv_cache=cache, **tm_kwargs)
 
         # Drop padded-view K/V from the cache. The cached fast path in
         # `_run_action_step` consumes this cache with `attention_mask=None`
@@ -1235,8 +1415,17 @@ class GrootN2(PreTrainedModel):
             assert torch.all(
                 tvm == tvm[:1]
             ), "kv_cache_cond assumes per-view padding is uniform across the batch"
-            keep_idx = tvm[0].nonzero(as_tuple=True)[0]
+            keep_fine = tvm[0].nonzero(as_tuple=True)[0]
+            keep_coarse = None
+            if token_merge is not None:
+                keep_fine, keep_coarse = token_merge.keep_indices_per_segment(tvm[0])
             for layer_idx in range(len(cache.key_cache)):
+                # Mid layers captured the coarse prefix; keep indices follow.
+                keep_idx = (
+                    keep_coarse
+                    if token_merge is not None and token_merge.is_reduced_layer(layer_idx)
+                    else keep_fine
+                )
                 cache.key_cache[layer_idx] = cache.key_cache[layer_idx].index_select(2, keep_idx)
                 cache.value_cache[layer_idx] = cache.value_cache[layer_idx].index_select(
                     2, keep_idx
@@ -1284,11 +1473,18 @@ class GrootN2(PreTrainedModel):
                 attention_mask_pattern=getattr(self, "attention_mask_pattern", None),
                 token_valid_mask=static_inputs.get("token_valid_mask"),
             )
+            tm_kwargs = {}
+            token_merge = self._build_token_merge_plan(
+                packed, static_inputs.get("shape_info"), static_inputs.get("token_valid_mask")
+            )
+            if token_merge is not None:
+                tm_kwargs["sequence_transform"] = token_merge
             out_tokens = self._call_transformer(
                 packed,
                 prompt_embs,
                 denoising_step=denoising_step,
                 is_cfg=is_cfg,
+                **tm_kwargs,
             )
             action_out = unpack(out_tokens, packed.modality_ids, MODALITY_ACTION)
         else:
@@ -1414,10 +1610,15 @@ class GrootN2(PreTrainedModel):
                     video_extra_pos_emb=video_extra_pos_emb,
                     token_valid_mask=token_valid_mask,
                 )
+                tm_kwargs = {}
+                token_merge = self._build_token_merge_plan(packed, shape_info, token_valid_mask)
+                if token_merge is not None:
+                    tm_kwargs["sequence_transform"] = token_merge
                 out_tokens = self._call_transformer(
                     packed,
                     prompt_embs,
                     denoising_step=i,
+                    **tm_kwargs,
                 )
                 video_out = unpack(
                     out_tokens, packed.modality_ids, (MODALITY_VIDEO, MODALITY_VIDEO_COND)
@@ -1434,6 +1635,7 @@ class GrootN2(PreTrainedModel):
                         neg_prompt_embs,
                         denoising_step=i,
                         is_cfg=True,
+                        **tm_kwargs,
                     )
                     video_out_neg = unpack(
                         out_tokens_neg, packed.modality_ids, (MODALITY_VIDEO, MODALITY_VIDEO_COND)
@@ -1639,6 +1841,12 @@ class GrootN2(PreTrainedModel):
                     token_valid_mask=token_valid_mask,
                 )
 
+                tm_kwargs = {}
+                token_merge = None
+                if getattr(self.config, "token_merge_kernel", None) is not None:
+                    token_merge = self._build_token_merge_plan(packed, shape_info, token_valid_mask)
+                    tm_kwargs["sequence_transform"] = token_merge
+
                 # Joint forward (captures K/V when we have cached sub-steps to
                 # run this iteration).
                 pos_cache = CondKVCache() if (use_kv_cache and k > 1) else None
@@ -1647,6 +1855,7 @@ class GrootN2(PreTrainedModel):
                     prompt_embs,
                     denoising_step=i,
                     kv_cache=pos_cache,
+                    **tm_kwargs,
                 )
 
                 # Unpack predictions
@@ -1672,6 +1881,7 @@ class GrootN2(PreTrainedModel):
                         denoising_step=i,
                         is_cfg=True,
                         kv_cache=neg_cache,
+                        **tm_kwargs,
                     )
                     video_out_neg = unpack(
                         out_tokens_neg,
@@ -1710,12 +1920,17 @@ class GrootN2(PreTrainedModel):
             # itself; often v_denoise too).
             if pos_cache is None:
                 continue
+            # Conditional kwarg — see _build_token_merge_plan's docstring.
+            tm_slice_kwargs = {"token_merge": token_merge} if token_merge is not None else {}
             pos_cache = self._slice_cache_to_static_prefix(
-                pos_cache, packed.modality_ids, token_valid_mask=token_valid_mask
+                pos_cache, packed.modality_ids, token_valid_mask=token_valid_mask, **tm_slice_kwargs
             )
             if neg_cache is not None:
                 neg_cache = self._slice_cache_to_static_prefix(
-                    neg_cache, packed.modality_ids, token_valid_mask=token_valid_mask
+                    neg_cache,
+                    packed.modality_ids,
+                    token_valid_mask=token_valid_mask,
+                    **tm_slice_kwargs,
                 )
 
             for _ in range(1, k):
@@ -1785,6 +2000,7 @@ class GrootN2(PreTrainedModel):
         cache: CondKVCache,
         modality_ids: torch.Tensor,
         token_valid_mask: torch.Tensor | None = None,
+        token_merge: TokenMergePlan | None = None,
     ) -> CondKVCache:
         """Slice a joint-forward cache to positions attended to by action.
 
@@ -1832,9 +2048,21 @@ class GrootN2(PreTrainedModel):
                 token_valid_mask == token_valid_mask[:1]
             ), "kv_cache_cond assumes per-view padding is uniform across the batch"
             keep &= token_valid_mask[0, : keep.shape[0]]
-        keep_idx = keep.nonzero(as_tuple=True)[0]
+        fine_idx = keep.nonzero(as_tuple=True)[0]
+        # With token_merge, the mid layers captured the coarse prefix; select the
+        # keep index per layer segment.
+        coarse_idx = None
+        if token_merge is not None:
+            fine_idx, coarse_idx = token_merge.keep_indices_per_segment(keep)
         sliced = CondKVCache()
-        for k_layer, v_layer in zip(cache.key_cache, cache.value_cache, strict=False):
+        for layer_idx, (k_layer, v_layer) in enumerate(
+            zip(cache.key_cache, cache.value_cache, strict=False)
+        ):
+            keep_idx = (
+                coarse_idx
+                if token_merge is not None and token_merge.is_reduced_layer(layer_idx)
+                else fine_idx
+            )
             sliced.key_cache.append(k_layer.index_select(2, keep_idx).clone())
             sliced.value_cache.append(v_layer.index_select(2, keep_idx).clone())
         return sliced

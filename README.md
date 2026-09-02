@@ -32,7 +32,10 @@ training, open-loop evaluation, and the policy server.</code></pre>
       </td>
       <td>
         <pre><code class="language-bash">apt-get update
-apt-get install -y ffmpeg
+apt-get install -y build-essential ca-certificates curl git python3-dev \
+  python3-venv ffmpeg yasm cmake libtool pkg-config libass-dev \
+  libfreetype6-dev libvorbis-dev autoconf automake texinfo
+curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --frozen --extra training
 
 uv run --no-sync python examples/prepare_minimal_dataset.py \

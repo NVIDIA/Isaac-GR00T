@@ -46,7 +46,7 @@ training = [
     "blobfile",
     "boto3",
     "decord2",
-    "deepspeed",
+    "deepspeed==0.18.8",
     "einops",
     "flash-attn==2.8.0.post2",
     "ftfy",

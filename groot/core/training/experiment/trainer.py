@@ -485,13 +485,28 @@ def _get_wsd_schedule(
 
 
 class DatasetResumeCallback(TrainerCallback):
-    """Restore dataset-owned progress after Trainer state has been loaded."""
+    """Restore dataset-owned progress after Trainer state has been loaded.
 
-    def __init__(self, dataset: Any) -> None:
+    A complete parent resume keeps Hugging Face ``global_step`` absolute, while
+    a child station owns a fresh dataset whose progress starts locally. Subtract
+    ``global_step_offset`` for that dataset-only resume; the default of zero
+    preserves the existing behavior for every other Trainer.
+    """
+
+    def __init__(self, dataset: Any, *, global_step_offset: int = 0) -> None:
         self.dataset = dataset
+        self.global_step_offset = int(global_step_offset)
+        if self.global_step_offset < 0:
+            raise ValueError("Dataset resume global-step offset must be non-negative")
 
     def on_train_begin(self, args, state, control, **kwargs):
-        global_step = int(state.global_step)
+        trainer_global_step = int(state.global_step)
+        global_step = trainer_global_step - self.global_step_offset
+        if global_step < 0:
+            raise ValueError(
+                "Trainer global step precedes the dataset resume offset: "
+                f"global_step={trainer_global_step}, offset={self.global_step_offset}"
+            )
         if global_step <= 0:
             return
 
@@ -532,13 +547,19 @@ class GR00TTrainer(Trainer):
         self._training_enable_struct_logs = kwargs.pop("training_enable_struct_logs", False)
         self._training_log_dir = kwargs.pop("training_log_dir", None)
         self._training_logging_level = kwargs.pop("training_logging_level", "INFO")
+        dataset_resume_global_step_offset = kwargs.pop("dataset_resume_global_step_offset", 0)
         straggler_config = kwargs.pop("straggler_config", None)
         super().__init__(
             *args,
             **kwargs,
             # compute_metrics=partial(compute_eval_accuracy, action_offset=self.action_offset),
         )
-        self.add_callback(DatasetResumeCallback(self.train_dataset))
+        self.add_callback(
+            DatasetResumeCallback(
+                self.train_dataset,
+                global_step_offset=dataset_resume_global_step_offset,
+            )
+        )
         if self.args.sync_seq_len:
             assert self.args.seq_len_handle_strategy in (
                 "pad",
@@ -1422,7 +1443,7 @@ class GR00TTrainer(Trainer):
             self._dcp_initialized = False
             return False
 
-    def _wait_for_pending_dcp_save(self):
+    def _wait_for_pending_dcp_save(self, *, raise_on_error: bool = False):
         """Wait for any in-flight DCP async save to complete."""
         if not hasattr(self, "_pending_dcp_future") or self._pending_dcp_future is None:
             return
@@ -1433,22 +1454,27 @@ class GR00TTrainer(Trainer):
             print(f"[CP-SAVE] Waited {duration:.2f}s for previous DCP async save to complete")
         except Exception as e:
             print(f"[CP-SAVE] WARNING: Previous DCP async save failed: {e}")
+            if raise_on_error:
+                raise
         finally:
             self._pending_dcp_future = None
 
-    def _wait_for_pending_safetensors_worker(self):
+    def _wait_for_pending_safetensors_worker(self, *, raise_on_timeout: bool = False):
         """Wait for any in-flight background safetensors worker to complete."""
         worker = getattr(self, "_safetensors_worker", None)
         if worker is None:
             return
+        timed_out = False
         try:
             t_start = time.time()
             if hasattr(worker, "exitcode"):
                 worker.join(timeout=1800)  # 30 min max wait
                 if worker.is_alive():
-                    print(
-                        "[CP-SAVE] WARNING: Background safetensors process still alive after 1800s timeout"
-                    )
+                    timed_out = True
+                    message = "Background safetensors process still alive after 1800s timeout"
+                    print(f"[CP-SAVE] WARNING: {message}")
+                    if raise_on_timeout:
+                        raise TimeoutError(message)
                 elif worker.exitcode != 0:
                     raise RuntimeError(
                         f"Background safetensors process failed with exit code {worker.exitcode}"
@@ -1461,9 +1487,11 @@ class GR00TTrainer(Trainer):
             else:
                 worker.join(timeout=1800)
                 if worker.is_alive():
-                    print(
-                        "[CP-SAVE] WARNING: Background safetensors thread still alive after 1800s timeout"
-                    )
+                    timed_out = True
+                    message = "Background safetensors thread still alive after 1800s timeout"
+                    print(f"[CP-SAVE] WARNING: {message}")
+                    if raise_on_timeout:
+                        raise TimeoutError(message)
                 else:
                     duration = time.time() - t_start
                     print(
@@ -1473,7 +1501,55 @@ class GR00TTrainer(Trainer):
             print(f"[CP-SAVE] WARNING: Safetensors background worker error: {e}")
             raise
         finally:
-            self._safetensors_worker = None
+            # Retain the worker only for strict complete-checkpoint publication.
+            # The default model-only path preserves its previous cleanup behavior.
+            if not timed_out or not raise_on_timeout:
+                self._safetensors_worker = None
+
+    def _wait_for_pending_trainer_checkpoint_writes(self):
+        """Collectively finish all files required for exact Trainer resume.
+
+        MSC upload runs on world rank 0, while ZeRO optimizer shards and RNG
+        files are produced by every rank. All ranks must enter this method so a
+        DCP future that requires collectives can finish before rank 0 publishes
+        the checkpoint and its SUCCESS sentinel.
+        """
+        failures: list[str] = []
+        try:
+            self._wait_for_pending_safetensors_worker(raise_on_timeout=True)
+        except Exception as exc:
+            failures.append(f"safetensors: {exc}")
+
+        optimizer_thread = getattr(self, "_pending_opt_pt_thread", None)
+        if optimizer_thread is not None:
+            try:
+                optimizer_thread.join()
+            except Exception as exc:
+                # Keep every rank on the shared failure-gather path even if a
+                # local writer handle itself fails while joining.
+                failures.append(f"optimizer shard: {exc}")
+            finally:
+                self._pending_opt_pt_thread = None
+        optimizer_error = getattr(self, "_pending_opt_pt_error", None)
+        self._pending_opt_pt_error = None
+        if optimizer_error is not None:
+            failures.append(f"optimizer shard: {optimizer_error}")
+
+        try:
+            self._wait_for_pending_dcp_save(raise_on_error=True)
+        except Exception as exc:
+            failures.append(f"DCP state: {exc}")
+
+        local_failure = "; ".join(failures) or None
+        if dist.is_initialized():
+            rank_failures: list[str | None] = [None] * dist.get_world_size()
+            dist.all_gather_object(rank_failures, local_failure)
+            failures = [failure for failure in rank_failures if failure is not None]
+
+        if failures:
+            raise RuntimeError(
+                "Trainer checkpoint writes did not complete on every rank: " + " | ".join(failures)
+            )
 
     @contextmanager
     def _patch_deepspeed_load_for_dcp(self, dcp_checkpoint_dir: str):
@@ -1751,14 +1827,22 @@ class GR00TTrainer(Trainer):
                     "optimizer": optimizer_state,
                     "lr_scheduler": lr_scheduler_state,
                 }
+                # Background-thread exceptions do not propagate to the Trainer
+                # thread. Retain one so complete publication can fail before a
+                # misleading SUCCESS sentinel is written remotely.
+                self._pending_opt_pt_error = None
 
                 def _save_optimizer_pt(path, state_dict, _rank, _step):
                     t = time.time()
-                    torch.save(state_dict, path)
-                    print(
-                        f"[CP-SAVE][rank={_rank}] Saved {path} in "
-                        f"{time.time() - t:.2f}s (background)"
-                    )
+                    try:
+                        torch.save(state_dict, path)
+                        print(
+                            f"[CP-SAVE][rank={_rank}] Saved {path} in "
+                            f"{time.time() - t:.2f}s (background)"
+                        )
+                    except Exception as exc:
+                        self._pending_opt_pt_error = exc
+                        print(f"[CP-SAVE][rank={_rank}] ERROR saving {path} at step {_step}: {exc}")
 
                 opt_save_thread = threading.Thread(
                     target=_save_optimizer_pt,
