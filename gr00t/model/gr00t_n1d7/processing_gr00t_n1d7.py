@@ -268,6 +268,14 @@ class Gr00tN1d7Processor(BaseProcessor):
         # State augmentation settings
         self.exclude_state = exclude_state
         self.state_dropout_prob = state_dropout_prob
+        if state_dropout_prob != 0:
+            warnings.warn(
+                "state_dropout_prob is retained for checkpoint compatibility but "
+                "is no longer applied by Gr00tN1d7Processor; configure stochastic "
+                "state dropout on Gr00tN1d7ActionHead instead.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         self.letter_box_transform = letter_box_transform
 
