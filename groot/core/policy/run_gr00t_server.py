@@ -32,6 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -55,8 +56,9 @@ DEFAULT_MODEL_SERVER_PORT = 5555
 N2_MODEL_TYPES = {"GrootN2", "GrootN2RL", "GrootN2TTT"}
 # "gr00t" covers the migrated N1 series (GrootN1d6 / GrootN1d7) and any other
 # non-N2 core model — they load through the generic Gr00tPolicy branch below.
-# "groot_n2" is GrootN2. N1.5 (legacy VLA), gr00t_ttt, dream0 and TensorRT are
-# NOT hosted by this server (use the omni server for those).
+# "groot_n2" is GrootN2 and may install an admitted N2 TensorRT bundle through
+# the normal policy seam. N1.5 (legacy VLA), gr00t_ttt and dream0 are not hosted
+# by this server (use the omni server for those).
 PolicyType = Literal["gr00t", "groot_n2"]
 
 torch.set_num_threads(1)
@@ -116,6 +118,12 @@ class ServerConfig:
 
     torch_compile_mode: Literal["default", "reduce-overhead", "max-autotune"] = "reduce-overhead"
     """torch.compile mode (groot_n2 only)."""
+
+    trt_engine_dir: str | None = None
+    """Target-local N2 TensorRT engine bundle. None keeps eager execution."""
+
+    use_cuda_graph: bool = False
+    """Capture and replay the fixed-shape N2 predict path. Explicit opt-in."""
 
     save_video_dir: str | None = None
     """If set, Gr00tN2Policy buffers generated video latents and writes them here."""
@@ -241,12 +249,30 @@ def _wrap_with_cot(policy: base.BasePolicy, config: ServerConfig) -> base.BasePo
     raise ValueError(f"Unknown cot_mode: {config.cot_mode!r}")
 
 
+def _validate_server_config(config: ServerConfig) -> None:
+    """Reject server modes that cannot preserve the graph's fixed prompt."""
+    if os.environ.get("ENABLE_TENSORRT", "false").strip().lower() == "true":
+        raise ValueError(
+            "ENABLE_TENSORRT=true selects an export-only SDPA attention path and cannot "
+            "be used by the production policy server"
+        )
+    if config.use_cuda_graph and config.cot_mode != "off":
+        raise ValueError(
+            "--use-cuda-graph requires one fixed prompt per process and cannot be "
+            f"combined with --cot-mode {config.cot_mode!r}; disable CoT or CUDA graph"
+        )
+    if config.trt_engine_dir is not None and config.use_torch_compile:
+        raise ValueError("--trt-engine-dir cannot be combined with --use-torch-compile")
+
+
 def main(config: ServerConfig) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     logger = logging.getLogger(__name__)
+
+    _validate_server_config(config)
 
     # Authenticate the strict task config FIRST — before the checkpoint is
     # inspected, before the N2 policy implementation is imported, and before
@@ -269,6 +295,8 @@ def main(config: ServerConfig) -> None:
     logger.info(f"  Port:                     {config.port}")
     logger.info(f"  Num inference timesteps:  {config.num_inference_timesteps}")
     logger.info(f"  use_torch_compile:        {config.use_torch_compile}")
+    logger.info(f"  TensorRT engine dir:      {config.trt_engine_dir}")
+    logger.info(f"  use_cuda_graph:           {config.use_cuda_graph}")
     logger.info(f"  enable_n2_pred_comparison: {config.enable_n2_pred_comparison}")
 
     if policy_type == "groot_n2":
@@ -285,6 +313,8 @@ def main(config: ServerConfig) -> None:
             num_inference_timesteps=config.num_inference_timesteps or 4,
             use_torch_compile=config.use_torch_compile,
             torch_compile_mode=config.torch_compile_mode,
+            trt_engine_dir=config.trt_engine_dir,
+            use_cuda_graph=config.use_cuda_graph,
             save_video_dir=config.save_video_dir,
             strict_task_binding=strict_binding,
             enable_n2_pred_comparison=config.enable_n2_pred_comparison,
@@ -335,7 +365,12 @@ def main(config: ServerConfig) -> None:
     )
 
     try:
-        logger.info(f"Server is running on {config.host}:{config.port}. Press Ctrl+C to stop.")
+        logger.info(
+            "Server is listening on %s:%s. CUDA-graph serving requires a real-observation "
+            "warmup before the robot is armed. Press Ctrl+C to stop.",
+            config.host,
+            config.port,
+        )
         server.run()
     except KeyboardInterrupt:
         logger.info("Shutting down server...")

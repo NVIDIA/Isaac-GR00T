@@ -865,12 +865,14 @@ class CosmosTransformer3DModel(nn.Module):
         temb = temb.view(B, L, -1)
         embedded_timestep = embedded_timestep.view(B, L, -1)
 
-        # 2. Text projection + multiview repeat
+        # 2. Text projection. Unless text is view-specific, repeating the
+        # identical context and splitting video queries per view is equivalent
+        # to one cross-attention over all video queries. Avoiding that fan-out
+        # removes redundant text K/V projections and small attention kernels.
         text_context = context
         if self.config.use_crossattn_projection:
             text_context = self.crossattn_proj(text_context)
-        if self.n_cameras > 1 and not self.per_view_text:
-            text_context = text_context.repeat(1, self.n_cameras, 1)
+        cross_attn_cameras = self.n_cameras if self.per_view_text else 1
 
         # 3. Precompute video/non-video indices for multiview cross-attention
         #    Same layout for every block — compute once, pass through.
@@ -947,7 +949,7 @@ class CosmosTransformer3DModel(nn.Module):
                     temb,
                     rope_freqs,
                     extra_pos_emb,
-                    self.n_cameras,
+                    cross_attn_cameras,
                     video_idx,
                     non_video_idx,
                     attention_mask,
@@ -963,7 +965,7 @@ class CosmosTransformer3DModel(nn.Module):
                     temb,
                     rope_freqs,
                     extra_pos_emb,
-                    self.n_cameras,
+                    cross_attn_cameras,
                     video_idx,
                     non_video_idx,
                     attention_mask,
