@@ -105,6 +105,28 @@ def test_from_pretrained_passes_hub_kwargs_to_cached_file(tmp_path):
         }
 
 
+def test_nonzero_processor_state_dropout_warns_but_remains_serializable(tmp_path):
+    """Legacy non-zero values are retained while making their no-op explicit."""
+    from gr00t.model.gr00t_n1d7 import processing_gr00t_n1d7 as processor_module
+
+    mock_vlm = MagicMock()
+    mock_vlm.apply_chat_template.return_value = "mock text"
+    mock_vlm.tokenizer.padding_side = "left"
+
+    with patch.object(processor_module, "build_processor", return_value=mock_vlm):
+        with pytest.warns(UserWarning, match="no longer applied by Gr00tN1d7Processor"):
+            proc = processor_module.Gr00tN1d7Processor.from_pretrained(
+                FIXTURE_DIR,
+                state_dropout_prob=0.5,
+            )
+
+    assert proc.state_dropout_prob == 0.5
+    proc.save_pretrained(tmp_path)
+    assert (tmp_path / "processor_config.json").exists()
+    with open(tmp_path / "processor_config.json") as f:
+        assert json.load(f)["processor_kwargs"]["state_dropout_prob"] == 0.5
+
+
 def _make_step_data(proc_config) -> VLAStepData:
     """Create synthetic VLAStepData matching the fixture config."""
     import json as _json
@@ -179,6 +201,20 @@ class TestProcessorCall:
         messages = [{"type": MessageType.EPISODE_STEP.value, "content": step_data}]
         result = processor(messages)
         assert isinstance(result["embodiment_id"], (int, np.integer))
+
+    def test_training_does_not_apply_state_dropout_in_processor(self, processor, proc_config):
+        """State dropout belongs to the batched action head, not per-item preprocessing."""
+        step_data = _make_step_data(proc_config)
+        messages = [{"type": MessageType.EPISODE_STEP.value, "content": step_data}]
+        processor.state_dropout_prob = 1.0
+
+        processor.eval()
+        expected_state = processor(messages)["state"]
+        assert expected_state.count_nonzero() > 0
+
+        processor.train()
+        actual_state = processor(messages)["state"]
+        assert actual_state.equal(expected_state)
 
 
 class TestProcessorVLMInputs:
