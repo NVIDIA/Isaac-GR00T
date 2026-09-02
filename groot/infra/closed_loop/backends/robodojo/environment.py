@@ -278,20 +278,11 @@ class RoboDojoEnv(gym.Env):
         self._task.run_reward()
         if hasattr(self._task, "get_score"):
             self._task.get_score()
-        self._query_support_arm_traj(env_ids)
         self._steps[:] = 0
         success = np.zeros(self._num_envs, dtype=bool)
         if self._num_envs == 1:
             return self._observation(), {"success": False}
         return self._observation(), {"success": success}
-
-    def _query_support_arm_traj(self, env_ids):
-        if not getattr(self._task, "interact", False) or not hasattr(
-            self._task, "query_support_arm_traj"
-        ):
-            return
-        for env_idx in env_ids:
-            self._task.query_support_arm_traj(env_idx=env_idx)
 
     def step(self, action):
         env_ids = list(range(self._num_envs))
@@ -351,14 +342,6 @@ class RoboDojoEnv(gym.Env):
                         gripper * robot.gripper_move["mimic"][1] + robot.gripper_move["mimic"][2],
                     ]
 
-        if getattr(self._task, "interact", False) and hasattr(self._task, "support_arm_action"):
-            for env_idx in env_ids:
-                support_actions = self._task.support_arm_action[env_idx]
-                for control in control_sequences[env_idx]:
-                    if not support_actions:
-                        break
-                    control.update(support_actions.pop(0))
-
         self._task.robot_manager.control_manager.push(env_ids, control_sequences)
         for _ in range(repeat):
             meta_control = self._task.robot_manager.control_manager.pop(env_ids)
@@ -366,11 +349,6 @@ class RoboDojoEnv(gym.Env):
             self._task.sim_step(render=False)
 
         self._task.reward_manager.step(env_ids)
-        if getattr(self._task, "interact", False):
-            self._query_support_arm_traj(env_ids)
-            if hasattr(self._task, "check_support_arm_stable"):
-                for env_idx in env_ids:
-                    self._task.check_support_arm_stable(env_idx=env_idx)
         rewards = np.asarray(
             self._task.reward_manager.get_reward(final_check=False), dtype=np.float32
         )

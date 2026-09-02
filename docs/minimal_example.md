@@ -20,12 +20,6 @@ Run every command below from the package root, the directory containing
   selected experiment
 - At least 200 GB of free local disk for model caches and outputs
 
-For a new container, a known-good public starting point is
-`nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04`. An equivalent x86_64
-Linux environment with CUDA 12.8 development tools also works. This repository
-does not export a training Dockerfile; the frozen `uv` environment below is the
-software contract.
-
 Apple Silicon Docker containers run as ARM64 Linux by default. The locked CUDA
 environment includes x86_64-only packages such as Triton, TorchCodec, and Flash
 Attention, so it cannot be installed or used for this GPU walkthrough in an
@@ -36,16 +30,11 @@ ARM64 container. Use an x86_64 NVIDIA Linux host for the end-to-end example.
 **Inputs:** a local repository checkout, network access to the Python and
 PyTorch package indexes, and the system requirements listed above.
 
-On Ubuntu or Debian, install the build tools and shared libraries needed by the
-locked packages. Some dependencies, including FlashAttention and DeepSpeed, are
-built from source during installation.
+On Ubuntu or Debian, install FFmpeg and its shared libraries:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y \
-  build-essential ca-certificates curl git python3-dev python3-venv \
-  ffmpeg yasm cmake libtool pkg-config libass-dev libfreetype6-dev \
-  libvorbis-dev autoconf automake texinfo
+sudo apt-get install -y ffmpeg
 ffmpeg -version
 ```
 
@@ -56,9 +45,7 @@ available:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-From the package root, install the locked training environment. Do not create a
-`--system-site-packages` environment or manually replace its training packages;
-the lock file is authoritative. The project
+From the package root, install the locked training environment. The project
 configures uv to build FlashAttention against the matching PyTorch version and
 installs the CUDA-enabled TorchCodec wheel through the `training` extra.
 
@@ -66,18 +53,12 @@ installs the CUDA-enabled TorchCodec wheel through the `training` extra.
 uv sync --frozen --extra training
 ```
 
-Verify the key compiled and data-loading dependencies as well as GPU access:
+Verify that PyTorch can use the GPU:
 
 ```bash
 uv run --no-sync python -c 'import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name())'
 uv run --no-sync python -c 'import torchcodec; import torchcodec.decoders; print(torchcodec.__version__)'
-uv run --no-sync python -c 'import deepspeed, lance; print(deepspeed.__version__, lance.__version__)'
 ```
-
-The OSS launcher uses synchronous checkpoint saving by default. This avoids
-requiring a very large `/dev/shm` allocation in ordinary containers. Runtimes
-provisioned with sufficient shared memory may opt into asynchronous saving with
-`--set training.use_async_checkpoint_save=true`.
 
 ## 2. Configure credentials and local paths
 
