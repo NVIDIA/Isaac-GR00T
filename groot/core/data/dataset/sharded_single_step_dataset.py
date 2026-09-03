@@ -20,6 +20,7 @@ from structlog.contextvars import bound_contextvars
 
 from groot.core.data import types
 from groot.core.data.dataset.episode_loader_factory import create_episode_loader
+from groot.core.data.dataset.step_filter import load_step_indices_filter
 from groot.core.data.hydrator import client_protocol
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,8 @@ class ShardedSingleStepDataset(types.ShardedDataset):
         enable_batched_step_extraction: Whether get_shard may extract all sampled
             steps from one episode in one batched gather. Enabled only for
             DeltaCAT PackDS by DatasetFactory.
+        load_step_filter: Whether to load ``meta/step_filter.jsonl`` when no explicit
+            ``step_indices_filter`` is provided.
 
     Example:
         >>> dataset = ShardedSingleStepDataset(
@@ -218,6 +221,7 @@ class ShardedSingleStepDataset(types.ShardedDataset):
         step_indices_filter: dict[int, np.ndarray] | None = None,
         episode_loader_kwargs: dict[str, Any] | None = None,
         enable_batched_step_extraction: bool = False,
+        load_step_filter: bool = False,
     ):
         super().__init__(dataset_path)
         self.embodiment_tag = embodiment_tag
@@ -252,6 +256,8 @@ class ShardedSingleStepDataset(types.ShardedDataset):
         )
 
         self.step_indices_filter = step_indices_filter
+        if self.step_indices_filter is None and load_step_filter:
+            self.step_indices_filter = load_step_indices_filter(dataset_path, self.episode_loader)
         self.dataset_index = -1  # Set by ShardedMixtureDataset after construction
 
         # Create balanced shards from episode timesteps
