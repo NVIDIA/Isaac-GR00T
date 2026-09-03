@@ -105,6 +105,40 @@ def test_from_pretrained_passes_hub_kwargs_to_cached_file(tmp_path):
         }
 
 
+def test_from_pretrained_tolerates_legacy_use_mean_std(tmp_path):
+    """A processor_config.json that still carries the removed use_mean_std flag loads fine.
+
+    use_mean_std was dropped in #745's fix; checkpoints written before that
+    still have it inside processor_kwargs. from_pretrained must ignore it
+    instead of failing on the now-unknown kwarg.
+    """
+    import shutil
+
+    from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor
+
+    for name in ["processor_config.json", "statistics.json", "embodiment_id.json"]:
+        shutil.copy(FIXTURE_DIR / name, tmp_path / name)
+
+    config_path = tmp_path / "processor_config.json"
+    with open(config_path) as f:
+        config = json.load(f)
+    config["processor_kwargs"]["use_mean_std"] = False  # legacy field
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+    mock_vlm = MagicMock()
+    mock_vlm.apply_chat_template.return_value = "mock text"
+    mock_vlm.tokenizer.padding_side = "left"
+    with patch(
+        "gr00t.model.gr00t_n1d7.processing_gr00t_n1d7.build_processor",
+        return_value=mock_vlm,
+    ):
+        proc = Gr00tN1d7Processor.from_pretrained(tmp_path)
+
+    # The dead flag should not have survived into the processor instance.
+    assert not hasattr(proc, "use_mean_std")
+
+
 def _make_step_data(proc_config) -> VLAStepData:
     """Create synthetic VLAStepData matching the fixture config."""
     import json as _json
