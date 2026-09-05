@@ -91,6 +91,9 @@ class DataConfig:
     shuffle: bool = True
     seed: int = 42
     multiprocessing_context: str = "fork"  # Options: "fork", "spawn", and "forkserver"
+    # False (default): observation history that reaches before the first frame is clamped
+    # to frame 0 (matching inference-time padding); any other out-of-range index raises.
+    # True: every sampled index is clamped into [0, episode_length - 1].
     allow_padding: bool = False
     # When True, decode only the video frames needed by each shard instead of
     # decoding every frame of an episode (speed up for video-heavy datasets).
