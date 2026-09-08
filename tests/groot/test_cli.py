@@ -212,6 +212,38 @@ def test_oss_train_invokes_experiment_ray_without_running_gpu_backend(
     assert f"FINAL_CHECKPOINT_PATH={output_dir / 'checkpoint-2'}" in output
 
 
+def test_oss_train_prepares_public_libero_metadata_before_launch(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _set_training_env(monkeypatch)
+    dataset_path = tmp_path / "libero"
+    prepare_calls: list[tuple[Path, str]] = []
+    monkeypatch.setattr(
+        oss,
+        "prepare_lerobot_dataset",
+        lambda path, embodiment_tag: prepare_calls.append((path, embodiment_tag)),
+    )
+    monkeypatch.setattr(oss.subprocess, "run", lambda *_args, **_kwargs: None)
+
+    status = oss.main(
+        [
+            "train",
+            "--experiment",
+            "n2_oss_libero_10",
+            "--embodiment-tag",
+            "libero_sim",
+            "--dataset-path",
+            str(dataset_path),
+            "--max-steps",
+            "1",
+        ]
+    )
+
+    assert status == 0
+    assert prepare_calls == [(dataset_path, "libero_sim")]
+
+
 def test_oss_train_allows_explicit_pretrain_checkpoint_override(
     monkeypatch,
     capsys,
@@ -667,6 +699,7 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
 
     exported_files = [
         package_root / "groot/infra/oss.py",
+        package_root / "groot/infra/dataset_preparation.py",
         package_root / "groot/infra/job/data_credentials.py",
     ]
     exported_directories = [
@@ -675,15 +708,9 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
     eval_dir = package_root / "groot/infra/eval"
     assert (package_root / "groot/infra/experiments").is_dir()
     public_configs = package_root / "groot/infra/experiments/training/configs"
-    exported_files.extend(
-        [
-            public_configs / f"{oss.OSS_TRAINING_EXPERIMENT}.py",
-            public_configs / "_n2_base_compute_config.py",
-            public_configs / "_n2_base_data_config.py",
-            public_configs / "_n2_base_training_config.py",
-            public_configs / "_n2_model_config.py",
-        ]
-    )
+    exported_files.append(public_configs / f"{oss.OSS_TRAINING_EXPERIMENT}.py")
+    oss_owned_files = [public_configs / "n2_oss_libero_10.py"]
+    exported_files.extend(oss_owned_files)
 
     for exported_file in exported_files:
         assert exported_file.is_file()
@@ -695,7 +722,10 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
     # materializes those links into regular files and directories in staging.
     if _is_internal_monorepo(package_root):
         for exported_path in [*exported_files, *exported_directories]:
-            assert exported_path.is_symlink()
+            if exported_path in oss_owned_files:
+                assert not exported_path.is_symlink()
+            else:
+                assert exported_path.is_symlink()
         assert not eval_dir.is_symlink()
     else:
         for exported_path in [*exported_files, *exported_directories]:
