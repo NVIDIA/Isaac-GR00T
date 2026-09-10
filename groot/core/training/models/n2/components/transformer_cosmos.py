@@ -122,7 +122,7 @@ class RMSNorm(nn.Module):
             x = x * self.weight
         else:
             x = x.to(input_dtype)
-        return x.to(input_dtype)
+        return x
 
 
 class _GELU(nn.Module):

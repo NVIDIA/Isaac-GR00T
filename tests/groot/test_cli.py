@@ -709,8 +709,7 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
     assert (package_root / "groot/infra/experiments").is_dir()
     public_configs = package_root / "groot/infra/experiments/training/configs"
     exported_files.append(public_configs / f"{oss.OSS_TRAINING_EXPERIMENT}.py")
-    oss_owned_files = [public_configs / "n2_oss_libero_10.py"]
-    exported_files.extend(oss_owned_files)
+    exported_files.append(public_configs / "n2_oss_libero_10.py")
 
     for exported_file in exported_files:
         assert exported_file.is_file()
@@ -718,29 +717,11 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
         assert exported_directory.is_dir()
     assert eval_dir.is_dir()
 
-    # The internal package uses links to share implementation. The sync intentionally
-    # materializes those links into regular files and directories in staging.
-    if _is_internal_monorepo(package_root):
-        for exported_path in [*exported_files, *exported_directories]:
-            if exported_path in oss_owned_files:
-                assert not exported_path.is_symlink()
-            else:
-                assert exported_path.is_symlink()
-        assert not eval_dir.is_symlink()
-    else:
-        for exported_path in [*exported_files, *exported_directories]:
-            assert not exported_path.is_symlink()
-
     task_config_dir = eval_dir / "configs/tasks"
     approved_prefixes = ("libero_pro_", "robocasa365_", "robodojo_")
     exported_task_configs = sorted(task_config_dir.glob("*.yaml"))
     assert exported_task_configs
     assert all(path.name.startswith(approved_prefixes) for path in exported_task_configs)
-    if _is_internal_monorepo(package_root):
-        assert all(path.is_symlink() for path in exported_task_configs)
-    else:
-        assert all(not path.is_symlink() for path in exported_task_configs)
-
     assert not (public_configs / "n2_egoscale_mega_soup_pretrain.py").exists()
     assert not (public_configs / "n2_yam_simulation_stack_bowls.py").exists()
     assert not (public_configs / "n2_robocasa365.py").exists()
@@ -767,6 +748,9 @@ def test_oss_gpu_ci_job_runs_gpu_marked_package_tests() -> None:
     assert "GROOT_HF_ARTIFACT_CACHE_ROOT" not in gpu_job
     assert "OSS_REBUILD_PYAV_FROM_SOURCE" not in ci_config
     assert "OSS_REBUILD_OPENCV_FROM_SOURCE" not in ci_config
+    assert "--export-oss-for-tests" in ci_config
+    assert "unset PYTHONPATH" in ci_config
+    assert "groot imported outside OSS export" in ci_config
     assert '"$OSS_PACKAGE_ROOT/tests/groot"' in gpu_job
     assert "-m gpu" in gpu_job
     assert '-m "not gpu"' in ci_config
@@ -815,10 +799,6 @@ def _package_root() -> Path:
         for parent in Path(__file__).resolve().parents
         if (parent / "pyproject.toml").exists()
     )
-
-
-def _is_internal_monorepo(package_root: Path) -> bool:
-    return (package_root.parent / "ci/sync").is_dir()
 
 
 def _monorepo_root() -> Path:

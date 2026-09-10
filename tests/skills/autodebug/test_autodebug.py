@@ -413,20 +413,20 @@ def test_checked_in_runtime_cases_are_valid() -> None:
     assert all(case.status == "verified" for case in cases)
 
 
-def test_agent_skill_discovery_links_resolve() -> None:
+def test_agent_skill_discovery_surfaces_are_complete() -> None:
     oss_root = Path(__file__).resolve().parents[3]
     for runtime in (".codex", ".claude"):
         for skill in ("autodebug", "insights"):
-            link = oss_root / runtime / "skills" / skill
-            assert link.is_symlink()
-            assert link.resolve() == (oss_root / "skills" / skill).resolve()
+            discovered = oss_root / runtime / "skills" / skill / "SKILL.md"
+            canonical = oss_root / "skills" / skill / "SKILL.md"
+            assert discovered.read_bytes() == canonical.read_bytes()
         assert not (oss_root / runtime / "skills" / "autodebug-verify").exists()
-    assert (oss_root / ".claude" / "agents" / "autodebug.md").resolve() == (
+    assert (oss_root / ".claude" / "agents" / "autodebug.md").read_bytes() == (
         oss_root / ".agents" / "autodebug.md"
-    ).resolve()
-    assert (oss_root / ".codex" / "agents" / "autodebug.toml").resolve() == (
+    ).read_bytes()
+    assert (oss_root / ".codex" / "agents" / "autodebug.toml").read_bytes() == (
         oss_root / ".agents" / "autodebug.toml"
-    ).resolve()
+    ).read_bytes()
 
 
 def test_shipped_skill_wrapper_starts() -> None:

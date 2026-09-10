@@ -173,7 +173,7 @@ def test_preflight_is_read_only_and_detects_resume(tmp_path: Path) -> None:
 
 
 def test_all_canonical_skills_are_discoverable() -> None:
-    """Every non-empty canonical skill must resolve through all agent surfaces."""
+    """Every non-empty canonical skill must be available through all agent surfaces."""
     canonical_skills = sorted(
         path.parent
         for path in (_REPOSITORY / "skills").glob("*/SKILL.md")
@@ -181,16 +181,11 @@ def test_all_canonical_skills_are_discoverable() -> None:
     )
     assert canonical_skills
 
-    agent_skills = _REPOSITORY / ".agents/skills"
-    assert agent_skills.is_symlink()
-
     for canonical in canonical_skills:
         for root in (".claude/skills", ".codex/skills", ".agents/skills"):
             discovered = _REPOSITORY / root / canonical.name
             assert discovered.exists(), f"{canonical.name} is missing from {root}"
-            if root != ".agents/skills":
-                assert discovered.is_symlink()
-            assert discovered.resolve() == canonical.resolve()
+            assert (discovered / "SKILL.md").read_bytes() == (canonical / "SKILL.md").read_bytes()
 
 
 def test_autoresearch_skill_routes_only_incomplete_new_baselines() -> None:
