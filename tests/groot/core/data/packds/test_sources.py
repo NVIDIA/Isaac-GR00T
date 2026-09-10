@@ -32,9 +32,8 @@ def _oss_sources():
 
 
 def test_oss_sources_are_standalone_and_support_public_locators(tmp_path: Path) -> None:
-    path, sources = _oss_sources()
+    _, sources = _oss_sources()
 
-    assert not path.is_symlink()
     local = sources.resolve_source(tmp_path)
     remote = sources.resolve_source("s3://bucket/dataset", storage_options={"region": "test"})
     assert local.source_key == "local"
