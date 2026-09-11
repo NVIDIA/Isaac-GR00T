@@ -77,6 +77,30 @@ ACTION_TEMPORAL_POS_EMB_KEY = "action_encoder.temporal_pos_emb"
 VAE_TEMPORAL_FACTOR = 4  # Wan VAE temporal compression ratio
 
 
+def apply_state_keep(state_tokens: torch.Tensor, data: dict) -> torch.Tensor:
+    """Zero the state tokens of samples the processor marked ``state_keep == 0``.
+
+    Mirrors ``GrootN2._forward_train_impl``: a state modality with
+    ``exclude_state=True`` (or ``state_dropout_prob == 1.0``) makes the processor emit
+    ``state_keep == 0`` at inference as well as training, so a policy trained
+    proprio-free must not be fed proprio at deploy -- and an eval-time ``exclude_state``
+    A/B is otherwise a silent no-op. Key absent => no-op, so other embodiments and
+    existing checkpoints are unaffected.
+
+    Args:
+        state_tokens: (B, S, D) encoded state tokens.
+        data: Inference batch; may carry a per-sample ``state_keep`` scalar.
+
+    Returns:
+        ``state_tokens``, with the tokens of dropped samples zeroed.
+    """
+    state_keep = data.get("state_keep")
+    if state_keep is None:
+        return state_tokens
+    keep = torch.as_tensor(state_keep, device=state_tokens.device, dtype=state_tokens.dtype)
+    return state_tokens * keep.reshape(-1, 1, 1)
+
+
 @dataclasses.dataclass
 class TokenMergePlan:
     """Video-specific geometry and routing for a mid-layer sequence reduction."""
@@ -1219,6 +1243,7 @@ class GrootN2(PreTrainedModel):
         states = data["state"].to(device=device, dtype=dtype)
         embodiment_id = data.get("embodiment_id", torch.zeros(B, dtype=torch.long)).to(device)
         state_tokens = self.state_encoder(states, embodiment_id)
+        state_tokens = apply_state_keep(state_tokens, data)
         state_rope_freqs = self.state_rope(state_tokens)
         state_token_sigmas = torch.full(
             (B, state_tokens.shape[1]),
@@ -1735,6 +1760,7 @@ class GrootN2(PreTrainedModel):
         states = data["state"].to(device=device, dtype=dtype)
         embodiment_id = data.get("embodiment_id", torch.zeros(B, dtype=torch.long)).to(device)
         state_tokens = self.state_encoder(states, embodiment_id)
+        state_tokens = apply_state_keep(state_tokens, data)
         state_rope_freqs = self.state_rope(state_tokens)
         state_token_sigmas = torch.full(
             (B, state_tokens.shape[1]),

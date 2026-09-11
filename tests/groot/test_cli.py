@@ -733,6 +733,38 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
     assert not (package_root / "groot/infra/ci").exists()
 
 
+def test_oss_tensorrt_runtime_and_tools_are_packaged() -> None:
+    package_root = _package_root()
+    runtime_dir = package_root / "groot/deployment/n2_trt"
+    engine_tools = package_root / "scripts/deployment/n2"
+    deployment_files = (
+        package_root / "scripts/deployment/README.md",
+        package_root / "scripts/deployment/thor/activate_thor.sh",
+        package_root / "scripts/deployment/thor/install_deps.sh",
+        package_root / "scripts/deployment/thor/pyproject.toml",
+        package_root / "scripts/deployment/thor/uv.lock",
+    )
+
+    for filename in (
+        "benchmark_adapter.py",
+        "contract.py",
+        "installer.py",
+        "manifest.py",
+        "options.py",
+        "runtime.py",
+        "validation.py",
+    ):
+        assert (runtime_dir / filename).is_file()
+    for filename in (
+        "build_engines.py",
+        "export_transformer.py",
+        "export_vae.py",
+        "validate_engines.py",
+    ):
+        assert (engine_tools / filename).is_file()
+    assert all(path.is_file() for path in deployment_files)
+
+
 def test_oss_gpu_ci_job_runs_gpu_marked_package_tests() -> None:
     ci_config = (_package_root() / "ci/test.oss.gitlab-ci.yml").read_text(encoding="utf-8")
     workflow_config = (_package_root() / ".gitlab-ci.yml").read_text(encoding="utf-8")
