@@ -204,14 +204,13 @@ class ResolvedTrainingExperiment:
                 "task",
                 "num_trials",
                 "num_parallel_trials",
-                "inference_steps",
                 "remote_checkpoint",
                 "seed",
                 "persist",
             }:
                 raise ValueError(
                     "Evaluation overrides must target evaluation.task, evaluation.num_trials, "
-                    "evaluation.num_parallel_trials, evaluation.inference_steps, "
+                    "evaluation.num_parallel_trials, "
                     "evaluation.seed, evaluation.persist, evaluation.local_checkpoint, or "
                     "evaluation.remote_checkpoint"
                 )
@@ -394,7 +393,6 @@ class ResolvedTrainingExperiment:
             "task",
             "num_trials",
             "num_parallel_trials",
-            "inference_steps",
             "remote_checkpoint",
             "seed",
             "persist",
@@ -413,7 +411,6 @@ class ResolvedTrainingExperiment:
                 task=value["task"],
                 num_trials=value["num_trials"],
                 num_parallel_trials=value.get("num_parallel_trials", 1),
-                inference_steps=value.get("inference_steps"),
                 seed=value.get("seed", 0),
                 persist=value.get("persist", False),
                 local_checkpoint=value.get("local_checkpoint"),
@@ -427,7 +424,6 @@ class ResolvedTrainingExperiment:
                 "task": config.task,
                 "num_trials": config.num_trials,
                 "num_parallel_trials": config.num_parallel_trials,
-                "inference_steps": config.inference_steps,
                 "seed": config.seed,
                 "persist": config.persist,
                 "local_checkpoint": config.local_checkpoint,

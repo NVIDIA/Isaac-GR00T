@@ -30,6 +30,7 @@ from peft import LoraConfig, get_peft_model
 import torch
 from torch.nn.attention.flex_attention import BlockMask
 import torch.nn.functional as F
+from torchvision.transforms import v2
 from transformers import AutoConfig, AutoModel, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 
@@ -50,7 +51,7 @@ from groot.core.training.models.n2.components.sequence_packing import (
     ConcatPacker,
     PackedSequence,
     _build_attention_mask,
-    unpack_contiguous,
+    unpack,
 )
 from groot.core.training.models.n2.components.text_encoder import CosmosTextEncoder
 from groot.core.training.models.n2.components.transformer_cosmos import (
@@ -75,6 +76,30 @@ ACTION_ROPE_SEQ_KEYS = frozenset(("action_rope.seq", "state_rope.seq"))
 ACTION_TEMPORAL_POS_EMB_KEY = "action_encoder.temporal_pos_emb"
 
 VAE_TEMPORAL_FACTOR = 4  # Wan VAE temporal compression ratio
+
+
+def apply_state_keep(state_tokens: torch.Tensor, data: dict) -> torch.Tensor:
+    """Zero the state tokens of samples the processor marked ``state_keep == 0``.
+
+    Mirrors ``GrootN2._forward_train_impl``: a state modality with
+    ``exclude_state=True`` (or ``state_dropout_prob == 1.0``) makes the processor emit
+    ``state_keep == 0`` at inference as well as training, so a policy trained
+    proprio-free must not be fed proprio at deploy -- and an eval-time ``exclude_state``
+    A/B is otherwise a silent no-op. Key absent => no-op, so other embodiments and
+    existing checkpoints are unaffected.
+
+    Args:
+        state_tokens: (B, S, D) encoded state tokens.
+        data: Inference batch; may carry a per-sample ``state_keep`` scalar.
+
+    Returns:
+        ``state_tokens``, with the tokens of dropped samples zeroed.
+    """
+    state_keep = data.get("state_keep")
+    if state_keep is None:
+        return state_tokens
+    keep = torch.as_tensor(state_keep, device=state_tokens.device, dtype=state_tokens.dtype)
+    return state_tokens * keep.reshape(-1, 1, 1)
 
 
 @dataclasses.dataclass
@@ -285,6 +310,7 @@ class GrootN2(PreTrainedModel):
         self.tiled = config.tiled
         self.tile_size = (config.tile_size_height, config.tile_size_width)
         self.tile_stride = (config.tile_stride_height, config.tile_stride_width)
+        self.normalize_video = v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
 
     @staticmethod
     def build_vae(config: GrootN2Config):
@@ -434,14 +460,9 @@ class GrootN2(PreTrainedModel):
     def _preprocess_video(self, videos: torch.Tensor) -> torch.Tensor:
         """(B, T, H, W, C) uint8 → (B, C, T, H, W) float [-1, 1]."""
         x = videos.float().permute(0, 4, 1, 2, 3) / 255.0  # (B, C, T, H, W)
-        # [0, 1] -> [-1, 1]. Scalar ops instead of v2.Normalize: the transform
-        # re-uploads its CPU mean/std every call, which also breaks CUDA graph
-        # capture. Values match Normalize bit-for-bit; .contiguous() also
-        # matches the old reshape path's layout -- the elementwise op alone
-        # keeps the permute's strides, and layout-sensitive downstream kernels
-        # then accumulate in a different order (measured 9.3e-3 worst-key
-        # action drift vs main without it).
-        return ((x - 0.5) / 0.5).contiguous()
+        B, C, T, H, W = x.shape
+        x = self.normalize_video(x.reshape(-1, C, H, W)).reshape(B, C, T, H, W)
+        return x
 
     # ─── Transformer construction hook ────────────────────────────────────────
 
@@ -1219,6 +1240,7 @@ class GrootN2(PreTrainedModel):
         states = data["state"].to(device=device, dtype=dtype)
         embodiment_id = data.get("embodiment_id", torch.zeros(B, dtype=torch.long)).to(device)
         state_tokens = self.state_encoder(states, embodiment_id)
+        state_tokens = apply_state_keep(state_tokens, data)
         state_rope_freqs = self.state_rope(state_tokens)
         state_token_sigmas = torch.full(
             (B, state_tokens.shape[1]),
@@ -1283,11 +1305,18 @@ class GrootN2(PreTrainedModel):
             with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda"):
                 action_t = act_sched.timesteps[i].to(dtype)
                 action_sigma = act_sched.sigmas[i].to(dtype)
-                # expand+clone instead of torch.full(fill_value=tensor): the
-                # latter syncs via .item(), which is illegal under CUDA graph
-                # capture.
-                action_t_per_step = action_t.expand(B, T_action).clone()
-                action_sigma_per_step = action_sigma.expand(B, T_action).clone()
+                action_t_per_step = torch.full(
+                    (B, T_action),
+                    action_t,
+                    device=device,
+                    dtype=dtype,
+                )
+                action_sigma_per_step = torch.full(
+                    (B, T_action),
+                    action_sigma,
+                    device=device,
+                    dtype=dtype,
+                )
                 action_tokens = self.action_encoder(
                     action_latents, action_t_per_step, embodiment_id
                 )
@@ -1482,7 +1511,7 @@ class GrootN2(PreTrainedModel):
                 is_cfg=is_cfg,
                 **tm_kwargs,
             )
-            action_out = unpack_contiguous(out_tokens, packed, MODALITY_ACTION)
+            action_out = unpack(out_tokens, packed.modality_ids, MODALITY_ACTION)
         else:
             # Cached fast path: action-only forward, no BlockMask (every action
             # query attends to all static + action keys, and flash_attn handles
@@ -1570,8 +1599,7 @@ class GrootN2(PreTrainedModel):
             ]
 
         gt_velocity = (latents - cond_latent_full) * cond_mask
-        # torch.full instead of torch.tensor: graph-safe (no CPU->GPU scalar copy).
-        cond_timestep_val = torch.full((), self.cond_timestep, device=device, dtype=dtype)
+        cond_timestep_val = torch.tensor(self.cond_timestep, device=device, dtype=dtype)
 
         # Denoising loop
         for i, t in enumerate(vid_sched.timesteps):
@@ -1617,8 +1645,8 @@ class GrootN2(PreTrainedModel):
                     denoising_step=i,
                     **tm_kwargs,
                 )
-                video_out = unpack_contiguous(
-                    out_tokens, packed, (MODALITY_VIDEO, MODALITY_VIDEO_COND)
+                video_out = unpack(
+                    out_tokens, packed.modality_ids, (MODALITY_VIDEO, MODALITY_VIDEO_COND)
                 )
                 video_noise_pred = self.video_tokenizer.unpatchify(video_out, shape_info)
 
@@ -1634,8 +1662,8 @@ class GrootN2(PreTrainedModel):
                         is_cfg=True,
                         **tm_kwargs,
                     )
-                    video_out_neg = unpack_contiguous(
-                        out_tokens_neg, packed, (MODALITY_VIDEO, MODALITY_VIDEO_COND)
+                    video_out_neg = unpack(
+                        out_tokens_neg, packed.modality_ids, (MODALITY_VIDEO, MODALITY_VIDEO_COND)
                     )
                     video_noise_pred_neg = self.video_tokenizer.unpatchify(
                         video_out_neg, shape_info
@@ -1735,6 +1763,7 @@ class GrootN2(PreTrainedModel):
         states = data["state"].to(device=device, dtype=dtype)
         embodiment_id = data.get("embodiment_id", torch.zeros(B, dtype=torch.long)).to(device)
         state_tokens = self.state_encoder(states, embodiment_id)
+        state_tokens = apply_state_keep(state_tokens, data)
         state_rope_freqs = self.state_rope(state_tokens)
         state_token_sigmas = torch.full(
             (B, state_tokens.shape[1]),
@@ -1758,8 +1787,7 @@ class GrootN2(PreTrainedModel):
             ]
 
         gt_velocity = (video_latents - cond_latent_full) * cond_mask
-        # torch.full instead of torch.tensor: graph-safe (no CPU->GPU scalar copy).
-        cond_timestep_val = torch.full((), self.cond_timestep, device=device, dtype=dtype)
+        cond_timestep_val = torch.tensor(self.cond_timestep, device=device, dtype=dtype)
 
         # ── Interleaved joint denoising loop ─────────────────────────
         # Each outer iteration: one joint forward (capturing K/V when caching
@@ -1791,11 +1819,18 @@ class GrootN2(PreTrainedModel):
                 video_cond_token_mask = video_token_sigmas == self.cond_timestep
 
                 # Encode action at current noise level
-                # expand+clone instead of torch.full(fill_value=tensor): the
-                # latter syncs via .item(), which is illegal under CUDA graph
-                # capture.
-                action_t_per_step = action_t.expand(B, T_action).clone()
-                action_sigma_per_step = action_sigma.expand(B, T_action).clone()
+                action_t_per_step = torch.full(
+                    (B, T_action),
+                    action_t,
+                    device=device,
+                    dtype=dtype,
+                )
+                action_sigma_per_step = torch.full(
+                    (B, T_action),
+                    action_sigma,
+                    device=device,
+                    dtype=dtype,
+                )
                 action_tokens = self.action_encoder(
                     action_latents, action_t_per_step, embodiment_id
                 )
@@ -1850,12 +1885,12 @@ class GrootN2(PreTrainedModel):
                 )
 
                 # Unpack predictions
-                video_out = unpack_contiguous(
-                    out_tokens, packed, (MODALITY_VIDEO, MODALITY_VIDEO_COND)
+                video_out = unpack(
+                    out_tokens, packed.modality_ids, (MODALITY_VIDEO, MODALITY_VIDEO_COND)
                 )
                 video_noise_pred = self.video_tokenizer.unpatchify(video_out, shape_info)
 
-                action_out = unpack_contiguous(out_tokens, packed, MODALITY_ACTION)
+                action_out = unpack(out_tokens, packed.modality_ids, MODALITY_ACTION)
                 action_noise_pred = self.action_decoder(action_out, embodiment_id)
 
             # Apply conditioning mask to video prediction
@@ -1874,15 +1909,15 @@ class GrootN2(PreTrainedModel):
                         kv_cache=neg_cache,
                         **tm_kwargs,
                     )
-                    video_out_neg = unpack_contiguous(
+                    video_out_neg = unpack(
                         out_tokens_neg,
-                        packed,
+                        packed.modality_ids,
                         (MODALITY_VIDEO, MODALITY_VIDEO_COND),
                     )
                     video_noise_pred_neg = self.video_tokenizer.unpatchify(
                         video_out_neg, shape_info
                     )
-                    action_out_neg = unpack_contiguous(out_tokens_neg, packed, MODALITY_ACTION)
+                    action_out_neg = unpack(out_tokens_neg, packed.modality_ids, MODALITY_ACTION)
                     action_noise_pred_neg = self.action_decoder(action_out_neg, embodiment_id)
 
                 video_noise_pred_neg = gt_velocity + video_noise_pred_neg * (1 - cond_mask)
@@ -1928,11 +1963,18 @@ class GrootN2(PreTrainedModel):
                 with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda"):
                     action_t = act_sched.timesteps[act_step].to(dtype)
                     action_sigma = act_sched.sigmas[act_step].to(dtype)
-                    # expand+clone instead of torch.full(fill_value=tensor):
-                    # the latter syncs via .item(), which is illegal under
-                    # CUDA graph capture.
-                    action_t_per_step = action_t.expand(B, T_action).clone()
-                    action_sigma_per_step = action_sigma.expand(B, T_action).clone()
+                    action_t_per_step = torch.full(
+                        (B, T_action),
+                        action_t,
+                        device=device,
+                        dtype=dtype,
+                    )
+                    action_sigma_per_step = torch.full(
+                        (B, T_action),
+                        action_sigma,
+                        device=device,
+                        dtype=dtype,
+                    )
                     action_tokens = self.action_encoder(
                         action_latents, action_t_per_step, embodiment_id
                     )

@@ -138,45 +138,6 @@ command-line arguments. Training requires an explicit `--embodiment-tag` and
 either `--dataset-path` or an intentional replacement of the complete
 `data.datasets` list with `--set`.
 
-### LIBERO-10 post-training recipe
-
-The OSS-only `n2_oss_libero_10` experiment composes the public
-`n2_oss_pretrain` base with the validated LIBERO-10 post-training settings.
-Download the pinned public LeRobot v2.1 snapshot:
-
-```bash
-uv run hf download IPEC-COMMUNITY/libero_10_no_noops_1.0.0_lerobot \
-  --repo-type dataset \
-  --revision e1a223d30b896c1613f270a2bfc63d382b3de7e1 \
-  --local-dir datasets/libero/libero_10_no_noops_1.0.0_lerobot
-```
-
-Then post-train from the
-[GR00T2Internal `base_200k` checkpoint](https://huggingface.co/nvidia/GR00T2Internal/tree/main/base_200k):
-
-```bash
-uv run --no-sync python -m groot.infra.oss train \
-  --experiment n2_oss_libero_10 \
-  --dataset-path datasets/libero/libero_10_no_noops_1.0.0_lerobot \
-  --embodiment-tag libero_sim \
-  --pretrain-checkpoint hf://model/nvidia/GR00T2Internal@main/base_200k \
-  --output-dir ./outputs/n2-libero-10
-```
-
-The experiment config preserves the validated LIBERO-10 data window, model
-head, optimizer, and global batch of 384. Its default topology is one eight-GPU
-node with batch 4 per GPU and gradient accumulation 12.
-
-The public snapshot does not include GR00T's modality map or low-dimensional
-statistics. Before training, the command validates its expected feature shapes,
-adds missing `meta/modality.json`, and generates `meta/stats.json`. Existing
-modality metadata is preserved. Add `--dry-run` to inspect the resolved command
-without changing the dataset.
-
-The final checkpoint is written to
-`./outputs/n2-libero-10/checkpoint-10000`. Evaluate it separately with the
-closed-loop simulator workflows below.
-
 ## Closed-loop Evaluation
 
 Run the N2 policy against any simulator plugin that implements the shared backend contract:
@@ -196,63 +157,23 @@ success-rate report, comparison history, and optional videos below the output
 directory. Simulator-specific setup and supported suites are documented by
 each backend.
 
-### LIBERO and LIBERO-PRO
+### LIBERO-PRO
 
-Install the pinned simulator and assets once:
+Install the pinned simulator and assets, then select its shared backend:
 
 ```bash
 groot/infra/closed_loop/backends/libero_pro/setup.sh
-```
 
-Run the original ten LIBERO tasks with 50 episodes per task:
-
-```bash
 uv run --no-sync python -m groot.infra.oss closed-loop-eval \
-  --checkpoint ./outputs/n2-libero-10/checkpoint-10000 \
-  --backend groot.infra.closed_loop.backends.libero_pro.backend:LiberoProBackend \
-  --suite libero_pro_10 \
-  --embodiment-tag libero_sim \
-  --episodes-per-task 50 \
-  --action-steps 8 \
-  --max-episode-steps 400 \
-  --output-dir ./benchmark-results/libero-10
-```
-
-Run all 40 LIBERO-PRO perturbation tasks—ten each for object, position swap,
-language, and task—with 50 episodes per task:
-
-```bash
-uv run --no-sync python -m groot.infra.oss closed-loop-eval \
-  --checkpoint ./outputs/n2-libero-10/checkpoint-10000 \
+  --checkpoint <hf-uri-or-local-path> \
   --backend groot.infra.closed_loop.backends.libero_pro.backend:LiberoProBackend \
   --suite libero_pro_10_all \
-  --embodiment-tag libero_sim \
-  --episodes-per-task 50 \
-  --action-steps 8 \
-  --max-episode-steps 400 \
-  --output-dir ./benchmark-results/libero-pro-10
+  --embodiment-tag libero_sim
 ```
 
-The suite names resolve checked-in task YAMLs. Without `--ray-address`, each
-command uses the local GPUs visible to Ray. Pass an existing Ray address to
-distribute the sweep, or use `--tasks` and fewer episodes for a smoke test.
-
-The OSS public-data checkpoint at step 10,000 produced the following results.
-LIBERO-10 uses 50 episodes for each of its ten tasks:
-
-| LIBERO-10 result | Episodes | Successes | Success rate |
-| --- | ---: | ---: | ---: |
-| **Overall** | **500** | **470** | **94.0%** |
-
-LIBERO-PRO uses 50 episodes for each of ten tasks on every perturbation axis:
-
-| LIBERO-PRO perturbation | Episodes | Successes | Success rate |
-| --- | ---: | ---: | ---: |
-| Object | 500 | 341 | 68.2% |
-| Position swap | 500 | 71 | 14.2% |
-| Language | 500 | 476 | 95.2% |
-| Task | 500 | 107 | 21.4% |
-| **Overall** | **2,000** | **995** | **49.8%** |
+The suite name resolves the same checked-in task YAML used by internal
+evaluation. Use `--tasks` for a subset and `--episodes-per-task` for a smoke
+run.
 
 ### RoboCasa365
 

@@ -525,7 +525,6 @@ class DatasetFactory:
                     episode_sampling_rate=self.data_config.episode_sampling_rate,
                     seed=self.data_config.seed,
                     allow_padding=self.data_config.allow_padding,
-                    load_step_filter=self.data_config.load_step_filter,
                     data_filter=data_filter,
                     hydrator=hydrator,
                     episode_loader_kwargs=(

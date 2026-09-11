@@ -35,7 +35,6 @@ import transformers
 from groot.core.data import schema, types
 from groot.core.policy.benchmark_contract import resolve_policy_acceleration_state
 from groot.core.policy.gr00t_policy import Gr00tPolicy, _rec_to_dtype
-from groot.core.policy.n2_acceleration import N2AccelerationOptions
 
 N2_VIEW_NAMES = ("top", "left", "right", "bottom")
 
@@ -192,74 +191,6 @@ def _resolve_codec_roundtrip(codec_roundtrip: str = "mp4v") -> str:
     return codec
 
 
-def apply_torch_compile(model, mode: str = "reduce-overhead") -> None:
-    """Compile the predict()-path entry points of a GrootN2 model.
-
-    ``torch.compile(module)`` only intercepts the ``module(...)``/``forward``
-    entry, but ``predict()`` never enters through forward: the DiT is called
-    via ``transformer._forward_with_routing_indices`` (GrootN2._call_transformer)
-    and the VAE via ``vae.model.encode`` (WanVideoVAE.single_encode). Plain
-    methods on an ``OptimizedModule`` are delegated back to the original
-    uncompiled module, so whole-module compilation was a silent no-op here —
-    compile the bound methods instead.
-    """
-    model.vae.model.encode = torch.compile(model.vae.model.encode, mode=mode, dynamic=False)
-    # NOTE(FY): dynamic=True is needed for using kv cache — the action-only
-    # forward after the first joint step has a different sequence length.
-    model.transformer._forward_with_routing_indices = torch.compile(  # noqa: SLF001
-        model.transformer._forward_with_routing_indices,  # noqa: SLF001
-        mode=mode,
-    )
-
-
-def _install_inference_acceleration(
-    policy: "Gr00tN2Policy",
-    *,
-    options: N2AccelerationOptions,
-) -> None:
-    """The policy-side acceleration seam, called once at model wrap time.
-
-    Twin of the trainer's ``_install_train_acceleration``
-    (``models/n2/setup.py``): activation comes from the policy's ctor/env
-    knobs, never from the checkpoint's saved config, and the
-    ``_accel_installed`` stamp keeps one process from layering both installers
-    onto the same model. Order discipline lives here too: module swaps
-    (compile now, TensorRT engines later) must precede graph capture, so the
-    runner is only armed here and captures lazily on the first predict.
-    Compile and manual graph capture need mode="default" together —
-    reduce-overhead's cudagraph trees cannot nest inside a manual capture.
-    """
-    model = policy.model
-    installed = getattr(model, "_accel_installed", None)
-    if installed is not None:
-        raise RuntimeError(f"model already carries {installed!r} acceleration")
-    trt_installed = getattr(model, "n2_trt_runtime", None) is not None
-    options.validate()
-    if trt_installed != options.use_tensorrt:
-        raise RuntimeError(
-            "loaded TensorRT runtime does not match the resolved acceleration options"
-        )
-    if trt_installed and options.use_torch_compile:
-        raise RuntimeError("TensorRT and torch.compile cannot be installed together")
-    if model.config.token_merge_kernel is not None:
-        if options.use_torch_compile:
-            raise RuntimeError("token merge does not support torch.compile")
-        if options.use_cuda_graph and getattr(model, "n2_trt_runtime", None) is None:
-            raise RuntimeError("token-merge CUDA graph requires an admitted TensorRT runtime")
-    if options.use_torch_compile:
-        print(f"[Gr00tN2Policy] Compiling model with mode: {options.torch_compile_mode}")
-        apply_torch_compile(model, mode=options.torch_compile_mode)
-    policy._use_predict_graph = options.use_cuda_graph  # noqa: SLF001 - installer owns attrs.
-    policy._graph_runner = None  # noqa: SLF001
-    policy._graph_capture_error = None  # noqa: SLF001
-    policy._graph_capture_count = 0  # noqa: SLF001
-    policy._graph_recapture_count = 0  # noqa: SLF001
-    policy._graph_replay_count = 0  # noqa: SLF001
-    policy.inference_acceleration_state = options.runtime_state()
-    if trt_installed or options.use_torch_compile or options.use_cuda_graph:
-        model._accel_installed = "inference"  # noqa: SLF001
-
-
 class Gr00tN2Policy(Gr00tPolicy):
     """Policy for GrootN2: joint video + action inference.
 
@@ -284,8 +215,6 @@ class Gr00tN2Policy(Gr00tPolicy):
         strict: bool = True,
         use_torch_compile: bool = False,
         torch_compile_mode: str = "reduce-overhead",
-        trt_engine_dir: str | None = None,
-        use_cuda_graph: bool = False,
         codec_roundtrip: str = "mp4v",
     ):
         # Import to register the N2 model (pipeline setup runs AutoModel
@@ -307,30 +236,6 @@ class Gr00tN2Policy(Gr00tPolicy):
         # essential setup directly.
         super(Gr00tPolicy, self).__init__(strict=strict)
 
-        self.num_inference_steps = num_inference_timesteps
-        self.video_guidance_scale = video_guidance_scale
-        self.action_guidance_scale = action_guidance_scale
-        self.shift = _env_float("GROOT_N2_SHIFT", default=shift)
-        self.seed = seed
-        self.kv_cache_cond = _env_bool("GROOT_N2_KV_CACHE_COND", default=True)
-        self.joint_denoise = _env_bool("GROOT_N2_JOINT_DENOISE", default=True)
-        self.num_video_steps = _env_int("GROOT_N2_NUM_VIDEO_STEPS", default=2)
-        self.codec_roundtrip = _resolve_codec_roundtrip(codec_roundtrip)
-        acceleration = N2AccelerationOptions.resolve(
-            trt_engine_dir=trt_engine_dir,
-            use_cuda_graph=use_cuda_graph,
-            use_torch_compile=use_torch_compile,
-            torch_compile_mode=torch_compile_mode,
-        )
-        if acceleration.use_cuda_graph and (
-            video_guidance_scale != 1.0 or action_guidance_scale != 1.0
-        ):
-            raise ValueError(
-                "predict CUDA graph requires video_guidance_scale=1.0 and "
-                "action_guidance_scale=1.0 because negative text conditioning is not "
-                "part of the fixed replay input"
-            )
-
         model_dir = model_path
         model = transformers.AutoModel.from_pretrained(model_dir)
         # GrootN2RL actor checkpoints only wrap the base GrootN2 actor; inference
@@ -343,35 +248,14 @@ class Gr00tN2Policy(Gr00tPolicy):
         model.eval()
         model.to(device=device, dtype=torch.bfloat16)
         self.model = model
-        trt_runtime = None
-        if acceleration.use_tensorrt:
-            from groot.deployment.n2_trt.contract import N2TensorRTContract
-            from groot.deployment.n2_trt.installer import install_n2_tensorrt
-
-            contract = N2TensorRTContract.from_checkpoint(
-                model_dir,
-                embodiment=embodiment_tag.value,
-                video_denoising_steps=self.num_video_steps,
-                action_denoising_steps=self.num_inference_steps,
-                joint_denoise=self.joint_denoise,
-                conditional_kv_cache=self.kv_cache_cond,
+        if use_torch_compile:
+            print(f"[Gr00tN2Policy] Compiling model with mode: {torch_compile_mode}")
+            self.model.vae.model = torch.compile(
+                self.model.vae.model, mode=torch_compile_mode, dynamic=False
             )
-            trt_runtime = install_n2_tensorrt(
-                model,
-                acceleration.trt_engine_dir,
-                contract=contract,
-            )
-        _install_inference_acceleration(
-            self,
-            options=acceleration,
-        )
-        print(
-            f"[Gr00tN2Policy] acceleration: "
-            f"trt_engines={'on' if acceleration.use_tensorrt else 'off'}, "
-            f"predict_cuda_graph={'on' if acceleration.use_cuda_graph else 'off'} "
-            f"(typed constructor option), "
-            f"torch_compile={'on' if acceleration.use_torch_compile else 'off'}"
-        )
+            # NOTE(FY): dynamic=True is needed for using kv cache — the action-only
+            # forward after the first joint step has a different sequence length.
+            self.model.transformer = torch.compile(self.model.transformer, mode=torch_compile_mode)
 
         self.processor: types.BaseProcessor = transformers.AutoProcessor.from_pretrained(model_dir)
         self.processor.eval()
@@ -383,6 +267,28 @@ class Gr00tN2Policy(Gr00tPolicy):
         language_keys = self.modality_configs["language"].modality_keys
         self.language_key = language_keys[0]
 
+        # Generation parameters
+        self.num_inference_steps = num_inference_timesteps
+        self.video_guidance_scale = video_guidance_scale
+        self.action_guidance_scale = action_guidance_scale
+        # shift is read from GROOT_N2_SHIFT (env) so the YAM launcher can pass it
+        # uniformly to the core server for both N1 and N2 — N1's Gr00tPolicy never
+        # reads it, so the env var is a harmless no-op there. The ctor arg is the
+        # fallback default when the env var is unset.
+        self.shift = _env_float("GROOT_N2_SHIFT", default=shift)
+        self.seed = seed
+
+        # Denoise-schedule knobs are read from env vars so we can tune inference
+        # without breaking the policy ctor API. Defaults produce the joint 1v+4a
+        # hybrid (one joint forward + cached action sub-steps) which is the
+        # fastest mode supported today; flip GROOT_N2_JOINT_DENOISE=0 or
+        # GROOT_N2_KV_CACHE_COND=0 to compare against older behaviors.
+        self.kv_cache_cond = _env_bool("GROOT_N2_KV_CACHE_COND", default=True)
+        self.joint_denoise = _env_bool("GROOT_N2_JOINT_DENOISE", default=True)
+        self.num_video_steps = _env_int("GROOT_N2_NUM_VIDEO_STEPS", default=2)
+        # Observation-video codec roundtrip (see _codec_roundtrip_views). The env
+        # var overrides the ctor arg so eval can flip it without an API change.
+        self.codec_roundtrip = _resolve_codec_roundtrip(codec_roundtrip)
         print(
             f"[Gr00tN2Policy] inference config: "
             f"num_inference_timesteps={num_inference_timesteps}, "
@@ -410,14 +316,6 @@ class Gr00tN2Policy(Gr00tPolicy):
             "action_guidance_scale": self.action_guidance_scale,
             "seed": self.seed,
         }
-        if trt_runtime is not None:
-            self.benchmark_runtime_contract["runtime_artifacts"] = (
-                trt_runtime.measurement_artifacts(
-                    backend=acceleration.backend,
-                    precision="bf16",
-                )
-            )
-        self._publish_cuda_graph_lifecycle()
 
         # Video buffer for save_video
         self.video_latents_buffer: list[torch.Tensor] = []
@@ -430,188 +328,6 @@ class Gr00tN2Policy(Gr00tPolicy):
         # invalidated on language change and on reset().
         self._cached_prompt_embs: torch.Tensor | None = None
         self._cached_language_dict: str | None = None
-
-    def _run_predict(self, collated_inputs: Any, prompt_embs: Any) -> dict[str, Any]:
-        """Run the admitted prediction strategy behind one stable policy seam.
-
-        Eager/TensorRT execution uses ``model.predict``; CUDA-graph execution
-        uses ``_run_predict_graph``. Keeping the dispatch here preserves one
-        logical model-computation boundary while the codec roundtrip,
-        preprocessing, prompt cache, and action decode remain unchanged.
-        """
-        # In-process RL adapters can construct the policy from already-loaded
-        # components without running the deployment acceleration installer.
-        # That legacy path is explicitly eager unless it installs graph state.
-        if getattr(self, "_use_predict_graph", False):
-            return self._run_predict_graph(collated_inputs, prompt_embs)
-        with torch.inference_mode():
-            return self.model.predict(
-                collated_inputs,
-                num_action_steps=self.num_inference_steps,
-                num_video_steps=self.num_video_steps,
-                video_guidance_scale=self.video_guidance_scale,
-                action_guidance_scale=self.action_guidance_scale,
-                shift=self.shift,
-                seed=self.seed,
-                predict_video=self.save_video_dir is not None or self.enable_n2_pred_comparison,
-                joint_denoise=self.joint_denoise,
-                kv_cache_cond=self.kv_cache_cond,
-                prompt_embs=prompt_embs,
-                step_callback=getattr(self, "step_callback", None),
-            )
-
-    def _run_predict_graph(self, collated_inputs: Any, prompt_embs: Any = None) -> dict[str, Any]:
-        """Replay a captured CUDA graph of the denoise, capturing on first use.
-
-        Prompt embeddings are a fixed static graph input. A prompt-cache miss
-        after capture fails closed and requires a fresh process. Replay also
-        requires the exact captured input key, shape, dtype, device, and padding
-        contract.
-        """
-        if self.save_video_dir is not None or self.enable_n2_pred_comparison:
-            raise RuntimeError(
-                "the predict CUDA graph bakes predict_video=False; disable "
-                "use_cuda_graph to save videos or compare predictions"
-            )
-        if self._graph_capture_error is not None:
-            raise RuntimeError(
-                "A previous CUDA graph operation failed and left this policy process unsafe "
-                "to reuse. Terminate it completely and start a fresh process. "
-                f"First graph failure: {self._graph_capture_error}"
-            )
-        from groot.core.policy.n2_predict_graph import (
-            PredictGraphRunner,
-            make_steady_state_inputs,
-        )
-
-        payload = collated_inputs if isinstance(collated_inputs, dict) else collated_inputs.data
-        payload = payload.get("inputs", payload)
-        # The collator leaves tensors on the host -- _rec_to_dtype casts dtype but
-        # never moves device, and model.predict does the transfer itself. Capturing
-        # from host tensors makes the model do a CPU->GPU copy inside the capture,
-        # which is illegal ("Cannot copy between CPU and CUDA tensors during CUDA
-        # graph capture"). Move once here so both the capture and the per-call
-        # copy_ into the static buffers are device-to-device.
-        device = self.model.device
-        payload = {
-            k: (v.to(device, non_blocking=True) if torch.is_tensor(v) else v)
-            for k, v in payload.items()
-        }
-
-        if prompt_embs is None:
-            captured, prompt_embs = make_steady_state_inputs(self.model, payload, device)
-        else:
-            captured = {k: v for k, v in payload.items() if k != "text_negative"}
-
-        if self._graph_runner is None:
-            try:
-                self._graph_runner = PredictGraphRunner(
-                    self.model,
-                    captured,
-                    prompt_embs,
-                    {
-                        "num_action_steps": self.num_inference_steps,
-                        "num_video_steps": self.num_video_steps,
-                        "video_guidance_scale": self.video_guidance_scale,
-                        "action_guidance_scale": self.action_guidance_scale,
-                        "shift": self.shift,
-                        "seed": self.seed,
-                        "predict_video": False,
-                        "joint_denoise": self.joint_denoise,
-                        "kv_cache_cond": self.kv_cache_cond,
-                    },
-                )
-                previous_captures = getattr(self, "_graph_capture_count", 0)
-                if previous_captures:
-                    self._graph_recapture_count = getattr(self, "_graph_recapture_count", 0) + 1
-                self._graph_capture_count = previous_captures + 1
-                Gr00tN2Policy._publish_cuda_graph_lifecycle(self)
-            except Exception as exc:
-                self._graph_capture_error = f"{type(exc).__name__}: {exc}"
-                Gr00tN2Policy._publish_cuda_graph_lifecycle(self)
-                raise
-
-        try:
-            # Replay exactly the contract captured above.  The processor may
-            # leave ``text_negative`` in its payload, but steady-state graph
-            # execution consumes the already-materialized prompt embeddings
-            # and deliberately excludes that source tensor.
-            result = self._graph_runner(captured, prompt_embs=prompt_embs)
-            self._graph_replay_count = getattr(self, "_graph_replay_count", 0) + 1
-            Gr00tN2Policy._publish_cuda_graph_lifecycle(self)
-        except Exception as exc:
-            self._graph_capture_error = f"{type(exc).__name__}: {exc}"
-            Gr00tN2Policy._publish_cuda_graph_lifecycle(self)
-            raise
-        # The graph's outputs are only the captured tensors; hand the prompt
-        # embeddings back so the caller's prompt cache keeps working as before.
-        return {**result, "prompt_embs": prompt_embs}
-
-    def _publish_cuda_graph_lifecycle(self) -> None:
-        """Publish live graph counters consumed by the formal measurement gate."""
-        if not getattr(self, "_use_predict_graph", False):
-            return
-        contract = getattr(self, "benchmark_runtime_contract", None)
-        if not isinstance(contract, dict):
-            return
-        contract["cuda_graph_lifecycle"] = {
-            "schema_version": "n2-cuda-graph-lifecycle-v1",
-            "capture_count": getattr(self, "_graph_capture_count", 0),
-            "recapture_count": getattr(self, "_graph_recapture_count", 0),
-            "replay_count": getattr(self, "_graph_replay_count", 0),
-        }
-
-    def server_readiness(self) -> dict[str, Any]:
-        """Report whether this process is safe to arm for action serving.
-
-        CUDA-graph capture needs a real, processor-shaped observation and task
-        prompt, so the server cannot complete it at socket startup. Operators
-        must send one explicit warmup request and wait for a successful replay.
-        A capture/replay failure or recapture marks the process unhealthy until
-        it is restarted.
-        """
-        if not getattr(self, "_use_predict_graph", False):
-            return {
-                "schema_version": "n2-server-readiness-v1",
-                "status": "ready",
-                "healthy": True,
-                "ready": True,
-                "message": "policy is ready",
-            }
-
-        captures = getattr(self, "_graph_capture_count", 0)
-        recaptures = getattr(self, "_graph_recapture_count", 0)
-        replays = getattr(self, "_graph_replay_count", 0)
-        failure = getattr(self, "_graph_capture_error", None)
-        lifecycle = {
-            "capture_count": captures,
-            "recapture_count": recaptures,
-            "replay_count": replays,
-        }
-        if failure is not None or recaptures != 0:
-            reason = failure or "CUDA graph recaptured after its initial fixed-shape capture"
-            return {
-                "schema_version": "n2-server-readiness-v1",
-                "status": "failed",
-                "healthy": False,
-                "ready": False,
-                "message": f"restart required: {reason}",
-                "cuda_graph_lifecycle": lifecycle,
-            }
-
-        ready = captures == 1 and replays >= 1
-        return {
-            "schema_version": "n2-server-readiness-v1",
-            "status": "ready" if ready else "warmup_required",
-            "healthy": True,
-            "ready": ready,
-            "message": (
-                "CUDA graph captured and replayed"
-                if ready
-                else "submit one real-observation warmup request before arming"
-            ),
-            "cuda_graph_lifecycle": lifecycle,
-        }
 
     def _codec_roundtrip_views(self, vids: dict[str, Any]) -> float:
         """Encode→decode each observation video through the configured codec.
@@ -664,7 +380,21 @@ class Gr00tN2Policy(Gr00tPolicy):
         if prompt_embs is None:
             print(f"[Gr00tN2Policy] Prompt cache MISS, encoding new text from {language_dict}")
 
-        result = self._run_predict(collated_inputs, prompt_embs)
+        with torch.inference_mode():
+            result = self.model.predict(
+                collated_inputs,
+                num_action_steps=self.num_inference_steps,
+                num_video_steps=self.num_video_steps,
+                video_guidance_scale=self.video_guidance_scale,
+                action_guidance_scale=self.action_guidance_scale,
+                shift=self.shift,
+                seed=self.seed,
+                predict_video=self.save_video_dir is not None or self.enable_n2_pred_comparison,
+                joint_denoise=self.joint_denoise,
+                kv_cache_cond=self.kv_cache_cond,
+                prompt_embs=prompt_embs,
+                step_callback=getattr(self, "step_callback", None),
+            )
         t_predict = time.perf_counter()
         self._cached_prompt_embs = result.get("prompt_embs")
         self._cached_language_dict = language_dict
@@ -751,14 +481,8 @@ class Gr00tN2Policy(Gr00tPolicy):
 
     def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
         self._flush_video()
-        # A captured graph is qualified for one fixed prompt per process. Keep
-        # that prompt's tensor identity across rollout resets so the same task
-        # can replay; a different language key still misses and fails closed in
-        # _run_predict_graph rather than being silently associated with the old
-        # capture.
-        if not self._use_predict_graph:
-            self._cached_prompt_embs = None
-            self._cached_language_dict = None
+        self._cached_prompt_embs = None
+        self._cached_language_dict = None
         return super().reset(options)
 
     def save_video(

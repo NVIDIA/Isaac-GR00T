@@ -37,7 +37,6 @@ image.train.arm64:
         - groot/core/**/*
         - groot/infra/**/*
         - oss/**/*
-        - ci/sync/copybara_sync.py
         - ci/test.oss.gitlab-ci.yml
         - ci/image.minimal.gitlab-ci.yml
         - ci/images/minimal.Dockerfile
@@ -77,7 +76,6 @@ image.train.amd64:
         - groot/core/**/*
         - groot/infra/**/*
         - oss/**/*
-        - ci/sync/copybara_sync.py
         - ci/test.oss.gitlab-ci.yml
         - ci/image.minimal.gitlab-ci.yml
         - ci/images/minimal.Dockerfile
@@ -114,7 +112,6 @@ image.train:
         - groot/core/**/*
         - groot/infra/**/*
         - oss/**/*
-        - ci/sync/copybara_sync.py
         - ci/test.oss.gitlab-ci.yml
         - ci/image.minimal.gitlab-ci.yml
         - ci/images/minimal.Dockerfile

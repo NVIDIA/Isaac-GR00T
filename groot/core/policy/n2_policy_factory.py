@@ -272,21 +272,6 @@ def resolve_policy_class(*, binding=None, rl_requests=None):
     return Gr00tN2RLPolicy, True
 
 
-def _prepare_rl_policy_kwargs(policy_kwargs):
-    """Reject unqualified acceleration and remove shared-server defaults."""
-    if policy_kwargs.get("trt_engine_dir") is not None or policy_kwargs.get(
-        "use_cuda_graph", False
-    ):
-        raise ValueError(
-            "Gr00tN2RLPolicy does not support TensorRT or predict CUDA graph; "
-            "serve this RL policy with the eager runtime"
-        )
-    prepared = dict(policy_kwargs)
-    prepared.pop("trt_engine_dir", None)
-    prepared.pop("use_cuda_graph", None)
-    return prepared
-
-
 def create_gr00t_n2_policy(
     *,
     model_path: str,
@@ -345,8 +330,6 @@ def create_gr00t_n2_policy(
     # Decide the implementation before any heavy import, so a request that
     # cannot be served fails here rather than after a checkpoint download.
     policy_cls, is_rl = resolve_policy_class(binding=binding)
-    if is_rl:
-        policy_kwargs = _prepare_rl_policy_kwargs(policy_kwargs)
 
     # Heavy runtime imports begin only after the final live-byte check above.
     # Auto-download Cosmos DiT / text encoder / Wan VAE and rewrite baked Lustre

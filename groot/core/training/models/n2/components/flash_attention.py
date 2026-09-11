@@ -30,27 +30,6 @@ except (ModuleNotFoundError, ImportError):
 import warnings
 
 
-def scaled_dot_product_attention_bf16(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    **kwargs,
-) -> torch.Tensor:
-    """Run export SDPA without widening the strongly typed BF16 graph.
-
-    TensorRT parity is qualified against the production eager oracle, while
-    decoded-action and closed-loop gates protect behavior at the serving
-    boundary. Keeping Q/K/V in BF16 avoids introducing an FP32 attention island
-    that materially regresses the promoted Turbo2 engine on RTX 5090.
-    """
-    return torch.nn.functional.scaled_dot_product_attention(
-        q,
-        k,
-        v,
-        **kwargs,
-    )
-
-
 def flash_attn_func_v23(
     q,
     k,
@@ -67,8 +46,7 @@ def flash_attn_func_v23(
     version=None,
     flatten: bool = True,
 ):
-    """Run FlashAttention over packed or padded Q/K/V tensors.
-
+    """
     q:              [B, Lq, Nq, C1].
     k:              [B, Lk, Nk, C1].
     v:              [B, Lk, Nk, C2]. Nq must be divisible by Nk.
@@ -94,21 +72,18 @@ def flash_attn_func_v23(
     # preprocess query
     if q_lens is None:
         q = half(q.flatten(0, 1))
-        # torch.full on-device instead of torch.tensor(...).to(): the scalar
-        # rides as a kernel argument, so no CPU->GPU copy -- which is also what
-        # makes this legal under CUDA graph capture.
-        q_lens = torch.full((b,), lq, dtype=torch.int32, device=q.device)
+        q_lens = torch.tensor([lq] * b, dtype=torch.int32).to(device=q.device, non_blocking=True)
     else:
-        q = half(torch.cat([u[:v] for u, v in zip(q, q_lens, strict=False)]))
+        q = half(torch.cat([u[:v] for u, v in zip(q, q_lens)]))
 
     # preprocess key, value
     if k_lens is None:
         k = half(k.flatten(0, 1))
         v = half(v.flatten(0, 1))
-        k_lens = torch.full((b,), lk, dtype=torch.int32, device=k.device)
+        k_lens = torch.tensor([lk] * b, dtype=torch.int32).to(device=k.device, non_blocking=True)
     else:
-        k = half(torch.cat([u[:v] for u, v in zip(k, k_lens, strict=False)]))
-        v = half(torch.cat([u[:v] for u, v in zip(v, k_lens, strict=False)]))
+        k = half(torch.cat([u[:v] for u, v in zip(k, k_lens)]))
+        v = half(torch.cat([u[:v] for u, v in zip(v, k_lens)]))
 
     q = q.to(v.dtype)
     k = k.to(v.dtype)
@@ -117,10 +92,7 @@ def flash_attn_func_v23(
         q = q * q_scale
 
     if version is not None and version == 3 and not FLASH_ATTN_3_AVAILABLE:
-        warnings.warn(
-            "Flash attention 3 is not available, use flash attention 2 instead.",
-            stacklevel=2,
-        )
+        warnings.warn("Flash attention 3 is not available, use flash attention 2 instead.")
 
     # Check for TensorRT at runtime, not import time
     if os.getenv("ENABLE_TENSORRT", "False").lower() == "true":
@@ -138,7 +110,7 @@ def flash_attn_func_v23(
             v = v.repeat(q.shape[0], 1, 1, 1)
 
         attn_mask = None
-        out = scaled_dot_product_attention_bf16(
+        out = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, attn_mask=attn_mask, is_causal=causal, dropout_p=dropout_p
         )
 

@@ -21,7 +21,6 @@ from copy import deepcopy
 import logging
 
 import numpy as np
-from scipy.spatial.transform import Rotation
 
 from groot.core.data.state_action.action_chunking import (
     EndEffectorActionChunk,
@@ -42,11 +41,6 @@ from groot.core.training.configs.data.embodiment_configs import (
     ActionRepresentation,
     ActionType,
     ModalityConfig,
-)
-from groot.core.utils.state_action.rotation import (
-    gram_schmidt,
-    rot_6d_to_rot_mat,
-    rot_mat_to_rot_6d,
 )
 
 logger = logging.getLogger(__name__)
@@ -710,56 +704,27 @@ class StateActionProcessor:
                 action.shape[1] == 9
             ), f"Expected action dim 9 (xyz + rot6d) for EEF, got {action.shape[1]}"
 
-            # Batched mirror of the per-step EndEffectorPose object path. Every
-            # action composes with the same reference pose, so there is no
-            # sequential dependency. The copy is load-bearing: gram-schmidt
-            # writeback below must not mutate the caller's action array.
-            rot_6d = np.array(action[:, 3:]).reshape(-1, 2, 3)
-            dots = np.sum(rot_6d[:, 0] * rot_6d[:, 1], axis=-1)
-            # The object path selects gram-schmidt independently per row.
-            non_orthogonal = ~np.isclose(dots, 0.0)
-            if non_orthogonal.any():
-                rot_6d[non_orthogonal] = gram_schmidt(rot_6d[non_orthogonal])
-
-            rot_mat = np.zeros((rot_6d.shape[0], 3, 3))
-            rot_mat[:, :2, :] = rot_6d
-            rot_mat[:, 2, :] = np.cross(rot_6d[:, 0], rot_6d[:, 1])
-            relative = np.tile(np.eye(4), (action.shape[0], 1, 1))
-            relative[:, :3, :3] = Rotation.from_matrix(rot_mat).as_matrix()
-            relative[:, :3, 3] = action[:, :3]
-
-            frame = np.eye(4)
-            frame[:3, :3] = Rotation.from_matrix(
-                rot_6d_to_rot_mat(reference_state[None, 3:])
-            ).as_matrix()[0]
-            frame[:3, 3] = reference_state[:3]
-
-            absolute = frame @ relative
-            translations = absolute[:, :3, 3]
-            rotations = Rotation.from_matrix(absolute[:, :3, :3])
-
-            if action_format == ActionFormat.XYZ_ROT6D:
-                return np.concatenate(
-                    [translations, rot_mat_to_rot_6d(rotations.as_matrix())], axis=-1
-                )
-            if action_format == ActionFormat.XYZ_ROTVEC:
-                return np.concatenate([translations, rotations.as_rotvec()], axis=-1)
-            if action_format == ActionFormat.DEFAULT:
-                absolute[:, :3, :3] = rotations.as_matrix()
-                return absolute
-            raise ValueError(f"Unsupported action format: {action_format}")
-
-        if action_type == ActionType.NON_EEF:
-            if action_format != ActionFormat.DEFAULT:
-                raise ValueError(
-                    f"Unsupported action format for joint trajectories: {action_format}"
-                )
-            # JointPose stores float64, so preserve the object path's dtype.
-            return np.asarray(reference_state, dtype=np.float64) + np.asarray(
-                action, dtype=np.float64
+            rel_action = EndEffectorActionChunk(
+                [
+                    EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rot6d")
+                    for m in action
+                ]
+            )
+            reference_frame = EndEffectorPose(
+                translation=reference_state[:3],
+                rotation=reference_state[3:],
+                rotation_type="rot6d",
             )
 
-        raise ValueError(f"Unknown ActionType: {action_type}")
+        elif action_type == ActionType.NON_EEF:
+            rel_action = JointActionChunk([JointPose(pose) for pose in action])
+            reference_frame = JointPose(reference_state)
+
+        else:
+            raise ValueError(f"Unknown ActionType: {action_type}")
+
+        abs_action = rel_action.to_absolute_chunking(reference_frame=reference_frame)
+        return abs_action.to(action_format)
 
     def __str__(self) -> str:
         return (

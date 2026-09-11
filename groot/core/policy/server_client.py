@@ -28,10 +28,6 @@ from groot.core.policy import base
 RPC_TIMING_INFO_KEY = "_rpc_timing"
 
 
-class PolicyServerUnhealthyError(RuntimeError):
-    """The server has latched a permanent failure and must be restarted."""
-
-
 def _attach_server_rpc_timing(
     result: Any,
     *,
@@ -298,8 +294,7 @@ class PolicyServer:
         # Register the ping endpoint by default
         self.register_endpoint("ping", self._handle_ping, requires_input=False)
         self.register_endpoint("kill", self._kill_server, requires_input=False)
-        self.register_endpoint("get_action", self._handle_get_action)
-        self.register_endpoint("warmup", self.policy.get_action)
+        self.register_endpoint("get_action", self.policy.get_action)
         self.register_endpoint("reset", self.policy.reset)
         self.register_endpoint(
             "get_modality_config",
@@ -309,11 +304,6 @@ class PolicyServer:
         self.register_endpoint(
             "get_runtime_contract",
             self._handle_get_runtime_contract,
-            requires_input=False,
-        )
-        self.register_endpoint(
-            "get_readiness",
-            self._handle_get_readiness,
             requires_input=False,
         )
 
@@ -337,55 +327,13 @@ class PolicyServer:
             policy = getattr(policy, "policy", None)
         return {}
 
-    def _handle_get_readiness(self) -> dict[str, Any]:
-        """Return action-serving readiness through transparent wrappers."""
-        policy: Any = self.policy
-        visited: set[int] = set()
-        while policy is not None and id(policy) not in visited:
-            visited.add(id(policy))
-            readiness = getattr(policy, "server_readiness", None)
-            readiness = readiness() if callable(readiness) else readiness
-            if isinstance(readiness, dict):
-                return cast(dict[str, Any], _to_msgpack_safe(readiness))
-            policy = getattr(policy, "policy", None)
-        return {
-            "schema_version": "policy-server-readiness-v1",
-            "status": "ready",
-            "healthy": True,
-            "ready": True,
-            "message": "policy is ready",
-        }
-
-    def _handle_get_action(
-        self,
-        observation: dict[str, Any],
-        options: dict[str, Any] | None = None,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Refuse to return a dispatchable action until serving is ready."""
-        readiness = self._handle_get_readiness()
-        if readiness.get("healthy") is not True:
-            raise PolicyServerUnhealthyError(
-                "policy server is unhealthy and must be restarted before serving actions: "
-                f"{readiness.get('message', readiness)}"
-            )
-        if readiness.get("ready") is not True:
-            raise RuntimeError(
-                "policy server requires an explicit real-observation warmup before serving "
-                "actions; call PolicyClient.warmup_and_require_ready() before arming"
-            )
-        return self.policy.get_action(observation, options)
-
     def _kill_server(self):
         """Kill the server."""
         self.running = False
 
     def _handle_ping(self) -> dict:
-        """Report liveness plus action-serving health/readiness."""
-        readiness = self._handle_get_readiness()
-        return {
-            **readiness,
-            "status": "ok" if readiness.get("ready") else readiness.get("status", "warming"),
-        }
+        """Simple ping handler that returns a success message."""
+        return {"status": "ok", "message": "Server is running"}
 
     def register_endpoint(self, name: str, handler: Callable, requires_input: bool = True):
         """Register a new endpoint to the server.
@@ -405,7 +353,7 @@ class PolicyServer:
 
     def run(self):
         addr = self.socket.getsockopt_string(zmq.LAST_ENDPOINT)
-        print(f"Server is listening on {addr}; check get_readiness before arming")  # noqa: T201
+        print(f"Server is ready and listening on {addr}")  # noqa: T201
         while self.running:
             try:
                 message = self.socket.recv()
@@ -444,14 +392,7 @@ class PolicyServer:
 
                 tb = traceback.format_exc()
                 print(tb)  # noqa: T201
-                self.socket.send(
-                    self.serializer.to_bytes(
-                        {
-                            "error": f"{e}\n{tb}",
-                            "error_type": type(e).__name__,
-                        }
-                    )
-                )
+                self.socket.send(self.serializer.to_bytes({"error": f"{e}\n{tb}"}))
 
     @staticmethod
     def start_server(policy: base.BasePolicy, port: int, api_token: str | None = None):
@@ -534,10 +475,10 @@ class PolicyClient(base.BasePolicy):
             print(f"[{self.__class__.__name__}] {message}")  # noqa: T201
 
     def ping(self) -> bool:
-        """Ping the server; return ``True`` iff it responds and is healthy."""
+        """Ping the server; return ``True`` iff it responds."""
         try:
-            response = self.call_endpoint("ping", requires_input=False)
-            return not (isinstance(response, dict) and response.get("healthy") is False)
+            self.call_endpoint("ping", requires_input=False)
+            return True
         except (zmq.error.ZMQError, TimeoutError, RuntimeError):
             self._reset_socket()
             return False
@@ -626,10 +567,7 @@ class PolicyClient(base.BasePolicy):
         }
 
         if isinstance(response, dict) and "error" in response:
-            message = f"Server error: {response['error']}"
-            if response.get("error_type") == PolicyServerUnhealthyError.__name__:
-                raise PolicyServerUnhealthyError(message)
-            raise RuntimeError(message)
+            raise RuntimeError(f"Server error: {response['error']}")
 
         self._log(f"Received response from endpoint: {endpoint}")
         return response
@@ -673,60 +611,6 @@ class PolicyClient(base.BasePolicy):
         """Return the server's benchmark backend state, if it exposes one."""
         response = self.call_endpoint("get_runtime_contract", requires_input=False)
         return dict(response) if isinstance(response, dict) else {}
-
-    def get_readiness(self) -> dict[str, Any]:
-        """Return whether the policy is ready to serve actions safely."""
-        response = self.call_endpoint("get_readiness", requires_input=False)
-        return dict(response) if isinstance(response, dict) else {}
-
-    def warmup(
-        self, observation: dict[str, Any], options: dict[str, Any] | None = None
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Run one non-dispatched policy request for graph capture qualification."""
-        response = self.call_endpoint(
-            "warmup",
-            {"observation": observation, "options": options},
-        )
-        return tuple(response)
-
-    def warmup_and_require_ready(
-        self,
-        observation: dict[str, Any],
-        options: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Discard one warmup result and require a healthy, ready server."""
-        readiness = self.get_readiness()
-        if readiness.get("healthy") is not True:
-            raise PolicyServerUnhealthyError(
-                "policy server is unhealthy before warmup: "
-                f"{readiness.get('message', readiness)}"
-            )
-        if readiness.get("ready") is not True:
-            try:
-                self.warmup(observation, options)
-            except (TimeoutError, RuntimeError, zmq.error.ZMQError) as error:
-                try:
-                    readiness = self.get_readiness()
-                except (TimeoutError, RuntimeError, zmq.error.ZMQError) as readiness_error:
-                    raise error from readiness_error
-                if readiness.get("healthy") is not True:
-                    raise PolicyServerUnhealthyError(
-                        "policy server became unhealthy during warmup: "
-                        f"{readiness.get('message', readiness)}"
-                    ) from error
-                raise
-            readiness = self.get_readiness()
-        if readiness.get("healthy") is not True:
-            raise PolicyServerUnhealthyError(
-                "policy server became unhealthy during warmup: "
-                f"{readiness.get('message', readiness)}"
-            )
-        if readiness.get("ready") is not True:
-            raise RuntimeError(
-                "policy server did not become ready after warmup: "
-                f"{readiness.get('message', readiness)}"
-            )
-        return readiness
 
     def check_observation(self, observation: dict[str, Any]) -> None:
         raise NotImplementedError(

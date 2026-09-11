@@ -15,7 +15,6 @@ This module provides the core policy classes for running Gr00t models:
 - Gr00tSimPolicyWrapper: Wrapper for compatibility with existing Gr00t simulation environments
 """
 
-from concurrent.futures import ThreadPoolExecutor
 import copy
 from pathlib import Path
 import time
@@ -25,7 +24,8 @@ import numpy as np
 import torch
 import transformers
 
-from groot.core.data import schema, types
+from groot.core.data import schema
+from groot.core.data import types
 from groot.core.policy import base
 
 
@@ -651,17 +651,6 @@ class Gr00tFlatPolicyWrapper(base.PolicyWrapper):
         ]
         return np.stack(decoded, axis=0).astype(np.uint8)  # (T, H, W, C)
 
-    def _video_decode_pool(self, num_keys: int) -> ThreadPoolExecutor:
-        """Return the policy-held pool used to decode camera streams."""
-        pool = getattr(self, "_decode_pool", None)
-        if pool is None:
-            pool = ThreadPoolExecutor(
-                max_workers=num_keys,
-                thread_name_prefix="gr00t-jpeg-decode",
-            )
-            self._decode_pool = pool
-        return pool
-
     def _get_action(
         self, observation: dict[str, Any], options: dict[str, Any] | None = None
     ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -669,19 +658,9 @@ class Gr00tFlatPolicyWrapper(base.PolicyWrapper):
 
         nested: dict[str, Any] = {"video": {}, "state": {}, "language": {}}
 
-        video_keys = list(modality_configs["video"].modality_keys)
-        serialized_videos = [observation[f"video.{key}"] for key in video_keys]
-        decoded_videos = (
-            [self._decode_serialized_video(value) for value in serialized_videos]
-            if len(video_keys) < 2
-            else list(
-                self._video_decode_pool(len(video_keys)).map(
-                    self._decode_serialized_video,
-                    serialized_videos,
-                )
-            )
-        )
-        for video_key, arr in zip(video_keys, decoded_videos, strict=True):
+        for video_key in modality_configs["video"].modality_keys:
+            arr = observation[f"video.{video_key}"]
+            arr = self._decode_serialized_video(arr)
             nested["video"][video_key] = self._maybe_add_batch_dim(arr)
 
         for state_key in modality_configs["state"].modality_keys:
@@ -706,3 +685,4 @@ class Gr00tFlatPolicyWrapper(base.PolicyWrapper):
 
     def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.policy.reset(options)
+
