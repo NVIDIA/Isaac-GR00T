@@ -31,8 +31,6 @@ up the uv environment, prepare the example dataset, and verify
 training, open-loop evaluation, and the policy server.</code></pre>
       </td>
       <td>
-        <p>The setup below targets dGPU (x86_64). For Jetson AGX Thor, use the
-        <a href="scripts/deployment/README.md#jetson-thor-setup">Thor-specific setup</a>.</p>
         <pre><code class="language-bash">apt-get update
 apt-get install -y build-essential ca-certificates curl git python3-dev \
   python3-venv ffmpeg yasm cmake libtool pkg-config libass-dev \
@@ -118,11 +116,6 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
 
 For agent-guided AutoResearch, AutoResearch visualization, AutoDebug, and FAQ
 workflows, see the [agentic workflows and skills guide](skills/README.md).
-
-## TensorRT Deployment
-
-For accelerated N2 inference, see the
-[TensorRT deployment and inference guide](scripts/deployment/README.md).
 
 ## Inputs and Outputs
 
