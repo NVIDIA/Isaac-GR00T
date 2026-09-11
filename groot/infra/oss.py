@@ -8,7 +8,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""OSS training and open-loop evaluation entrypoint.
+"""OSS training and evaluation entrypoint.
 
 The OSS CLI is intentionally the public launch surface for package users and CI
 smoke tests. Training resolves a one-launcher experiment config, applies
@@ -16,6 +16,8 @@ OSS-safe overrides, and executes the underlying
 ``groot.core.training.experiment.experiment_ray`` command. Evaluation runs the
 OSS open-loop evaluator against either a local checkpoint path or an HF model
 URI.
+
+Train-eval optionally records a benchmark report under an approved recipe.
 """
 
 from __future__ import annotations
@@ -30,8 +32,13 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from groot.infra.benchmark.runner import BenchmarkRun
 
 from groot.core.data import schema
+from groot.infra.benchmark.runner import run_benchmark
 from groot.infra.dataset_preparation import prepare_lerobot_dataset
 from groot.infra.eval.oss_open_loop_eval_config import OssOpenLoopEvalConfig
 from groot.infra.eval.oss_open_loop_evaluator import OssOpenLoopEvaluator
@@ -90,18 +97,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         config = _eval_config(args)
         return _run_eval(config, dry_run=args.dry_run)
     if args.command == "train-eval":
-        _prepare_train_dataset(args, dry_run=args.dry_run)
-        resolved = resolve_train(args)
-        train_status = _run_train(resolved, dry_run=args.dry_run)
-        if train_status != 0 or args.dry_run:
-            return train_status
-        checkpoint = args.checkpoint or str(resolved.final_checkpoint)
-        return _run_eval(_eval_config(args, checkpoint=checkpoint), dry_run=False)
+        if args.benchmark_recipe:
+            return run_benchmark(args, run_train_eval=_run_train_eval)
+        return _run_train_eval(args)
     if args.command == "policy-server":
         return _run_policy_server(_policy_server_config(args), dry_run=args.dry_run)
     if args.command == "closed-loop-eval":
         return _run_closed_loop_eval(args)
     raise AssertionError(f"unhandled command {args.command!r}")
+
+
+def _run_train_eval(args: argparse.Namespace, *, benchmark: BenchmarkRun | None = None) -> int:
+    if benchmark:
+        benchmark.stage = "dataset"
+    _prepare_train_dataset(args, dry_run=args.dry_run)
+    if benchmark:
+        benchmark.stage = "resolution"
+    resolved = resolve_train(args)
+    if benchmark:
+        benchmark.record_resolution(resolved)
+        if args.dry_run:
+            return 0
+        benchmark.stage = "training"
+    train_status = _run_train(resolved, dry_run=args.dry_run)
+    if train_status != 0 or args.dry_run:
+        return train_status
+    if benchmark:
+        benchmark.record_training(resolved)
+        benchmark.stage = "evaluation"
+        return benchmark.evaluate(resolved.final_checkpoint)
+    checkpoint = args.checkpoint or str(resolved.final_checkpoint)
+    OssOpenLoopEvaluator(_eval_config(args, checkpoint=checkpoint)).run()
+    return 0
 
 
 def _prepare_train_dataset(args: argparse.Namespace, *, dry_run: bool) -> None:
@@ -340,18 +367,32 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     train_eval = subparsers.add_parser(
         "train-eval",
         help="Run OSS post-training and then open-loop evaluation.",
+        allow_abbrev=False,
     )
-    _add_train_parser(train_eval)
+    _add_train_parser(train_eval, embodiment_required=False)
     _add_eval_options(
         train_eval,
         checkpoint_required=False,
         include_dataset_path=False,
         include_embodiment_tag=False,
     )
-    return parser.parse_args(argv)
+    train_eval.add_argument(
+        "--benchmark-recipe",
+        default="",
+        help="Approved recipe ID or spec JSON fixing run settings and enabling a benchmark report.",
+    )
+    args = parser.parse_args(argv)
+    if args.command == "train-eval":
+        if args.benchmark_recipe:
+            if not args.output_dir:
+                parser.error("--benchmark-recipe requires --output-dir")
+            args.invocation = list(sys.argv[1:] if argv is None else argv)
+        elif not args.embodiment_tag:
+            parser.error("--embodiment-tag is required for train-eval without --benchmark-recipe")
+    return args
 
 
-def _add_train_parser(parser: argparse.ArgumentParser) -> None:
+def _add_train_parser(parser: argparse.ArgumentParser, *, embodiment_required: bool = True) -> None:
     parser.add_argument("--experiment", default=OSS_TRAINING_EXPERIMENT)
     parser.add_argument("--compute-type", default="h100")
     parser.add_argument("--experiment-dir", type=Path, default=DEFAULT_EXPERIMENT_DIR)
@@ -362,7 +403,7 @@ def _add_train_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--embodiment-tag",
-        required=True,
+        required=embodiment_required,
         help="Dataset embodiment tag used for data loading and N2 action/state head selection.",
     )
     parser.add_argument("--pretrain-checkpoint", default="")

@@ -8,10 +8,13 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""Compatibility import for the policy-owned N2 acceleration options."""
+"""Public N2 benchmark orchestration and report contracts."""
 
-from __future__ import annotations
+from groot.infra.benchmark.report import REPORT_SCHEMA_VERSION
+from groot.infra.benchmark.spec import BENCHMARK_SPEC_SCHEMA_VERSION, BenchmarkSpec
 
-from groot.core.policy.n2_acceleration import N2AccelerationOptions
-
-__all__ = ["N2AccelerationOptions"]
+__all__ = [
+    "BENCHMARK_SPEC_SCHEMA_VERSION",
+    "REPORT_SCHEMA_VERSION",
+    "BenchmarkSpec",
+]
