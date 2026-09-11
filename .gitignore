@@ -1,2 +1,6 @@
 __pycache__/
 .autodebug-runs/
+.venv/
+*.egg-info/
+checkpoints/
+gr00t_trt_deployment/
