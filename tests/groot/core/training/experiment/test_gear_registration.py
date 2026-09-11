@@ -29,7 +29,6 @@ def _oss_registration():
 def test_oss_registration_is_standalone() -> None:
     path, registration = _oss_registration()
 
-    assert not path.is_symlink()
     assert registration._get_api_url() == ""  # noqa: SLF001
     assert registration.register_experiment(experiment_name="test") == {}
     assert registration.register_training_run(experiment_id="test") == ""

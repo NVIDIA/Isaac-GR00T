@@ -18,12 +18,25 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import sys
+from typing import TypeAlias
 
-from groot.infra.launcher.one_launcher.resolved_training_experiment import ResolvedTrainingExperiment
+from groot.infra.launcher.one_launcher.automodel_training_experiment import (
+    AutoModelTrainingExperiment,
+)
+from groot.infra.launcher.one_launcher.resolved_automodel_training_experiment import (
+    ResolvedAutoModelTrainingExperiment,
+)
+from groot.infra.launcher.one_launcher.resolved_training_experiment import (
+    ResolvedTrainingExperiment,
+)
 from groot.infra.launcher.one_launcher.training_experiment import TrainingExperiment
-from groot.infra.launcher.one_launcher.training_launch_compute_profile import TrainingLaunchComputeProfile
+from groot.infra.launcher.one_launcher.training_launch_compute_profile import (
+    TrainingLaunchComputeProfile,
+)
 
 DEFAULT_EXPERIMENT_DIR = Path("groot/infra/experiments/training/configs")
+TrainingExperimentDefinition: TypeAlias = TrainingExperiment | AutoModelTrainingExperiment
+ResolvedExperiment: TypeAlias = ResolvedTrainingExperiment | ResolvedAutoModelTrainingExperiment
 
 
 @dataclass(frozen=True)
@@ -44,7 +57,7 @@ class TrainingExperimentResolver:
         name: str,
         compute_type: str,
         config_overrides: Sequence[str] = (),
-    ) -> ResolvedTrainingExperiment:
+    ) -> ResolvedExperiment:
         experiment = self.load(name)
         compute_profile = TrainingLaunchComputeProfile(compute_type=compute_type)
         resolved = experiment.resolve(
@@ -57,7 +70,7 @@ class TrainingExperimentResolver:
             compute_profile=compute_profile,
         )
 
-    def load(self, name: str) -> TrainingExperiment:
+    def load(self, name: str) -> TrainingExperimentDefinition:
         module_path = self.experiment_dir / f"{name}.py"
         if not module_path.is_file():
             raise ValueError(f"Unknown experiment {name!r}; expected file {module_path}")
@@ -70,6 +83,9 @@ class TrainingExperimentResolver:
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
         experiment = getattr(module, "EXPERIMENT", None)
-        if not isinstance(experiment, TrainingExperiment):
-            raise TypeError(f"{module_path} must define EXPERIMENT as a TrainingExperiment")
+        if not isinstance(experiment, TrainingExperiment | AutoModelTrainingExperiment):
+            raise TypeError(
+                f"{module_path} must define EXPERIMENT as a TrainingExperiment or "
+                "AutoModelTrainingExperiment"
+            )
         return experiment

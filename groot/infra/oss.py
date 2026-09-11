@@ -32,6 +32,7 @@ import subprocess
 import sys
 
 from groot.core.data import schema
+from groot.infra.dataset_preparation import prepare_lerobot_dataset
 from groot.infra.eval.oss_open_loop_eval_config import OssOpenLoopEvalConfig
 from groot.infra.eval.oss_open_loop_evaluator import OssOpenLoopEvaluator
 from groot.infra.launcher.one_launcher.experiment_ray_train import ExperimentRayTrainCommand
@@ -82,12 +83,14 @@ class OssPolicyServerConfig:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.command == "train":
+        _prepare_train_dataset(args, dry_run=args.dry_run)
         resolved = resolve_train(args)
         return _run_train(resolved, dry_run=args.dry_run)
     if args.command == "eval":
         config = _eval_config(args)
         return _run_eval(config, dry_run=args.dry_run)
     if args.command == "train-eval":
+        _prepare_train_dataset(args, dry_run=args.dry_run)
         resolved = resolve_train(args)
         train_status = _run_train(resolved, dry_run=args.dry_run)
         if train_status != 0 or args.dry_run:
@@ -99,6 +102,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "closed-loop-eval":
         return _run_closed_loop_eval(args)
     raise AssertionError(f"unhandled command {args.command!r}")
+
+
+def _prepare_train_dataset(args: argparse.Namespace, *, dry_run: bool) -> None:
+    if dry_run or not args.dataset_path:
+        return
+    prepare_lerobot_dataset(Path(args.dataset_path), args.embodiment_tag)
 
 
 def resolve_train(args: argparse.Namespace) -> ResolvedOssTrain:
@@ -343,7 +352,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def _add_train_parser(parser: argparse.ArgumentParser) -> None:
-    parser.set_defaults(experiment=OSS_TRAINING_EXPERIMENT)
+    parser.add_argument("--experiment", default=OSS_TRAINING_EXPERIMENT)
     parser.add_argument("--compute-type", default="h100")
     parser.add_argument("--experiment-dir", type=Path, default=DEFAULT_EXPERIMENT_DIR)
     parser.add_argument(

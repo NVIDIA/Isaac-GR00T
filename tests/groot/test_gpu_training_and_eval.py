@@ -31,12 +31,12 @@ def test_oss_training_and_open_loop_eval_gpu_smoke(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Run real OSS training/eval with synthetic model dependencies and a fixture dataset."""
+    """Run real OSS training/eval with synthetic model dependencies and data."""
     import torch
 
     assert torch.cuda.is_available(), "OSS GPU smoke requires torch.cuda.is_available()"
     hf_calls = _install_external_artifact_fakes(monkeypatch, tmp_path)
-    dataset_path = _dataset_fixture()
+    dataset_path = _create_dummy_dataset(tmp_path / "dummy-lerobot-dataset")
     output_dir = tmp_path / "train-output"
     max_steps = os.environ.get("OSS_GPU_TRAIN_MAX_STEPS", "2")
     resolved = _resolve_fixture_training(
@@ -104,7 +104,7 @@ def _resolve_fixture_training(
                 "--set",
                 "data.num_shards_per_epoch=1",
                 "--set",
-                "data.episode_sampling_rate=0.05",
+                "data.episode_sampling_rate=1.0",
                 "--set",
                 "data.shard_size=64",
                 "--set",
@@ -258,15 +258,178 @@ def _assert_resolved_training_command(
     assert resolved.env["BATCH_SIZE"] == os.environ.get("OSS_GPU_TRAIN_BATCH_SIZE", "1")
 
 
-def _dataset_fixture() -> Path:
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / "tests/groot/core/training/experiment/dataloader/fixtures/backpack_2ep"
-        if candidate.is_dir():
-            return candidate
-    message = "local backpack_2ep LeRobot fixture is unavailable"
-    if os.environ.get("CI"):
-        raise AssertionError(message)
-    pytest.skip(message)
+def _create_dummy_dataset(dataset_path: Path) -> Path:
+    """Create a small, deterministic LeRobot v2.1 dataset for the GPU smoke test."""
+    import numpy as np
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    frame_count = 64
+    rng = np.random.default_rng(0)
+    state = rng.uniform(-0.1, 0.1, size=(frame_count, 64))
+    action = rng.uniform(-0.1, 0.1, size=(frame_count, 64))
+    for values in (state, action):
+        values[:, 49:55] = (1, 0, 0, 0, 1, 0)
+        values[:, 58:64] = (1, 0, 0, 0, 1, 0)
+
+    metadata_dir = dataset_path / "meta"
+    data_dir = dataset_path / "data/chunk-000"
+    metadata_dir.mkdir(parents=True)
+    data_dir.mkdir(parents=True)
+
+    table = pa.table(
+        {
+            "observation.state": pa.array(state.tolist(), type=pa.list_(pa.float64(), 64)),
+            "action": pa.array(action.tolist(), type=pa.list_(pa.float64(), 64)),
+            "timestamp": pa.array(np.arange(frame_count) / 30.0, type=pa.float64()),
+            "task_index": pa.array([0] * frame_count, type=pa.int64()),
+            "frame_index": pa.array(range(frame_count), type=pa.int64()),
+            "episode_index": pa.array([0] * frame_count, type=pa.int64()),
+            "index": pa.array(range(frame_count), type=pa.int64()),
+        }
+    )
+    pq.write_table(table, data_dir / "episode_000000.parquet")
+
+    video_keys = (
+        "top_camera-images-rgb_320_240",
+        "left_camera-images-rgb_320_240",
+        "right_camera-images-rgb_320_240",
+    )
+    modality = {
+        "video": {key: {"original_key": f"observation.images.{key}"} for key in video_keys},
+        "state": {
+            "gripper_pos_obs_left": _modality_slice(32, 33),
+            "gripper_pos_obs_right": _modality_slice(33, 34),
+            "joint_pos_obs_left": _modality_slice(34, 40),
+            "joint_pos_obs_right": _modality_slice(40, 46),
+            "left_wrist_eef": _modality_slice(46, 55, rotation_type="rot6d"),
+            "right_wrist_eef": _modality_slice(55, 64, rotation_type="rot6d"),
+        },
+        "action": {
+            "gripper_pos_action_left": _modality_slice(32, 33, source="action"),
+            "gripper_pos_action_right": _modality_slice(33, 34, source="action"),
+            "joint_pos_action_left": _modality_slice(34, 40, source="action"),
+            "joint_pos_action_right": _modality_slice(40, 46, source="action"),
+            "left_wrist_eef": _modality_slice(46, 55, source="action", rotation_type="rot6d"),
+            "right_wrist_eef": _modality_slice(55, 64, source="action", rotation_type="rot6d"),
+        },
+        "annotation": {"task": {"original_key": "task_index"}},
+    }
+    video_features = {
+        f"observation.images.{key}": {
+            "dtype": "video",
+            "shape": [240, 320, 3],
+            "names": ["height", "width", "channel"],
+        }
+        for key in video_keys
+    }
+    info = {
+        "codebase_version": "v2.1",
+        "robot_type": "xdof",
+        "total_episodes": 1,
+        "total_frames": frame_count,
+        "total_tasks": 1,
+        "total_videos": len(video_keys),
+        "total_chunks": 1,
+        "chunks_size": 1000,
+        "fps": 30,
+        "splits": {"train": "0:1"},
+        "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+        "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+        "features": {
+            **video_features,
+            "observation.state": {"dtype": "float64", "shape": [64]},
+            "action": {"dtype": "float64", "shape": [64]},
+            "timestamp": {"dtype": "float64", "shape": [1]},
+            "task_index": {"dtype": "int64", "shape": [1]},
+            "frame_index": {"dtype": "int64", "shape": [1]},
+            "episode_index": {"dtype": "int64", "shape": [1]},
+            "index": {"dtype": "int64", "shape": [1]},
+        },
+    }
+    timestamps = np.arange(frame_count, dtype=np.float64)[:, None] / 30.0
+    identity_pose = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+    relative_stats = {
+        "left_wrist_eef": _dummy_relative_stats(40, identity_pose, radius=0.1),
+        "right_wrist_eef": _dummy_relative_stats(40, identity_pose, radius=0.1),
+        "joint_pos_action_left": _dummy_relative_stats(40, (0.0,) * 6),
+        "joint_pos_action_right": _dummy_relative_stats(40, (0.0,) * 6),
+    }
+    _write_json(metadata_dir / "modality.json", modality)
+    _write_json(metadata_dir / "info.json", info)
+    _write_json(
+        metadata_dir / "stats.json",
+        {
+            "observation.state": _statistics(state),
+            "action": _statistics(action),
+            "timestamp": _statistics(timestamps),
+        },
+    )
+    _write_json(metadata_dir / "relative_stats.json", relative_stats)
+    (metadata_dir / "episodes.jsonl").write_text(
+        json.dumps({"episode_index": 0, "tasks": ["dummy task"], "length": frame_count}) + "\n",
+        encoding="utf-8",
+    )
+    (metadata_dir / "tasks.jsonl").write_text(
+        json.dumps({"task_index": 0, "task": "dummy task"}) + "\n",
+        encoding="utf-8",
+    )
+    return dataset_path
+
+
+def _modality_slice(
+    start: int,
+    end: int,
+    *,
+    source: str = "observation.state",
+    rotation_type: str | None = None,
+) -> dict[str, object]:
+    return {
+        "original_key": source,
+        "start": start,
+        "end": end,
+        "rotation_type": rotation_type,
+        "absolute": True,
+        "dtype": "float64",
+        "range": None,
+    }
+
+
+def _statistics(values) -> dict[str, list[float]]:
+    import numpy as np
+
+    return {
+        "mean": values.mean(axis=0).tolist(),
+        "std": np.maximum(values.std(axis=0), 1e-6).tolist(),
+        "min": values.min(axis=0).tolist(),
+        "max": values.max(axis=0).tolist(),
+        "q01": np.quantile(values, 0.01, axis=0).tolist(),
+        "q99": np.quantile(values, 0.99, axis=0).tolist(),
+    }
+
+
+def _dummy_relative_stats(
+    horizon: int,
+    center: tuple[float, ...],
+    *,
+    radius: float = 1.0,
+) -> dict[str, list[list[float]]]:
+    means = [list(center) for _ in range(horizon)]
+    stds = [[radius] * len(center) for _ in range(horizon)]
+    lower = [[value - radius for value in center] for _ in range(horizon)]
+    upper = [[value + radius for value in center] for _ in range(horizon)]
+    return {
+        "mean": means,
+        "std": stds,
+        "min": lower,
+        "max": upper,
+        "q01": lower,
+        "q99": upper,
+    }
+
+
+def _write_json(path: Path, value: object) -> None:
+    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
 def _install_external_artifact_fakes(

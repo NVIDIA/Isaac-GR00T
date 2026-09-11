@@ -266,6 +266,11 @@ class DataConfig:
     # data preparation issues early.
     auto_generate_stats: bool = True
 
+    # Honor ``meta/step_filter.jsonl`` exclusion metadata in single-step datasets.
+    # Kept append-only and opt-in so existing positional construction and datasets
+    # carrying legacy metadata retain their prior behavior.
+    load_step_filter: bool = False
+
     def __post_init__(self):
         """Convert dict/OmegaConf DictConfig values to nested configs when needed."""
         converted_datasets: list[SingleDatasetConfig] = []

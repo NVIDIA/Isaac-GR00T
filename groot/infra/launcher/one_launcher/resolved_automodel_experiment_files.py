@@ -8,24 +8,15 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""Shared N2 data config fragment."""
+"""Files materialized from an AutoModel One Launcher experiment."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any
-
-from groot.infra.launcher.one_launcher.training_experiment_data_config import TrainingExperimentDataConfig
+from pathlib import Path
 
 
 @dataclass(frozen=True)
-class N2BaseDataConfig:
-    data: Mapping[str, Any]
-
-    def to_data_config(self) -> TrainingExperimentDataConfig:
-        return TrainingExperimentDataConfig(
-            data=deepcopy(self.data),
-            launcher_data={"no_download_cache": True},
-        )
+class ResolvedAutoModelExperimentFiles:
+    recipe_config: Path
+    full_config: Path
