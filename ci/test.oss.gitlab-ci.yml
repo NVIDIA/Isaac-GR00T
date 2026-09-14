@@ -111,7 +111,6 @@ test.oss.gpu:
         test "$(head -c 1 /proc/sys/crypto/fips_enabled)" = "0"
       fi
     - *oss_package_before_script
-    - uv pip install "onnx>=1.20.0" "tensorrt-cu13==10.16.1.11"
 
   script:
     - |

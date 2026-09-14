@@ -69,12 +69,6 @@ class OssOpenLoopEvalConfig:
     denoising_steps: int = 4
     """N2 inference denoising steps."""
 
-    trt_engine_dir: str | None = None
-    """TensorRT engine bundle directory. When unset, use eager inference."""
-
-    use_cuda_graph: bool = False
-    """Replay policy prediction through a CUDA graph."""
-
     server_parity_tolerance: float = 0.01
     """Maximum allowed absolute aggregate metric delta between local and server eval."""
 
