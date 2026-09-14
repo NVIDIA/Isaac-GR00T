@@ -150,9 +150,10 @@ class GrootN2Pipeline(ModelPipeline):
         )
         return model
 
-    def _create_dataset(self):
+    def _create_processor(self):
+        """Construct the selected processor with the canonical N2 configuration."""
         mc = self.model_config
-        self.processor = self.processor_class(
+        return self.processor_class(
             modality_configs=self.config.data.modality_configs,
             image_target_size=mc.image_target_size,
             image_crop_fraction=getattr(mc, "image_crop_fraction", 0.95),
@@ -167,6 +168,9 @@ class GrootN2Pipeline(ModelPipeline):
             language_dropout_prob=getattr(mc, "language_dropout_prob", 0.0),
             null_prompt=getattr(mc, "null_prompt", "low quality, blurry, static"),
         )
+
+    def _create_dataset(self):
+        self.processor = self._create_processor()
         self._dataset_factory = DatasetFactory(
             self.config.data,
             experiment_name=self.config.training.experiment_name,

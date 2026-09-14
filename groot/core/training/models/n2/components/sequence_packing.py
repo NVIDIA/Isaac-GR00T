@@ -24,6 +24,7 @@ Packers:
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
@@ -78,34 +79,34 @@ class AttentionMaskPattern(str, Enum):
         if self == AttentionMaskPattern.DISJOINT_VIDEO_ACTION:
             return [
                 # kv:  v_cond  v_denoise  state  action
-                [True,  False, False, False],  # q: video_cond
-                [True,  True,  False, False],  # q: video_denoise
-                [False, False, True,  False],  # q: state
-                [True,  False, True,  True],   # q: action (no video_denoise)
+                [True, False, False, False],  # q: video_cond
+                [True, True, False, False],  # q: video_denoise
+                [False, False, True, False],  # q: state
+                [True, False, True, True],  # q: action (no video_denoise)
             ]
         elif self == AttentionMaskPattern.JOINT_VIDEO_ACTION:
             return [
                 # kv:  v_cond  v_denoise  state  action
-                [True,  False, False, False],  # q: video_cond
-                [True,  True,  False, False],  # q: video_denoise
-                [False, False, True,  False],  # q: state
-                [True,  True,  True,  True],   # q: action (sees video_denoise)
+                [True, False, False, False],  # q: video_cond
+                [True, True, False, False],  # q: video_denoise
+                [False, False, True, False],  # q: state
+                [True, True, True, True],  # q: action (sees video_denoise)
             ]
         elif self == AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_COND:
             return [
                 # kv:  v_cond  v_denoise  state  action
-                [True,  True, False, False],  # q: video_cond (sees all video)
-                [True,  True,  False, False],  # q: video_denoise
-                [False, False, True,  False],  # q: state
-                [True,  False,  True,  True],   # q: action (no video_denoise)
+                [True, True, False, False],  # q: video_cond (sees all video)
+                [True, True, False, False],  # q: video_denoise
+                [False, False, True, False],  # q: state
+                [True, False, True, True],  # q: action (no video_denoise)
             ]
         elif self == AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL:
             return [
                 # kv:  v_cond  v_denoise  state  action
-                [True,  True,  False, False],  # q: video_cond (sees all video)
-                [True,  True,  False, False],  # q: video_denoise
-                [False, False, True,  False],  # q: state
-                [True,  True, True,  True],   # q: action (sees all video)
+                [True, True, False, False],  # q: video_cond (sees all video)
+                [True, True, False, False],  # q: video_denoise
+                [False, False, True, False],  # q: state
+                [True, True, True, True],  # q: action (sees all video)
             ]
         elif self == AttentionMaskPattern.FULL:
             return [
@@ -115,6 +116,21 @@ class AttentionMaskPattern(str, Enum):
                 [True, True, True, True],
             ]
         raise ValueError(f"Unknown pattern: {self}")
+
+
+# Extension attention receives (batch, query modality, key modality, base table).
+AttentionRule = Callable[[Tensor, Tensor, Tensor, Tensor], Tensor]
+
+
+@dataclass(frozen=True)
+class AdditionalTokenGroup:
+    """Project-owned non-video tokens appended by the canonical packer."""
+
+    tokens: Tensor
+    timesteps: Tensor
+    rope_freqs: tuple[Tensor, Tensor]
+    modality_id: int
+    token_valid_mask: Tensor | None = None
 
 
 @dataclass
@@ -193,12 +209,15 @@ def _build_attention_mask(
     pattern_config: list[tuple[str, float]] | None = None,
     token_valid_mask: Tensor | None = None,
     block_size: int = FLEX_BLOCK_SIZE,
+    attention_rule: AttentionRule | None = None,
 ) -> tuple[BlockMask, int]:
     """Build a BlockMask from an AttentionMaskPattern config.
 
     Args:
         modality_ids: (B, L) int tensor of modality IDs.
         device: torch device.
+        block_size: FlexAttention alignment size.
+        attention_rule: Optional project modality rule; padding remains packer-owned.
         pattern_config: list of (pattern_name, probability) pairs. Per batch element,
             one pattern is sampled according to the probabilities. Defaults to
             [("bidirectional_video_action_cond", 1.0)] which matches the original training
@@ -259,10 +278,18 @@ def _build_attention_mask(
     MOD_TO_TABLE = torch.tensor([1, 0, 2, 3], dtype=torch.long, device=device)
 
     def mask_fn(b, h, q_idx, kv_idx):
+        del h
         q_mod = ids[q_idx]
         kv_mod = ids[kv_idx]
         q_valid = q_mod >= 0
         kv_valid = kv_mod >= 0
+        if attention_rule is not None:
+            return (
+                q_valid
+                & kv_valid
+                & attention_rule(b, q_mod, kv_mod, table)
+                & token_valid[b, kv_idx]
+            )
         q_table_idx = MOD_TO_TABLE[q_mod.clamp(min=0)]
         kv_table_idx = MOD_TO_TABLE[kv_mod.clamp(min=0)]
         return q_valid & kv_valid & table[b, q_table_idx, kv_table_idx] & token_valid[b, kv_idx]
@@ -296,8 +323,7 @@ class ConcatPacker:
     def __init__(self, *, flex_attention_block_size: int = FLEX_BLOCK_SIZE):
         if flex_attention_block_size <= 0:
             raise ValueError(
-                "FlexAttention block size must be positive, "
-                f"got {flex_attention_block_size}"
+                f"FlexAttention block size must be positive, got {flex_attention_block_size}"
             )
         self.flex_attention_block_size = flex_attention_block_size
 
@@ -320,7 +346,9 @@ class ConcatPacker:
         # Attention mask pattern
         attention_mask_pattern: list[tuple[str, float]] | None = None,
         # Token validity mask for padded tokens (e.g. padded camera views, padded action steps)
-        token_valid_mask: Tensor | None = None,  # (B, L_total) bool — True = real, False = padded
+        token_valid_mask: Tensor | None = None,  # ordinary [video | state | action] validity
+        additional_token_groups: Sequence[AdditionalTokenGroup] = (),
+        attention_rule: AttentionRule | None = None,
     ) -> PackedSequence:
         B = video_tokens.shape[0]
         device = video_tokens.device
@@ -329,9 +357,7 @@ class ConcatPacker:
         L_action = 0 if action_tokens is None else action_tokens.shape[1]
 
         # Build video modality ids: split cond vs denoise when mask is provided
-        video_ids = torch.full(
-            (B, L_video), MODALITY_VIDEO, dtype=torch.long, device=device
-        )
+        video_ids = torch.full((B, L_video), MODALITY_VIDEO, dtype=torch.long, device=device)
         if video_cond_token_mask is not None:
             video_ids[video_cond_token_mask] = MODALITY_VIDEO_COND
 
@@ -369,6 +395,47 @@ class ConcatPacker:
                 )
             )
 
+        if additional_token_groups:
+            if attention_rule is None:
+                raise ValueError("Additional modalities require an explicit attention_rule")
+            if not torch.equal(video_ids, video_ids[0:1].expand_as(video_ids)):
+                raise ValueError("Additional tokens require a batch-uniform packed layout")
+            original_length = L_video + L_state + L_action
+            if token_valid_mask is None:
+                token_valid_mask = torch.ones(B, original_length, dtype=torch.bool, device=device)
+            elif token_valid_mask.shape != (B, original_length):
+                raise ValueError("Token-valid mask must match the ordinary packed sequence")
+            all_valid = [token_valid_mask.to(device=device, dtype=torch.bool)]
+            for group in additional_token_groups:
+                if group.modality_id <= MODALITY_ACTION:
+                    raise ValueError("Additional groups must use a distinct non-video modality")
+                if group.tokens.shape[0] != B or group.tokens.shape[2] != video_tokens.shape[2]:
+                    raise ValueError("Additional tokens must match the batch and hidden dimensions")
+                if group.timesteps.shape != group.tokens.shape[:2]:
+                    raise ValueError("Additional token timesteps have the wrong shape")
+                if any(
+                    rope.shape != (group.tokens.shape[1], video_rope[0].shape[1])
+                    for rope in group.rope_freqs
+                ):
+                    raise ValueError("Additional token RoPE has the wrong shape")
+                valid = group.token_valid_mask
+                if valid is None:
+                    valid = torch.ones(group.tokens.shape[:2], dtype=torch.bool, device=device)
+                elif valid.shape != group.tokens.shape[:2]:
+                    raise ValueError("Additional token validity has the wrong shape")
+                all_tokens.append(group.tokens)
+                all_timesteps.append(group.timesteps)
+                all_cos.append(group.rope_freqs[0])
+                all_sin.append(group.rope_freqs[1])
+                all_ids.append(
+                    torch.full(
+                        group.tokens.shape[:2], group.modality_id, dtype=torch.long, device=device
+                    )
+                )
+                all_valid.append(valid.to(device=device, dtype=torch.bool))
+            token_valid_mask = torch.cat(all_valid, dim=1)
+            has_multimodal = True
+
         tokens = torch.cat(all_tokens, dim=1)
         timesteps = torch.cat(all_timesteps, dim=1)
         rope_freqs = (torch.cat(all_cos, dim=0), torch.cat(all_sin, dim=0))
@@ -400,6 +467,7 @@ class ConcatPacker:
                 attention_mask_pattern,
                 token_valid_mask,
                 block_size=self.flex_attention_block_size,
+                attention_rule=attention_rule,
             )
 
         return PackedSequence(
@@ -418,8 +486,8 @@ class ConcatPacker:
                 device=device,
             ),
             non_video_token_indices=(
-                torch.arange(L_video, L_video + L_state + L_action, device=device)
-                if L_state + L_action > 0
+                torch.arange(L_video, tokens.shape[1], device=device)
+                if tokens.shape[1] > L_video
                 else None
             ),
             has_video_cond_tokens=video_cond_token_mask is not None,

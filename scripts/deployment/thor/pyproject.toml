@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isaac-groot-n2-thor"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "isaac-groot-n2[deployment]",
+    "nvidia-cudnn-cu13",
+    "nvidia-cudss-cu13",
+    "onnx>=1.20.0",
+    "onnxscript",
+    "tensorrt-cu13==10.16.1.11",
+    "triton==3.5.0",
+]
+
+[tool.uv]
+override-dependencies = [
+    "flash-attn==2.8.4",
+    "torch==2.10.0",
+    "torchvision==0.25.0",
+]
+
+[tool.uv.sources]
+isaac-groot-n2 = { path = "../../..", editable = true }
+torch = { index = "jetson-sbsa-cu130" }
+torchvision = { index = "jetson-sbsa-cu130" }
+triton = { index = "jetson-sbsa-cu130" }
+flash-attn = { index = "jetson-sbsa-cu130" }
+
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch==2.10.0", "numpy==1.26.4", "triton==3.5.0"]
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+
+[[tool.uv.index]]
+name = "nvidia-pypi"
+url = "https://pypi.nvidia.com"
+explicit = true
+
+[[tool.uv.index]]
+name = "jetson-sbsa-cu130"
+url = "https://pypi.jetson-ai-lab.io/sbsa/cu130/+simple"
+explicit = true

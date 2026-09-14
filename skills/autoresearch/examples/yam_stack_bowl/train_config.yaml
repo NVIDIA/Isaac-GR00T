@@ -15,7 +15,7 @@ data:
   override_pretraining_statistics: true
 
 training:
-  start_from_checkpoint: hf://model/nvidia/GR00T-N2-YAM-Pretrain-Bidir-200K@checkpoint-200000
+  start_from_checkpoint: hf://model/nvidia/GR00T2Internal@4fe662abaf302ee46916881c447377da8c4bd15a/base_200k
   max_steps: 10
   per_device_batch_size: 1
   num_gpus: 1
