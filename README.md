@@ -138,118 +138,35 @@ boundary:
 | Open-loop eval | Local dataset, matching embodiment tag, local checkpoint or accessible HF URI, GPU | JSON evaluation report |
 | Closed-loop eval | Simulator backend plugin, suite assets, matching embodiment tag, checkpoint, GPU | Success-rate report and optional videos |
 | Policy server | Matching embodiment tag, local checkpoint or accessible HF URI, GPU | TCP policy endpoint |
-| Train and eval | All post-training and open-loop evaluation inputs; optional approved benchmark recipe | Checkpoint, evaluation JSON, and optional benchmark report |
+| Train and eval | All post-training and open-loop evaluation inputs | Checkpoint and JSON report |
 
 See the detailed guide for the exact smoke-test environment variables and
 command-line arguments. Training requires an explicit `--embodiment-tag` and
 either `--dataset-path` or an intentional replacement of the complete
 `data.datasets` list with `--set`.
 
-## Reproducible Benchmark Reports
+### LIBERO-10 post-training recipe
 
-Add `--benchmark-recipe` to train once, evaluate that checkpoint, and connect the
-inputs and results in `benchmark-report.json`. The recipe selects open-loop
-evaluation, closed-loop simulation, or both, using the existing evaluators.
-
-The bundled `libero_10_n2` recipe follows the LIBERO-10 onboarding example below.
-It requires eight GPUs, access to the pinned starting checkpoint, and the existing
-simulator setup:
+The OSS-only `n2_oss_libero_10` experiment composes the public
+`n2_oss_pretrain` base with the validated LIBERO-10 post-training settings.
+Download the pinned public LeRobot v2.1 snapshot:
 
 ```bash
-groot/infra/closed_loop/backends/libero_pro/setup.sh
-uv run --no-sync python -m groot.infra.oss train-eval \
-  --benchmark-recipe libero_10_n2 --output-dir /tmp/n2-libero-benchmark
+uv run hf download IPEC-COMMUNITY/libero_10_no_noops_1.0.0_lerobot \
+  --repo-type dataset \
+  --revision e1a223d30b896c1613f270a2bfc63d382b3de7e1 \
+  --local-dir datasets/libero/libero_10_no_noops_1.0.0_lerobot
 ```
 
-Use `--dry-run` first to inspect the recipe without downloads, dataset preparation,
-GPU inspection, training, or evaluation. Benchmark runs require a clean Git
-checkout; keep outputs outside it or in an ignored directory.
-
-Here is the complete bundled recipe. You can also pass a JSON file directly:
-
-```json
-{
-  "schema_version": "groot-n2-benchmark-spec-v1",
-  "benchmark": {
-    "recipe_id": "libero_10_n2",
-    "recipe_version": "1",
-    "provenance": "OSS LIBERO-10 onboarding: oss/README.md and n2_oss_libero_10"
-  },
-  "dataset": {
-    "repo_id": "IPEC-COMMUNITY/libero_10_no_noops_1.0.0_lerobot",
-    "revision": "e1a223d30b896c1613f270a2bfc63d382b3de7e1"
-  },
-  "base_checkpoint": {
-    "uri": "hf://model/nvidia/GR00T2Internal@4fe662abaf302ee46916881c447377da8c4bd15a/base_200k",
-    "revision": "4fe662abaf302ee46916881c447377da8c4bd15a"
-  },
-  "training": {
-    "experiment": "n2_oss_libero_10", "compute_type": "h100",
-    "embodiment_tag": "libero_sim", "seed": 24,
-    "max_steps": 10000, "num_gpus": 8, "batch_size": 4,
-    "config_overrides": []
-  },
-  "evaluation": {
-    "closed_loop": {
-      "backend": "groot.infra.closed_loop.backends.libero_pro.backend:LiberoProBackend",
-      "suite": "libero_pro_10", "episodes_per_task": 50, "seed": 0,
-      "max_episode_steps": 400, "action_steps": 8, "denoising_steps": 4
-    }
-  },
-  "expectations": {}
-}
-```
-
-This uses the OSS CLI's pinned base checkpoint. Reproducing the published score
-through this wrapper remains to be validated. Empty `expectations` records results
-as `completed`, without claiming a performance pass. Agreed ranges specify
-`minimum`, `maximum`, and `provenance` for metrics such as
-`evaluation.closed_loop.success_rate` (a fraction from 0 to 1). Missing or
-non-finite results, incomplete training, failed ranges, and execution failures
-exit nonzero. Failure reports retain the stage, completed results, and artifacts.
-
-For open-loop evaluation, add this block under `evaluation.open_loop`, alongside
-`closed_loop` or on its own:
-
-```json
-{
-  "trajectory_ids": [0], "steps": 200, "action_horizon": 30,
-  "denoising_steps": 4, "video_backend": "torchcodec",
-  "local_only": true, "server_parity_tolerance": 0.01
-}
-```
-
-The recipe owns all experiment settings, including the dataset and checkpoint.
-Repeated command-line settings are rejected even when they match. Only
-`--output-dir`, `--dry-run`, and open-loop `--output-json` are operational options.
-Ordinary `train-eval` keeps its existing behavior.
-
-Remote dataset files are checked against the pinned Hub revision. For local data,
-use `{"path": "/path/to/dataset", "sha256": "<expected fingerprint>"}` instead.
-Relative dataset paths resolve beside the recipe file. Compute a fingerprint with:
+Then post-train from the
+[GR00T2Internal `base_200k` checkpoint](https://huggingface.co/nvidia/GR00T2Internal/tree/main/base_200k):
 
 ```bash
-uv run python -c 'from pathlib import Path; from groot.infra.benchmark.dataset import dataset_fingerprint; print(dataset_fingerprint(Path("/path/to/dataset")))'
-```
-
-The fingerprint covers sorted relative filenames, sizes, and SHA-256 file hashes,
-excluding root `.git` and `.cache` bookkeeping. Each run verifies the source,
-copies metadata into its output dataset, and links the large data files. Existing
-preparation code operates on that view; the report identifies the prepared
-metadata. Keep source data unchanged while a run is in progress.
-
-## LIBERO-10 post-training recipe
-
-Use `libero_10_n2` to post-train the existing `n2_oss_libero_10` experiment and
-evaluate its final checkpoint on the ten LIBERO tasks. The recipe downloads and
-verifies the pinned public dataset, prepares its metadata, and starts training
-from the pinned `base_200k` checkpoint.
-
-After completing the [simulator setup](#libero-and-libero-pro), run:
-
-```bash
-uv run --no-sync python -m groot.infra.oss train-eval \
-  --benchmark-recipe libero_10_n2 \
+uv run --no-sync python -m groot.infra.oss train \
+  --experiment n2_oss_libero_10 \
+  --dataset-path datasets/libero/libero_10_no_noops_1.0.0_lerobot \
+  --embodiment-tag libero_sim \
+  --pretrain-checkpoint hf://model/nvidia/GR00T2Internal@main/base_200k \
   --output-dir ./outputs/n2-libero-10
 ```
 
@@ -257,14 +174,15 @@ The experiment config preserves the validated LIBERO-10 data window, model
 head, optimizer, and global batch of 384. Its default topology is one eight-GPU
 node with batch 4 per GPU and gradient accumulation 12.
 
-Add `--dry-run` to inspect the recipe and resolved commands without downloading
-data, preparing metadata, training, or evaluating.
+The public snapshot does not include GR00T's modality map or low-dimensional
+statistics. Before training, the command validates its expected feature shapes,
+adds missing `meta/modality.json`, and generates `meta/stats.json`. Existing
+modality metadata is preserved. Add `--dry-run` to inspect the resolved command
+without changing the dataset.
 
 The final checkpoint is written to
-`./outputs/n2-libero-10/checkpoint-10000` and evaluated with 50 episodes per task.
-The combined `./outputs/n2-libero-10/benchmark-report.json` records the inputs,
-checkpoint, and results. See [Reproducible Benchmark Reports](#reproducible-benchmark-reports)
-for the complete recipe and report details.
+`./outputs/n2-libero-10/checkpoint-10000`. Evaluate it separately with the
+closed-loop simulator workflows below.
 
 ## Closed-loop Evaluation
 

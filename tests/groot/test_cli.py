@@ -30,53 +30,6 @@ def test_oss_cli_does_not_eagerly_import_optional_policy_server_runtime() -> Non
     assert not hasattr(oss, "run_gr00t_server")
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["train-eval"],
-        ["train-eval", "--benchmark-recipe", "recipe.json", "--dataset-path", "data"],
-        ["benchmark"],
-    ],
-)
-def test_oss_train_eval_rejects_incomplete_inputs(argv):
-    with pytest.raises(SystemExit) as exc:
-        oss.main(argv)
-    assert exc.value.code == 2
-
-
-def test_oss_train_eval_benchmark_recipe_delegates_to_report_runner(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured: list[object] = []
-
-    def fake_run(args: object, *, run_train_eval) -> int:
-        assert run_train_eval is oss._run_train_eval  # noqa: SLF001
-        captured.append(args)
-        return 7
-
-    monkeypatch.setattr(oss, "run_benchmark", fake_run)
-
-    status = oss.main(
-        [
-            "train-eval",
-            "--benchmark-recipe",
-            str(tmp_path / "approved-spec.json"),
-            "--output-dir",
-            str(tmp_path / "output"),
-            "--dry-run",
-        ]
-    )
-
-    assert status == 7
-    assert len(captured) == 1
-    args = captured[0]
-    assert args.command == "train-eval"
-    assert args.benchmark_recipe == str(tmp_path / "approved-spec.json")
-    assert args.output_dir == str(tmp_path / "output")
-    assert args.dry_run is True
-
-
 def test_oss_closed_loop_dry_run_uses_generic_backend(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
@@ -739,7 +692,6 @@ def test_oss_train_eval_passes_trained_checkpoint_to_eval_without_gpu_backend(
     assert status == 0
     assert len(eval_configs) == 1
     assert eval_configs[0].checkpoint == str(output_dir / "checkpoint-2")
-    assert not (output_dir / "benchmark-report.json").exists()
 
 
 def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
@@ -751,7 +703,6 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
         package_root / "groot/infra/job/data_credentials.py",
     ]
     exported_directories = [
-        package_root / "groot/infra/benchmark",
         package_root / "groot/infra/launcher",
     ]
     eval_dir = package_root / "groot/infra/eval"
