@@ -215,7 +215,7 @@ class OssOpenLoopEvaluator:
                 timeout_ms=self.config.server_timeout_ms,
                 jpeg_enabled=True,
             )
-            adapter = PolicyClientAdapter(client)
+            adapter = PolicyClientAdapter(client, ready=not self.config.use_cuda_graph)
             try:
                 return self.evaluate_policy(adapter, dataset_path)
             finally:
@@ -329,6 +329,8 @@ class OssOpenLoopEvaluator:
             model_path=str(model_path),
             device=self.device(),
             num_inference_timesteps=self.config.denoising_steps,
+            trt_engine_dir=self.config.trt_engine_dir,
+            use_cuda_graph=self.config.use_cuda_graph,
         )
 
     def check_finite_metrics(self, label: str, summary: MetricSummary) -> None:
