@@ -30,53 +30,6 @@ def test_oss_cli_does_not_eagerly_import_optional_policy_server_runtime() -> Non
     assert not hasattr(oss, "run_gr00t_server")
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["train-eval"],
-        ["train-eval", "--benchmark-recipe", "recipe.json", "--dataset-path", "data"],
-        ["benchmark"],
-    ],
-)
-def test_oss_train_eval_rejects_incomplete_inputs(argv):
-    with pytest.raises(SystemExit) as exc:
-        oss.main(argv)
-    assert exc.value.code == 2
-
-
-def test_oss_train_eval_benchmark_recipe_delegates_to_report_runner(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured: list[object] = []
-
-    def fake_run(args: object, *, run_train_eval) -> int:
-        assert run_train_eval is oss._run_train_eval  # noqa: SLF001
-        captured.append(args)
-        return 7
-
-    monkeypatch.setattr(oss, "run_benchmark", fake_run)
-
-    status = oss.main(
-        [
-            "train-eval",
-            "--benchmark-recipe",
-            str(tmp_path / "approved-spec.json"),
-            "--output-dir",
-            str(tmp_path / "output"),
-            "--dry-run",
-        ]
-    )
-
-    assert status == 7
-    assert len(captured) == 1
-    args = captured[0]
-    assert args.command == "train-eval"
-    assert args.benchmark_recipe == str(tmp_path / "approved-spec.json")
-    assert args.output_dir == str(tmp_path / "output")
-    assert args.dry_run is True
-
-
 def test_oss_closed_loop_dry_run_uses_generic_backend(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
@@ -486,6 +439,7 @@ def test_oss_agent_guidance_references_existing_surfaces() -> None:
 
 def test_oss_eval_dry_run_uses_open_loop_eval_config(capsys, tmp_path: Path) -> None:
     dataset_path = tmp_path / "dataset"
+    engine_dir = tmp_path / "engines"
     status = oss.main(
         [
             "eval",
@@ -495,6 +449,9 @@ def test_oss_eval_dry_run_uses_open_loop_eval_config(capsys, tmp_path: Path) -> 
             "hf://model/org/repo@main/checkpoint-100",
             "--dataset-path",
             str(dataset_path),
+            "--trt-engine-dir",
+            str(engine_dir),
+            "--use-cuda-graph",
             "--dry-run",
         ]
     )
@@ -504,6 +461,8 @@ def test_oss_eval_dry_run_uses_open_loop_eval_config(capsys, tmp_path: Path) -> 
     assert "checkpoint=hf://model/org/repo@main/checkpoint-100" in output
     assert f"dataset_path={dataset_path}" in output
     assert "output_json=/tmp/groot_oss_open_loop_eval.json" in output
+    assert f"trt_engine_dir={engine_dir}" in output
+    assert "use_cuda_graph=True" in output
 
 
 def test_oss_eval_invokes_open_loop_evaluator_without_running_gpu_backend(
@@ -513,6 +472,7 @@ def test_oss_eval_invokes_open_loop_evaluator_without_running_gpu_backend(
     checkpoint = tmp_path / "checkpoint-2"
     dataset_path = tmp_path / "dataset"
     output_json = tmp_path / "eval.json"
+    engine_dir = tmp_path / "engines"
     configs: list[oss.OssOpenLoopEvalConfig] = []
 
     class FakeEvaluator:
@@ -547,6 +507,9 @@ def test_oss_eval_invokes_open_loop_evaluator_without_running_gpu_backend(
             "--output-json",
             str(output_json),
             "--local-only",
+            "--trt-engine-dir",
+            str(engine_dir),
+            "--use-cuda-graph",
         ]
     )
 
@@ -562,9 +525,12 @@ def test_oss_eval_invokes_open_loop_evaluator_without_running_gpu_backend(
     assert config.denoising_steps == 1
     assert config.server_parity_tolerance == 0.2
     assert config.local_only is True
+    assert config.trt_engine_dir == str(engine_dir)
+    assert config.use_cuda_graph is True
 
 
-def test_oss_policy_server_dry_run_reports_effective_config(capsys) -> None:
+def test_oss_policy_server_dry_run_reports_effective_config(capsys, tmp_path: Path) -> None:
+    engine_dir = tmp_path / "engines"
     status = oss.main(
         [
             "policy-server",
@@ -578,6 +544,9 @@ def test_oss_policy_server_dry_run_reports_effective_config(capsys) -> None:
             "cpu",
             "--denoising-steps",
             "2",
+            "--trt-engine-dir",
+            str(engine_dir),
+            "--use-cuda-graph",
             "--dry-run",
         ]
     )
@@ -589,6 +558,8 @@ def test_oss_policy_server_dry_run_reports_effective_config(capsys) -> None:
     assert "address=tcp://127.0.0.1:6000" in output
     assert "device=cpu" in output
     assert "denoising_steps=2" in output
+    assert f"trt_engine_dir={engine_dir}" in output
+    assert "use_cuda_graph=True" in output
 
 
 def test_policy_server_uses_enum_member_for_irregular_embodiment() -> None:
@@ -601,6 +572,7 @@ def test_oss_policy_server_invokes_core_server_in_process_without_running_gpu_ba
     tmp_path: Path,
 ) -> None:
     checkpoint = tmp_path / "checkpoint-100"
+    engine_dir = tmp_path / "engines"
     configs: list[oss.OssOpenLoopEvalConfig] = []
     calls: list[tuple[Path, oss.OssPolicyServerConfig]] = []
 
@@ -633,6 +605,9 @@ def test_oss_policy_server_invokes_core_server_in_process_without_running_gpu_ba
             "2",
             "--cache-root",
             str(tmp_path / "hf-cache"),
+            "--trt-engine-dir",
+            str(engine_dir),
+            "--use-cuda-graph",
         ]
     )
 
@@ -652,6 +627,8 @@ def test_oss_policy_server_invokes_core_server_in_process_without_running_gpu_ba
                 embodiment_tag="xdof_relative_eef_relative_joint",
                 device="cpu",
                 denoising_steps=2,
+                trt_engine_dir=str(engine_dir),
+                use_cuda_graph=True,
             ),
         )
     ]
@@ -668,6 +645,7 @@ def test_oss_policy_server_builds_server_config_at_runtime(monkeypatch, tmp_path
     fake_server_module = SimpleNamespace(ServerConfig=FakeServerConfig, main=calls.append)
     monkeypatch.setattr(policy_package, "run_gr00t_server", fake_server_module, raising=False)
 
+    engine_dir = tmp_path / "engines"
     config = oss.OssPolicyServerConfig(
         checkpoint=str(tmp_path / "checkpoint-100"),
         cache_root=None,
@@ -676,6 +654,8 @@ def test_oss_policy_server_builds_server_config_at_runtime(monkeypatch, tmp_path
         embodiment_tag="onex_eve_gripper",
         device="cpu",
         denoising_steps=2,
+        trt_engine_dir=str(engine_dir),
+        use_cuda_graph=True,
     )
 
     oss._run_gr00t_policy_server(tmp_path / "checkpoint-100", config)  # noqa: SLF001
@@ -685,6 +665,8 @@ def test_oss_policy_server_builds_server_config_at_runtime(monkeypatch, tmp_path
     assert server_config.model_path == str(tmp_path / "checkpoint-100")
     assert server_config.embodiment_tag.name == "ONE_X_EVE_GRIPPER"
     assert server_config.num_inference_timesteps == 2
+    assert server_config.trt_engine_dir == str(engine_dir)
+    assert server_config.use_cuda_graph is True
 
 
 def test_oss_train_eval_passes_trained_checkpoint_to_eval_without_gpu_backend(
@@ -739,7 +721,6 @@ def test_oss_train_eval_passes_trained_checkpoint_to_eval_without_gpu_backend(
     assert status == 0
     assert len(eval_configs) == 1
     assert eval_configs[0].checkpoint == str(output_dir / "checkpoint-2")
-    assert not (output_dir / "benchmark-report.json").exists()
 
 
 def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
@@ -751,7 +732,6 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
         package_root / "groot/infra/job/data_credentials.py",
     ]
     exported_directories = [
-        package_root / "groot/infra/benchmark",
         package_root / "groot/infra/launcher",
     ]
     eval_dir = package_root / "groot/infra/eval"
@@ -834,6 +814,7 @@ def test_oss_gpu_ci_job_runs_gpu_marked_package_tests() -> None:
     assert "groot imported outside OSS export" in ci_config
     assert '"$OSS_PACKAGE_ROOT/tests/groot"' in gpu_job
     assert "-m gpu" in gpu_job
+    assert "tensorrt-cu13==10.16.1.11" in gpu_job
     assert '-m "not gpu"' in ci_config
 
 

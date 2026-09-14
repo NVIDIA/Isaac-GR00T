@@ -22,17 +22,10 @@ import transformers
 from groot.core.training.models.n2.components.flash_attention import (
     scaled_dot_product_attention_bf16,
 )
-from groot.core.training.models.n2.utils.cosmos_model_deps import ensure_cosmos_model_deps
 from groot.deployment.n2_trt.contract import TransformerPrecision
 
 DEFAULT_EMBODIMENT = "xdof_relative_eef_relative_joint"
 DEFAULT_CODEC_ROUNDTRIP = "h264"
-
-
-def _prepare_checkpoint(checkpoint: str) -> Path:
-    checkpoint_path = Path(checkpoint).expanduser().resolve()
-    ensure_cosmos_model_deps(checkpoint_path)
-    return checkpoint_path
 
 
 def _parse_args() -> argparse.Namespace:
@@ -1096,8 +1089,6 @@ def main() -> int:
         TRANSFORMER_EXPORT_ACTION_ORACLE,
         TRANSFORMER_EXPORT_JOINT_ORACLE,
     )
-
-    args.checkpoint = str(_prepare_checkpoint(args.checkpoint))
 
     # Retain production-native samples for behavioral diagnosis. Engine
     # correctness is qualified separately against the exact SDPA export source.

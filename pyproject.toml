@@ -123,7 +123,7 @@ where = ["."]
 include = ["groot*", "skills", "skills.autoresearch*"]
 
 [tool.setuptools.package-data]
-groot = ["**/*.yaml", "core/training/configs/deepspeed/zero2_config.json", "infra/benchmark/specs/*.json"]
+groot = ["**/*.yaml", "core/training/configs/deepspeed/zero2_config.json"]
 "skills.autoresearch" = ["**/*.yaml"]
 
 [tool.uv.sources]
