@@ -165,6 +165,9 @@ def resolve_train(args: argparse.Namespace) -> ResolvedOssTrain:
         compute_type=compute_type,
         config_overrides=overrides,
         experiment_dir=args.experiment_dir,
+        # The one-launcher default is cwd-relative, so resolving from a checkout
+        # writes generated YAML into it. Anchor it to the run's output root.
+        output_root=Path(env["TRAINING_OUTPUT_ROOT"]) / ".ol" / "experiments",
         env=env,
     )
     output_dir = Path(env["TRAINING_OUTPUT_ROOT"]) / env["USER_SLUG"] / env["JOB_NAME"]
