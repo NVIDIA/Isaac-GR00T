@@ -8,7 +8,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""OSS training and evaluation entrypoint.
+"""OSS training and open-loop evaluation entrypoint.
 
 The OSS CLI is intentionally the public launch surface for package users and CI
 smoke tests. Training resolves a one-launcher experiment config, applies
@@ -16,8 +16,6 @@ OSS-safe overrides, and executes the underlying
 ``groot.core.training.experiment.experiment_ray`` command. Evaluation runs the
 OSS open-loop evaluator against either a local checkpoint path or an HF model
 URI.
-
-Train-eval optionally records a benchmark report under an approved recipe.
 """
 
 from __future__ import annotations
@@ -32,13 +30,8 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from groot.infra.benchmark.runner import BenchmarkRun
 
 from groot.core.data import schema
-from groot.infra.benchmark.runner import run_benchmark
 from groot.infra.dataset_preparation import prepare_lerobot_dataset
 from groot.infra.eval.oss_open_loop_eval_config import OssOpenLoopEvalConfig
 from groot.infra.eval.oss_open_loop_evaluator import OssOpenLoopEvaluator
@@ -85,8 +78,6 @@ class OssPolicyServerConfig:
     embodiment_tag: str
     device: str
     denoising_steps: int
-    trt_engine_dir: str | None = None
-    use_cuda_graph: bool = False
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -99,38 +90,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         config = _eval_config(args)
         return _run_eval(config, dry_run=args.dry_run)
     if args.command == "train-eval":
-        if args.benchmark_recipe:
-            return run_benchmark(args, run_train_eval=_run_train_eval)
-        return _run_train_eval(args)
+        _prepare_train_dataset(args, dry_run=args.dry_run)
+        resolved = resolve_train(args)
+        train_status = _run_train(resolved, dry_run=args.dry_run)
+        if train_status != 0 or args.dry_run:
+            return train_status
+        checkpoint = args.checkpoint or str(resolved.final_checkpoint)
+        return _run_eval(_eval_config(args, checkpoint=checkpoint), dry_run=False)
     if args.command == "policy-server":
         return _run_policy_server(_policy_server_config(args), dry_run=args.dry_run)
     if args.command == "closed-loop-eval":
         return _run_closed_loop_eval(args)
     raise AssertionError(f"unhandled command {args.command!r}")
-
-
-def _run_train_eval(args: argparse.Namespace, *, benchmark: BenchmarkRun | None = None) -> int:
-    if benchmark:
-        benchmark.stage = "dataset"
-    _prepare_train_dataset(args, dry_run=args.dry_run)
-    if benchmark:
-        benchmark.stage = "resolution"
-    resolved = resolve_train(args)
-    if benchmark:
-        benchmark.record_resolution(resolved)
-        if args.dry_run:
-            return 0
-        benchmark.stage = "training"
-    train_status = _run_train(resolved, dry_run=args.dry_run)
-    if train_status != 0 or args.dry_run:
-        return train_status
-    if benchmark:
-        benchmark.record_training(resolved)
-        benchmark.stage = "evaluation"
-        return benchmark.evaluate(resolved.final_checkpoint)
-    checkpoint = args.checkpoint or str(resolved.final_checkpoint)
-    OssOpenLoopEvaluator(_eval_config(args, checkpoint=checkpoint)).run()
-    return 0
 
 
 def _prepare_train_dataset(args: argparse.Namespace, *, dry_run: bool) -> None:
@@ -165,9 +136,6 @@ def resolve_train(args: argparse.Namespace) -> ResolvedOssTrain:
         compute_type=compute_type,
         config_overrides=overrides,
         experiment_dir=args.experiment_dir,
-        # The one-launcher default is cwd-relative, so resolving from a checkout
-        # writes generated YAML into it. Anchor it to the run's output root.
-        output_root=Path(env["TRAINING_OUTPUT_ROOT"]) / ".ol" / "experiments",
         env=env,
     )
     output_dir = Path(env["TRAINING_OUTPUT_ROOT"]) / env["USER_SLUG"] / env["JOB_NAME"]
@@ -206,8 +174,6 @@ def _run_eval(config: OssOpenLoopEvalConfig, *, dry_run: bool) -> int:
         _emit(f"dataset_path={config.dataset_path or ''}")
         _emit(f"output_json={config.output_json}")
         _emit(f"traj_ids={','.join(str(item) for item in config.traj_ids)}")
-        _emit(f"trt_engine_dir={config.trt_engine_dir or ''}")
-        _emit(f"use_cuda_graph={config.use_cuda_graph}")
         return 0
     OssOpenLoopEvaluator(config).run()
     return 0
@@ -227,8 +193,6 @@ def _run_policy_server(config: OssPolicyServerConfig, *, dry_run: bool) -> int:
         _emit(f"embodiment_tag={config.embodiment_tag}")
         _emit(f"device={config.device}")
         _emit(f"denoising_steps={config.denoising_steps}")
-        _emit(f"trt_engine_dir={config.trt_engine_dir or ''}")
-        _emit(f"use_cuda_graph={config.use_cuda_graph}")
         return 0
 
     artifact_config = OssOpenLoopEvalConfig(
@@ -251,8 +215,6 @@ def _run_gr00t_policy_server(model_path: str | Path, config: OssPolicyServerConf
             port=config.port,
             device=config.device,
             num_inference_timesteps=config.denoising_steps,
-            trt_engine_dir=config.trt_engine_dir,
-            use_cuda_graph=config.use_cuda_graph,
         )
     )
 
@@ -344,8 +306,6 @@ def _eval_config(
         denoising_steps=args.denoising_steps,
         server_parity_tolerance=args.server_parity_tolerance,
         local_only=args.local_only,
-        trt_engine_dir=args.trt_engine_dir or None,
-        use_cuda_graph=args.use_cuda_graph,
     )
 
 
@@ -358,8 +318,6 @@ def _policy_server_config(args: argparse.Namespace) -> OssPolicyServerConfig:
         embodiment_tag=args.embodiment_tag,
         device=args.device,
         denoising_steps=args.denoising_steps,
-        trt_engine_dir=args.trt_engine_dir or None,
-        use_cuda_graph=args.use_cuda_graph,
     )
 
 
@@ -382,32 +340,18 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     train_eval = subparsers.add_parser(
         "train-eval",
         help="Run OSS post-training and then open-loop evaluation.",
-        allow_abbrev=False,
     )
-    _add_train_parser(train_eval, embodiment_required=False)
+    _add_train_parser(train_eval)
     _add_eval_options(
         train_eval,
         checkpoint_required=False,
         include_dataset_path=False,
         include_embodiment_tag=False,
     )
-    train_eval.add_argument(
-        "--benchmark-recipe",
-        default="",
-        help="Approved recipe ID or spec JSON fixing run settings and enabling a benchmark report.",
-    )
-    args = parser.parse_args(argv)
-    if args.command == "train-eval":
-        if args.benchmark_recipe:
-            if not args.output_dir:
-                parser.error("--benchmark-recipe requires --output-dir")
-            args.invocation = list(sys.argv[1:] if argv is None else argv)
-        elif not args.embodiment_tag:
-            parser.error("--embodiment-tag is required for train-eval without --benchmark-recipe")
-    return args
+    return parser.parse_args(argv)
 
 
-def _add_train_parser(parser: argparse.ArgumentParser, *, embodiment_required: bool = True) -> None:
+def _add_train_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--experiment", default=OSS_TRAINING_EXPERIMENT)
     parser.add_argument("--compute-type", default="h100")
     parser.add_argument("--experiment-dir", type=Path, default=DEFAULT_EXPERIMENT_DIR)
@@ -418,7 +362,7 @@ def _add_train_parser(parser: argparse.ArgumentParser, *, embodiment_required: b
     )
     parser.add_argument(
         "--embodiment-tag",
-        required=embodiment_required,
+        required=True,
         help="Dataset embodiment tag used for data loading and N2 action/state head selection.",
     )
     parser.add_argument("--pretrain-checkpoint", default="")
@@ -450,7 +394,6 @@ def _add_policy_server_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--embodiment-tag", default="xdof_relative_eef_relative_joint")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--denoising-steps", type=int, default=4)
-    _add_acceleration_options(parser)
     parser.add_argument("--cache-root", default="")
     parser.add_argument("--dry-run", action="store_true")
 
@@ -477,17 +420,8 @@ def _add_eval_options(
     if include_embodiment_tag:
         parser.add_argument("--embodiment-tag", default="xdof_relative_eef_relative_joint")
     parser.add_argument("--denoising-steps", type=int, default=4)
-    _add_acceleration_options(parser)
     parser.add_argument("--server-parity-tolerance", type=float, default=0.01)
     parser.add_argument("--local-only", action="store_true")
-
-
-def _add_acceleration_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--trt-engine-dir", default="")
-    parser.add_argument(
-        "--use-cuda-graph",
-        action="store_true",
-    )
 
 
 def _job_name(experiment: str, compute_type: str) -> str:

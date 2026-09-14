@@ -77,30 +77,6 @@ ACTION_TEMPORAL_POS_EMB_KEY = "action_encoder.temporal_pos_emb"
 VAE_TEMPORAL_FACTOR = 4  # Wan VAE temporal compression ratio
 
 
-def apply_state_keep(state_tokens: torch.Tensor, data: dict) -> torch.Tensor:
-    """Zero the state tokens of samples the processor marked ``state_keep == 0``.
-
-    Mirrors ``GrootN2._forward_train_impl``: a state modality with
-    ``exclude_state=True`` (or ``state_dropout_prob == 1.0``) makes the processor emit
-    ``state_keep == 0`` at inference as well as training, so a policy trained
-    proprio-free must not be fed proprio at deploy -- and an eval-time ``exclude_state``
-    A/B is otherwise a silent no-op. Key absent => no-op, so other embodiments and
-    existing checkpoints are unaffected.
-
-    Args:
-        state_tokens: (B, S, D) encoded state tokens.
-        data: Inference batch; may carry a per-sample ``state_keep`` scalar.
-
-    Returns:
-        ``state_tokens``, with the tokens of dropped samples zeroed.
-    """
-    state_keep = data.get("state_keep")
-    if state_keep is None:
-        return state_tokens
-    keep = torch.as_tensor(state_keep, device=state_tokens.device, dtype=state_tokens.dtype)
-    return state_tokens * keep.reshape(-1, 1, 1)
-
-
 @dataclasses.dataclass
 class TokenMergePlan:
     """Video-specific geometry and routing for a mid-layer sequence reduction."""
@@ -505,81 +481,6 @@ class GrootN2(PreTrainedModel):
             **transformer_kwargs,
         )
 
-    def _compute_additional_training_loss(
-        self,
-        *,
-        data: dict,
-        packed,
-        prompt_embs: torch.Tensor,
-        out_tokens: torch.Tensor,
-        token_valid_mask: torch.Tensor | None,
-        shape_info: dict,
-    ) -> tuple[torch.Tensor | None, dict[str, torch.Tensor]]:
-        """Extension hook for project-local auxiliary training objectives.
-
-        Base N2 has no auxiliary objective. Training extensions may consume the
-        already-built packed inputs/outputs without copying the full N2 forward or
-        rerunning the VAE/transformer. The returned scalar is added to the primary
-        loss; metric tensors are detached before returning to the trainer.
-        """
-        del data, packed, prompt_embs, out_tokens, token_valid_mask, shape_info
-        return None, {}
-
-    def _training_packing_kwargs(
-        self,
-        *,
-        data: dict,
-        video_tokens: torch.Tensor,
-        video_timesteps: torch.Tensor,
-        action_tokens: torch.Tensor | None,
-    ) -> dict:
-        """Supply optional token groups and attention policy before the single pack."""
-        del data, video_tokens, video_timesteps, action_tokens
-        return {}
-
-    def _joint_inference_packing_kwargs(
-        self,
-        *,
-        data: dict,
-        video_tokens: torch.Tensor,
-        video_timesteps: torch.Tensor,
-        action_tokens: torch.Tensor,
-        denoising_step: int,
-        total_denoising_steps: int,
-    ) -> dict:
-        """Supply project tokens at the selected joint solver step before packing."""
-        del (
-            data,
-            video_tokens,
-            video_timesteps,
-            action_tokens,
-            denoising_step,
-            total_denoising_steps,
-        )
-        return {}
-
-    def _build_token_merge_attention_mask(
-        self,
-        packed: PackedSequence,
-        coarse_token_idx: torch.Tensor,
-        token_valid_mask: torch.Tensor | None,
-    ) -> tuple[BlockMask | None, int]:
-        """Build the reduced mask used inside the token-merge layer range.
-
-        Project extensions that add modalities with custom attention semantics
-        may override this hook. Base N2 retains its existing four-modality mask
-        construction exactly.
-        """
-        if packed.attention_mask is None:
-            return None, 0
-        return _build_attention_mask(
-            packed.modality_ids[:, coarse_token_idx],
-            packed.tokens.device,
-            getattr(self, "attention_mask_pattern", None),
-            token_valid_mask[:, coarse_token_idx] if token_valid_mask is not None else None,
-            block_size=self.packer.flex_attention_block_size,
-        )
-
     def _build_token_merge_plan(
         self,
         packed: PackedSequence,
@@ -616,19 +517,14 @@ class GrootN2(PreTrainedModel):
             .reshape(-1)
         )
         coarse_token_idx = torch.cat([video_corners, torch.arange(L_video, L_total, device=device)])
-        mask_builder = getattr(self, "_build_token_merge_attention_mask", None)
-        if mask_builder is None:
-            attention_mask, pad = GrootN2._build_token_merge_attention_mask(
-                self,
-                packed,
-                coarse_token_idx,
-                token_valid_mask,
-            )
-        else:
-            attention_mask, pad = mask_builder(
-                packed,
-                coarse_token_idx,
-                token_valid_mask,
+        attention_mask, pad = None, 0
+        if packed.attention_mask is not None:
+            attention_mask, pad = _build_attention_mask(
+                packed.modality_ids[:, coarse_token_idx],
+                device,
+                getattr(self, "attention_mask_pattern", None),
+                token_valid_mask[:, coarse_token_idx] if token_valid_mask is not None else None,
+                block_size=self.packer.flex_attention_block_size,
             )
         L_video_coarse = video_corners.numel()
         L_nonvideo = L_total - L_video
@@ -937,25 +833,11 @@ class GrootN2(PreTrainedModel):
                 state_rope=state_rope_freqs,
                 attention_mask_pattern=getattr(self, "attention_mask_pattern", None),
                 token_valid_mask=token_valid_mask,
-                **self._training_packing_kwargs(
-                    data=data,
-                    video_tokens=video_tokens,
-                    video_timesteps=video_token_sigmas,
-                    action_tokens=action_tokens,
-                ),
             )
             token_merge = self._build_token_merge_plan(packed, shape_info, token_valid_mask)
             if token_merge is not None:
                 transformer_kwargs = {**transformer_kwargs, "sequence_transform": token_merge}
             out_tokens = self._call_transformer(packed, prompt_embs, **transformer_kwargs)
-            additional_loss, additional_metrics = self._compute_additional_training_loss(
-                data=data,
-                packed=packed,
-                prompt_embs=prompt_embs,
-                out_tokens=out_tokens,
-                token_valid_mask=token_valid_mask,
-                shape_info=shape_info,
-            )
             video_out = packed.unpack(out_tokens, (MODALITY_VIDEO, MODALITY_VIDEO_COND))
             pred_video = self.video_tokenizer.unpatchify(video_out, shape_info)
 
@@ -979,20 +861,7 @@ class GrootN2(PreTrainedModel):
         # Padded frames are at the tail of EACH VIEW, not just the global tail
         # Each batch element can have a different number of padded frames.
         video_padded_mask = data.get("video_padded_mask", None)
-        # Project-local training objectives may make a target ineligible while
-        # retaining it as a fixed input/key. Keep this loss-only mask separate
-        # from frame_valid_mask, which defines attention validity.
-        video_loss_frame_mask = data.get("video_loss_frame_mask", None)
-        if video_loss_frame_mask is not None:
-            frame_valid = video_loss_frame_mask.to(device=device, dtype=torch.bool)
-            if frame_valid.ndim == 1:
-                frame_valid = frame_valid.unsqueeze(0).expand(B, -1)
-            assert frame_valid.shape == (
-                B,
-                T,
-            ), f"video_loss_frame_mask shape {frame_valid.shape} != expected {(B, T)}"
-            weight = weight * frame_valid.to(dtype=weight.dtype)
-        elif "frame_valid_mask" in data:
+        if "frame_valid_mask" in data:
             frame_valid = data["frame_valid_mask"].to(device=device, dtype=torch.bool)
             if frame_valid.ndim == 1:
                 frame_valid = frame_valid.unsqueeze(0).expand(B, -1)
@@ -1073,25 +942,16 @@ class GrootN2(PreTrainedModel):
                 video_loss_scaled
                 + self.config.action_cfg.get("action_loss_scale", 1.0) * action_loss
             )
-            if additional_loss is not None:
-                loss = loss + additional_loss
-            result = {
+            return {
                 "loss": loss,
                 "dynamics_loss": video_loss.detach(),
                 "action_loss": action_loss.detach(),
             }
-            result.update({name: value.detach() for name, value in additional_metrics.items()})
-            return result
 
-        loss = video_loss_scaled
-        if additional_loss is not None:
-            loss = loss + additional_loss
-        result = {
-            "loss": loss,
+        return {
+            "loss": video_loss_scaled,
             "dynamics_loss": video_loss.detach(),
         }
-        result.update({name: value.detach() for name, value in additional_metrics.items()})
-        return result
 
     def forward(self, inputs: dict, validate: bool = True, **kwargs) -> dict:
         """Training forward pass. Returns dict with 'loss' for HF Trainer.
@@ -1359,7 +1219,6 @@ class GrootN2(PreTrainedModel):
         states = data["state"].to(device=device, dtype=dtype)
         embodiment_id = data.get("embodiment_id", torch.zeros(B, dtype=torch.long)).to(device)
         state_tokens = self.state_encoder(states, embodiment_id)
-        state_tokens = apply_state_keep(state_tokens, data)
         state_rope_freqs = self.state_rope(state_tokens)
         state_token_sigmas = torch.full(
             (B, state_tokens.shape[1]),
@@ -1876,7 +1735,6 @@ class GrootN2(PreTrainedModel):
         states = data["state"].to(device=device, dtype=dtype)
         embodiment_id = data.get("embodiment_id", torch.zeros(B, dtype=torch.long)).to(device)
         state_tokens = self.state_encoder(states, embodiment_id)
-        state_tokens = apply_state_keep(state_tokens, data)
         state_rope_freqs = self.state_rope(state_tokens)
         state_token_sigmas = torch.full(
             (B, state_tokens.shape[1]),
@@ -1972,14 +1830,6 @@ class GrootN2(PreTrainedModel):
                     state_rope=state_rope_freqs,
                     attention_mask_pattern=getattr(self, "attention_mask_pattern", None),
                     token_valid_mask=token_valid_mask,
-                    **self._joint_inference_packing_kwargs(
-                        data=data,
-                        video_tokens=video_tokens,
-                        video_timesteps=video_token_sigmas,
-                        action_tokens=action_tokens,
-                        denoising_step=i,
-                        total_denoising_steps=num_video_steps,
-                    ),
                 )
 
                 tm_kwargs = {}
@@ -2181,16 +2031,7 @@ class GrootN2(PreTrainedModel):
             assert torch.all(
                 token_valid_mask == token_valid_mask[:1]
             ), "kv_cache_cond assumes per-view padding is uniform across the batch"
-            # Project-local inference hooks may append auxiliary tokens after
-            # the ordinary packed prefix.  Those tokens are excluded above by
-            # modality, while this mask describes only the original prefix.
-            # Apply it to that prefix without assuming both lengths match.
-            if token_valid_mask.shape[1] > keep.shape[0]:
-                raise ValueError(
-                    "token_valid_mask is longer than the packed inference sequence: "
-                    f"{token_valid_mask.shape[1]} > {keep.shape[0]}"
-                )
-            keep[: token_valid_mask.shape[1]] &= token_valid_mask[0]
+            keep &= token_valid_mask[0, : keep.shape[0]]
         fine_idx = keep.nonzero(as_tuple=True)[0]
         # With token_merge, the mid layers captured the coarse prefix; select the
         # keep index per layer segment.

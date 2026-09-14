@@ -78,41 +78,6 @@ training = [
     "truststore",
     "wandb",
 ]
-tensorrt = [
-    "onnx>=1.20.0",
-    "onnxscript",
-    "tensorrt-cu12==10.16.1.11",
-]
-# Runtime, export, and policy-server dependencies. N2 model registration currently
-# imports data modules, so their import-time dependencies are also required here.
-deployment = [
-    "albumentations==1.4.18",
-    "av",
-    "boto3",
-    "einops",
-    "flash-attn==2.8.0.post2",
-    "ftfy",
-    "lancedb",
-    "lmdb",
-    "loguru",
-    "msgpack",
-    "multi-storage-client[boto3]==0.46.0",
-    "ninja",
-    "pandas",
-    "peft",
-    "pillow",
-    "polars>=1.0",
-    "pyarrow",
-    "pylance>=0.37.0",
-    "pyzmq",
-    "ray[default]==2.56.1",
-    "scipy",
-    "structlog",
-    "torch==2.7.1",
-    "torchvision==0.22.1",
-    "tqdm",
-    "transformers==4.57.6",
-]
 
 [tool.setuptools]
 include-package-data = true
@@ -123,7 +88,7 @@ where = ["."]
 include = ["groot*", "skills", "skills.autoresearch*"]
 
 [tool.setuptools.package-data]
-groot = ["**/*.yaml", "core/training/configs/deepspeed/zero2_config.json", "infra/benchmark/specs/*.json"]
+groot = ["**/*.yaml", "core/training/configs/deepspeed/zero2_config.json"]
 "skills.autoresearch" = ["**/*.yaml"]
 
 [tool.uv.sources]

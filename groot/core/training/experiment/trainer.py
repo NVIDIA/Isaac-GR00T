@@ -28,6 +28,7 @@ from collections import deque
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from copy import deepcopy
 import dataclasses
 import json as _json
 import logging
@@ -46,6 +47,7 @@ import torch
 from torch import nn
 import torch.distributed as dist
 from torch.optim.lr_scheduler import LambdaLR
+from torch.utils._pytree import tree_map
 from transformers.trainer import (
     TRAINER_STATE_NAME,
     Trainer,
@@ -1823,10 +1825,15 @@ class GR00TTrainer(Trainer):
                 # Written in a background thread to avoid blocking training at large scale.
                 dp_rank = dist.get_rank() if dist.is_initialized() else 0
                 opt_pt_file = os.path.join(checkpoint_dir, f"optimizer_rank{dp_rank}.pt")
-                opt_state_to_save = {
-                    "optimizer": optimizer_state,
-                    "lr_scheduler": lr_scheduler_state,
-                }
+                # Both writers need a CPU snapshot without autograd history.
+                opt_state_to_save = tree_map(
+                    lambda value: (
+                        value.detach().to(device="cpu", copy=True)
+                        if isinstance(value, torch.Tensor)
+                        else deepcopy(value)
+                    ),
+                    {"optimizer": optimizer_state, "lr_scheduler": lr_scheduler_state},
+                )
                 # Background-thread exceptions do not propagate to the Trainer
                 # thread. Retain one so complete publication can fail before a
                 # misleading SUCCESS sentinel is written remotely.
@@ -1859,10 +1866,7 @@ class GR00TTrainer(Trainer):
                 # Also launch DCP async_save for backward compatibility with older resume code.
                 t_async = time.time()
                 save_kwargs = {
-                    "state_dict": {
-                        "optimizer": optimizer_state,
-                        "lr_scheduler": lr_scheduler_state,
-                    },
+                    "state_dict": opt_state_to_save,
                     "checkpoint_id": dcp_dir,
                 }
                 # Use dedicated process group to avoid conflicts with straggler detector
