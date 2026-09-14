@@ -222,36 +222,51 @@ def ensure_cosmos_model_deps(
 def _get_s3_client():
     """Create a boto3 S3 client with PDX endpoint credentials.
 
-    Reads credentials from environment variables or cluster credential files.
+    Reads credentials from environment variables, cluster credential files, or
+    the standard Gear data credential source.
     """
-    import boto3
+    from gear.data import get_s3_client
 
-    endpoint_url = os.environ.get("AWS_ENDPOINT_URL", "https://pdx.s8k.io")
+    endpoint_url = os.environ.get("AWS_ENDPOINT_URL") or os.environ.get("S3_ENDPOINT_URL")
+    region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
 
     ak = os.environ.get("AWS_ACCESS_KEY_ID")
     sk = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    session_token = os.environ.get("AWS_SESSION_TOKEN") if ak and sk else None
     if not (ak and sk):
         # Fall back to cluster credential files (GB200 clusters)
         ak_path = "/etc/gear/s3/access_key"
         sk_path = "/etc/gear/s3/secret_key"
-        if os.path.exists(ak_path):
+        if os.path.exists(ak_path) and os.path.exists(sk_path):
             with open(ak_path) as f:
                 ak = f.read().strip()
             with open(sk_path) as f:
                 sk = f.read().strip()
-        else:
+    if not (ak and sk):
+        try:
+            from gear.common import get_s3_credentials_from_file
+
+            creds = get_s3_credentials_from_file()
+            ak = creds["aws_access_key_id"]
+            sk = creds["aws_secret_access_key"]
+            region = region or creds.get("region")
+            endpoint_url = endpoint_url or creds.get("endpoint_url")
+            session_token = creds.get("aws_session_token")
+        except (ImportError, KeyError, ValueError) as exc:
             raise RuntimeError(
                 "No S3 credentials found. Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY "
-                "or ensure /etc/gear/s3/ credential files exist."
-            )
+                "or configure ~/.gear/data_credentials with the Gear CLI."
+            ) from exc
 
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint_url,
-        aws_access_key_id=ak,
-        aws_secret_access_key=sk,
-        region_name="us-east-1",
-    )
+    credentials = {
+        "endpoint_url": endpoint_url or "https://pdx.s8k.io",
+        "aws_access_key_id": ak,
+        "aws_secret_access_key": sk,
+        "region": region or "us-east-1",
+    }
+    if session_token:
+        credentials["aws_session_token"] = session_token
+    return get_s3_client(credentials=credentials)
 
 
 def _download_deps(
