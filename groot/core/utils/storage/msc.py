@@ -13,12 +13,14 @@ import json
 import logging
 import os
 from pathlib import Path
+import socket
 import tempfile
 import time
 
 import yaml
 
 from groot.core.utils.storage import load_msc_telemetry_settings
+from groot.core.utils.storage.checkpoint import node_local_checkpoint_output
 
 try:
     import multistorageclient as msc
@@ -35,7 +37,6 @@ DEFAULT_HF_ARTIFACT_CACHE_ROOT = "/tmp/groot_hf_artifacts"
 
 
 class DataSyncConfigBuilder:
-
     def __init__(
         self,
         credentials_file: str,
@@ -74,8 +75,7 @@ class DataSyncConfigBuilder:
             if profile not in creds:
                 available_profiles = list(creds.keys())
                 raise ValueError(
-                    f"Profile '{profile}' not found in credentials file. "
-                    f"Available profiles: {available_profiles}"
+                    f"Profile '{profile}' not found in credentials file. Available profiles: {available_profiles}"
                 )
 
             profile_creds = creds[profile]
@@ -329,16 +329,20 @@ def download_remote_checkpoint_for_resume(
 def resolve_checkpoint_path(
     checkpoint_path: str,
     output_dir: str,
-    global_rank: int = 0,
+    global_rank: int | None = None,
 ) -> str:
     """
     Resolve checkpoint path, downloading from remote storage if needed.
-    Only rank 0 downloads, all ranks wait and use shared location.
+
+    Only global rank 0 downloads into a shared filesystem. For a cache under
+    /tmp, the lowest global rank on each host downloads into that host's local
+    filesystem, independently of the training output location.
 
     Args:
         checkpoint_path: Local POSIX path or remote MSC URL
         output_dir: Output directory where cache will be created
-        global_rank: Global rank in distributed training (default: 0)
+        global_rank: Global rank override; defaults to the current distributed rank,
+            or 0 when distributed training is not initialized.
 
     Returns:
         Local POSIX path to checkpoint directory
@@ -351,46 +355,87 @@ def resolve_checkpoint_path(
     except ImportError:
         dist = None
 
-    # Use shared cache directory (Lustre/shared filesystem)
-    shared_cache_dir = Path(output_dir)
+    distributed = dist is not None and dist.is_initialized()
+    world_size = dist.get_world_size() if distributed else 1
+    if global_rank is None:
+        global_rank = dist.get_rank() if distributed else 0
 
-    shared_cache_dir.mkdir(parents=True, exist_ok=True)
+    def check_failures(failure):
+        failures = [failure]
+        if distributed:
+            failures = [None] * world_size
+            dist.all_gather_object(failures, failure)
+        if any(failures):
+            raise RuntimeError("; ".join(item for item in failures if item))
+
+    # Older cache entries may omit hidden files such as DCP .metadata. Keep
+    # them untouched, but never trust their completion markers for this format.
+    shared_cache_dir = Path(output_dir) / "checkpoint-cache-v2"
 
     # Generate deterministic cache path from URL
     url_hash = hashlib.md5(checkpoint_path.encode()).hexdigest()[:8]
     local_dir = shared_cache_dir / f"{url_hash}"
 
-    # Rank 0 downloads, others wait
-    if global_rank == 0:
-        if not local_dir.exists() or not (local_dir / ".download_complete").exists():
-            logging.info(f"Rank 0: Downloading checkpoint from {checkpoint_path}")
-            logging.info(f"Rank 0: Destination: {local_dir}")
+    failure = None
+    node_local_cache = None
+    hostname = None
+    try:
+        node_local_cache = node_local_checkpoint_output(output_dir)
+        hostname = socket.gethostname()
+    except Exception as exc:
+        failure = f"Rank {global_rank}: checkpoint cache setup failed ({type(exc).__name__}: {exc})"
+    check_failures(failure)
+    hosts = [(hostname, node_local_cache)]
+    if distributed:
+        hosts = [None] * world_size
+        dist.all_gather_object(hosts, (hostname, node_local_cache))
+    if any(host[1] != hosts[0][1] for host in hosts):
+        raise ValueError("All ranks must use the same checkpoint cache policy")
+    download_leader = global_rank == 0
+    leader_label = "Rank 0"
+    if node_local_cache and distributed:
+        host_ranks = [rank for rank, host in enumerate(hosts) if host[0] == hostname]
+        download_leader = global_rank == min(host_ranks)
+        leader_label = f"Node leader rank {min(host_ranks)}"
+    elif node_local_cache:
+        download_leader = True
+        leader_label = f"Rank {global_rank}"
 
-            local_dir.mkdir(parents=True, exist_ok=True)
-
-            try:
+    marker = local_dir / ".download_complete"
+    failure = None
+    if download_leader:
+        try:
+            if not marker.exists():
+                logging.info(f"{leader_label}: Downloading checkpoint from {checkpoint_path}")
+                logging.info(f"{leader_label}: Destination: {local_dir}")
+                local_dir.mkdir(parents=True, exist_ok=True)
                 msc.sync(  # type: ignore[union-attr]
                     source_url=checkpoint_path,
                     target_url=str(local_dir),
                     execution_mode=ExecutionMode.LOCAL,  # type: ignore[union-attr]
+                    ignore_hidden=False,
                 )
+                marker.touch()
+                logging.info(f"{leader_label}: Checkpoint download complete")
+            else:
+                logging.info(f"{leader_label}: Checkpoint already cached at {local_dir}")
+        except Exception as exc:
+            failure = f"{leader_label}: checkpoint download/validation failed ({type(exc).__name__}: {exc})"
 
-                # Create marker file to indicate download complete
-                (local_dir / ".download_complete").touch()
-                logging.info("Rank 0: Checkpoint download complete")
-            except Exception as e:
-                logging.error(f"Rank 0: Failed to download checkpoint: {e}")
-                raise
-        else:
-            logging.info(f"Rank 0: Checkpoint already cached at {local_dir}")
-
-    # Synchronize all ranks
-    if dist is not None and dist.is_initialized():
-        dist.barrier()
+    # Every rank takes the same failure path instead of waiting at a barrier
+    # after a download leader has already raised.
+    check_failures(failure)
 
     # All ranks verify download completed
-    if not (local_dir / ".download_complete").exists():
-        raise RuntimeError(f"Checkpoint download failed or incomplete: {local_dir}")
+    failure = None
+    try:
+        if not marker.is_file():
+            raise RuntimeError(f"Checkpoint download failed or incomplete: {local_dir}")
+    except Exception as exc:
+        failure = (
+            f"Rank {global_rank}: checkpoint cache validation failed ({type(exc).__name__}: {exc})"
+        )
+    check_failures(failure)
 
     return str(local_dir)
 
@@ -629,8 +674,7 @@ def resolve_model_path(
         cache_dir = os.environ.get("MSC_CACHE_PATH")
         if not cache_dir:
             raise RuntimeError(
-                f"MSC_CACHE_PATH environment variable is required when {param_name} "
-                f"is a remote URL: {path}"
+                f"MSC_CACHE_PATH environment variable is required when {param_name} is a remote URL: {path}"
             )
         return resolve_checkpoint_path(path, cache_dir)
     if path.startswith("/") and not os.path.exists(path):
