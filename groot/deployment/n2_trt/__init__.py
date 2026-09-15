@@ -10,6 +10,7 @@
 
 """Checkpoint-driven, fail-closed N2 TensorRT deployment contracts."""
 
+from groot.deployment.n2_trt.artifacts import resolve_checkpoint_vae_weights
 from groot.deployment.n2_trt.contract import (
     N2ModelVariant,
     N2TensorRTContract,
@@ -40,4 +41,5 @@ __all__ = [
     "TensorSpec",
     "TransformerPrecision",
     "resolve_checkpoint_vae_type",
+    "resolve_checkpoint_vae_weights",
 ]

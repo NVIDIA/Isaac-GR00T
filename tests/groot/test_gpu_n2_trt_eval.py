@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -35,8 +36,16 @@ pytestmark = [
 
 _EMBODIMENT = "xdof_relative_eef_relative_joint"
 _CAMERAS = ("video.top", "video.left", "video.right")
-_VIDEO_TOKENS = 840
 _ACTION_HORIZON = 80
+_VIDEO_INDICES = (-20, -15, -10, -5, 0, 5, 10, 15, 20)
+_VAE_LATENT_SHAPE = (48, 2, 14, 20)
+_TOTAL_LATENT_FRAMES = (len(_VIDEO_INDICES) - 1) // 4 + 1
+_VIDEO_TOKENS = (
+    len(_CAMERAS)
+    * (_VAE_LATENT_SHAPE[-2] // 2)
+    * (_VAE_LATENT_SHAPE[-1] // 2)
+    * _TOTAL_LATENT_FRAMES
+)
 
 
 def test_oss_open_loop_eval_executes_real_tensorrt_and_cuda_graph(
@@ -325,7 +334,7 @@ class _Processor:
         return {
             _EMBODIMENT: {
                 "video": ModalityConfig(
-                    delta_indices=[-20, -15, -10, -5, 0], modality_keys=list(_CAMERAS)
+                    delta_indices=list(_VIDEO_INDICES), modality_keys=list(_CAMERAS)
                 ),
                 "state": ModalityConfig(delta_indices=[0], modality_keys=["state.joint"]),
                 "action": ModalityConfig(
@@ -341,6 +350,8 @@ def _write_checkpoint(path: Path) -> Path:
     import torch
 
     path.mkdir()
+    vae_weights = path / "vae.pth"
+    vae_weights.write_bytes(b"fixture-vae-weights")
     (path / "config.json").write_text(
         json.dumps(
             {
@@ -349,6 +360,7 @@ def _write_checkpoint(path: Path) -> Path:
                 "vae_type": "wan22",
                 "model_dtype": "bfloat16",
                 "max_n_cameras": len(_CAMERAS),
+                "vae_cfg": {"vae_pretrained_path": str(vae_weights)},
                 "action_cfg": {
                     "action_horizon": _ACTION_HORIZON,
                     "max_state_dim": 128,
@@ -366,7 +378,7 @@ def _write_checkpoint(path: Path) -> Path:
                     "modality_configs": {
                         _EMBODIMENT: {
                             "video": {
-                                "delta_indices": [-20, -15, -10, -5, 0],
+                                "delta_indices": list(_VIDEO_INDICES),
                                 "modality_keys": list(_CAMERAS),
                             },
                             "action": {
@@ -461,12 +473,13 @@ def _write_onnx_bundle(root: Path) -> None:
     transformer("n2_transformer_action_cache.onnx", _ACTION_HORIZON, cached=True)
 
     videos = value("videos", [len(_CAMERAS), 3, 5, 224, 320])
-    latents = value("latents", [len(_CAMERAS), 48, 2, 14, 20])
+    vae_output_shape = [len(_CAMERAS), *_VAE_LATENT_SHAPE]
+    latents = value("latents", vae_output_shape)
     starts = helper.make_tensor("vae_starts", TensorProto.INT64, [1], [0])
-    ends = helper.make_tensor("vae_ends", TensorProto.INT64, [1], [80640])
+    ends = helper.make_tensor("vae_ends", TensorProto.INT64, [1], [math.prod(vae_output_shape)])
     axes = helper.make_tensor("vae_axes", TensorProto.INT64, [1], [1])
     steps = helper.make_tensor("vae_steps", TensorProto.INT64, [1], [1])
-    shape = helper.make_tensor("vae_shape", TensorProto.INT64, [5], [3, 48, 2, 14, 20])
+    shape = helper.make_tensor("vae_shape", TensorProto.INT64, [5], vae_output_shape)
     vae_graph = helper.make_graph(
         [
             helper.make_node("Flatten", ["videos"], ["flat"], axis=0),
@@ -491,12 +504,14 @@ def _write_onnx_bundle(root: Path) -> None:
 def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
     from groot.deployment.n2_trt.contract import N2TensorRTContract
     from groot.deployment.n2_trt.manifest import (
+        BUILD_FILENAME,
         MANIFEST_FILENAME,
         VALIDATION_FILENAME,
         VALIDATION_GATE_PROFILES,
         VALIDATION_POLICY,
         VALIDATION_POLICY_SHA256,
         VALIDATION_PROFILE_THRESHOLDS,
+        VALIDATION_SAMPLE_PATHS,
         VALIDATION_SCHEMA,
         ArtifactRecord,
         BuildSettings,
@@ -505,42 +520,41 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
         SourceRevision,
         canonical_sha256,
         checkpoint_file_hashes,
+        sha256_file,
     )
     from groot.deployment.n2_trt.validation import _artifact_records
 
     _write_onnx_bundle(root)
+    sample_paths = {role: root / path for role, path in VALIDATION_SAMPLE_PATHS.items()}
+    for role, path in sample_paths.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"{role}\n".encode())
+    sample_digests = {role: sha256_file(path) for role, path in sample_paths.items()}
+    (root / "n2_transformer_export.json").write_text(
+        json.dumps(
+            {
+                "validation_sample_sha256": {
+                    role: digest for role, digest in sample_digests.items() if role != "vae_eager"
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (root / "n2_vae_export_manifest.json").write_text(
+        json.dumps({"validation_sample_sha256": {"vae_eager": sample_digests["vae_eager"]}}),
+        encoding="utf-8",
+    )
     package_root = Path(os.environ.get("OSS_PACKAGE_ROOT", Path.cwd()))
-    if (
-        subprocess.run(
-            ["git", "-C", str(package_root), "rev-parse", "HEAD"],
-            capture_output=True,
-            check=False,
-        ).returncode
-        != 0
-    ):
-        # Copybara's CI export intentionally has no .git directory, while the
-        # production builder records source provenance. Give that temporary
-        # fixture an identity without changing the runtime boundary under test.
-        subprocess.run(["git", "init", "--quiet", str(package_root)], check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(package_root),
-                "-c",
-                "user.name=OSS GPU fixture",
-                "-c",
-                "user.email=oss-gpu-fixture.invalid",
-                "commit",
-                "--allow-empty",
-                "--no-gpg-sign",
-                "--quiet",
-                "-m",
-                "Initialize OSS GPU fixture",
-            ],
-            check=True,
-        )
     builder = package_root / "scripts/deployment/n2/build_engines.py"
+    try:
+        source_revision = subprocess.run(
+            ["git", "-C", str(package_root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        source_revision = "oss-gpu-fixture"
     subprocess.run(
         [
             sys.executable,
@@ -549,10 +563,13 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
             str(root),
             "--builder-optimization-level",
             "0",
+            "--source-revision",
+            source_revision,
         ],
         check=True,
     )
-    build = json.loads((root / "n2_trt_build.json").read_text(encoding="utf-8"))
+    build_path = root / BUILD_FILENAME
+    build = json.loads(build_path.read_text(encoding="utf-8"))
     sources, engines = _artifact_records(root, build)
     contract = N2TensorRTContract.from_checkpoint(
         checkpoint,
@@ -565,6 +582,7 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
     runtime = RuntimeIdentity.capture()
     checkpoint_files = checkpoint_file_hashes(checkpoint)
     contract_sha256 = canonical_sha256(contract.to_dict())
+    vae_weights_sha256 = sha256_file(checkpoint / "vae.pth")
     # Admission receipts are immutable production artifacts. This synthetic receipt is
     # fixture metadata only; the assertions above independently execute every engine.
     validation_payload = {
@@ -574,7 +592,10 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
         "passed": True,
         "contract_sha256": contract_sha256,
         "checkpoint_sha256": canonical_sha256(checkpoint_files),
+        "vae_weights_path": str(checkpoint / "vae.pth"),
+        "vae_weights_sha256": vae_weights_sha256,
         "artifacts": {record.role: record.sha256 for record in (*sources, *engines)},
+        "oracles": build["validation_samples"],
         "gates": {
             name: {
                 "passed": True,
@@ -598,6 +619,13 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
         kind="validation",
         numeric_format="json",
     )
+    build_record = ArtifactRecord.from_file(
+        build_path,
+        role="engine_build",
+        root=root,
+        kind="build",
+        numeric_format="json",
+    )
     manifest = EngineManifest.create(
         contract=contract,
         runtime=runtime,
@@ -613,7 +641,10 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
         ),
         sources=sources,
         engines=engines,
+        build=build_record,
         validation=validation,
+        vae_weights_path=checkpoint / "vae.pth",
+        vae_weights_sha256=vae_weights_sha256,
     )
     manifest.write(root / MANIFEST_FILENAME)
     return root

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import hashlib
+from importlib import metadata
 import json
 import os
 from pathlib import Path
@@ -21,18 +22,20 @@ import platform
 import subprocess
 from typing import Any
 
+from groot.deployment.n2_trt.artifacts import resolve_checkpoint_vae_weights
 from groot.deployment.n2_trt.contract import N2TensorRTContract
 
-MANIFEST_SCHEMA = "groot_n2_tensorrt_engine_manifest_v2"
+MANIFEST_SCHEMA = "groot_n2_tensorrt_engine_manifest_v3"
 MANIFEST_FILENAME = "n2_trt_manifest.json"
 BUILD_FILENAME = "n2_trt_build.json"
+BUILD_SCHEMA = "groot_n2_trt_build_v3"
 VALIDATION_FILENAME = "n2_trt_validation.json"
 REQUIRED_SERVING_RECEIPTS = (
     BUILD_FILENAME,
     VALIDATION_FILENAME,
     MANIFEST_FILENAME,
 )
-VALIDATION_SCHEMA = "groot_n2_tensorrt_engine_parity_v7"
+VALIDATION_SCHEMA = "groot_n2_tensorrt_engine_parity_v8"
 TRANSFORMER_EAGER_ORACLE = "production-eager-native-attention-v2"
 TRANSFORMER_EXPORT_JOINT_ORACLE = "export-segmented-sdpa-joint-v1"
 TRANSFORMER_EXPORT_ACTION_ORACLE = "export-sdpa-action-cache-v1"
@@ -52,6 +55,13 @@ REQUIRED_PARITY_GATES = frozenset(
         "vae_encoder",
     }
 )
+VALIDATION_SAMPLE_PATHS = {
+    "transformer_joint_export": "samples/joint_export_source.pt",
+    "transformer_action_export": "samples/action_export_source.pt",
+    "transformer_joint_production": "samples/joint_full_capture.pt",
+    "transformer_action_production": "samples/action_cached.pt",
+    "vae_eager": "sample.pt",
+}
 VALIDATION_PROFILE_THRESHOLDS = {
     "bf16": {"max_relative_rmse": 0.02, "min_cosine": None},
     "joint_hidden": {"max_relative_rmse": 0.1, "min_cosine": 0.995},
@@ -248,30 +258,80 @@ class SourceRevision:
     dirty: bool = False
 
     @classmethod
-    def capture(cls, component: str, source_path: str | Path) -> SourceRevision:
-        """Capture the owning Git revision for one artifact-production component."""
+    def capture(
+        cls,
+        component: str,
+        source_path: str | Path,
+        revision: str | None = None,
+    ) -> SourceRevision:
+        """Capture trusted Git or installed-package source provenance."""
         source = Path(source_path).resolve(strict=True)
-        root = subprocess.run(
-            ["git", "-C", str(source.parent), "rev-parse", "--show-toplevel"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        revision = subprocess.run(
-            ["git", "-C", root, "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        dirty = bool(
-            subprocess.run(
-                ["git", "-C", root, "status", "--porcelain"],
+        try:
+            root = subprocess.run(
+                ["git", "-C", str(source.parent), "rev-parse", "--show-toplevel"],
                 check=True,
                 capture_output=True,
                 text=True,
             ).stdout.strip()
+            captured_revision = subprocess.run(
+                ["git", "-C", root, "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            dirty = bool(
+                subprocess.run(
+                    ["git", "-C", root, "status", "--porcelain"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            captured_revision = None
+        else:
+            if revision is not None and revision.strip() != captured_revision:
+                raise RuntimeError(
+                    "supplied source revision does not match the current Git checkout: "
+                    f"{revision.strip()!r} != {captured_revision!r}"
+                )
+            return cls(component=component, revision=captured_revision, dirty=dirty)
+
+        if revision is not None:
+            supplied_revision = revision.strip()
+            if not supplied_revision:
+                raise ValueError("source revision must not be empty")
+            return cls(component=component, revision=supplied_revision, dirty=False)
+
+        package_revision = _installed_package_revision(source)
+        if package_revision is not None:
+            return cls(component=component, revision=package_revision, dirty=False)
+        raise RuntimeError(
+            "source provenance is unavailable; automatic TensorRT builds require either "
+            "a Git checkout or an installed non-editable package with an immutable RECORD"
         )
-        return cls(component=component, revision=revision, dirty=dirty)
+
+
+def _installed_package_revision(source: Path) -> str | None:
+    """Return a content-addressed identity for a non-editable wheel install."""
+    try:
+        distribution = metadata.distribution("groot")
+        package_root = Path(distribution.locate_file("groot")).resolve(strict=True)
+        source.relative_to(package_root)
+        direct_url_text = distribution.read_text("direct_url.json")
+        if direct_url_text:
+            direct_url = json.loads(direct_url_text)
+            if not isinstance(direct_url, dict):
+                return None
+            directory_info = direct_url.get("dir_info", {})
+            if isinstance(directory_info, dict) and directory_info.get("editable", False):
+                return None
+        record = distribution.read_text("RECORD")
+    except (FileNotFoundError, json.JSONDecodeError, metadata.PackageNotFoundError, ValueError):
+        return None
+    if not record:
+        return None
+    return f"wheel-record-sha256:{hashlib.sha256(record.encode()).hexdigest()}"
 
 
 @dataclass(frozen=True)
@@ -399,11 +459,14 @@ class EngineManifest:
     contract_sha256: str
     checkpoint_files: dict[str, str]
     checkpoint_sha256: str
+    vae_weights_path: str
+    vae_weights_sha256: str
     runtime: RuntimeIdentity
     build_settings: BuildSettings
     tool_sources: tuple[SourceRevision, ...]
     sources: tuple[ArtifactRecord, ...]
     engines: tuple[ArtifactRecord, ...]
+    build: ArtifactRecord
     validation: ArtifactRecord
 
     @classmethod
@@ -416,7 +479,10 @@ class EngineManifest:
         tool_sources: tuple[SourceRevision, ...] | list[SourceRevision],
         sources: tuple[ArtifactRecord, ...] | list[ArtifactRecord],
         engines: tuple[ArtifactRecord, ...] | list[ArtifactRecord],
+        build: ArtifactRecord,
         validation: ArtifactRecord,
+        vae_weights_path: str | Path,
+        vae_weights_sha256: str,
     ) -> EngineManifest:
         contract.validate()
         build_settings.validate(contract)
@@ -476,6 +542,17 @@ class EngineManifest:
             raise ValueError(f"artifact I/O schemas do not match: {schema_mismatches}")
         if validation.kind != "validation" or validation.role != "engine_validation":
             raise ValueError("manifest validation record must be the engine_validation receipt")
+        if build.kind != "build" or build.role != "engine_build":
+            raise ValueError("manifest build record must be the engine_build receipt")
+        resolved_vae_weights = Path(vae_weights_path).expanduser().resolve(strict=True)
+        if not resolved_vae_weights.is_file():
+            raise ValueError(f"VAE weights path must identify a file: {resolved_vae_weights}")
+        if len(vae_weights_sha256) != 64 or any(
+            character not in "0123456789abcdef" for character in vae_weights_sha256
+        ):
+            raise ValueError("VAE weights digest must be a lowercase SHA-256 hex string")
+        if sha256_file(resolved_vae_weights) != vae_weights_sha256:
+            raise ValueError("VAE weights digest does not match the resolved file")
         contract_payload = contract.to_dict()
         return cls(
             schema=MANIFEST_SCHEMA,
@@ -483,11 +560,14 @@ class EngineManifest:
             contract_sha256=canonical_sha256(contract_payload),
             checkpoint_files=checkpoint_files,
             checkpoint_sha256=canonical_sha256(checkpoint_files),
+            vae_weights_path=str(resolved_vae_weights),
+            vae_weights_sha256=vae_weights_sha256,
             runtime=runtime,
             build_settings=build_settings,
             tool_sources=tool_records,
             sources=source_records,
             engines=engine_records,
+            build=build,
             validation=validation,
         )
 
@@ -530,30 +610,21 @@ class EngineManifest:
                 record["members"] = tuple(
                     ArtifactMember(**entry) for entry in record.get("members", [])
                 )
-        validation_payload = dict(payload["validation"])
-        validation_payload["inputs"] = tuple(
-            TensorSpec(name=entry["name"], shape=tuple(entry["shape"]), dtype=entry["dtype"])
-            for entry in validation_payload.get("inputs", [])
-        )
-        validation_payload["outputs"] = tuple(
-            TensorSpec(name=entry["name"], shape=tuple(entry["shape"]), dtype=entry["dtype"])
-            for entry in validation_payload.get("outputs", [])
-        )
-        validation_payload["members"] = tuple(
-            ArtifactMember(**entry) for entry in validation_payload.get("members", [])
-        )
         return cls(
             schema=payload["schema"],
             contract=dict(payload["contract"]),
             contract_sha256=payload["contract_sha256"],
             checkpoint_files=dict(payload["checkpoint_files"]),
             checkpoint_sha256=payload["checkpoint_sha256"],
+            vae_weights_path=payload["vae_weights_path"],
+            vae_weights_sha256=payload["vae_weights_sha256"],
             runtime=RuntimeIdentity(**runtime_payload),
             build_settings=BuildSettings(**build_payload),
             tool_sources=tuple(SourceRevision(**record) for record in payload["tool_sources"]),
             sources=tuple(ArtifactRecord(**record) for record in payload["sources"]),
             engines=tuple(ArtifactRecord(**record) for record in payload["engines"]),
-            validation=ArtifactRecord(**validation_payload),
+            build=_artifact_record_from_payload(payload["build"]),
+            validation=_artifact_record_from_payload(payload["validation"]),
         )
 
     def validate(
@@ -575,17 +646,34 @@ class EngineManifest:
             checkpoint_files
         ):
             failures["checkpoint"] = "checkpoint metadata changed after engine build"
+        try:
+            vae_weights = resolve_checkpoint_vae_weights(
+                contract.checkpoint,
+                self.vae_weights_path,
+            )
+            vae_weights_sha256 = sha256_file(vae_weights)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            failures["vae_weights"] = f"cannot resolve current VAE weights: {error}"
+        else:
+            if vae_weights_sha256 != self.vae_weights_sha256:
+                failures["vae_weights"] = "VAE weights changed after engine build"
         runtime_mismatch = self.runtime.compatibility_mismatches(runtime)
         if runtime_mismatch:
             failures["runtime"] = runtime_mismatch
         root = Path(artifact_root).resolve(strict=True)
         artifact_failures = _validate_records(
             root,
-            (*self.engines, self.validation),
+            (self.build, *self.engines, self.validation),
         )
         if artifact_failures:
             failures["artifacts"] = artifact_failures
         else:
+            build_failure = _build_receipt_failure(root / self.build.relative_path, self)
+            build_receipt = None
+            if build_failure is not None:
+                failures["build"] = build_failure
+            else:
+                build_receipt = json.loads((root / self.build.relative_path).read_text())
             receipt_path = root / self.validation.relative_path
             try:
                 receipt = json.loads(receipt_path.read_text())
@@ -608,10 +696,20 @@ class EngineManifest:
                     failures["validation"] = "receipt contract digest does not match manifest"
                 elif receipt.get("checkpoint_sha256") != self.checkpoint_sha256:
                     failures["validation"] = "receipt checkpoint digest does not match manifest"
+                elif receipt.get("vae_weights_path") != self.vae_weights_path:
+                    failures["validation"] = "receipt VAE weights path does not match manifest"
+                elif receipt.get("vae_weights_sha256") != self.vae_weights_sha256:
+                    failures["validation"] = "receipt VAE weights digest does not match manifest"
                 elif receipt.get("artifacts") != {
                     record.role: record.sha256 for record in (*self.sources, *self.engines)
                 }:
                     failures["validation"] = "receipt artifact digests do not match manifest"
+                elif build_receipt is None:
+                    failures["validation"] = "build receipt is invalid"
+                elif receipt.get("oracles") != build_receipt.get("validation_samples"):
+                    failures["validation"] = (
+                        "receipt validation sample digests do not match the build receipt"
+                    )
                 elif not isinstance(receipt.get("validator_runtime"), dict):
                     failures["validation"] = "receipt omits the validator runtime identity"
                 else:
@@ -649,6 +747,100 @@ class EngineManifest:
             raise RuntimeError(
                 "N2 TensorRT manifest validation failed: " + json.dumps(failures, default=str)
             )
+
+
+def _artifact_record_from_payload(payload: dict[str, Any]) -> ArtifactRecord:
+    record = dict(payload)
+    record["inputs"] = tuple(
+        TensorSpec(name=entry["name"], shape=tuple(entry["shape"]), dtype=entry["dtype"])
+        for entry in record.get("inputs", [])
+    )
+    record["outputs"] = tuple(
+        TensorSpec(name=entry["name"], shape=tuple(entry["shape"]), dtype=entry["dtype"])
+        for entry in record.get("outputs", [])
+    )
+    record["members"] = tuple(ArtifactMember(**entry) for entry in record.get("members", []))
+    return ArtifactRecord(**record)
+
+
+def _tensor_specs_payload(specs: tuple[TensorSpec, ...]) -> list[dict[str, Any]]:
+    return [{"name": spec.name, "shape": list(spec.shape), "dtype": spec.dtype} for spec in specs]
+
+
+def _build_receipt_failure(path: Path, manifest: EngineManifest) -> str | dict[str, Any] | None:
+    try:
+        receipt = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as error:
+        return f"unreadable receipt: {error}"
+    if not isinstance(receipt, dict):
+        return "receipt must be an object"
+    if receipt.get("schema") != BUILD_SCHEMA:
+        return f"unsupported receipt schema: {receipt.get('schema')!r}"
+    if receipt.get("quantize_mode") != "none":
+        return "quantize_mode must be 'none'"
+    if receipt.get("tensorrt") != manifest.runtime.tensorrt:
+        return "TensorRT version does not match manifest runtime"
+    expected_runtime = asdict(manifest.runtime)
+    expected_runtime["compute_capability"] = list(manifest.runtime.compute_capability)
+    if receipt.get("runtime") != expected_runtime:
+        return "build runtime identity does not match manifest"
+    if receipt.get("settings") != asdict(manifest.build_settings):
+        return "build settings do not match manifest"
+    validation_samples = receipt.get("validation_samples")
+    if not isinstance(validation_samples, dict) or set(validation_samples) != set(
+        VALIDATION_SAMPLE_PATHS
+    ):
+        return "validation_samples must contain every required validation sample"
+    if any(
+        not isinstance(digest, str) or len(digest) != 64 for digest in validation_samples.values()
+    ):
+        return "validation sample digests must be SHA-256 hex strings"
+
+    expected_artifacts = {
+        record.role: {
+            "engine": record.relative_path,
+            "engine_sha256": record.sha256,
+            "engine_size_bytes": record.size_bytes,
+            "numeric_format": record.numeric_format,
+            "engine_inputs": _tensor_specs_payload(record.inputs),
+            "engine_outputs": _tensor_specs_payload(record.outputs),
+        }
+        for record in manifest.engines
+    }
+    artifacts = receipt.get("artifacts")
+    if not isinstance(artifacts, list):
+        return "artifacts must be a list"
+    actual_artifacts: dict[str, dict[str, Any]] = {}
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or not isinstance(artifact.get("role"), str):
+            return "each artifact must have a string role"
+        role = artifact["role"]
+        if role in actual_artifacts:
+            return f"duplicate build artifact role: {role!r}"
+        actual_artifacts[role] = {
+            key: artifact.get(key) for key in next(iter(expected_artifacts.values()))
+        }
+    if actual_artifacts != expected_artifacts:
+        return {
+            "artifact_records": "build receipt engines do not match manifest",
+            "expected_roles": sorted(expected_artifacts),
+            "actual_roles": sorted(actual_artifacts),
+        }
+
+    consumer_engines = receipt.get("engines")
+    if not isinstance(consumer_engines, list) or len(consumer_engines) != len(manifest.engines):
+        return "consumer engine records do not match manifest"
+    for consumer, record in zip(consumer_engines, manifest.engines, strict=True):
+        if (
+            not isinstance(consumer, dict)
+            or not isinstance(consumer.get("engine"), str)
+            or Path(consumer["engine"]).is_absolute()
+            or consumer["engine"] != record.relative_path
+            or consumer.get("size_bytes") != record.size_bytes
+            or consumer.get("precision") != record.numeric_format
+        ):
+            return "consumer engine records do not match manifest"
+    return None
 
 
 def _validation_gate_semantic_failures(gates: Any) -> dict[str, str]:

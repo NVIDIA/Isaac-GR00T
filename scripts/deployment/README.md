@@ -72,6 +72,7 @@ python -P scripts/deployment/n2/export_transformer.py \
 
 python -P scripts/deployment/n2/export_vae.py \
   --checkpoint "$CHECKPOINT" \
+  --embodiment "$PROCESSOR_EMBODIMENT" \
   --output-dir "$TRT_ARTIFACT_DIR"
 
 # Build GPU-specific TensorRT engines from those ONNX graphs.
