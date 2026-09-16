@@ -64,23 +64,23 @@ export SERVER_EMBODIMENT="$(printf '%s' "$PROCESSOR_EMBODIMENT" | tr '[:lower:]'
 git status --short
 
 # Export the checkpoint-shaped ONNX graphs.
-python -P -m groot.deployment.n2_trt.tools.export_transformer \
+python -P scripts/deployment/n2/export_transformer.py \
   --checkpoint "$CHECKPOINT" \
   --embodiment "$PROCESSOR_EMBODIMENT" \
   --codec mp4v \
   --output-dir "$TRT_ARTIFACT_DIR"
 
-python -P -m groot.deployment.n2_trt.tools.export_vae \
+python -P scripts/deployment/n2/export_vae.py \
   --checkpoint "$CHECKPOINT" \
   --embodiment "$PROCESSOR_EMBODIMENT" \
   --output-dir "$TRT_ARTIFACT_DIR"
 
 # Build GPU-specific TensorRT engines from those ONNX graphs.
-python -P -m groot.deployment.n2_trt.tools.build_engines \
+python -P scripts/deployment/n2/build_engines.py \
   --artifact-root "$TRT_ARTIFACT_DIR"
 
 # Verify TensorRT outputs against the captured PyTorch references.
-python -P -m groot.deployment.n2_trt.validation \
+python -P scripts/deployment/n2/validate_engines.py \
   --artifact-root "$TRT_ARTIFACT_DIR" \
   --checkpoint "$CHECKPOINT" \
   --embodiment "$PROCESSOR_EMBODIMENT"
