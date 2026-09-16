@@ -85,6 +85,8 @@ class OssPolicyServerConfig:
     embodiment_tag: str
     device: str
     denoising_steps: int
+    trt_engine_dir: str | None = None
+    use_cuda_graph: bool = False
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -163,6 +165,9 @@ def resolve_train(args: argparse.Namespace) -> ResolvedOssTrain:
         compute_type=compute_type,
         config_overrides=overrides,
         experiment_dir=args.experiment_dir,
+        # The one-launcher default is cwd-relative, so resolving from a checkout
+        # writes generated YAML into it. Anchor it to the run's output root.
+        output_root=Path(env["TRAINING_OUTPUT_ROOT"]) / ".ol" / "experiments",
         env=env,
     )
     output_dir = Path(env["TRAINING_OUTPUT_ROOT"]) / env["USER_SLUG"] / env["JOB_NAME"]
@@ -201,6 +206,8 @@ def _run_eval(config: OssOpenLoopEvalConfig, *, dry_run: bool) -> int:
         _emit(f"dataset_path={config.dataset_path or ''}")
         _emit(f"output_json={config.output_json}")
         _emit(f"traj_ids={','.join(str(item) for item in config.traj_ids)}")
+        _emit(f"trt_engine_dir={config.trt_engine_dir or ''}")
+        _emit(f"use_cuda_graph={config.use_cuda_graph}")
         return 0
     OssOpenLoopEvaluator(config).run()
     return 0
@@ -220,6 +227,8 @@ def _run_policy_server(config: OssPolicyServerConfig, *, dry_run: bool) -> int:
         _emit(f"embodiment_tag={config.embodiment_tag}")
         _emit(f"device={config.device}")
         _emit(f"denoising_steps={config.denoising_steps}")
+        _emit(f"trt_engine_dir={config.trt_engine_dir or ''}")
+        _emit(f"use_cuda_graph={config.use_cuda_graph}")
         return 0
 
     artifact_config = OssOpenLoopEvalConfig(
@@ -242,6 +251,8 @@ def _run_gr00t_policy_server(model_path: str | Path, config: OssPolicyServerConf
             port=config.port,
             device=config.device,
             num_inference_timesteps=config.denoising_steps,
+            trt_engine_dir=config.trt_engine_dir,
+            use_cuda_graph=config.use_cuda_graph,
         )
     )
 
@@ -333,6 +344,8 @@ def _eval_config(
         denoising_steps=args.denoising_steps,
         server_parity_tolerance=args.server_parity_tolerance,
         local_only=args.local_only,
+        trt_engine_dir=args.trt_engine_dir or None,
+        use_cuda_graph=args.use_cuda_graph,
     )
 
 
@@ -345,6 +358,8 @@ def _policy_server_config(args: argparse.Namespace) -> OssPolicyServerConfig:
         embodiment_tag=args.embodiment_tag,
         device=args.device,
         denoising_steps=args.denoising_steps,
+        trt_engine_dir=args.trt_engine_dir or None,
+        use_cuda_graph=args.use_cuda_graph,
     )
 
 
@@ -435,6 +450,7 @@ def _add_policy_server_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--embodiment-tag", default="xdof_relative_eef_relative_joint")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--denoising-steps", type=int, default=4)
+    _add_acceleration_options(parser)
     parser.add_argument("--cache-root", default="")
     parser.add_argument("--dry-run", action="store_true")
 
@@ -461,8 +477,17 @@ def _add_eval_options(
     if include_embodiment_tag:
         parser.add_argument("--embodiment-tag", default="xdof_relative_eef_relative_joint")
     parser.add_argument("--denoising-steps", type=int, default=4)
+    _add_acceleration_options(parser)
     parser.add_argument("--server-parity-tolerance", type=float, default=0.01)
     parser.add_argument("--local-only", action="store_true")
+
+
+def _add_acceleration_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--trt-engine-dir", default="")
+    parser.add_argument(
+        "--use-cuda-graph",
+        action="store_true",
+    )
 
 
 def _job_name(experiment: str, compute_type: str) -> str:

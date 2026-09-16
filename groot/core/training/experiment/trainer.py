@@ -28,6 +28,7 @@ from collections import deque
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from copy import deepcopy
 import dataclasses
 import json as _json
 import logging
@@ -36,6 +37,7 @@ import multiprocessing
 import os
 from pathlib import Path
 import queue
+import socket
 import threading
 import time
 from typing import Any, ClassVar
@@ -46,6 +48,7 @@ import torch
 from torch import nn
 import torch.distributed as dist
 from torch.optim.lr_scheduler import LambdaLR
+from torch.utils._pytree import tree_map
 from transformers.trainer import (
     TRAINER_STATE_NAME,
     Trainer,
@@ -62,7 +65,16 @@ from groot.core.utils.timer import ContextTimer
 
 # Optional straggler detection support
 try:
-    import nvidia_resiliency_ext.straggler as straggler_module
+    try:
+        import nvidia_resiliency_ext.attribution.straggler as straggler_module
+    except ModuleNotFoundError as error:
+        if error.name not in (
+            "nvidia_resiliency_ext.attribution",
+            "nvidia_resiliency_ext.attribution.straggler",
+        ):
+            raise
+        # Older training images still install NVRx 0.3.0.
+        import nvidia_resiliency_ext.straggler as straggler_module
 
     STRAGGLER_AVAILABLE = True
 except ImportError:
@@ -598,7 +610,7 @@ class GR00TTrainer(Trainer):
         if self.straggler_enabled and not STRAGGLER_AVAILABLE:
             logging.warning(
                 "Straggler detection requested but nvidia_resiliency_ext not installed. "
-                "Install with: pip install nvidia-resiliency-ext"
+                "Install with: pip install nvidia-resiliency-ext==0.6.0"
             )
             self.straggler_enabled = False
 
@@ -1823,10 +1835,15 @@ class GR00TTrainer(Trainer):
                 # Written in a background thread to avoid blocking training at large scale.
                 dp_rank = dist.get_rank() if dist.is_initialized() else 0
                 opt_pt_file = os.path.join(checkpoint_dir, f"optimizer_rank{dp_rank}.pt")
-                opt_state_to_save = {
-                    "optimizer": optimizer_state,
-                    "lr_scheduler": lr_scheduler_state,
-                }
+                # Both writers need a CPU snapshot without autograd history.
+                opt_state_to_save = tree_map(
+                    lambda value: (
+                        value.detach().to(device="cpu", copy=True)
+                        if isinstance(value, torch.Tensor)
+                        else deepcopy(value)
+                    ),
+                    {"optimizer": optimizer_state, "lr_scheduler": lr_scheduler_state},
+                )
                 # Background-thread exceptions do not propagate to the Trainer
                 # thread. Retain one so complete publication can fail before a
                 # misleading SUCCESS sentinel is written remotely.
@@ -1859,10 +1876,7 @@ class GR00TTrainer(Trainer):
                 # Also launch DCP async_save for backward compatibility with older resume code.
                 t_async = time.time()
                 save_kwargs = {
-                    "state_dict": {
-                        "optimizer": optimizer_state,
-                        "lr_scheduler": lr_scheduler_state,
-                    },
+                    "state_dict": opt_state_to_save,
                     "checkpoint_id": dcp_dir,
                 }
                 # Use dedicated process group to avoid conflicts with straggler detector
@@ -1903,6 +1917,8 @@ class GR00TTrainer(Trainer):
             # Standard synchronous path (default)
             super()._save_checkpoint(model, trial, **kwargs)
 
+        self._rotate_node_local_checkpoints()
+
         try:
             duration = time.time() - t_start
             print(
@@ -1911,6 +1927,55 @@ class GR00TTrainer(Trainer):
             )
         except Exception:
             pass
+
+    def _rotate_node_local_checkpoints(self) -> None:
+        """Apply HF retention on the other hosts without changing save ownership."""
+        if not getattr(self.args, "node_local_output", False) or not dist.is_initialized():
+            return
+        rank = dist.get_rank()
+        hosts = [None] * dist.get_world_size()
+        hostname = None
+        failure = None
+        try:
+            hostname = socket.gethostname()
+        except OSError as exc:
+            failure = f"Rank {rank}: cannot determine checkpoint host ({exc})"
+        # Every rank has drained its previous checkpoint writers before reaching
+        # this point. The current checkpoint is the newest and HF keeps it.
+        dist.all_gather_object(hosts, (hostname, self.args.output_dir, failure))
+        if any(host[2] for host in hosts):
+            raise RuntimeError("; ".join(host[2] for host in hosts if host[2]))
+        paths_by_host = {}
+        for host, path, _failure in hosts:
+            if host in paths_by_host and paths_by_host[host] != path:
+                raise ValueError("Ranks on the same host must use the same checkpoint output_dir")
+            paths_by_host[host] = path
+        output_dir = self.args.output_dir
+        host_ranks = [index for index, host in enumerate(hosts) if host[0] == hostname]
+        failure = None
+        # Global rank 0 already rotated its filesystem in the parent save. Ray
+        # gives every actor LOCAL_RANK=0, so use host identity, not local rank.
+        if rank != 0 and rank == min(host_ranks):
+            try:
+                rotate = getattr(self, "_rotate_checkpoints", None)
+                if rotate is not None:
+                    rotate(use_mtime=False, output_dir=output_dir)
+                else:
+                    # Transformers 5 moved retention out of Trainer.
+                    from transformers.trainer_utils import rotate_checkpoints
+
+                    rotate_checkpoints(
+                        output_dir=output_dir,
+                        save_total_limit=self.args.save_total_limit,
+                        best_model_checkpoint=self.state.best_model_checkpoint,
+                        use_mtime=False,
+                    )
+            except Exception as exc:  # Report cleanup errors to every rank.
+                failure = f"Rank {rank}: checkpoint retention failed ({type(exc).__name__}: {exc})"
+        failures = [None] * dist.get_world_size()
+        dist.all_gather_object(failures, failure)
+        if any(failures):
+            raise RuntimeError("; ".join(item for item in failures if item))
 
     # ------------------------------------------------------------------
     # Dataloader bypass for UnifiedDistributedBuffer
@@ -2166,6 +2231,8 @@ class GR00TTrainer(Trainer):
             resume_from_checkpoint = None
 
         if isinstance(resume_from_checkpoint, bool) and resume_from_checkpoint:
+            if getattr(self.args, "node_local_output", False):
+                raise ValueError("Automatic checkpoint discovery is unsafe for node-local output")
             resume_from_checkpoint = get_last_checkpoint(self.args.output_dir)
             if resume_from_checkpoint is None:
                 logging.warning(

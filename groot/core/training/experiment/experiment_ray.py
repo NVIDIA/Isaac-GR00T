@@ -37,6 +37,7 @@ from groot.core.training.experiment.gear_registration import (
 )
 from groot.core.training.experiment.placement import gpu_placement_bundles
 from groot.core.utils.storage import cache as cache_entrypoint
+from groot.core.utils.storage.checkpoint import node_local_checkpoint_output
 
 _DRY_RUN_PROPAGATED_VARS = ("_GROOT_DRY_RUN_STUB_MODEL", "IDENTITY_FORWARD_SLEEP_MS")
 _TORCH_COMPILE_PROPAGATED_VARS = (
@@ -73,6 +74,7 @@ _PROPAGATED_WORKER_ENV_VARS = (
     "TRAINING_OUTPUT_DIR",
     "TRAINING_MSC_CHECKPOINT_URL",
     "GEAR_PRESERVE_CHECKPOINT_ROOT",
+    "GROOT_NODE_LOCAL_CHECKPOINT_CACHE",
     RESUME_CHECKPOINT_PATH_ENV,
     RESUME_DECIDED_ENV,
 )
@@ -228,13 +230,26 @@ class TorchTrainer:
             try:
                 ray.get([worker.train.remote() for worker in self.workers])
                 break  # If successful, exit the loop
-            except ray.exceptions.ActorDiedError as e:
-                assert "Worker exits with an exit code 0" in str(
-                    e
-                ), f"Actor died with non-zero exit code: {e}"
-                logging.info("Training already finished")
-                break
             except Exception as e:
+                if isinstance(e, ray.exceptions.ActorDiedError) and (
+                    "Worker exits with an exit code 0" in str(e)
+                ):
+                    logging.info("Training already finished")
+                    break
+                if node_local_checkpoint_output(self.training_fn_cfg.training.output_dir):
+                    logging.exception(
+                        "Node-local training failed; automatic worker retries are disabled. "
+                        "Keep the existing attempt intact and use a fresh output_dir for recovery."
+                    )
+                    try:
+                        self._cleanup_workers()
+                    except Exception:  # Cleanup must not mask the training error.
+                        logging.exception("Failed to clean up node-local training workers")
+                    raise
+                if isinstance(e, ray.exceptions.ActorDiedError):
+                    assert "Worker exits with an exit code 0" in str(
+                        e
+                    ), f"Actor died with non-zero exit code: {e}"
                 retries += 1
                 # 1. Dump error to file
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -380,6 +395,8 @@ class _TrainingWorker:
                 logging.exception("GPU error during training")
                 subprocess.run(["ray", "stop", "--force"], check=False)
             elif "trainer_state.json" in str(e):
+                if node_local_checkpoint_output(self.training_fn_cfg.training.output_dir):
+                    raise
                 # Parse the path from the exception message
                 error_msg = str(e)
                 path_match = re.search(r"'([^']*trainer_state\.json)'", error_msg)

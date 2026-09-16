@@ -9,8 +9,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""
-Filter configuration for data loading.
+"""Filter configuration for data loading.
 
 Contains configuration options for filtering data during training.
 """
@@ -31,10 +30,11 @@ class FilterConfig:
     """Configuration for data filtering during training."""
 
     # Filter type selection
-    filter_type: FilterType = FilterType.SYS2
+    filter_type: FilterType | None = FilterType.SYS2
     """The type of filter to use for subtask filtering.
 
     Options:
+    - None: Disable the base data filter
     - "annotation_source": Use AnnotationSourceFilter
     - "sys2": Use Sys2Filter
     """
@@ -53,4 +53,7 @@ class FilterConfig:
     """Language mode: 'default', 'task_only', 'subtask_only', 'subtask_fallback', or 'subtask_concat'."""
 
     subtask_frac: float = 1.0
-    """Fraction of time to use subtask language vs episode-level task language. 1.0 means always use subtask, 0.0 means always use task."""
+    """Fraction of time to use subtask language vs episode-level task language.
+
+    1.0 means always use subtask, 0.0 means always use task.
+    """

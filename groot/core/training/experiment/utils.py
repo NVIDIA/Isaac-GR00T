@@ -62,7 +62,13 @@ class StragglerDetectionCallback(TrainerCallback):
 
     def _get_straggler_module(self):
         """Return the straggler module."""
-        import nvidia_resiliency_ext.straggler as straggler
+        try:
+            from nvidia_resiliency_ext.attribution import straggler
+        except ModuleNotFoundError as error:
+            if error.name != "nvidia_resiliency_ext.attribution":
+                raise
+            # Older training images still install NVRx 0.3.0.
+            from nvidia_resiliency_ext import straggler
 
         return straggler
 
@@ -982,7 +988,9 @@ class OpenLoopEvalCallback(TrainerCallback):
                             if os.path.exists(plot_path):
                                 wandb.log(
                                     {
-                                        f"{dataset_name}/traj_{traj_id}/plot": wandb.Image(plot_path),
+                                        f"{dataset_name}/traj_{traj_id}/plot": wandb.Image(
+                                            plot_path
+                                        ),
                                         "eval_step": state.global_step,
                                     }
                                 )
@@ -990,7 +998,9 @@ class OpenLoopEvalCallback(TrainerCallback):
                             if os.path.exists(actual_video_path):
                                 wandb.log(
                                     {
-                                        f"{dataset_name}/traj_{traj_id}/video": wandb.Video(actual_video_path),
+                                        f"{dataset_name}/traj_{traj_id}/video": wandb.Video(
+                                            actual_video_path
+                                        ),
                                         "eval_step": state.global_step,
                                     }
                                 )

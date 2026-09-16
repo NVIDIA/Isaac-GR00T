@@ -58,6 +58,10 @@ class PolicyServerProcess:
             "--num-inference-timesteps",
             str(self.config.denoising_steps),
         ]
+        if self.config.trt_engine_dir is not None:
+            cmd.extend(["--trt-engine-dir", self.config.trt_engine_dir])
+        if self.config.use_cuda_graph:
+            cmd.append("--use-cuda-graph")
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         try:

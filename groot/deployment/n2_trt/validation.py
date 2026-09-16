@@ -20,9 +20,11 @@ from typing import Any
 
 import torch
 
+from groot.deployment.n2_trt.artifacts import resolve_checkpoint_vae_weights
 from groot.deployment.n2_trt.contract import N2TensorRTContract
 from groot.deployment.n2_trt.manifest import (
     BUILD_FILENAME,
+    BUILD_SCHEMA,
     MANIFEST_FILENAME,
     TRANSFORMER_EAGER_ORACLE,
     TRANSFORMER_EXPORT_ACTION_ORACLE,
@@ -32,6 +34,7 @@ from groot.deployment.n2_trt.manifest import (
     VALIDATION_POLICY,
     VALIDATION_POLICY_SHA256,
     VALIDATION_PROFILE_THRESHOLDS,
+    VALIDATION_SAMPLE_PATHS,
     VALIDATION_SCHEMA,
     ArtifactRecord,
     BuildSettings,
@@ -385,7 +388,9 @@ def _artifact_records(
     return tuple(sources), tuple(engines)
 
 
-def _source_revisions(root: Path, build: dict[str, Any]) -> tuple[SourceRevision, ...]:
+def _source_revisions(
+    root: Path, build: dict[str, Any], source_revision: str | None
+) -> tuple[SourceRevision, ...]:
     transformer_export = json.loads((root / "n2_transformer_export.json").read_text())
     vae_export = json.loads((root / "n2_vae_export_manifest.json").read_text())
     transformer_source = transformer_export["source"]
@@ -400,7 +405,7 @@ def _source_revisions(root: Path, build: dict[str, Any]) -> tuple[SourceRevision
             revision=builder_source["revision"],
             dirty=builder_source["dirty"],
         ),
-        SourceRevision.capture("validator", __file__),
+        SourceRevision.capture("validator", __file__, revision=source_revision),
     )
 
 
@@ -424,6 +429,7 @@ def validate_bundle(
     artifact_root: Path,
     checkpoint: Path,
     embodiment: str,
+    source_revision: str | None = None,
 ) -> dict[str, Any]:
     root = artifact_root.expanduser().resolve(strict=True)
     contract = N2TensorRTContract.from_checkpoint(
@@ -435,17 +441,33 @@ def validate_bundle(
         conditional_kv_cache=True,
     )
     build = json.loads((root / BUILD_FILENAME).read_text())
-    if build.get("schema") != "groot_n2_trt_build_v2":
+    if build.get("schema") != BUILD_SCHEMA:
         raise ValueError(f"unsupported build receipt schema: {build.get('schema')!r}")
+    sample_paths = {
+        role: (root / relative_path).resolve(strict=True)
+        for role, relative_path in VALIDATION_SAMPLE_PATHS.items()
+    }
+    expected_samples = build.get("validation_samples")
+    actual_samples = {role: sha256_file(path) for role, path in sample_paths.items()}
+    if expected_samples != actual_samples:
+        raise RuntimeError("validation samples changed after the TensorRT engine build")
+    vae_export = json.loads((root / "n2_vae_export_manifest.json").read_text())
+    exported_vae_weights = vae_export.get("vae_weights")
+    if not isinstance(exported_vae_weights, str) or not exported_vae_weights:
+        raise RuntimeError("VAE export manifest omits the resolved weights path")
+    vae_weights = resolve_checkpoint_vae_weights(checkpoint, exported_vae_weights)
+    vae_weights_sha256 = sha256_file(vae_weights)
+    if vae_export.get("vae_weights_sha256") != vae_weights_sha256:
+        raise RuntimeError("VAE weights changed after export")
     validator_runtime = _validated_runtime_identity(build)
     sources, engines = _artifact_records(root, build)
     engine_paths = {record.role: root / record.relative_path for record in engines}
 
-    joint_export_path = root / "samples/joint_export_source.pt"
-    action_export_path = root / "samples/action_export_source.pt"
-    joint_production_path = root / "samples/joint_full_capture.pt"
-    action_production_path = root / "samples/action_cached.pt"
-    vae_sample_path = root / "sample.pt"
+    joint_export_path = sample_paths["transformer_joint_export"]
+    action_export_path = sample_paths["transformer_action_export"]
+    joint_production_path = sample_paths["transformer_joint_production"]
+    action_production_path = sample_paths["transformer_action_production"]
+    vae_sample_path = sample_paths["vae_eager"]
     joint_export, joint_export_kv, joint_runner, joint_export_sample = _joint_gates(
         engine_paths["transformer_joint"], joint_export_path
     )
@@ -492,14 +514,10 @@ def validate_bundle(
         "validation_policy_sha256": VALIDATION_POLICY_SHA256,
         "contract_sha256": canonical_sha256(contract.to_dict()),
         "checkpoint_sha256": canonical_sha256(checkpoint_files),
+        "vae_weights_path": str(vae_weights),
+        "vae_weights_sha256": vae_weights_sha256,
         "artifacts": {record.role: record.sha256 for record in (*sources, *engines)},
-        "oracles": {
-            "transformer_joint_export": sha256_file(joint_export_path),
-            "transformer_action_export": sha256_file(action_export_path),
-            "transformer_joint_production": sha256_file(joint_production_path),
-            "transformer_action_production": sha256_file(action_production_path),
-            "vae_eager": sha256_file(vae_sample_path),
-        },
+        "oracles": actual_samples,
         "gates": gates,
         "diagnostics": {
             "transformer_kv_export": joint_export_kv,
@@ -521,14 +539,24 @@ def validate_bundle(
         kind="validation",
         numeric_format="json",
     )
+    build_record = ArtifactRecord.from_file(
+        root / BUILD_FILENAME,
+        role="engine_build",
+        root=root,
+        kind="build",
+        numeric_format="json",
+    )
     manifest = EngineManifest.create(
         contract=contract,
         runtime=validator_runtime,
         build_settings=settings,
-        tool_sources=_source_revisions(root, build),
+        tool_sources=_source_revisions(root, build, source_revision),
         sources=sources,
         engines=engines,
+        build=build_record,
         validation=validation,
+        vae_weights_path=vae_weights,
+        vae_weights_sha256=vae_weights_sha256,
     )
     manifest.write(root / MANIFEST_FILENAME)
     return {**payload, "manifest": asdict(manifest)}
@@ -539,11 +567,13 @@ def main() -> int:
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--embodiment", required=True)
+    parser.add_argument("--source-revision")
     args = parser.parse_args()
     payload = validate_bundle(
         artifact_root=args.artifact_root,
         checkpoint=args.checkpoint,
         embodiment=args.embodiment,
+        source_revision=args.source_revision,
     )
     print(json.dumps({"passed": payload["passed"]}, sort_keys=True))  # noqa: T201
     return 0

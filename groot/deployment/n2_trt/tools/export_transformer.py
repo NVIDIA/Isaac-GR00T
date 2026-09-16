@@ -23,7 +23,7 @@ from groot.core.training.models.n2.components.flash_attention import (
     scaled_dot_product_attention_bf16,
 )
 from groot.core.training.models.n2.utils.cosmos_model_deps import ensure_cosmos_model_deps
-from groot.deployment.n2_trt.contract import TransformerPrecision
+from groot.deployment.n2_trt.contract import N2TensorRTContract, TransformerPrecision
 
 DEFAULT_EMBODIMENT = "xdof_relative_eef_relative_joint"
 DEFAULT_CODEC_ROUNDTRIP = "h264"
@@ -39,6 +39,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--source-revision")
     parser.add_argument(
         "--embodiment",
         default=DEFAULT_EMBODIMENT,
@@ -336,7 +337,12 @@ class _BidirectionalVideoActionFullSegments:
         }
 
 
-def _model_latent_shape(model: Any) -> tuple[int, int, int, int]:
+def _model_latent_shape(
+    model: Any,
+    *,
+    conditioning_frames: int,
+    image_size: tuple[int, int],
+) -> tuple[int, int, int, int]:
     """Per-camera VAE latent (C, T, H, W) for this checkpoint, measured not assumed.
 
     Base N2 (/8 into 16ch) and the Wan2.2 f16t4c48 VAE (turbo) disagree here, and the token
@@ -344,7 +350,7 @@ def _model_latent_shape(model: Any) -> tuple[int, int, int, int]:
     captured sequence, so the contract check stays a real check.
     """
     probe = torch.zeros(
-        (1, 3, model.max_n_cameras * 5, 224, 320),
+        (1, 3, model.max_n_cameras * conditioning_frames, *image_size),
         device=model.device,
         dtype=torch.bfloat16,
     )
@@ -360,15 +366,20 @@ def _require_segment_counts(
     num_cameras: int,
     action_horizon: int,
     latent_shape: tuple[int, int, int, int],
+    total_latent_frames: int,
 ) -> None:
     from groot.deployment.n2_trt.runtime import n2_segment_token_counts
 
     actual = (segments.video_tokens, segments.state_tokens, segments.action_tokens)
-    expected = n2_segment_token_counts(num_cameras, action_horizon, latent_shape)
+    expected = n2_segment_token_counts(
+        num_cameras,
+        action_horizon,
+        latent_shape,
+        total_latent_frames,
+    )
     if actual != expected:
         raise ValueError(
-            "segmented-sdpa N2 runtime contract requires exact token counts "
-            f"{expected}; got {actual}"
+            f"segmented-sdpa N2 runtime contract requires exact token counts {expected}; got {actual}"
         )
 
 
@@ -379,8 +390,7 @@ def _validate_bidirectional_video_action_full_segments(
     """Prove a captured mask is exactly three unmasked, contiguous SDPA segments."""
     if modality_ids.ndim != 2:
         raise ValueError(
-            "segmented-sdpa requires modality_ids with shape (batch, sequence); "
-            f"got {tuple(modality_ids.shape)}"
+            f"segmented-sdpa requires modality_ids with shape (batch, sequence); got {tuple(modality_ids.shape)}"
         )
     if dense_mask.ndim != 4 or dense_mask.shape[1] != 1 or dense_mask.dtype != torch.bool:
         raise ValueError(
@@ -490,6 +500,7 @@ def _install_segmented_sdpa_flex_patch(
     num_cameras: int,
     action_horizon: int,
     latent_shape: tuple[int, int, int, int],
+    total_latent_frames: int,
     token_merge: Any = None,
 ) -> tuple[
     Any,
@@ -505,6 +516,7 @@ def _install_segmented_sdpa_flex_patch(
         num_cameras=num_cameras,
         action_horizon=action_horizon,
         latent_shape=latent_shape,
+        total_latent_frames=total_latent_frames,
     )
     coarse_segments = None
     if token_merge is not None:
@@ -554,8 +566,7 @@ def _install_segmented_sdpa_flex_patch(
             if coarse_segments is not None:
                 supported.append(coarse_segments.total_tokens)
             raise ValueError(
-                f"segmented-sdpa sequence {sequence} is not one of the exported layouts "
-                f"{supported}"
+                f"segmented-sdpa sequence {sequence} is not one of the exported layouts {supported}"
             )
         if pad != active_segments.alignment_pad:
             raise ValueError(
@@ -597,8 +608,7 @@ def _production_eager_oracle() -> str:
 
     if os.environ.get("ENABLE_TENSORRT", "False").lower() == "true":
         raise RuntimeError(
-            "refusing to record a transformer parity oracle through the "
-            "TensorRT export surrogate"
+            "refusing to record a transformer parity oracle through the TensorRT export surrogate"
         )
     return TRANSFORMER_EAGER_ORACLE
 
@@ -720,23 +730,17 @@ def _install_call_probe(
 
 
 # ── synthetic probe observation ─────────────────────────────────────────────
-# Fixed checkpoint-shaped input used only to capture the export graph.
+# Checkpoint-shaped input used only to capture the fixed export graph.
 
 DEFAULT_EMBODIMENT = "xdof_relative_eef_relative_joint"
-NUM_CONDITIONING_FRAMES = 5
-VIDEO_SHAPE = (NUM_CONDITIONING_FRAMES, 224, 320, 3)
 LANGUAGE = "pick up the object"
 
 
 def _load_metadata(
     checkpoint: Path,
     embodiment: str = DEFAULT_EMBODIMENT,
-) -> tuple[dict[str, Any], dict[str, Any], int]:
+) -> tuple[dict[str, Any], dict[str, Any], N2TensorRTContract]:
     """Read the checkpoint workload and check it is exportable."""
-    model_config_path = checkpoint / "config.json"
-    if not model_config_path.is_file():
-        raise FileNotFoundError(f"Checkpoint config not found: {model_config_path}")
-
     processor = json.loads((checkpoint / "processor_config.json").read_text())
     statistics_config = json.loads((checkpoint / "statistics.json").read_text())
     kwargs = processor["processor_kwargs"]
@@ -745,32 +749,34 @@ def _load_metadata(
         raise ValueError(f"Checkpoint does not contain the {embodiment!r} workload")
 
     config = configs[embodiment]
-    # The workload's camera count comes from the embodiment's modality config,
-    # not from the model's max_n_cameras: that field is padding capacity and may
-    # exceed what this workload feeds (n_cameras is derived from data at
-    # runtime), e.g. a max_n_cameras=4 soup checkpoint serving a 3-camera tag.
-    num_cameras = len(config["video"]["modality_keys"])
+    contract = N2TensorRTContract.from_checkpoint(
+        checkpoint,
+        embodiment=embodiment,
+        video_denoising_steps=2,
+        action_denoising_steps=4,
+        joint_denoise=True,
+        conditional_kv_cache=True,
+    )
     action_deltas = tuple(config["action"]["delta_indices"])
     checks = {
-        "conditioning video frames": (
-            len([delta for delta in config["video"]["delta_indices"] if delta <= 0]),
-            NUM_CONDITIONING_FRAMES,
-        ),
-        "image target size": (tuple(kwargs["image_target_size"]), VIDEO_SHAPE[1:3]),
         "state deltas": (tuple(config["state"]["delta_indices"]), (0,)),
         "action horizon": (action_deltas, tuple(range(len(action_deltas)))),
     }
     for name, (actual, expected) in checks.items():
         if actual != expected:
-            raise ValueError(f"Unexpected N2 {name}: expected {expected}, got {actual}")
-    return config, statistics_config[embodiment], num_cameras
+            raise ValueError(
+                "unsupported N2 TensorRT contract (not supported yet): "
+                f"{name} must be {expected}, got {actual}"
+            )
+    return config, statistics_config[embodiment], contract
 
 
-def _gradient_video() -> np.ndarray:
-    x = np.linspace(0, 255, VIDEO_SHAPE[2], dtype=np.uint16)[None, :]
-    y = np.linspace(0, 255, VIDEO_SHAPE[1], dtype=np.uint16)[:, None]
-    video = np.empty(VIDEO_SHAPE, dtype=np.uint8)
-    for index in range(VIDEO_SHAPE[0]):
+def _gradient_video(shape: tuple[int, int, int, int]) -> np.ndarray:
+    frames, height, width, _channels = shape
+    x = np.linspace(0, 255, width, dtype=np.uint16)[None, :]
+    y = np.linspace(0, 255, height, dtype=np.uint16)[:, None]
+    video = np.empty(shape, dtype=np.uint8)
+    for index in range(frames):
         video[index, :, :, 0] = ((x + index * 7) % 256).astype(np.uint8)
         video[index, :, :, 1] = ((y + index * 13) % 256).astype(np.uint8)
         video[index, :, :, 2] = ((x // 2 + y // 2 + index * 17) % 256).astype(np.uint8)
@@ -790,10 +796,16 @@ def make_synthetic_observation(
         raise ValueError("Only the deterministic gradient video is supported")
     del seed  # The historical gradient is deterministic and seed-independent.
 
-    config, stats, _num_cameras = _load_metadata(checkpoint, embodiment_tag.lower())
+    config, stats, contract = _load_metadata(checkpoint, embodiment_tag.lower())
+    video_shape = (
+        contract.conditioning_frames,
+        contract.image_height,
+        contract.image_width,
+        3,
+    )
     observation: dict[str, Any] = {}
     for key in config["video"]["modality_keys"]:
-        observation[f"video.{key}"] = _gradient_video()
+        observation[f"video.{key}"] = _gradient_video(video_shape)
     for key in config["state"]["modality_keys"]:
         mean = np.asarray(stats["state"][key]["mean"], dtype=np.float32)
         observation[f"state.{key}"] = mean[None, :]
@@ -862,7 +874,9 @@ def _runtime_manifest(args: argparse.Namespace, *, num_cameras: int) -> dict[str
     }
     return {
         "checkpoint": args.checkpoint,
-        "source": asdict(SourceRevision.capture("exporter", __file__)),
+        "source": asdict(
+            SourceRevision.capture("exporter", __file__, revision=args.source_revision)
+        ),
         "num_cameras": num_cameras,
         "mode": args.mode,
         "transformer_precision": TransformerPrecision.BF16.value,
@@ -1095,9 +1109,18 @@ def main() -> int:
     from groot.deployment.n2_trt.manifest import (
         TRANSFORMER_EXPORT_ACTION_ORACLE,
         TRANSFORMER_EXPORT_JOINT_ORACLE,
+        sha256_file,
     )
 
     args.checkpoint = str(_prepare_checkpoint(args.checkpoint))
+    contract = N2TensorRTContract.from_checkpoint(
+        args.checkpoint,
+        embodiment=args.embodiment_tag,
+        video_denoising_steps=args.num_video_steps,
+        action_denoising_steps=args.num_action_steps,
+        joint_denoise=True,
+        conditional_kv_cache=True,
+    )
 
     # Retain production-native samples for behavioral diagnosis. Engine
     # correctness is qualified separately against the exact SDPA export source.
@@ -1147,7 +1170,12 @@ def main() -> int:
             dense_mask,
             num_cameras=model.max_n_cameras,
             action_horizon=int(model.config.action_cfg["action_horizon"]),
-            latent_shape=_model_latent_shape(model),
+            latent_shape=_model_latent_shape(
+                model,
+                conditioning_frames=contract.conditioning_frames,
+                image_size=contract.image_size,
+            ),
+            total_latent_frames=contract.total_latent_frames,
             token_merge=token_merge,
         )
 
@@ -1349,6 +1377,12 @@ def main() -> int:
                     "action_cache": TRANSFORMER_EXPORT_ACTION_ORACLE,
                 },
                 "sample_paths": {key: str(value) for key, value in sample_paths.items()},
+                "validation_sample_sha256": {
+                    "transformer_joint_export": sha256_file(sample_paths["joint_export_source"]),
+                    "transformer_action_export": sha256_file(sample_paths["action_export_source"]),
+                    "transformer_joint_production": sha256_file(sample_paths["joint_full_capture"]),
+                    "transformer_action_production": sha256_file(sample_paths["action_cached"]),
+                },
                 "token_merge_kernel": (
                     list(model.config.token_merge_kernel)
                     if model.config.token_merge_kernel is not None
