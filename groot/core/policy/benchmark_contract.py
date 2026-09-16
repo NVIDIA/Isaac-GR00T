@@ -944,33 +944,21 @@ def validate_candidate_runtime_artifacts(
         raise TypeError("TensorRT build manifest has no engine list")
     if len(manifest_engines) != len(REQUIRED_TRT_ENGINE_ROLES):
         raise ValueError("TensorRT build manifest does not describe the complete fixed bundle")
-    build_root = Path(build_manifest["path"]).resolve().parent
     manifest_by_path = {}
     for index, record in enumerate(manifest_engines):
         if not isinstance(record, Mapping):
             raise TypeError(f"TensorRT build manifest engine {index} is not an object")
         path = record.get("engine")
-        if not isinstance(path, str) or not path:
-            raise ValueError(f"TensorRT build manifest engine {index} has no path")
-        engine_path = Path(path)
-        if engine_path.is_absolute():
-            resolved_engine = engine_path.resolve()
-        else:
-            resolved_engine = (build_root / engine_path).resolve()
-            try:
-                resolved_engine.relative_to(build_root)
-            except ValueError as error:
-                raise ValueError(
-                    f"TensorRT build manifest engine {index} escapes its bundle"
-                ) from error
-        resolved_path = str(resolved_engine)
+        if not isinstance(path, str) or not Path(path).is_absolute():
+            raise ValueError(f"TensorRT build manifest engine {index} has no absolute path")
+        resolved_path = str(Path(path).resolve())
         if resolved_path in manifest_by_path:
             raise ValueError("TensorRT build manifest contains duplicate engine paths")
-        if record.get("size_bytes") != resolved_engine.stat().st_size:
-            raise ValueError(f"TensorRT build manifest engine size is stale: {resolved_engine}")
+        if record.get("size_bytes") != Path(path).stat().st_size:
+            raise ValueError(f"TensorRT build manifest engine size is stale: {path}")
         precision = str(record.get("precision", "")).lower()
         if not precision.startswith("bf16") or "fp8" in precision:
-            raise ValueError(f"TensorRT build manifest engine is not BF16-only: {resolved_engine}")
+            raise ValueError(f"TensorRT build manifest engine is not BF16-only: {path}")
         manifest_by_path[resolved_path] = record
 
     loaded_paths = {record["path"] for record in loaded_engines.values()}

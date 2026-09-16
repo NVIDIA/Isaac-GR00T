@@ -8,18 +8,12 @@ import argparse
 from dataclasses import asdict
 import json
 from pathlib import Path
+import subprocess
 import time
 from typing import Any
 
 from groot.deployment.n2_trt.contract import TransformerPrecision
-from groot.deployment.n2_trt.manifest import (
-    BUILD_FILENAME,
-    BUILD_SCHEMA,
-    VALIDATION_SAMPLE_PATHS,
-    RuntimeIdentity,
-    SourceRevision,
-    sha256_file,
-)
+from groot.deployment.n2_trt.manifest import BUILD_FILENAME, RuntimeIdentity, sha256_file
 
 TIMING_CACHE_FILENAME = "n2_trt_timing.cache"
 TRANSFORMER_PRECISION = TransformerPrecision.BF16.value
@@ -44,10 +38,6 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--builder-optimization-level", type=int, default=3)
-    parser.add_argument(
-        "--source-revision",
-        help="Source revision to record when Git metadata is unavailable.",
-    )
     return parser.parse_args()
 
 
@@ -105,35 +95,23 @@ def _onnx_members(onnx_path: Path, artifact_root: Path) -> list[dict[str, Any]]:
     ]
 
 
-def _source_identity(source_revision: str | None = None) -> dict[str, Any]:
-    """Describe the builder source without requiring a Git checkout."""
+def _git_source_identity() -> dict[str, Any]:
     root = Path(__file__).resolve().parents[3]
-    source = SourceRevision.capture("builder", __file__, revision=source_revision)
-    return {"root": str(root), **asdict(source)}
-
-
-def _exported_validation_sample_digests(root: Path) -> dict[str, str]:
-    """Load the sample identities written at the two export boundaries."""
-    manifests = (
-        root / "n2_transformer_export.json",
-        root / "n2_vae_export_manifest.json",
+    revision = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    dirty = bool(
+        subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
     )
-    digests: dict[str, str] = {}
-    for path in manifests:
-        payload = json.loads(path.read_text())
-        exported = payload.get("validation_sample_sha256")
-        if not isinstance(exported, dict):
-            raise TypeError(f"export manifest omits validation sample digests: {path}")
-        overlap = set(digests) & set(exported)
-        if overlap:
-            raise ValueError(f"duplicate validation sample digests: {sorted(overlap)}")
-        digests.update(exported)
-    if set(digests) != set(VALIDATION_SAMPLE_PATHS):
-        raise ValueError(
-            "export manifests must identify every validation sample: "
-            f"expected {sorted(VALIDATION_SAMPLE_PATHS)}, got {sorted(digests)}"
-        )
-    return digests
+    return {"component": "builder", "root": str(root), "revision": revision, "dirty": dirty}
 
 
 def _build_engine(
@@ -217,14 +195,8 @@ def main() -> int:
         raise FileExistsError(f"refusing to overwrite existing build receipt: {build_path}")
     required = [root / source for _role, source, _engine, _format in ARTIFACTS]
     missing = [str(path) for path in required if not path.is_file()]
-    sample_paths = {role: root / path for role, path in VALIDATION_SAMPLE_PATHS.items()}
-    missing.extend(str(path) for path in sample_paths.values() if not path.is_file())
     if missing:
         raise FileNotFoundError(f"complete N2 ONNX bundle is required; missing {missing}")
-    exported_sample_digests = _exported_validation_sample_digests(root)
-    actual_sample_digests = {role: sha256_file(path) for role, path in sample_paths.items()}
-    if exported_sample_digests != actual_sample_digests:
-        raise RuntimeError("validation samples changed after export")
 
     import tensorrt as trt
 
@@ -244,10 +216,10 @@ def main() -> int:
 
     runtime = RuntimeIdentity.capture()
     payload = {
-        "schema": BUILD_SCHEMA,
+        "schema": "groot_n2_trt_build_v2",
         "quantize_mode": "none",
         "tensorrt": runtime.tensorrt,
-        "source": _source_identity(args.source_revision),
+        "source": _git_source_identity(),
         "runtime": asdict(runtime),
         "runtime_gpu_architecture": runtime.gpu_architecture,
         "settings": {
@@ -257,13 +229,12 @@ def main() -> int:
             "vae_precision": "bf16",
         },
         "timing_cache": timing_cache.name,
-        "validation_samples": exported_sample_digests,
         "artifacts": records,
         # Stable consumer view used by the merged measurement contract. The
         # richer N2 records above remain authoritative for runtime validation.
         "engines": [
             {
-                "engine": record["engine"],
+                "engine": str((root / record["engine"]).resolve()),
                 "size_bytes": record["engine_size_bytes"],
                 "precision": record["numeric_format"],
             }

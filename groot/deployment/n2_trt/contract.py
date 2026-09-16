@@ -71,7 +71,6 @@ class N2TensorRTContract:
     model_dtype: str
     embodiment: str
     camera_names: tuple[str, ...]
-    video_indices: tuple[int, ...]
     history_indices: tuple[int, ...]
     image_height: int
     image_width: int
@@ -96,20 +95,6 @@ class N2TensorRTContract:
         return len(self.history_indices)
 
     @property
-    def total_video_frames(self) -> int:
-        return len(self.video_indices)
-
-    @property
-    def conditioning_latent_frames(self) -> int:
-        """Temporal VAE tokens produced from the observed video window."""
-        return (self.conditioning_frames - 1) // 4 + 1
-
-    @property
-    def total_latent_frames(self) -> int:
-        """Temporal VAE tokens in the complete conditioned/generated sequence."""
-        return (self.total_video_frames - 1) // 4 + 1
-
-    @property
     def image_size(self) -> tuple[int, int]:
         return self.image_height, self.image_width
 
@@ -120,16 +105,10 @@ class N2TensorRTContract:
     @property
     def latent_shape(self) -> tuple[int, int, int, int]:
         """Per-camera VAE latent geometry for the admitted fixed input."""
-        channels, spatial_ratio = {
-            "wan21": (16, 8),
-            "wan22": (48, 16),
+        return {
+            "wan21": (16, 2, 28, 40),
+            "wan22": (48, 2, 14, 20),
         }[self.vae_type]
-        return (
-            channels,
-            self.conditioning_latent_frames,
-            self.image_height // spatial_ratio,
-            self.image_width // spatial_ratio,
-        )
 
     def to_dict(self) -> dict[str, Any]:
         """Return the deterministic, path-independent engine contract."""
@@ -144,8 +123,6 @@ class N2TensorRTContract:
             "camera_names": list(self.camera_names),
             "camera_count": self.camera_count,
             "conditioning_frames": self.conditioning_frames,
-            "total_video_frames": self.total_video_frames,
-            "video_indices": list(self.video_indices),
             "history_indices": list(self.history_indices),
             "image_size": [self.image_height, self.image_width],
             "action_horizon": self.action_horizon,
@@ -220,14 +197,14 @@ class N2TensorRTContract:
         configured_horizon = _require_positive_int(action_cfg, "action_horizon")
         if configured_horizon != action_horizon:
             raise ValueError(
-                f"model and processor action horizons disagree: {configured_horizon} != {action_horizon}"
+                "model and processor action horizons disagree: "
+                f"{configured_horizon} != {action_horizon}"
             )
         max_n_cameras = _require_positive_int(model, "max_n_cameras")
         if max_n_cameras != len(camera_names):
             raise ValueError(
-                "unsupported N2 TensorRT contract: padded camera views are not supported yet; "
-                "model max_n_cameras must equal the processor camera count "
-                f"({max_n_cameras} != {len(camera_names)})"
+                "model and processor camera counts disagree: "
+                f"{max_n_cameras} != {len(camera_names)}"
             )
 
         kernel = _optional_int_tuple(model.get("token_merge_kernel"), "token_merge_kernel", 3)
@@ -250,7 +227,7 @@ class N2TensorRTContract:
             ) from error
 
         contract = cls(
-            schema_version=3,
+            schema_version=2,
             checkpoint=str(checkpoint_path),
             model_type=model_type,
             model_size=model_size,
@@ -259,7 +236,6 @@ class N2TensorRTContract:
             model_dtype=model_dtype,
             embodiment=resolved_embodiment,
             camera_names=camera_names,
-            video_indices=video_deltas,
             history_indices=history_indices,
             image_height=image_size[0],
             image_width=image_size[1],
@@ -279,19 +255,27 @@ class N2TensorRTContract:
         return contract
 
     def validate(self) -> None:
-        """Admit checkpoint-derived shapes while failing closed on other features."""
+        """Fail closed outside the fixture contracts qualified by this MR."""
         failures: dict[str, Any] = {}
-        if self.schema_version != 3:
-            failures["schema_version"] = {"actual": self.schema_version, "supported": [3]}
+        shape = (
+            self.camera_count,
+            self.conditioning_frames,
+            self.image_height,
+            self.image_width,
+            self.action_horizon,
+        )
+        supported_shapes = {
+            (4, 5, 224, 320, 48),
+            (3, 5, 224, 320, 80),
+        }
+        if self.schema_version != 2:
+            failures["schema_version"] = {"actual": self.schema_version, "supported": [2]}
         if self.model_type != "GrootN2":
             failures["model_type"] = {"actual": self.model_type, "supported": ["GrootN2"]}
         if self.model_size != "2B":
             failures["model_size"] = {"actual": self.model_size, "supported": ["2B"]}
-        if self.camera_count <= 0:
-            failures["camera_count"] = {
-                "actual": self.camera_count,
-                "requirement": "at least one configured camera",
-            }
+        if shape not in supported_shapes:
+            failures["fixture_shape"] = {"actual": shape, "supported": sorted(supported_shapes)}
         if self.schedule != "2v4a":
             failures["schedule"] = {"actual": self.schedule, "supported": ["2v4a"]}
         if self.model_dtype != "bfloat16":
@@ -305,42 +289,6 @@ class N2TensorRTContract:
             failures["history_indices"] = {
                 "actual": self.history_indices,
                 "requirement": "unique increasing nonpositive indices ending at zero",
-            }
-        if (
-            len(set(self.video_indices)) != len(self.video_indices)
-            or tuple(sorted(self.video_indices)) != self.video_indices
-            or not self.video_indices
-            or 0 not in self.video_indices
-            or tuple(delta for delta in self.video_indices if delta <= 0) != self.history_indices
-        ):
-            failures["video_indices"] = {
-                "actual": self.video_indices,
-                "requirement": "unique increasing indices containing zero",
-            }
-        if self.total_latent_frames <= self.conditioning_latent_frames:
-            failures["video_generation_window"] = {
-                "conditioning_frames": self.conditioning_frames,
-                "total_video_frames": self.total_video_frames,
-                "requirement": "at least one generated latent frame",
-            }
-        spatial_ratio = 16 if self.vae_type == "wan22" else 8
-        patch_multiple = spatial_ratio * 2
-        merge_height = self.token_merge_kernel[1] if self.token_merge_kernel is not None else 1
-        merge_width = self.token_merge_kernel[2] if self.token_merge_kernel is not None else 1
-        required_height_multiple = patch_multiple * merge_height
-        required_width_multiple = patch_multiple * merge_width
-        if (
-            self.image_height <= 0
-            or self.image_width <= 0
-            or self.image_height % required_height_multiple
-            or self.image_width % required_width_multiple
-        ):
-            failures["image_size"] = {
-                "actual": self.image_size,
-                "requirement": (
-                    "positive height/width divisible by "
-                    f"{required_height_multiple}/{required_width_multiple}"
-                ),
             }
         if (self.max_state_dim, self.max_action_dim) != (128, 128):
             failures["state_action_dimensions"] = {
@@ -373,8 +321,7 @@ class N2TensorRTContract:
             }
         if failures:
             raise ValueError(
-                "unsupported N2 TensorRT contract (not supported yet): "
-                + json.dumps(failures, default=str)
+                "unsupported N2 TensorRT contract: " + json.dumps(failures, default=str)
             )
 
 
@@ -391,7 +338,8 @@ def _select_embodiment(configs: dict[str, Any], requested: str | None) -> str:
     if requested is None:
         if len(configs) != 1:
             raise ValueError(
-                f"checkpoint contains multiple embodiments; select one explicitly: {sorted(configs)}"
+                "checkpoint contains multiple embodiments; select one explicitly: "
+                f"{sorted(configs)}"
             )
         return next(iter(configs))
     candidates = {key.lower(): key for key in configs}

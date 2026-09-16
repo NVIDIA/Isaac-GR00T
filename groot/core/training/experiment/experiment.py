@@ -48,7 +48,6 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
-from transformers.trainer_utils import get_last_checkpoint
 import wandb
 
 from groot.core.data.dataset import deltacat_sampled_stats
@@ -89,7 +88,6 @@ from groot.core.utils.state_action.initial_actions import (
     INITIAL_ACTIONS_FILENAME,
     save_initial_actions,
 )
-from groot.core.utils.storage.checkpoint import node_local_checkpoint_output
 from groot.core.utils.storage.data_paths import resolve_all_dataset_paths
 from groot.core.utils.storage.msc import (
     DataSyncConfigBuilder,
@@ -234,7 +232,6 @@ class OmniTrainingArguments(TrainingArguments):
     use_truncated_bptt: bool = field(default=False)
     truncated_bptt_chunk_size: int = field(default=10000)
     use_async_checkpoint_save: bool = field(default=True)
-    node_local_output: bool = field(default=False)
     use_local_state_dict_for_zero2: bool = field(default=True)
 
     # WSD scheduler
@@ -321,95 +318,6 @@ def _materialize_model_source_checkpoint(config: Config, global_rank: int) -> No
             output_dir=config.training.output_dir,
             global_rank=global_rank,
         )
-
-
-def _gather_resume_values(value):
-    if not dist.is_initialized():
-        return [value]
-    values = [None] * dist.get_world_size()
-    dist.all_gather_object(values, value)
-    return values
-
-
-def _check_resume_failures(failure: str | None, *, context: str) -> None:
-    failures = _gather_resume_values(failure)
-    if any(failures):
-        raise ValueError(context + ": " + "; ".join(item for item in failures if item))
-
-
-def _mark_training_attempt(output_dir: str, global_rank: int) -> None:
-    failure = None
-    try:
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        (Path(output_dir) / ".training_attempt").touch()
-    except Exception as exc:  # noqa: BLE001 - report host-local failure to every rank
-        failure = f"Rank {global_rank}: cannot mark training attempt ({type(exc).__name__}: {exc})"
-    _check_resume_failures(failure, context="Node-local startup failed")
-
-
-def _materialize_training_resume_checkpoint(
-    config: Config, global_rank: int, *, output_dir: str | None = None
-) -> str | bool:
-    """Preserve shared-storage resume; require a fresh attempt on local disks."""
-    output_dir = output_dir or config.training.output_dir
-    selected = one_launcher_resume_checkpoint()
-    failure = None
-    local_output = None
-    try:
-        local_output = node_local_checkpoint_output(output_dir)
-    except Exception as exc:  # noqa: BLE001 - agree on filesystem policy before branching
-        failure = f"Rank {global_rank}: cannot inspect output path ({type(exc).__name__}: {exc})"
-    _check_resume_failures(failure, context="Node-local startup failed")
-    choices = _gather_resume_values((selected, local_output))
-    if any(choice != choices[0] for choice in choices):
-        raise ValueError("All ranks must use the same resume decision")
-    if not local_output:
-        return selected
-    if selected not in (True, False):
-        raise ValueError("Explicit node-local recovery requires the opt-in recovery implementation")
-    failure = None
-    used = None
-    try:
-        root = Path(output_dir)
-        used = (root / ".training_attempt").exists() or (
-            root.is_dir() and get_last_checkpoint(str(root)) is not None
-        )
-    except Exception as exc:  # noqa: BLE001 - report host-local failure to every rank
-        failure = (
-            f"Rank {global_rank}: cannot inspect output directory ({type(exc).__name__}: {exc})"
-        )
-    _check_resume_failures(failure, context="Node-local startup failed")
-    if any(_gather_resume_values(used)):
-        raise ValueError(
-            "Node-local output contains a previous training attempt; use a new output_dir"
-        )
-    _mark_training_attempt(output_dir, global_rank)
-    return False
-
-
-def _create_artifact_directories(
-    output_dir: Path, global_rank: int, *, save_cfg_dir: Path, processor_dir: Path
-) -> None:
-    failure = None
-    try:
-        if global_rank == 0 or node_local_checkpoint_output(output_dir):
-            for directory in (output_dir, save_cfg_dir, processor_dir):
-                directory.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:  # noqa: BLE001 - report host-local failure to every rank
-        failure = f"Rank {global_rank}: {type(exc).__name__}: {exc}"
-    _check_resume_failures(failure, context="Artifact directory creation failed")
-
-
-def _save_initial_actions_artifact(
-    train_dataset: object, save_cfg_dir: Path, global_rank: int
-) -> None:
-    if global_rank != 0 or not hasattr(train_dataset, "get_initial_actions"):
-        return
-    initial_actions = train_dataset.get_initial_actions()
-    if initial_actions:
-        initial_actions_path = save_cfg_dir / INITIAL_ACTIONS_FILENAME
-        save_initial_actions(initial_actions, initial_actions_path)
-        logging.info(f"Saved {len(initial_actions)} initial actions to {initial_actions_path}")
 
 
 def warn_configs(config: Config):
@@ -1006,10 +914,12 @@ def run(
     # emitted only when Trainer.train() is entered (see _running_emitted).
     _train_started_at = datetime.now(timezone.utc)
 
-    _create_artifact_directories(
-        output_dir, global_rank, save_cfg_dir=save_cfg_dir, processor_dir=processor_dir
-    )
     if global_rank == 0:
+        # Create output directories (rank 0 is the sole writer).
+        output_dir.mkdir(parents=True, exist_ok=True)
+        save_cfg_dir.mkdir(parents=True, exist_ok=True)
+        processor_dir.mkdir(parents=True, exist_ok=True)
+
         # Build the canonical dataset payload from the resolved training
         # config. The launcher didn't have this — it registered a skeleton
         # record.
@@ -1147,9 +1057,6 @@ def run(
             sys.stdout.flush()
 
         _materialize_model_source_checkpoint(config, global_rank)
-        resume_from_checkpoint = _materialize_training_resume_checkpoint(
-            config, global_rank, output_dir=str(output_dir)
-        )
 
         # Configure structlog BEFORE pipeline.setup() so events emitted from
         # inside `factory.build()` (e.g., V2 grouped factory's
@@ -1280,7 +1187,6 @@ def run(
             wsd_stable_ratio=config.training.wsd_stable_ratio,
             wsd_decay_type=config.training.wsd_decay_type,
             use_async_checkpoint_save=getattr(config.training, "use_async_checkpoint_save", True),
-            node_local_output=node_local_checkpoint_output(output_dir),
         )
 
         if hasattr(config.model, "collator_seq_len_handle_strategy"):
@@ -1472,10 +1378,29 @@ def run(
         if legacy_cb is not None:
             trainer.add_callback(legacy_cb)
 
-        _save_initial_actions_artifact(train_dataset, save_cfg_dir, global_rank)
+        if hasattr(train_dataset, "get_initial_actions"):
+            initial_actions = train_dataset.get_initial_actions()
+            if initial_actions:
+                initial_actions_path = save_cfg_dir / INITIAL_ACTIONS_FILENAME
+                save_initial_actions(initial_actions, initial_actions_path)
+                logging.info(
+                    f"Saved {len(initial_actions)} initial actions to {initial_actions_path}"
+                )
 
-        # Shared outputs retain local checkpoint discovery. Node-local startup
-        # was checked before pipeline setup and must begin a fresh attempt.
+        # Resume always reads from the local Lustre checkpoint dir
+        # (`output_dir`). The pre-download from MSC was added in
+        # 95bdcb9c88 (core open loop eval) and caused issues — it conflated
+        # "resume" with "fetch newer checkpoint from remote storage", which
+        # is unexpected when Lustre already has the run's own checkpoints.
+        # `trainer.train(resume_from_checkpoint=True)` below falls through
+        # to `get_last_checkpoint(args.output_dir)` and resumes from Lustre
+        # directly. MSC is still used for uploads (downstream) — only the
+        # download-before-resume step is dropped here.
+        #
+        # If you ever need the MSC pre-download back, call
+        # `fetch_latest_checkpoint_from_remote_if_available(output_dir,
+        #  msc_checkpoint_url, global_rank)` here (the helper is still
+        # defined above for that purpose).
 
         # Decorrelate the RNG across ranks. The set_seed() above -- and HF
         # Trainer.__init__, via args.seed -- are both rank-invariant, so every
@@ -1656,7 +1581,7 @@ def run(
                     profile_memory=profile_memory,
                 )
             )
-            trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+            trainer.train(resume_from_checkpoint=one_launcher_resume_checkpoint())
 
             # Wait for upload thread to complete before exiting
             if msc_profile_url and upload_thread_ref[0] is not None:
@@ -1668,7 +1593,7 @@ def run(
                     )
         else:
             # No profiling - just train normally
-            trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+            trainer.train(resume_from_checkpoint=one_launcher_resume_checkpoint())
 
         # Save final model
         if config.training.save_final_model:

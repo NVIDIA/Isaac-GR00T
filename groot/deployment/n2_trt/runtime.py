@@ -59,6 +59,7 @@ def _torch_dtype_for_trt(trt_module: Any, dtype: Any) -> torch.dtype:
     raise TypeError(f"Unsupported TensorRT dtype: {dtype}")
 
 
+_SUPPORTED_CAMERA_COUNTS = (3, 4)
 # Per-camera VAE latent (C, T, H, W) for one 5-frame 224x320 window. Base N2's VAE
 # downsamples /8 into 16 channels; GR00T2-TURBO's Wan2.2 VAE downsamples /16 into 48,
 # which is a different token count and a different engine shape, so callers that
@@ -68,57 +69,53 @@ _PATCH_SIZE = 2
 _STATE_TOKENS = 1
 
 
-def video_tokens_per_camera(
-    latent_shape: tuple[int, int, int, int], total_latent_frames: int
-) -> int:
-    """Video tokens one camera contributes for the configured full video window."""
-    _, _conditioning_frames, height, width = latent_shape
+def video_tokens_per_camera(latent_shape: tuple[int, int, int, int]) -> int:
+    """Video tokens one camera contributes, from its per-camera latent (C, T, H, W).
+
+    The DiT patchifies the latent 2x2 spatially and attends over both the
+    conditioning and the target latent frames, i.e. 2T frames. Base N2's 28x40
+    latents give 14*20*4 = 1120 tokens; GR00T2-TURBO's 14x20 give 7*10*4 = 280.
+    """
+    _, frames, height, width = latent_shape
     if height % _PATCH_SIZE or width % _PATCH_SIZE:
         raise ValueError(
             f"latent {height}x{width} is not divisible by the {_PATCH_SIZE}x{_PATCH_SIZE} patch"
         )
-    if not isinstance(total_latent_frames, int) or isinstance(total_latent_frames, bool):
-        raise TypeError(f"total_latent_frames must be an int, got {total_latent_frames!r}")
-    if total_latent_frames <= 0:
-        raise ValueError(f"total_latent_frames must be positive, got {total_latent_frames}")
-    return (height // _PATCH_SIZE) * (width // _PATCH_SIZE) * total_latent_frames
+    return (height // _PATCH_SIZE) * (width // _PATCH_SIZE) * 2 * frames
 
 
-def _require_positive_camera_count(num_cameras: int) -> None:
-    if not isinstance(num_cameras, int) or isinstance(num_cameras, bool) or num_cameras <= 0:
-        raise ValueError(f"num_cameras must be a positive integer, got {num_cameras!r}")
+def _require_supported_camera_count(num_cameras: int) -> None:
+    if (
+        not isinstance(num_cameras, int)
+        or isinstance(num_cameras, bool)
+        or num_cameras not in _SUPPORTED_CAMERA_COUNTS
+    ):
+        raise ValueError(
+            f"fixed-shape N2 TensorRT supports camera counts {_SUPPORTED_CAMERA_COUNTS}; got {num_cameras}"
+        )
 
 
 def n2_segment_token_counts(
     num_cameras: int,
     action_horizon: int,
     latent_shape: tuple[int, int, int, int] = _BASE_LATENT_SHAPE,
-    total_latent_frames: int = 4,
 ) -> tuple[int, int, int]:
-    """Fixed (video, state, action) layout derived from checkpoint dimensions."""
-    _require_positive_camera_count(num_cameras)
+    """Fixed (video, state, action) layout for a supported GR00T2 export."""
+    _require_supported_camera_count(num_cameras)
     if not isinstance(action_horizon, int) or isinstance(action_horizon, bool):
         raise TypeError(f"action_horizon must be an int, got {action_horizon!r}")
     if action_horizon <= 0:
         raise ValueError(f"action_horizon must be positive, got {action_horizon}")
-    tokens = video_tokens_per_camera(latent_shape, total_latent_frames)
+    tokens = video_tokens_per_camera(latent_shape)
     return (tokens * num_cameras, _STATE_TOKENS, action_horizon)
 
 
 def _vae_trt_shapes(
     num_cameras: int,
     latent_shape: tuple[int, int, int, int] = _BASE_LATENT_SHAPE,
-    *,
-    conditioning_frames: int = 5,
-    image_size: tuple[int, int] = (224, 320),
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    _require_positive_camera_count(num_cameras)
-    if conditioning_frames <= 0:
-        raise ValueError(f"conditioning_frames must be positive, got {conditioning_frames}")
-    return (
-        (num_cameras, 3, conditioning_frames, *image_size),
-        (num_cameras, *latent_shape),
-    )
+    _require_supported_camera_count(num_cameras)
+    return (num_cameras, 3, 5, 224, 320), (num_cameras, *latent_shape)
 
 
 def n2_trt_runtime_contract(
@@ -131,7 +128,7 @@ def n2_trt_runtime_contract(
     The denoising schedule changes how many times each engine is called without
     changing engine shapes, so it is part of the runtime identity.
     """
-    _require_positive_camera_count(num_cameras)
+    _require_supported_camera_count(num_cameras)
     return f"gr00t2_{num_cameras}cam_{num_video_steps}v{num_action_steps}a_tensorrt"
 
 
@@ -150,7 +147,7 @@ def _require_n2_runtime_contract(
     video_padded_mask: Any,
 ) -> None:
     """Fail closed unless inference matches the selected exported TRT workload."""
-    _require_positive_camera_count(expected_num_cameras)
+    _require_supported_camera_count(expected_num_cameras)
     reasons: list[str] = []
     if (batch_size, num_cameras) != (1, expected_num_cameras):
         reasons.append(f"batch_cameras:{(batch_size, num_cameras)}!=(1, {expected_num_cameras})")
@@ -190,11 +187,8 @@ def _require_segment_layout(
     num_cameras: int,
     action_horizon: int,
     latent_shape: tuple[int, int, int, int] = _BASE_LATENT_SHAPE,
-    total_latent_frames: int = 4,
 ) -> None:
-    expected = n2_segment_token_counts(
-        num_cameras, action_horizon, latent_shape, total_latent_frames
-    )
+    expected = n2_segment_token_counts(num_cameras, action_horizon, latent_shape)
     if segment_counts != expected:
         raise RuntimeError(
             f"fixed-shape N2 TensorRT segment layout {segment_counts} != {expected} "
@@ -207,16 +201,9 @@ def _vae_trt_contract_skip_reason(
     *,
     num_cameras: int,
     latent_shape: tuple[int, int, int, int] = _BASE_LATENT_SHAPE,
-    conditioning_frames: int = 5,
-    image_size: tuple[int, int] = (224, 320),
 ) -> str | None:
     """Validate the fixed-shape VAE engine contract."""
-    input_shape, output_shape = _vae_trt_shapes(
-        num_cameras,
-        latent_shape,
-        conditioning_frames=conditioning_frames,
-        image_size=image_size,
-    )
+    input_shape, output_shape = _vae_trt_shapes(num_cameras, latent_shape)
     reasons: list[str] = []
     if set(runner.inputs) != {"videos"}:
         reasons.append(f"input_names:{sorted(runner.inputs)}!=['videos']")
@@ -598,7 +585,6 @@ class N2TensorRTRuntime:
             self.num_cameras,
             self.action_horizon,
             self.latent_shape,
-            contract.total_latent_frames,
         )
         # With the conditioning KV cache on, the action steps are split across the
         # joint calls, so the schedule must divide evenly.
@@ -624,8 +610,6 @@ class N2TensorRTRuntime:
             self.vae_runner,
             num_cameras=self.num_cameras,
             latent_shape=self.latent_shape,
-            conditioning_frames=contract.conditioning_frames,
-            image_size=contract.image_size,
         )
         if contract_reason is not None:
             raise RuntimeError(f"invalid VAE TensorRT engine contract: {contract_reason}")
@@ -733,7 +717,7 @@ class N2TensorRTRuntime:
                 "uuid": self.manifest.runtime.gpu_uuid,
                 "compute_capability": list(self.manifest.runtime.compute_capability),
             },
-            "build_manifest": identity(build_path, digest=self.manifest.build.sha256),
+            "build_manifest": identity(build_path),
             "loaded_engines": engines,
         }
 
@@ -800,5 +784,4 @@ class N2TensorRTRuntime:
             num_cameras=self.num_cameras,
             action_horizon=self.action_horizon,
             latent_shape=self.latent_shape,
-            total_latent_frames=self.contract.total_latent_frames,
         )

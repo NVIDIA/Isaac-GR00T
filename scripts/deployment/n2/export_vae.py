@@ -2,10 +2,12 @@
 # ruff: noqa: T201
 """Export a checkpoint-shaped N2 VAE encoder with BF16 I/O and FP32 normalization.
 
-The contract is intentionally static and derived from checkpoint metadata:
+The contract is intentionally static:
 
-    videos  [num_cameras, 3, conditioning_frames, height, width] BF16
-    latents [num_cameras, C, conditioning_latent_frames, H, W]   BF16
+    videos  [num_cameras, 3, 5, 224, 320] BF16
+    latents [num_cameras, C, 2, H, W]       BF16
+
+Wan2.1 uses ``C,H,W = 16,28,40``; Wan2.2 uses ``48,14,20``.
 
 The deterministic sample is consumed by the shared post-build parity gate.
 """
@@ -34,39 +36,35 @@ from groot.core.training.models.n2.components.wan_video_vae import (
     RMS_norm,
     WanVideoVAE,
 )
-from groot.deployment.n2_trt import (
-    N2TensorRTContract,
-    resolve_checkpoint_vae_type,
-    resolve_checkpoint_vae_weights,
-)
+from groot.deployment.n2_trt import resolve_checkpoint_vae_type
 
 
 def _vae_shapes(
-    num_cameras: int,
-    conditioning_frames: int,
-    image_size: tuple[int, int],
-    latent_shape: tuple[int, int, int, int],
+    num_cameras: int, latent_shape: tuple[int, int, int, int] = (16, 2, 28, 40)
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    if not isinstance(num_cameras, int) or isinstance(num_cameras, bool) or num_cameras <= 0:
-        raise ValueError(f"num_cameras must be a positive integer, got {num_cameras!r}")
-    if conditioning_frames <= 0:
-        raise ValueError(f"conditioning_frames must be positive, got {conditioning_frames}")
-    return (
-        (num_cameras, 3, conditioning_frames, *image_size),
-        (num_cameras, *latent_shape),
-    )
+    if (
+        not isinstance(num_cameras, int)
+        or isinstance(num_cameras, bool)
+        or num_cameras not in (3, 4)
+    ):
+        raise ValueError(
+            f"N2 VAE export supports the promoted 3/4-camera fixtures, got {num_cameras}"
+        )
+    return (num_cameras, 3, 5, 224, 320), (num_cameras, *latent_shape)
 
 
-def _checkpoint_contract(checkpoint: Path, embodiment: str) -> N2TensorRTContract:
-    """Resolve every fixed VAE dimension through the shared checkpoint contract."""
-    return N2TensorRTContract.from_checkpoint(
-        checkpoint,
-        embodiment=embodiment,
-        video_denoising_steps=2,
-        action_denoising_steps=4,
-        joint_denoise=True,
-        conditional_kv_cache=True,
-    )
+def _checkpoint_latent_shape(checkpoint: Path) -> tuple[int, int, int, int]:
+    """Per-camera latent (C, T, H, W) implied by this checkpoint's VAE.
+
+    Wan2.1 downsamples /8 into 16 channels; ``vae_type='wan22'`` uses /16 into
+    48 channels. Current N2 Turbo checkpoints retain ``model_type='GrootN2'``,
+    so ``model_type`` cannot distinguish the latent geometry.
+    """
+    config = json.loads((checkpoint / "config.json").read_text())
+    vae_type = resolve_checkpoint_vae_type(config)
+    channels = {"wan21": 16, "wan22": 48}[vae_type]
+    ratio = 16 if vae_type == "wan22" else 8
+    return (channels, 2, 224 // ratio, 320 // ratio)
 
 
 def _build_vae(checkpoint: Path, weights: Path):
@@ -81,6 +79,13 @@ def _build_vae(checkpoint: Path, weights: Path):
     vae_type = resolve_checkpoint_vae_type(config)
     vae_cls = WanVideoVAE38 if vae_type == "wan22" else WanVideoVAE
     return vae_cls(**vae_cfg)
+
+
+def _checkpoint_num_cameras(checkpoint: Path) -> int:
+    config_path = checkpoint / "config.json"
+    if not config_path.is_file():
+        raise FileNotFoundError(f"checkpoint config not found: {config_path}")
+    return _vae_shapes(json.loads(config_path.read_text()).get("max_n_cameras"))[0][0]
 
 
 INPUT_NAME = "videos"
@@ -144,11 +149,7 @@ class YamN2VaeEncodeExportAdapter(nn.Module):
         self.use_pipeline_encode = hasattr(vae, "upsampling_factor")
 
     def forward(self, videos: torch.Tensor) -> torch.Tensor:
-        # The full-sequence graph is equivalent for complete 1+4k windows and
-        # preserves the already-qualified path. Other fixed lengths use the
-        # model's own static, traceable chunk loop so trailing frames have the
-        # exact same semantics as eager inference.
-        if self.use_pipeline_encode or (videos.shape[2] - 1) % 4:
+        if self.use_pipeline_encode:
             return self._pipeline_encode(videos, [self.mean, self.inv_std])
         encoded = _encode_full_sequence(self.encoder, videos)
         mean, _log_var = self.conv1(encoded).chunk(2, dim=1)
@@ -274,16 +275,34 @@ def _validate_fp32_rms_norm_graph(path: Path, expected_count: int) -> dict[str, 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--embodiment", required=True)
     parser.add_argument("--vae-weights", default=None)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--source-revision")
     return parser.parse_args()
 
 
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _resolve_vae_weights(checkpoint: Path, explicit: str | None) -> Path:
+    if explicit:
+        weights = Path(explicit).expanduser()
+    else:
+        config_path = checkpoint / "config.json"
+        if not config_path.is_file():
+            raise FileNotFoundError(f"checkpoint config not found: {config_path}")
+        config = json.loads(config_path.read_text())
+        configured = config.get("vae_cfg", {}).get("vae_pretrained_path")
+        if not configured:
+            raise ValueError(f"vae_cfg.vae_pretrained_path is missing from {config_path}")
+        weights = Path(configured).expanduser()
+        if not weights.is_absolute():
+            checkpoint_relative = checkpoint / weights
+            weights = checkpoint_relative if checkpoint_relative.is_file() else weights
+    if not weights.is_file():
+        raise FileNotFoundError(f"VAE weights not found: {weights}")
+    return weights.resolve()
 
 
 def _tensor_record(tensor: torch.Tensor) -> dict[str, Any]:
@@ -362,14 +381,9 @@ def _export(args: argparse.Namespace) -> int:
 
     checkpoint = Path(args.checkpoint).expanduser().resolve()
     ensure_cosmos_model_deps(checkpoint)
-    contract = _checkpoint_contract(checkpoint, args.embodiment)
-    input_shape, output_shape = _vae_shapes(
-        contract.camera_count,
-        contract.conditioning_frames,
-        contract.image_size,
-        contract.latent_shape,
-    )
-    weights = resolve_checkpoint_vae_weights(checkpoint, args.vae_weights)
+    num_cameras = _checkpoint_num_cameras(checkpoint)
+    input_shape, output_shape = _vae_shapes(num_cameras, _checkpoint_latent_shape(checkpoint))
+    weights = _resolve_vae_weights(checkpoint, args.vae_weights)
     output_dir = Path(args.output_dir)
     output_dir = output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -425,14 +439,11 @@ def _export(args: argparse.Namespace) -> int:
     )
 
     manifest = {
-        "source": asdict(
-            SourceRevision.capture("exporter", __file__, revision=args.source_revision)
-        ),
+        "source": asdict(SourceRevision.capture("exporter", __file__)),
         "checkpoint": str(checkpoint),
-        "num_cameras": contract.camera_count,
+        "num_cameras": num_cameras,
         "vae_weights": str(weights),
         "vae_weights_sha256": sha256_file(weights),
-        "validation_sample_sha256": {"vae_eager": sha256_file(output_dir / "sample.pt")},
         "onnx": str(onnx_path),
         "onnx_size_bytes": onnx_path.stat().st_size,
         "export_elapsed_s": export_elapsed_s,
