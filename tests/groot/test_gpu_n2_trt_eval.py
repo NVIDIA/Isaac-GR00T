@@ -545,7 +545,6 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
         encoding="utf-8",
     )
     package_root = Path(os.environ.get("OSS_PACKAGE_ROOT", Path.cwd()))
-    builder = package_root / "scripts/deployment/n2/build_engines.py"
     try:
         source_revision = subprocess.run(
             ["git", "-C", str(package_root), "rev-parse", "HEAD"],
@@ -558,7 +557,9 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
     subprocess.run(
         [
             sys.executable,
-            str(builder),
+            "-P",
+            "-m",
+            "groot.deployment.n2_trt.tools.build_engines",
             "--artifact-root",
             str(root),
             "--builder-optimization-level",
