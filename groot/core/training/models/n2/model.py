@@ -1065,12 +1065,6 @@ class GrootN2(PreTrainedModel):
                         "action_mask": action_mask,
                         "action_target": action_target,
                         "action_velocity_pred": pred_actions,
-                        # Extension boundary: these are the only additional
-                        # values required to reuse the exact sampled N2
-                        # forward for an auxiliary action-conditioned loss.
-                        "packed": packed,
-                        "transformer_kwargs": transformer_kwargs,
-                        "embodiment_id": embodiment_id,
                     }
                 )
             action_loss_per_elem = action_loss_raw * action_mask.float()

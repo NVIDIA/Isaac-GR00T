@@ -26,9 +26,6 @@ import json
 import logging
 import os
 from pathlib import Path
-import shutil
-import tempfile
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -300,12 +297,22 @@ def _download_deps(
         local_target.parent.mkdir(parents=True, exist_ok=True)
 
         if is_directory:
-            file_count = _download_directory_atomically(
-                s3,
-                bucket=bucket,
-                s3_prefix=s3_prefix,
-                local_target=local_target,
-            )
+            local_target.mkdir(parents=True, exist_ok=True)
+            # List and download all objects under the prefix
+            paginator = s3.get_paginator("list_objects_v2")
+            file_count = 0
+            for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix + "/"):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    obj_rel = key[len(s3_prefix) + 1 :]
+                    if not obj_rel:
+                        continue
+                    local_path = local_target / obj_rel
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
+                    size_mb = obj["Size"] / 1e6
+                    logger.info(f"    {obj_rel} ({size_mb:.1f} MB)")
+                    s3.download_file(bucket, key, str(local_path))
+                    file_count += 1
             logger.info(f"  Done: {file_count} files downloaded")
         else:
             # Single file download
@@ -314,76 +321,9 @@ def _download_deps(
             head = s3.head_object(Bucket=bucket, Key=s3_prefix)
             size_mb = head["ContentLength"] / 1e6
             logger.info(f"    Size: {size_mb:.1f} MB")
-            _download_file_atomically(
-                s3,
-                bucket=bucket,
-                s3_key=s3_prefix,
-                local_target=local_target,
-            )
+            s3.download_file(bucket, s3_prefix, str(local_target))
             dt = time.time() - t0
             logger.info(f"  Done in {dt:.1f}s ({size_mb / max(dt, 0.1):.1f} MB/s)")
-
-
-def _download_directory_atomically(
-    s3: Any,
-    *,
-    bucket: str,
-    s3_prefix: str,
-    local_target: Path,
-) -> int:
-    """Stage a complete S3 prefix, then publish the directory in one rename."""
-    temporary = Path(
-        tempfile.mkdtemp(prefix=f".{local_target.name}.", dir=local_target.parent)
-    ).resolve()
-    try:
-        paginator = s3.get_paginator("list_objects_v2")
-        file_count = 0
-        for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix + "/"):
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                relative_path = key[len(s3_prefix) + 1 :]
-                if not relative_path:
-                    continue
-                local_path = (temporary / relative_path).resolve()
-                try:
-                    local_path.relative_to(temporary)
-                except ValueError as error:
-                    raise ValueError(f"Model dependency key escapes its prefix: {key}") from error
-                local_path.parent.mkdir(parents=True, exist_ok=True)
-                size_mb = obj["Size"] / 1e6
-                logger.info(f"    {relative_path} ({size_mb:.1f} MB)")
-                s3.download_file(bucket, key, str(local_path))
-                file_count += 1
-        if file_count == 0:
-            raise FileNotFoundError(f"No objects found under s3://{bucket}/{s3_prefix}/")
-        try:
-            os.replace(temporary, local_target)
-        except OSError:
-            if not (local_target.is_dir() and any(local_target.iterdir())):
-                raise
-        return file_count
-    finally:
-        shutil.rmtree(temporary, ignore_errors=True)
-
-
-def _download_file_atomically(
-    s3: Any,
-    *,
-    bucket: str,
-    s3_key: str,
-    local_target: Path,
-) -> None:
-    """Stage one S3 object, then publish the file in one rename."""
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{local_target.name}.", dir=local_target.parent
-    )
-    os.close(descriptor)
-    temporary = Path(temporary_name)
-    try:
-        s3.download_file(bucket, s3_key, str(temporary))
-        os.replace(temporary, local_target)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _rewrite_configs(
@@ -435,22 +375,8 @@ def _rewrite_configs(
             content = content.replace(old_path, new_path)
 
         if content != original_content:
-            _atomic_write_text(config_path, content)
+            with open(config_path, "w") as f:
+                f.write(content)
             logger.info(f"  Rewrote paths in {config_file}")
         else:
             logger.info(f"No rewrites needed for {config_file}")
-
-
-def _atomic_write_text(path: Path, content: str) -> None:
-    """Publish a rewritten config without exposing a partial JSON document."""
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(temporary, path.stat().st_mode)
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)

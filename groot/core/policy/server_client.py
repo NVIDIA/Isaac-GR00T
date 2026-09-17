@@ -9,12 +9,14 @@
 # its affiliates is strictly prohibited.
 
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, wait
 import contextlib
 import dataclasses
 from dataclasses import dataclass
 import enum
 import io
 import json
+import math
 import time
 from typing import Any, cast
 
@@ -37,6 +39,7 @@ def _attach_server_rpc_timing(
     *,
     request_id: int | None,
     server_processing_ms: float,
+    server_request_deserialize_ms: float | None = None,
 ) -> Any:
     """Attach transport metadata to a get_action result without mutating policy info."""
     if not isinstance(result, list | tuple) or len(result) != 2:
@@ -50,6 +53,8 @@ def _attach_server_rpc_timing(
     rpc_timing = timed_info.get(RPC_TIMING_INFO_KEY, {})
     rpc_timing = dict(rpc_timing) if isinstance(rpc_timing, dict) else {}
     rpc_timing["server_processing_ms"] = server_processing_ms
+    if server_request_deserialize_ms is not None:
+        rpc_timing["server_request_deserialize_ms"] = server_request_deserialize_ms
     if request_id is not None:
         rpc_timing["request_id"] = request_id
     timed_info[RPC_TIMING_INFO_KEY] = rpc_timing
@@ -100,13 +105,51 @@ class JpegCodec:
       convention. Upstream callers that work with OpenCV/camera-native BGR
       data MUST convert before encoding.
 
-    Uses PIL, which is RGB-native on both encode and decode — no channel
-    swaps needed.
+    Pillow is the reference codec. OpenCV accelerates RGB/grayscale JPEGs with
+    explicit color conversion and unchanged JPEG options. Other image formats
+    and modes retain the Pillow path.
     """
 
-    def encode(self, frame: np.ndarray, quality: int = 95) -> bytes:
+    def encode(self, frame: np.ndarray, quality: int = 95, *, use_opencv: bool = False) -> bytes:
         from PIL import Image
 
+        if (
+            use_opencv
+            and _is_image_array(frame)
+            and frame.shape[0] > 0
+            and frame.shape[1] > 0
+            and isinstance(quality, int)
+            and 1 <= quality <= 100
+        ):
+            try:
+                import cv2
+            except ImportError:
+                pass
+            else:
+                try:
+                    image = (
+                        frame[:, :, 0]
+                        if frame.shape[-1] == 1
+                        else cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    )
+                    ok, encoded = cv2.imencode(
+                        ".jpg",
+                        image,
+                        [
+                            cv2.IMWRITE_JPEG_QUALITY,
+                            quality,
+                            cv2.IMWRITE_JPEG_PROGRESSIVE,
+                            0,
+                            cv2.IMWRITE_JPEG_OPTIMIZE,
+                            0,
+                        ],
+                    )
+                    if ok:
+                        return encoded.tobytes()
+                except cv2.error:
+                    pass
+                # Optional codec missing/failing: preserve Pillow's output or
+                # original exception. Never change quality to make encoding work.
         if frame.ndim == 3 and frame.shape[-1] == 1:
             frame = frame[:, :, 0]
         img = Image.fromarray(frame)
@@ -117,8 +160,35 @@ class JpegCodec:
     def decode(self, data: bytes) -> np.ndarray:
         from PIL import Image
 
-        img = Image.open(io.BytesIO(data))
-        arr = np.array(img)
+        # Inspect with Pillow first to retain format/mode detection and its
+        # decompression-bomb checks. IMREAD_UNCHANGED also ignores EXIF rotation,
+        # just like the legacy decoder. CMYK, non-JPEG and truncated data fall back.
+        with Image.open(io.BytesIO(data)) as img:
+            if img.format == "JPEG" and img.mode in ("RGB", "L") and data.endswith(b"\xff\xd9"):
+                try:
+                    import cv2
+                except ImportError:
+                    pass
+                else:
+                    try:
+                        decoded = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_UNCHANGED)
+                        channels = 3 if img.mode == "RGB" else 1
+                        shape = (
+                            (img.height, img.width, 3) if channels == 3 else (img.height, img.width)
+                        )
+                        if (
+                            decoded is not None
+                            and decoded.dtype == np.uint8
+                            and decoded.shape == shape
+                        ):
+                            return (
+                                cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
+                                if channels == 3
+                                else decoded[:, :, np.newaxis]
+                            )
+                    except cv2.error:
+                        pass
+            arr = np.array(img)
         if arr.ndim == 2:
             arr = arr[:, :, np.newaxis]
         return arr
@@ -179,14 +249,42 @@ class MsgSerializer:
     Args:
         jpeg_enabled: When True, uint8 image arrays are JPEG-compressed.
         jpeg_quality: JPEG quality level (1-100).
+        jpeg_decode_workers: Maximum workers for independent JPEG history frames.
+            One preserves serial decoding.
+        jpeg_encode_workers: Maximum workers for independent JPEG history frames.
+            One preserves serial Pillow encoding. Multiple workers use OpenCV
+            without changing JPEG quality, frame order or the wire format.
     """
 
-    def __init__(self, jpeg_enabled: bool = True, jpeg_quality: int = 95):
+    def __init__(
+        self,
+        jpeg_enabled: bool = True,
+        jpeg_quality: int = 95,
+        jpeg_decode_workers: int = 4,
+        jpeg_encode_workers: int = 4,
+    ):
         if not 1 <= jpeg_quality <= 100:
             raise ValueError(f"jpeg_quality must be between 1 and 100, got {jpeg_quality}")
         self.jpeg_enabled = jpeg_enabled
         self.jpeg_quality = jpeg_quality
+        if not isinstance(jpeg_decode_workers, int) or jpeg_decode_workers < 1:
+            raise ValueError("jpeg_decode_workers must be a positive integer")
+        self.jpeg_decode_workers = jpeg_decode_workers
+        if not isinstance(jpeg_encode_workers, int) or jpeg_encode_workers < 1:
+            raise ValueError("jpeg_encode_workers must be a positive integer")
+        self.jpeg_encode_workers = jpeg_encode_workers
         self._codec: JpegCodec | None = None
+        self._decode_executor: ThreadPoolExecutor | None = None
+        self._encode_executor: ThreadPoolExecutor | None = None
+
+    def close(self) -> None:
+        """Release codec workers after the last sequential RPC."""
+        if self._encode_executor is not None:
+            self._encode_executor.shutdown(wait=True)
+            self._encode_executor = None
+        if self._decode_executor is not None:
+            self._decode_executor.shutdown(wait=True)
+            self._decode_executor = None
 
     def _get_codec(self) -> JpegCodec:
         if self._codec is None:
@@ -194,10 +292,139 @@ class MsgSerializer:
         return self._codec
 
     def to_bytes(self, data: Any) -> bytes:
-        return cast(bytes, msgpack.packb(data, default=self._encode_custom_classes))
+        jpeg_batches = self._encode_jpeg_batches(data) if self.jpeg_enabled else {}
+
+        def encode(obj):
+            if isinstance(obj, np.ndarray) and id(obj) in jpeg_batches:
+                return jpeg_batches[id(obj)]
+            return self._encode_custom_classes(obj)
+
+        return cast(bytes, msgpack.packb(data, default=encode))
+
+    def _encode_jpeg_batches(self, data: Any) -> dict[int, dict[str, Any]]:
+        if self.jpeg_encode_workers == 1:
+            return {}
+        arrays = {}
+        pending = [data]
+        seen = set()
+        # Discover histories across cameras before waiting on any one of them.
+        # Keep this request-local; prompt changes and reused arrays must never
+        # pick up encoded data from an earlier RPC.
+        while pending:
+            obj = pending.pop()
+            if id(obj) in seen:
+                continue
+            seen.add(id(obj))
+            if isinstance(obj, np.ndarray):
+                if _is_batched_image_array(obj) is not None and math.prod(obj.shape[:-3]) > 1:
+                    arrays[id(obj)] = obj
+            elif isinstance(obj, types.ModalityConfig):
+                continue  # This object's existing wire representation is JSON.
+            elif dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+                pending.extend(getattr(obj, field.name) for field in dataclasses.fields(obj))
+            elif isinstance(obj, enum.Enum):
+                pending.append(obj.value)
+            elif isinstance(obj, dict):
+                pending.extend(obj.values())
+            elif isinstance(obj, list | tuple):
+                pending.extend(obj)
+        if len(arrays) < 2:
+            return {}
+
+        batches = [obj.reshape(-1, *obj.shape[-3:]) for obj in arrays.values()]
+        encoded = iter(self._encode_frames([frame for batch in batches for frame in batch]))
+        return {
+            key: {
+                "__ndarray_jpeg__": True,
+                "as_jpeg": [next(encoded) for _ in batch],
+                "jpeg_shape": list(obj.shape),
+            }
+            for (key, obj), batch in zip(arrays.items(), batches, strict=False)
+        }
+
+    def _encode_frames(self, frames) -> list[bytes]:
+        if self._encode_executor is None:
+            self._encode_executor = ThreadPoolExecutor(
+                max_workers=self.jpeg_encode_workers,
+                thread_name_prefix="policy-jpeg-encode",
+            )
+        futures = [self._encode_executor.submit(self._encode_frame, frame) for frame in frames]
+        try:
+            return [future.result() for future in futures]
+        except BaseException:
+            # A failed call must not leave workers reading caller-owned images.
+            for future in futures:
+                future.cancel()
+            wait(futures)
+            raise
 
     def from_bytes(self, data: bytes) -> Any:
-        return msgpack.unpackb(data, object_hook=self._decode_custom_classes)
+        if self.jpeg_decode_workers == 1:
+            return msgpack.unpackb(data, object_hook=self._decode_custom_classes)
+        batches = {}
+        ready = {}
+
+        def restore(obj):
+            root = [obj]
+            containers = [root]
+            while containers:
+                container = containers.pop()
+                children = (
+                    container.items() if isinstance(container, dict) else enumerate(container)
+                )
+                for key, value in children:
+                    if isinstance(value, dict) and id(value) in batches:
+                        if id(value) not in ready:
+                            ready[id(value)] = self._decode_custom_classes(value)
+                        container[key] = ready[id(value)]
+                    elif isinstance(value, dict | list):
+                        containers.append(value)
+            return root[0]
+
+        def decode(obj):
+            if "__ModalityConfig_class__" in obj or "__ndarray_class__" in obj:
+                # These constructors must see decoded children, as with the
+                # original bottom-up msgpack hook (including legacy config dicts).
+                return self._decode_custom_classes(restore(obj))
+            if "__ndarray_jpeg__" in obj and len(obj["as_jpeg"]) > 1:
+                batches[id(obj)] = obj
+                return obj
+            return self._decode_custom_classes(obj)
+
+        unpacked = msgpack.unpackb(data, object_hook=decode)
+        pending = [obj for key, obj in batches.items() if key not in ready]
+        if pending:
+            executor = self._get_decode_executor()
+            decoded = executor.map(
+                self._get_codec().decode,
+                [frame for obj in pending for frame in obj["as_jpeg"]],
+            )
+            try:
+                # Consume in wire order and release each frame batch after stacking.
+                # Validate even overwritten dict entries, not just surviving leaves.
+                for obj in pending:
+                    ready[id(obj)] = np.stack([next(decoded) for _ in obj["as_jpeg"]]).reshape(
+                        obj["jpeg_shape"]
+                    )
+            except BaseException:
+                decoded.close()
+                executor.shutdown(wait=True, cancel_futures=True)
+                self._decode_executor = None
+                raise
+            finally:
+                decoded.close()
+        return restore(unpacked) if batches else unpacked
+
+    def _get_decode_executor(self) -> ThreadPoolExecutor:
+        if self._decode_executor is None:
+            self._decode_executor = ThreadPoolExecutor(
+                max_workers=self.jpeg_decode_workers,
+                thread_name_prefix="policy-jpeg-decode",
+            )
+        return self._decode_executor
+
+    def _encode_frame(self, frame: np.ndarray) -> bytes:
+        return self._get_codec().encode(frame, self.jpeg_quality, use_opencv=True)
 
     def _decode_custom_classes(self, obj):
         if not isinstance(obj, dict):
@@ -218,7 +445,13 @@ class MsgSerializer:
                 return data
         if "__ndarray_jpeg__" in obj:
             codec = self._get_codec()
-            frames = [codec.decode(b) for b in obj["as_jpeg"]]
+            encoded_frames = obj["as_jpeg"]
+            if self.jpeg_decode_workers == 1 or len(encoded_frames) <= 1:
+                frames = [codec.decode(frame) for frame in encoded_frames]
+            else:
+                # Pillow decoding releases the GIL. Ordered map preserves B/T order;
+                # each call owns its Image/BytesIO, with no shared decoder state.
+                frames = list(self._get_decode_executor().map(codec.decode, encoded_frames))
             stacked = np.stack(frames)
             target_shape = obj["jpeg_shape"]
             return stacked.reshape(target_shape)
@@ -250,9 +483,10 @@ class MsgSerializer:
                     original_shape = obj.shape
                     # Flatten leading batch dims: (B1,..,Bn,H,W,C) -> (N,H,W,C)
                     flat = obj.reshape(-1, *obj.shape[-3:])
-                    jpeg_data = [
-                        codec.encode(flat[i], self.jpeg_quality) for i in range(flat.shape[0])
-                    ]
+                    if self.jpeg_encode_workers == 1 or len(flat) <= 1:
+                        jpeg_data = [codec.encode(frame, self.jpeg_quality) for frame in flat]
+                    else:
+                        jpeg_data = self._encode_frames(flat)
                     return {
                         "__ndarray_jpeg__": True,
                         "as_jpeg": jpeg_data,
@@ -406,52 +640,58 @@ class PolicyServer:
     def run(self):
         addr = self.socket.getsockopt_string(zmq.LAST_ENDPOINT)
         print(f"Server is listening on {addr}; check get_readiness before arming")  # noqa: T201
-        while self.running:
-            try:
-                message = self.socket.recv()
-                request = self.serializer.from_bytes(message)
+        try:
+            while self.running:
+                try:
+                    message = self.socket.recv()
+                    deserialize_start = time.perf_counter()
+                    request = self.serializer.from_bytes(message)
+                    server_request_deserialize_ms = (time.perf_counter() - deserialize_start) * 1000
 
-                # Validate token before processing request
-                if not self._validate_token(request):
+                    # Validate token before processing request
+                    if not self._validate_token(request):
+                        self.socket.send(
+                            self.serializer.to_bytes({"error": "Unauthorized: Invalid API token"})
+                        )
+                        continue
+
+                    endpoint = request.get("endpoint", "get_action")
+
+                    if endpoint not in self._endpoints:
+                        raise ValueError(f"Unknown endpoint: {endpoint}")
+
+                    handler = self._endpoints[endpoint]
+                    handler_start = time.perf_counter()
+                    result = (
+                        handler.handler(**request.get("data", {}))
+                        if handler.requires_input
+                        else handler.handler()
+                    )
+                    server_processing_ms = (time.perf_counter() - handler_start) * 1000
+                    if endpoint == "get_action":
+                        result = _attach_server_rpc_timing(
+                            result,
+                            request_id=request.get("request_id"),
+                            server_processing_ms=server_processing_ms,
+                            server_request_deserialize_ms=server_request_deserialize_ms,
+                        )
+                    self.socket.send(self.serializer.to_bytes(result))
+                except Exception as e:  # noqa: BLE001
+                    print(f"Error in server: {e}")  # noqa: T201
+                    import traceback
+
+                    tb = traceback.format_exc()
+                    print(tb)  # noqa: T201
                     self.socket.send(
-                        self.serializer.to_bytes({"error": "Unauthorized: Invalid API token"})
+                        self.serializer.to_bytes(
+                            {
+                                "error": f"{e}\n{tb}",
+                                "error_type": type(e).__name__,
+                            }
+                        )
                     )
-                    continue
-
-                endpoint = request.get("endpoint", "get_action")
-
-                if endpoint not in self._endpoints:
-                    raise ValueError(f"Unknown endpoint: {endpoint}")
-
-                handler = self._endpoints[endpoint]
-                handler_start = time.perf_counter()
-                result = (
-                    handler.handler(**request.get("data", {}))
-                    if handler.requires_input
-                    else handler.handler()
-                )
-                server_processing_ms = (time.perf_counter() - handler_start) * 1000
-                if endpoint == "get_action":
-                    result = _attach_server_rpc_timing(
-                        result,
-                        request_id=request.get("request_id"),
-                        server_processing_ms=server_processing_ms,
-                    )
-                self.socket.send(self.serializer.to_bytes(result))
-            except Exception as e:  # noqa: BLE001
-                print(f"Error in server: {e}")  # noqa: T201
-                import traceback
-
-                tb = traceback.format_exc()
-                print(tb)  # noqa: T201
-                self.socket.send(
-                    self.serializer.to_bytes(
-                        {
-                            "error": f"{e}\n{tb}",
-                            "error_type": type(e).__name__,
-                        }
-                    )
-                )
+        finally:
+            self.serializer.close()
 
     @staticmethod
     def start_server(policy: base.BasePolicy, port: int, api_token: str | None = None):
@@ -606,6 +846,7 @@ class PolicyClient(base.BasePolicy):
             )
 
         server_processing_ms = server_rpc_timing.get("server_processing_ms")
+        server_request_deserialize_ms = server_rpc_timing.get("server_request_deserialize_ms")
         transport_overhead_ms = None
         if isinstance(server_processing_ms, int | float):
             # Includes network/ZMQ time and server-side request/response serialization.
@@ -620,7 +861,10 @@ class PolicyClient(base.BasePolicy):
             "client_serde_ms": request_serialize_ms + response_deserialize_ms,
             "rpc_total_ms": rpc_total_ms,
             "server_processing_ms": server_processing_ms,
+            "server_request_deserialize_ms": server_request_deserialize_ms,
             "transport_overhead_ms": transport_overhead_ms,
+            "request_bytes": len(request_bytes),
+            "response_bytes": len(message),
             "request_id_verified": echoed_request_id is not None,
             "timed_out": False,
         }
@@ -638,6 +882,7 @@ class PolicyClient(base.BasePolicy):
         """Close the socket and release the ZMQ context."""
         self._log("Closing client")
         try:
+            self.serializer.close()
             self.socket.close()
             self.context.term()
         except Exception as e:  # noqa: BLE001

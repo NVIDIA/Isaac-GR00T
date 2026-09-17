@@ -61,14 +61,13 @@ def _mp4v_roundtrip(video: np.ndarray) -> np.ndarray:
     import cv2
 
     frame_count, height, width, _ = video.shape
-    bgr_video = np.ascontiguousarray(video[..., ::-1])
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False, dir="/dev/shm") as tmp:
         tmp_path = tmp.name
     try:
         writer = cv2.VideoWriter(tmp_path, cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (width, height))
         try:
             for frame_index in range(frame_count):
-                writer.write(bgr_video[frame_index])
+                writer.write(cv2.cvtColor(video[frame_index], cv2.COLOR_RGB2BGR))
         finally:
             writer.release()
         return _decode_video(tmp_path)
@@ -129,7 +128,7 @@ def _codec_roundtrip_videos(vids: dict[str, Any], codec: str) -> float:
     for (key, _, _), decoded in zip(clips, decoded_clips, strict=True):
         decoded_by_key[key].append(decoded)
     for key in arrays:
-        vids[key] = np.stack(decoded_by_key[key], axis=0).astype(np.uint8)
+        vids[key] = np.stack(decoded_by_key[key], axis=0).astype(np.uint8, copy=False)
     return time.perf_counter() - start
 
 
@@ -316,6 +315,9 @@ class Gr00tN2Policy(Gr00tPolicy):
         self.joint_denoise = _env_bool("GROOT_N2_JOINT_DENOISE", default=True)
         self.num_video_steps = _env_int("GROOT_N2_NUM_VIDEO_STEPS", default=2)
         self.codec_roundtrip = _resolve_codec_roundtrip(codec_roundtrip)
+        image_workers = _env_int("GROOT_N2_IMAGE_PREPROCESS_WORKERS", default=1)
+        if not 1 <= image_workers <= 4:
+            raise ValueError("GROOT_N2_IMAGE_PREPROCESS_WORKERS must be between 1 and 4")
         acceleration = N2AccelerationOptions.resolve(
             trt_engine_dir=trt_engine_dir,
             use_cuda_graph=use_cuda_graph,
@@ -375,6 +377,8 @@ class Gr00tN2Policy(Gr00tPolicy):
 
         self.processor: types.BaseProcessor = transformers.AutoProcessor.from_pretrained(model_dir)
         self.processor.eval()
+        if image_workers != 1:
+            self.processor.set_inference_image_workers(image_workers)
 
         self.embodiment_tag = embodiment_tag
         self.modality_configs = self._load_modality_configs()
@@ -390,7 +394,8 @@ class Gr00tN2Policy(Gr00tPolicy):
             f"shift={self.shift}, "
             f"joint_denoise={self.joint_denoise}, "
             f"kv_cache_cond={self.kv_cache_cond}, "
-            f"codec_roundtrip={self.codec_roundtrip}"
+            f"codec_roundtrip={self.codec_roundtrip}, "
+            f"image_preprocess_workers={image_workers}"
         )
         acceleration_state = resolve_policy_acceleration_state(
             self,
@@ -401,6 +406,7 @@ class Gr00tN2Policy(Gr00tPolicy):
             "precision": "bf16",
             "policy_class": f"{type(self).__module__}.{type(self).__qualname__}",
             "codec": self.codec_roundtrip,
+            "image_preprocess_workers": image_workers,
             "num_video_steps": self.num_video_steps,
             "num_action_steps": self.num_inference_steps,
             "shift": self.shift,

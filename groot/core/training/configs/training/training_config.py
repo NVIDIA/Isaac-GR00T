@@ -253,8 +253,6 @@ class TrainingConfig:
         ``config.training.open_loop_eval.enabled`` raises ``AttributeError``
         on ``dict.enabled``. Mirrors ``DataConfig.__post_init__``.
         """
-        if isinstance(self.straggler, dict):
-            self.straggler = StragglerConfig(**self.straggler)
         if isinstance(self.open_loop_eval, dict):
             self.open_loop_eval = OpenLoopEvalConfig(**self.open_loop_eval)
         if isinstance(self.open_loop_eval_in_process, dict):
