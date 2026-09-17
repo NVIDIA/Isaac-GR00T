@@ -65,7 +65,16 @@ from groot.core.utils.timer import ContextTimer
 
 # Optional straggler detection support
 try:
-    import nvidia_resiliency_ext.straggler as straggler_module
+    try:
+        import nvidia_resiliency_ext.attribution.straggler as straggler_module
+    except ModuleNotFoundError as error:
+        if error.name not in (
+            "nvidia_resiliency_ext.attribution",
+            "nvidia_resiliency_ext.attribution.straggler",
+        ):
+            raise
+        # Older training images still install NVRx 0.3.0.
+        import nvidia_resiliency_ext.straggler as straggler_module
 
     STRAGGLER_AVAILABLE = True
 except ImportError:
@@ -601,7 +610,7 @@ class GR00TTrainer(Trainer):
         if self.straggler_enabled and not STRAGGLER_AVAILABLE:
             logging.warning(
                 "Straggler detection requested but nvidia_resiliency_ext not installed. "
-                "Install with: pip install nvidia-resiliency-ext"
+                "Install with: pip install nvidia-resiliency-ext==0.6.0"
             )
             self.straggler_enabled = False
 
