@@ -89,7 +89,11 @@ from groot.core.utils.state_action.initial_actions import (
     INITIAL_ACTIONS_FILENAME,
     save_initial_actions,
 )
-from groot.core.utils.storage.checkpoint import node_local_checkpoint_output
+from groot.core.utils.storage.checkpoint import (
+    coordinated_explicit_resume_checkpoint,
+    node_local_checkpoint_output,
+    optimizer_reset_resume_enabled,
+)
 from groot.core.utils.storage.data_paths import resolve_all_dataset_paths
 from groot.core.utils.storage.msc import (
     DataSyncConfigBuilder,
@@ -235,6 +239,7 @@ class OmniTrainingArguments(TrainingArguments):
     truncated_bptt_chunk_size: int = field(default=10000)
     use_async_checkpoint_save: bool = field(default=True)
     node_local_output: bool = field(default=False)
+    explicit_checkpoint_recovery: bool = field(default=False)
     use_local_state_dict_for_zero2: bool = field(default=True)
 
     # WSD scheduler
@@ -302,6 +307,12 @@ def _materialize_model_source_checkpoint(config: Config, global_rank: int) -> No
     """Resolve only the checkpoint source that the model pipeline will consume."""
     start_from_checkpoint = config.training.start_from_checkpoint
     if start_from_checkpoint is not None:
+        if global_rank == 0:
+            logging.info(
+                "Checkpoint initialization source: training.start_from_checkpoint=%s "
+                "(model weights, not optimizer state or training step)",
+                start_from_checkpoint,
+            )
         if start_from_checkpoint.startswith("msc://"):
             _setup_msc_config(config)
             config.training.start_from_checkpoint = resolve_checkpoint_path(
@@ -350,9 +361,10 @@ def _mark_training_attempt(output_dir: str, global_rank: int) -> None:
 def _materialize_training_resume_checkpoint(
     config: Config, global_rank: int, *, output_dir: str | None = None
 ) -> str | bool:
-    """Preserve shared-storage resume; require a fresh attempt on local disks."""
+    """Keep legacy shared resume or materialize an explicitly selected checkpoint."""
     output_dir = output_dir or config.training.output_dir
-    selected = one_launcher_resume_checkpoint()
+    explicit = getattr(config.training, "resume_from_checkpoint", None)
+    selected = explicit if explicit is not None else one_launcher_resume_checkpoint()
     failure = None
     local_output = None
     try:
@@ -360,13 +372,16 @@ def _materialize_training_resume_checkpoint(
     except Exception as exc:  # noqa: BLE001 - agree on filesystem policy before branching
         failure = f"Rank {global_rank}: cannot inspect output path ({type(exc).__name__}: {exc})"
     _check_resume_failures(failure, context="Node-local startup failed")
-    choices = _gather_resume_values((selected, local_output))
+    choices = _gather_resume_values((selected, local_output, explicit is not None))
     if any(choice != choices[0] for choice in choices):
         raise ValueError("All ranks must use the same resume decision")
-    if not local_output:
-        return selected
-    if selected not in (True, False):
-        raise ValueError("Explicit node-local recovery requires the opt-in recovery implementation")
+    if explicit is None:
+        if not local_output:
+            return selected
+        if selected not in (True, False):
+            raise ValueError(
+                "Node-local continuation requires opt-in recovery via training.resume_from_checkpoint"
+            )
     failure = None
     used = None
     try:
@@ -380,11 +395,65 @@ def _materialize_training_resume_checkpoint(
         )
     _check_resume_failures(failure, context="Node-local startup failed")
     if any(_gather_resume_values(used)):
-        raise ValueError(
-            "Node-local output contains a previous training attempt; use a new output_dir"
-        )
+        raise ValueError("Output contains a previous training attempt; use a new output_dir")
+    # An explicit source stays pinned; reusing an attempt could overwrite later
+    # checkpoints with replayed steps. Check every host before staging the source.
+    result = (
+        _materialize_explicit_resume(config, selected, output_dir, global_rank)
+        if explicit is not None
+        else False
+    )
     _mark_training_attempt(output_dir, global_rank)
-    return False
+    if explicit is not None and global_rank == 0:
+        logging.info(
+            "Checkpoint continuation source: training.resume_from_checkpoint=%s "
+            "(resolved path=%s); takes precedence over initialization weights "
+            "and selects the resumed training step",
+            explicit,
+            result,
+        )
+    return result
+
+
+def _materialize_explicit_resume(
+    config: Config, selected: str, output_dir: str, global_rank: int
+) -> str:
+    failure = None
+    try:
+        if not selected or ("://" in selected and not selected.startswith("msc://")):
+            raise ValueError(
+                "Explicit resume requires an exact local directory or msc:// checkpoint"
+            )
+        if not selected.startswith("msc://"):
+            source, output = Path(selected).resolve(), Path(output_dir).resolve()
+            if source.is_relative_to(output) or output.is_relative_to(source):
+                raise ValueError(
+                    "Explicit recovery output_dir must not overlap its local source checkpoint"
+                )
+        if (
+            config.training.deepspeed_stage != 2
+            or config.training.num_gpus <= 1
+            or config.training.use_ddp
+        ):
+            raise ValueError("Explicit recovery currently requires DeepSpeed ZeRO-2")
+    except Exception as exc:  # noqa: BLE001 - reject unsupported policy on every rank
+        failure = f"Rank {global_rank}: {exc}"
+    _check_resume_failures(failure, context="Invalid explicit recovery")
+    reset_choices = _gather_resume_values(optimizer_reset_resume_enabled())
+    if any(choice != reset_choices[0] for choice in reset_choices):
+        raise ValueError("Optimizer-reset consent differs between ranks")
+    if selected.startswith("msc://"):
+        failure = None
+        try:
+            _setup_msc_config(config)
+        except Exception as exc:  # noqa: BLE001 - coordinate host-local MSC failures
+            failure = f"Rank {global_rank}: MSC setup failed ({type(exc).__name__}: {exc})"
+        _check_resume_failures(failure, context="Invalid explicit recovery")
+        selected = resolve_checkpoint_path(
+            selected, output_dir, global_rank=global_rank, require_resume_state=True
+        )
+    coordinated_explicit_resume_checkpoint(selected)
+    return selected
 
 
 def _create_artifact_directories(
@@ -1006,6 +1075,20 @@ def run(
     # emitted only when Trainer.train() is entered (see _running_emitted).
     _train_started_at = datetime.now(timezone.utc)
 
+    explicit_recovery = getattr(config.training, "resume_from_checkpoint", None) is not None
+    try:
+        choices = _gather_resume_values(explicit_recovery)
+        if any(choice != choices[0] for choice in choices):
+            raise ValueError("All ranks must agree on explicit recovery")
+        if explicit_recovery:
+            # Reject reused/overlapping attempts before config, W&B, or cache writes.
+            resume_from_checkpoint = _materialize_training_resume_checkpoint(
+                config, global_rank, output_dir=str(output_dir)
+            )
+    except Exception as exc:
+        _emit_run_event("failed", event="training_setup_failed", message=str(exc))
+        raise
+
     _create_artifact_directories(
         output_dir, global_rank, save_cfg_dir=save_cfg_dir, processor_dir=processor_dir
     )
@@ -1147,9 +1230,10 @@ def run(
             sys.stdout.flush()
 
         _materialize_model_source_checkpoint(config, global_rank)
-        resume_from_checkpoint = _materialize_training_resume_checkpoint(
-            config, global_rank, output_dir=str(output_dir)
-        )
+        if not explicit_recovery:
+            resume_from_checkpoint = _materialize_training_resume_checkpoint(
+                config, global_rank, output_dir=str(output_dir)
+            )
 
         # Configure structlog BEFORE pipeline.setup() so events emitted from
         # inside `factory.build()` (e.g., V2 grouped factory's
@@ -1281,6 +1365,7 @@ def run(
             wsd_decay_type=config.training.wsd_decay_type,
             use_async_checkpoint_save=getattr(config.training, "use_async_checkpoint_save", True),
             node_local_output=node_local_checkpoint_output(output_dir),
+            explicit_checkpoint_recovery=config.training.resume_from_checkpoint is not None,
         )
 
         if hasattr(config.model, "collator_seq_len_handle_strategy"):
@@ -1474,8 +1559,8 @@ def run(
 
         _save_initial_actions_artifact(train_dataset, save_cfg_dir, global_rank)
 
-        # Shared outputs retain local checkpoint discovery. Node-local startup
-        # was checked before pipeline setup and must begin a fresh attempt.
+        # Shared outputs retain local discovery unless explicit recovery is set.
+        # Node-local startup was checked before pipeline setup.
 
         # Decorrelate the RNG across ranks. The set_seed() above -- and HF
         # Trainer.__init__, via args.seed -- are both rank-invariant, so every

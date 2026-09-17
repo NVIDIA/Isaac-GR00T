@@ -75,6 +75,7 @@ _PROPAGATED_WORKER_ENV_VARS = (
     "TRAINING_MSC_CHECKPOINT_URL",
     "GEAR_PRESERVE_CHECKPOINT_ROOT",
     "GROOT_NODE_LOCAL_CHECKPOINT_CACHE",
+    "GROOT_ALLOW_OPTIMIZER_RESET_RESUME",
     RESUME_CHECKPOINT_PATH_ENV,
     RESUME_DECIDED_ENV,
 )
@@ -236,15 +237,19 @@ class TorchTrainer:
                 ):
                     logging.info("Training already finished")
                     break
-                if node_local_checkpoint_output(self.training_fn_cfg.training.output_dir):
+                if (
+                    node_local_checkpoint_output(self.training_fn_cfg.training.output_dir)
+                    or getattr(self.training_fn_cfg.training, "resume_from_checkpoint", None)
+                    is not None
+                ):
                     logging.exception(
-                        "Node-local training failed; automatic worker retries are disabled. "
+                        "Node-local or explicit-recovery training failed; automatic worker retries are disabled. "
                         "Keep the existing attempt intact and use a fresh output_dir for recovery."
                     )
                     try:
                         self._cleanup_workers()
                     except Exception:  # Cleanup must not mask the training error.
-                        logging.exception("Failed to clean up node-local training workers")
+                        logging.exception("Failed to clean up training workers")
                     raise
                 if isinstance(e, ray.exceptions.ActorDiedError):
                     assert "Worker exits with an exit code 0" in str(
@@ -395,7 +400,11 @@ class _TrainingWorker:
                 logging.exception("GPU error during training")
                 subprocess.run(["ray", "stop", "--force"], check=False)
             elif "trainer_state.json" in str(e):
-                if node_local_checkpoint_output(self.training_fn_cfg.training.output_dir):
+                if (
+                    node_local_checkpoint_output(self.training_fn_cfg.training.output_dir)
+                    or getattr(self.training_fn_cfg.training, "resume_from_checkpoint", None)
+                    is not None
+                ):
                     raise
                 # Parse the path from the exception message
                 error_msg = str(e)

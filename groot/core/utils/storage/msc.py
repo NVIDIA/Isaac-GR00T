@@ -20,7 +20,10 @@ import time
 import yaml
 
 from groot.core.utils.storage import load_msc_telemetry_settings
-from groot.core.utils.storage.checkpoint import node_local_checkpoint_output
+from groot.core.utils.storage.checkpoint import (
+    node_local_checkpoint_output,
+    validate_explicit_resume_checkpoint,
+)
 
 try:
     import multistorageclient as msc
@@ -330,6 +333,8 @@ def resolve_checkpoint_path(
     checkpoint_path: str,
     output_dir: str,
     global_rank: int | None = None,
+    *,
+    require_resume_state: bool = False,
 ) -> str:
     """
     Resolve checkpoint path, downloading from remote storage if needed.
@@ -343,6 +348,8 @@ def resolve_checkpoint_path(
         output_dir: Output directory where cache will be created
         global_rank: Global rank override; defaults to the current distributed rank,
             or 0 when distributed training is not initialized.
+        require_resume_state: Require a durable SUCCESS marker and valid explicit
+            async ZeRO-2 recovery state, using a separate cache-completion marker.
 
     Returns:
         Local POSIX path to checkpoint directory
@@ -401,7 +408,9 @@ def resolve_checkpoint_path(
         download_leader = True
         leader_label = f"Rank {global_rank}"
 
-    marker = local_dir / ".download_complete"
+    marker = local_dir / (
+        ".resume_download_complete" if require_resume_state else ".download_complete"
+    )
     failure = None
     if download_leader:
         try:
@@ -415,6 +424,10 @@ def resolve_checkpoint_path(
                     execution_mode=ExecutionMode.LOCAL,  # type: ignore[union-attr]
                     ignore_hidden=False,
                 )
+                if require_resume_state:
+                    validate_explicit_resume_checkpoint(
+                        local_dir, require_success=True, world_size=world_size
+                    )
                 marker.touch()
                 logging.info(f"{leader_label}: Checkpoint download complete")
             else:
@@ -431,6 +444,10 @@ def resolve_checkpoint_path(
     try:
         if not marker.is_file():
             raise RuntimeError(f"Checkpoint download failed or incomplete: {local_dir}")
+        if require_resume_state:
+            validate_explicit_resume_checkpoint(
+                local_dir, require_success=True, world_size=world_size
+            )
     except Exception as exc:
         failure = (
             f"Rank {global_rank}: checkpoint cache validation failed ({type(exc).__name__}: {exc})"

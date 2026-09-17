@@ -42,6 +42,7 @@ import threading
 import time
 from typing import Any, ClassVar
 
+from accelerate.scheduler import AcceleratedScheduler
 from accelerate.utils import DistributedType
 import structlog
 import torch
@@ -61,20 +62,12 @@ from transformers.trainer_utils import EvalPrediction
 from groot.core.data.types import VLAStepDataId
 from groot.core.training.experiment.dataloader import make_dataloader
 from groot.core.utils.muon import MuonWithAuxAdam, SingleDeviceMuonWithAuxAdam
+from groot.core.utils.storage.checkpoint import coordinated_explicit_resume_checkpoint
 from groot.core.utils.timer import ContextTimer
 
 # Optional straggler detection support
 try:
-    try:
-        import nvidia_resiliency_ext.attribution.straggler as straggler_module
-    except ModuleNotFoundError as error:
-        if error.name not in (
-            "nvidia_resiliency_ext.attribution",
-            "nvidia_resiliency_ext.attribution.straggler",
-        ):
-            raise
-        # Older training images still install NVRx 0.3.0.
-        import nvidia_resiliency_ext.straggler as straggler_module
+    import nvidia_resiliency_ext.straggler as straggler_module
 
     STRAGGLER_AVAILABLE = True
 except ImportError:
@@ -610,7 +603,7 @@ class GR00TTrainer(Trainer):
         if self.straggler_enabled and not STRAGGLER_AVAILABLE:
             logging.warning(
                 "Straggler detection requested but nvidia_resiliency_ext not installed. "
-                "Install with: pip install nvidia-resiliency-ext==0.6.0"
+                "Install with: pip install nvidia-resiliency-ext"
             )
             self.straggler_enabled = False
 
@@ -2070,6 +2063,12 @@ class GR00TTrainer(Trainer):
         """
         from safetensors.torch import load_file
 
+        mode = None
+        if getattr(self.args, "explicit_checkpoint_recovery", False):
+            if self._get_zero_stage() != 2:
+                raise ValueError("Explicit recovery requires DeepSpeed ZeRO-2")
+            _, mode = coordinated_explicit_resume_checkpoint(checkpoint_dir)
+
         print(f"[CP-SAVE] Resuming from DCP checkpoint: {checkpoint_dir}")
         print(f"[CP-SAVE] Model device: {next(self.model.parameters()).device}")
 
@@ -2150,12 +2149,14 @@ class GR00TTrainer(Trainer):
         dp_rank = dist.get_rank() if dist.is_initialized() else 0
         opt_pt_file = os.path.join(checkpoint_dir, f"optimizer_rank{dp_rank}.pt")
 
-        if os.path.exists(opt_pt_file):
+        if mode == "per_rank" or (mode is None and os.path.exists(opt_pt_file)):
             # Fast path: per-rank .pt file — no NCCL, no second communicator, no dcp.load().
             # Each rank independently reads its own ZeRO-2 optimizer partition.
             print(f"[CP-SAVE] Loading optimizer from {opt_pt_file} (per-rank, no dist)")
             state_dict_to_load = torch.load(opt_pt_file, map_location="cpu", weights_only=False)
-        elif (Path(checkpoint_dir) / "dcp_state" / ".metadata").exists():
+        elif mode == "dcp" or (
+            mode is None and (Path(checkpoint_dir) / "dcp_state" / ".metadata").exists()
+        ):
             # Fallback: load from DCP format for older checkpoints.
             # WARNING: dcp.load() creates a second NCCL communicator which may fail at 32+ GPUs
             # on clusters with misconfigured EFA. Prefer per-rank .pt for new checkpoints.
@@ -2173,7 +2174,7 @@ class GR00TTrainer(Trainer):
                 "lr_scheduler": lr_scheduler_state,
             }
             dcp.load(state_dict=state_dict_to_load, checkpoint_id=dcp_dir)
-        elif self._optimizer_reset_resume_enabled():
+        elif mode == "reset" or (mode is None and self._optimizer_reset_resume_enabled()):
             state_dict_to_load = None
             print(
                 "[CP-SAVE] WARNING: Durable checkpoint has no optimizer state; "
@@ -2192,7 +2193,11 @@ class GR00TTrainer(Trainer):
 
         # Load scheduler
         scheduler_file = os.path.join(checkpoint_dir, "scheduler.pt")
-        if os.path.exists(scheduler_file) and self.lr_scheduler is not None:
+        if mode == "reset":
+            # ZeRO initialized its master weights before we loaded the checkpoint model.
+            self.deepspeed.optimizer.refresh_fp32_params()
+            GR00TTrainer._restore_reset_scheduler_state(self, checkpoint_dir)
+        elif os.path.exists(scheduler_file) and self.lr_scheduler is not None:
             self.lr_scheduler.load_state_dict(
                 torch.load(scheduler_file, map_location="cpu", weights_only=False)
             )
@@ -2221,6 +2226,26 @@ class GR00TTrainer(Trainer):
 
         print("[CP-SAVE] DCP checkpoint resume complete")
 
+    def _restore_reset_scheduler_state(self, checkpoint_dir: str) -> None:
+        if self.lr_scheduler is None:
+            raise ValueError("Optimizer-reset recovery requires a configured LR scheduler")
+        state = torch.load(
+            os.path.join(checkpoint_dir, "scheduler.pt"), map_location="cpu", weights_only=True
+        )
+        self.lr_scheduler.load_state_dict(state)
+        scheduler = self.lr_scheduler
+        while isinstance(scheduler, AcceleratedScheduler):
+            scheduler = scheduler.scheduler
+        optimizer = getattr(scheduler, "optimizer", None)
+        last_lrs = state.get("_last_lr")
+        if optimizer is None or last_lrs is None or len(optimizer.param_groups) != len(last_lrs):
+            raise ValueError(
+                "Checkpoint scheduler cannot restore the reset optimizer's learning rates"
+            )
+        # load_state_dict does not set the fresh optimizer's LR for its first step.
+        for group, lr in zip(optimizer.param_groups, last_lrs, strict=True):
+            group["lr"] = lr
+
     def train(
         self,
         resume_from_checkpoint=None,
@@ -2240,7 +2265,14 @@ class GR00TTrainer(Trainer):
                 )
 
         self._dcp_resume_checkpoint = None
-        if resume_from_checkpoint is not None and self._is_dcp_checkpoint(resume_from_checkpoint):
+        if getattr(self.args, "explicit_checkpoint_recovery", False):
+            if not self.is_deepspeed_enabled or not isinstance(resume_from_checkpoint, str):
+                raise ValueError(
+                    "Explicit recovery requires DeepSpeed and an exact checkpoint path"
+                )
+            coordinated_explicit_resume_checkpoint(resume_from_checkpoint)
+            self._dcp_resume_checkpoint = resume_from_checkpoint
+        elif resume_from_checkpoint is not None and self._is_dcp_checkpoint(resume_from_checkpoint):
             logging.info(
                 f"Detected DCP checkpoint format at {resume_from_checkpoint}, "
                 f"will use DCP resume path"

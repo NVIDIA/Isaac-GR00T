@@ -15,14 +15,11 @@ for joint video+action training. When action_cfg is None, behaves identically
 to the video-only processor.
 """
 
-from concurrent.futures import ThreadPoolExecutor
-import copy
 import json
 import os
 from pathlib import Path
 from typing import Any
 
-import albumentations as A
 import numpy as np
 import torch
 from transformers import AutoProcessor
@@ -35,7 +32,6 @@ from groot.core.data.utils import parse_modality_configs, to_json_serializable
 from groot.core.training.configs.data.embodiment_configs import ModalityConfig
 from groot.core.training.configs.model.n2 import ActionConfig, GrootN2Config
 from groot.core.training.models.n2.components.image_transforms import (
-    FractionalCenterCrop,
     apply_with_replay,
     build_image_transformations_albumentations,
 )
@@ -138,18 +134,6 @@ def _collate_uniform_scalar(key: str, values: list[Any]) -> Any:
     if any(value != first for value in scalars[1:]):
         raise ValueError(f"GrootN2DataCollator expected batch-uniform `{key}`, got {scalars}")
     return first
-
-
-def _can_parallelize_eval_images(transform: Any) -> bool:
-    # Custom or stochastic pipelines retain serial call and RNG ordering.
-    return (
-        type(transform) is A.Compose
-        and transform.p == 1.0
-        and len(transform.transforms) == 2
-        and type(transform.transforms[0]) is FractionalCenterCrop
-        and type(transform.transforms[1]) is A.Resize
-        and all(step.p == 1.0 for step in transform.transforms)
-    )
 
 
 class GrootN2DataCollator:
@@ -331,48 +315,18 @@ class GrootN2Processor(BaseProcessor):
 
     # ─── Image processing (same as GrootN2Processor) ─────────────────────────
 
-    def set_inference_image_workers(self, workers: int) -> None:
-        """Set runtime-only camera parallelism; training and custom transforms stay serial."""
-        if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 4:
-            raise ValueError("N2 inference image workers must be an integer between 1 and 4")
-        self._inference_image_workers = workers
-
     def _process_images(self, content, embodiment_tag):
         """Process images with multicamera temporal stacking. Returns (V*T, H, W, C)."""
+        from einops import rearrange
+
         image_transform = self.train_image_transform if self.training else self.eval_image_transform
         image_keys = self.modality_configs[embodiment_tag.value]["video"].modality_keys
 
-        workers = getattr(self, "_inference_image_workers", 1)
-        if (
-            not self.training
-            and workers > 1
-            and len(image_keys) > 1
-            and _can_parallelize_eval_images(image_transform)
-        ):
-
-            def process_view(view):
-                # Albumentations mutates per-call parameters. Each camera needs
-                # its own transform, even though these operations are deterministic.
-                transform = copy.deepcopy(image_transform)
-                transformed, _ = apply_with_replay(transform, content.images[view])
-                return torch.stack([frame.permute(1, 2, 0) for frame in transformed])
-
-            with ThreadPoolExecutor(max_workers=min(workers, len(image_keys))) as executor:
-                temporal_stacked = dict(
-                    zip(image_keys, executor.map(process_view, image_keys), strict=True)
-                )
-        else:
-            temporal_stacked = {}
-            replay = None
-            for view in image_keys:
-                transformed, replay = apply_with_replay(
-                    image_transform, content.images[view], replay
-                )
-                # Transforms expose CHW views of HWC image buffers. Stack in the
-                # final layout to avoid materializing CHW and transposing it back.
-                temporal_stacked[view] = torch.stack(
-                    [frame.permute(1, 2, 0) for frame in transformed]
-                )
+        temporal_stacked = {}
+        replay = None
+        for view in image_keys:
+            transformed, replay = apply_with_replay(image_transform, content.images[view], replay)
+            temporal_stacked[view] = torch.stack(transformed)
 
         all_views = [temporal_stacked[k] for k in image_keys]
         actual_n_cameras = len(all_views)
@@ -381,7 +335,8 @@ class GrootN2Processor(BaseProcessor):
         if actual_n_cameras < max_n_cameras:
             pad_view = torch.zeros_like(all_views[0])
             all_views = all_views + [pad_view] * (max_n_cameras - actual_n_cameras)
-        images = torch.cat(all_views, dim=0)
+        stacked = torch.cat(all_views, dim=0)
+        images = rearrange(stacked, "t c h w -> t h w c").contiguous()
 
         return images, actual_n_cameras, max_n_cameras
 

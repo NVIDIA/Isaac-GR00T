@@ -15,9 +15,9 @@ Captures video preprocess + VAE encode + the full joint denoise loop
 (schedulers, packing, kv-cache, DiT calls) into one manual
 ``torch.cuda.CUDAGraph``. Replay executes no Python, so the eager glue
 between compiled regions disappears (GB300, G1 batch: 117ms -> 62ms per
-step). Text encoding stays outside: pre-encoded ``prompt_embs`` are copied
-into a graph-owned buffer (see ``make_steady_state_inputs``). Prompt contents
-may change without recapture; their shape, dtype, and device may not.
+step). Text encoding stays outside: pass one fixed pre-encoded
+``prompt_embs`` buffer (see ``make_steady_state_inputs``). A prompt change
+requires a fresh process.
 
 Contract: the runner owns the model instance and the process. Capture-time
 preparation rebinds a few collaborators to frozen, graph-safe equivalents
@@ -123,7 +123,8 @@ class PredictGraphRunner:
             raise ValueError(f"predict CUDA graph requires at least 3 warmups, got {warmup}")
         self.model = model
         self.device = prompt_embs.device
-        self.prompt_embs = prompt_embs.clone()
+        self.prompt_embs = prompt_embs
+        self._prompt_source_data_ptr = prompt_embs.data_ptr()
         self.kwargs = dict(predict_kwargs)
         if (
             self.kwargs.get("video_guidance_scale") != 1.0
@@ -160,8 +161,6 @@ class PredictGraphRunner:
             if reset is not None:
                 reset()
             self.graph = None
-        # Release external graph inputs only after destroying the graph.
-        self._frozen_noise = {}
 
     def __call__(self, inputs: dict, *, prompt_embs: torch.Tensor) -> dict:
         self._validate_replay_contract(inputs, prompt_embs)
@@ -215,8 +214,10 @@ class PredictGraphRunner:
                     f"{actual!r} != {expected!r}"
                 )
         self._validate_tensor_contract("prompt_embs", prompt_embs, self.prompt_embs)
-        if not bool(torch.isfinite(prompt_embs).all().item()):
-            raise RuntimeError("predict CUDA graph prompt embeddings must be finite")
+        if prompt_embs.data_ptr() != self._prompt_source_data_ptr:
+            raise RuntimeError(
+                "predict CUDA graph prompt changed; fixed-prompt serving requires a fresh process"
+            )
 
         padded_mask = inputs.get("video_padded_mask")
         if padded_mask is not None and bool(padded_mask.any().item()):
@@ -398,11 +399,7 @@ class PredictGraphRunner:
         real_randn = torch.randn
         real_full = torch.full
         rng_states = _capture_rng_states(self.device)
-        # These are allocated during warmup, outside the graph-private pool.
-        # CUDA captures pointers, not Python tensor ownership. Keep them alive
-        # across prompt encoding, allocator reuse, and empty_cache calls.
-        self._frozen_noise: dict = {}
-        frozen = self._frozen_noise
+        frozen: dict = {}
 
         # predict() uses a local Generator so open-loop evaluation does not
         # reset the process-global RNG. CUDA forbids constructing that

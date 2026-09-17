@@ -102,7 +102,11 @@ class TrainingConfig:
     # 'paged_adamw_8bit' (requires bitsandbytes), 'adafactor', etc.
     optim: str = "adamw_torch_fused"
 
+    # Model initialization only; does not restore optimizer state or the training step.
+    # If resume_from_checkpoint is also set, its weights/state are loaded afterward.
     start_from_checkpoint: str | None = None
+    # Explicit async ZeRO-2 continuation; None preserves existing resume behavior.
+    resume_from_checkpoint: str | None = None
 
     # Mixed precision
     tf32: bool = True
@@ -253,8 +257,6 @@ class TrainingConfig:
         ``config.training.open_loop_eval.enabled`` raises ``AttributeError``
         on ``dict.enabled``. Mirrors ``DataConfig.__post_init__``.
         """
-        if isinstance(self.straggler, dict):
-            self.straggler = StragglerConfig(**self.straggler)
         if isinstance(self.open_loop_eval, dict):
             self.open_loop_eval = OpenLoopEvalConfig(**self.open_loop_eval)
         if isinstance(self.open_loop_eval_in_process, dict):
