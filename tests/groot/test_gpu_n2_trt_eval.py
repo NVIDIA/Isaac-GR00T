@@ -69,7 +69,7 @@ def test_oss_open_loop_eval_executes_real_tensorrt_and_cuda_graph(
 
     monkeypatch.setenv("GROOT_N2_CODEC_ROUNDTRIP", "none")
     monkeypatch.setenv("GROOT_N2_TRT_OFFLOAD_TEXT_ENCODER", "0")
-    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", lambda *_a, **_k: _Model())
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", lambda *_a, **_k: _make_model())
     monkeypatch.setattr(
         transformers.AutoProcessor,
         "from_pretrained",
@@ -211,114 +211,114 @@ class _Scheduler:
         self.timesteps = torch.arange(steps, device=device)
 
 
-class _Model:
-    def __init__(self) -> None:
-        import torch
-        from torch import nn
+def _make_model():
+    # CPU CI collects this module without the optional training dependencies.
+    from torch import nn
 
-        self._anchor = nn.Parameter(torch.zeros((), dtype=torch.bfloat16), requires_grad=False)
-        self.transformer = nn.Identity()
-        self.vae = nn.Identity()
-        self.text_encoder = nn.Identity()
-        self.action_scheduler = _Scheduler()
-        self.config = SimpleNamespace(
-            model_type="GrootN2",
-            model_size="2B",
-            vae_type="wan22",
-            action_cfg={
-                "action_horizon": _ACTION_HORIZON,
-                "max_state_dim": 128,
-                "max_action_dim": 128,
-            },
-            token_merge_kernel=None,
-            token_merge_layers=None,
-        )
-        self.max_n_cameras = len(_CAMERAS)
-        self.tiled = False
+    class _Model(nn.Module):
+        def __init__(self) -> None:
+            import torch
 
-    @property
-    def device(self):
-        return self._anchor.device
+            super().__init__()
+            # Match production's module-owned parameters for selective TRT placement.
+            self.state_encoder = nn.Linear(1, 1, bias=False, dtype=torch.bfloat16)
+            self.state_encoder.requires_grad_(False)
+            self.transformer = nn.Identity()
+            self.vae = nn.Identity()
+            self.text_encoder = nn.Identity()
+            self.action_scheduler = _Scheduler()
+            self.config = SimpleNamespace(
+                model_type="GrootN2",
+                model_size="2B",
+                vae_type="wan22",
+                action_cfg={
+                    "action_horizon": _ACTION_HORIZON,
+                    "max_state_dim": 128,
+                    "max_action_dim": 128,
+                },
+                token_merge_kernel=None,
+                token_merge_layers=None,
+            )
+            self.max_n_cameras = len(_CAMERAS)
+            self.tiled = False
 
-    def eval(self):
-        return self
+        @property
+        def device(self):
+            return self.state_encoder.weight.device
 
-    def to(self, *, device: Any = None, dtype: Any = None):
-        self._anchor.data = self._anchor.data.to(device=device, dtype=dtype)
-        self.transformer.to(device=device, dtype=dtype)
-        self.vae.to(device=device, dtype=dtype)
-        self.text_encoder.to(device=device, dtype=dtype)
-        return self
+        def _resolve_attention_mask_pattern(self):
+            from groot.core.training.models.n2.components.sequence_packing import (
+                AttentionMaskPattern,
+            )
 
-    def _resolve_attention_mask_pattern(self):
-        from groot.core.training.models.n2.components.sequence_packing import AttentionMaskPattern
+            return AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL
 
-        return AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL
+        def _make_video_scheduler(self, _config: Any) -> _Scheduler:
+            return _Scheduler()
 
-    def _make_video_scheduler(self, _config: Any) -> _Scheduler:
-        return _Scheduler()
+        def predict(
+            self, inputs: dict[str, Any], *, prompt_embs: Any, **_kwargs: Any
+        ) -> dict[str, Any]:
+            import torch
 
-    def predict(
-        self, inputs: dict[str, Any], *, prompt_embs: Any, **_kwargs: Any
-    ) -> dict[str, Any]:
-        import torch
+            from groot.core.training.models.n2.components.kv_cache import CondKVCache
+            from groot.core.training.models.n2.components.sequence_packing import MODALITY_ACTION
 
-        from groot.core.training.models.n2.components.kv_cache import CondKVCache
-        from groot.core.training.models.n2.components.sequence_packing import MODALITY_ACTION
+            data = inputs.get("inputs", inputs)
+            video_latents = self.encode_video(data["images"])
+            video_tokens = video_latents.flatten()[:_VIDEO_TOKENS].reshape(1, _VIDEO_TOKENS, 1)
+            state_tokens = torch.zeros((1, 1, 1), device=self.device, dtype=torch.bfloat16)
+            action_tokens = data["action_seed"]
 
-        data = inputs.get("inputs", inputs)
-        video_latents = self.encode_video(data["images"])
-        video_tokens = video_latents.flatten()[:_VIDEO_TOKENS].reshape(1, _VIDEO_TOKENS, 1)
-        state_tokens = torch.zeros((1, 1, 1), device=self.device, dtype=torch.bfloat16)
-        action_tokens = data["action_seed"]
+            def time_like(tokens):
+                return torch.zeros_like(tokens)
 
-        def time_like(tokens):
-            return torch.zeros_like(tokens)
+            def rope(length: int):
+                value = torch.zeros((length, 1, 1), device=self.device, dtype=torch.bfloat16)
+                return value, value
 
-        def rope(length: int):
-            value = torch.zeros((length, 1, 1), device=self.device, dtype=torch.bfloat16)
-            return value, value
+            joint = self.packer.pack(
+                video_tokens,
+                time_like(video_tokens),
+                rope(_VIDEO_TOKENS),
+                video_cond_token_mask=torch.ones(
+                    (1, _VIDEO_TOKENS), device=self.device, dtype=torch.bool
+                ),
+                action_tokens=torch.zeros_like(action_tokens),
+                action_timesteps=time_like(action_tokens),
+                action_rope=rope(_ACTION_HORIZON),
+                state_tokens=state_tokens,
+                state_timesteps=time_like(state_tokens),
+                state_rope=rope(1),
+            )
+            cache = CondKVCache()
+            self._call_transformer(joint, prompt_embs, kv_cache=cache)
+            empty = torch.empty(0, device=self.device, dtype=torch.long)
+            action = replace(
+                joint,
+                tokens=action_tokens,
+                timesteps=time_like(action_tokens),
+                rope_freqs=rope(_ACTION_HORIZON),
+                modality_ids=torch.full(
+                    (1, _ACTION_HORIZON),
+                    MODALITY_ACTION,
+                    device=self.device,
+                    dtype=torch.long,
+                ),
+                video_token_indices=empty,
+                state_token_indices=empty,
+                action_token_indices=torch.arange(_ACTION_HORIZON, device=self.device),
+                non_video_token_indices=torch.arange(_ACTION_HORIZON, device=self.device),
+                has_video_cond_tokens=False,
+            )
+            action_pred = self._call_transformer(action, prompt_embs, kv_cache=cache)
+            return {
+                "action_pred": action_pred,
+                "video_latents": video_latents,
+                "prompt_embs": prompt_embs,
+            }
 
-        joint = self.packer.pack(
-            video_tokens,
-            time_like(video_tokens),
-            rope(_VIDEO_TOKENS),
-            video_cond_token_mask=torch.ones(
-                (1, _VIDEO_TOKENS), device=self.device, dtype=torch.bool
-            ),
-            action_tokens=torch.zeros_like(action_tokens),
-            action_timesteps=time_like(action_tokens),
-            action_rope=rope(_ACTION_HORIZON),
-            state_tokens=state_tokens,
-            state_timesteps=time_like(state_tokens),
-            state_rope=rope(1),
-        )
-        cache = CondKVCache()
-        self._call_transformer(joint, prompt_embs, kv_cache=cache)
-        empty = torch.empty(0, device=self.device, dtype=torch.long)
-        action = replace(
-            joint,
-            tokens=action_tokens,
-            timesteps=time_like(action_tokens),
-            rope_freqs=rope(_ACTION_HORIZON),
-            modality_ids=torch.full(
-                (1, _ACTION_HORIZON),
-                MODALITY_ACTION,
-                device=self.device,
-                dtype=torch.long,
-            ),
-            video_token_indices=empty,
-            state_token_indices=empty,
-            action_token_indices=torch.arange(_ACTION_HORIZON, device=self.device),
-            non_video_token_indices=torch.arange(_ACTION_HORIZON, device=self.device),
-            has_video_cond_tokens=False,
-        )
-        action_pred = self._call_transformer(action, prompt_embs, kv_cache=cache)
-        return {
-            "action_pred": action_pred,
-            "video_latents": video_latents,
-            "prompt_embs": prompt_embs,
-        }
+    return _Model()
 
 
 class _Processor:

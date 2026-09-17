@@ -938,15 +938,17 @@ class PolicyClient(base.BasePolicy):
         self,
         observation: dict[str, Any],
         options: dict[str, Any] | None = None,
+        *,
+        force: bool = False,
     ) -> dict[str, Any]:
-        """Discard one warmup result and require a healthy, ready server."""
+        """Require readiness; force a discarded request when the task changes."""
         readiness = self.get_readiness()
         if readiness.get("healthy") is not True:
             raise PolicyServerUnhealthyError(
                 "policy server is unhealthy before warmup: "
                 f"{readiness.get('message', readiness)}"
             )
-        if readiness.get("ready") is not True:
+        if force or readiness.get("ready") is not True:
             try:
                 self.warmup(observation, options)
             except (TimeoutError, RuntimeError, zmq.error.ZMQError) as error:

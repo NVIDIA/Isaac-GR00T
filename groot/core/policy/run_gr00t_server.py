@@ -250,7 +250,7 @@ def _wrap_with_cot(policy: base.BasePolicy, config: ServerConfig) -> base.BasePo
 
 
 def _validate_server_config(config: ServerConfig) -> None:
-    """Reject server modes that cannot preserve the graph's fixed prompt."""
+    """Reject server combinations outside the qualified graph contract."""
     if os.environ.get("ENABLE_TENSORRT", "false").strip().lower() == "true":
         raise ValueError(
             "ENABLE_TENSORRT=true selects an export-only SDPA attention path and cannot "
@@ -258,7 +258,7 @@ def _validate_server_config(config: ServerConfig) -> None:
         )
     if config.use_cuda_graph and config.cot_mode != "off":
         raise ValueError(
-            "--use-cuda-graph requires one fixed prompt per process and cannot be "
+            "--use-cuda-graph has not been qualified with CoT and cannot be "
             f"combined with --cot-mode {config.cot_mode!r}; disable CoT or CUDA graph"
         )
     if config.trt_engine_dir is not None and config.use_torch_compile:
