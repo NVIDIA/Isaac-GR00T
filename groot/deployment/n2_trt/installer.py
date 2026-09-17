@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 import logging
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ from typing import Any
 import torch
 from transformers.feature_extraction_utils import BatchFeature
 
+from groot.core.policy.env_utils import env_bool
 from groot.core.training.models.n2.components.sequence_packing import (
     MODALITY_ACTION,
     MODALITY_STATE,
@@ -282,19 +284,27 @@ def _without_negative_text(inputs: dict | BatchFeature) -> dict | BatchFeature:
     return outer if isinstance(inputs, dict) else BatchFeature(data=outer)
 
 
-def _should_offload_text_encoder(device: torch.device) -> bool:
-    override = os.environ.get("GROOT_N2_TRT_OFFLOAD_TEXT_ENCODER")
-    if override is not None:
-        normalized = override.strip().lower()
-        if normalized in {"1", "true", "yes", "y", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "n", "off"}:
-            return False
-        raise ValueError(
-            f"GROOT_N2_TRT_OFFLOAD_TEXT_ENCODER must be a Boolean value, got {override!r}"
-        )
-    _free, total = torch.cuda.mem_get_info(device)
-    return total < (48 << 30)
+def _text_encoder_offload_decision(
+    device: torch.device, encoder: torch.nn.Module
+) -> dict[str, Any]:
+    name = "GROOT_N2_TRT_OFFLOAD_TEXT_ENCODER"
+    override = env_bool(name, default=False) if name in os.environ else None
+    free_bytes, total_bytes = torch.cuda.mem_get_info(device)
+    weight_bytes = sum(t.numel() * t.element_size() for t in encoder.parameters())
+    weight_bytes += sum(t.numel() * t.element_size() for t in encoder.buffers())
+    # Called after TRT allocation. Reserve space for encoder activations, graph
+    # pools, and the colocated client, not just the resident weights.
+    reserve_bytes = 8 << 30
+    offload = override if override is not None else free_bytes < weight_bytes + reserve_bytes
+    return {
+        "free_bytes": free_bytes,
+        "total_bytes": total_bytes,
+        "encoder_weight_bytes": weight_bytes,
+        "reserve_bytes": reserve_bytes,
+        "offload": offload,
+        "mode": "module_cpu_offload" if offload else "gpu_resident",
+        "selection": "environment" if override is not None else "auto",
+    }
 
 
 def install_n2_tensorrt(
@@ -323,9 +333,7 @@ def install_n2_tensorrt(
 
     model.transformer.to("cpu")
     model.vae.to("cpu")
-    offload_text_encoder = _should_offload_text_encoder(runtime_device)
-    if offload_text_encoder:
-        model.text_encoder.to("cpu")
+    model.text_encoder.to("cpu")
     with torch.cuda.device(runtime_device):
         torch.cuda.empty_cache()
         runtime = N2TensorRTRuntime.from_directory(
@@ -333,6 +341,16 @@ def install_n2_tensorrt(
             contract=contract,
             runtime_identity=runtime_identity,
         )
+
+    from groot.deployment.n2_trt.prompt_encoder import CachedPromptEncoder
+
+    decision = _text_encoder_offload_decision(runtime_device, model.text_encoder)
+    model.n2_prompt_encoder = CachedPromptEncoder(
+        model.text_encoder, runtime_device, offload=decision["offload"]
+    )
+    model.n2_text_encoder_diagnostics = decision
+    model.encode_text = model.n2_prompt_encoder
+    logger.info("N2 text encoding (GPU compute): %s", json.dumps(decision, sort_keys=True))
 
     model.n2_trt_runtime = runtime
     model.packer = _N2TensorRTPacker(runtime)
@@ -390,18 +408,6 @@ def install_n2_tensorrt(
         )
 
     model.predict = predict_with_contract
-
-    if offload_text_encoder:
-        original_encode_text = model.encode_text
-
-        @torch.no_grad()
-        def encode_text_then_park(text_ids: torch.Tensor) -> torch.Tensor:
-            embeddings = original_encode_text(text_ids)
-            model.text_encoder.to("cpu")
-            torch.cuda.empty_cache()
-            return embeddings
-
-        model.encode_text = encode_text_then_park
 
     logger.info(
         "Installed %s from %s",

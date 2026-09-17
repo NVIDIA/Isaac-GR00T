@@ -34,6 +34,7 @@ import transformers
 
 from groot.core.data import schema, types
 from groot.core.policy.benchmark_contract import resolve_policy_acceleration_state
+from groot.core.policy.env_utils import env_bool as _env_bool
 from groot.core.policy.gr00t_policy import Gr00tPolicy, _rec_to_dtype
 from groot.core.policy.n2_acceleration import N2AccelerationOptions
 
@@ -61,14 +62,13 @@ def _mp4v_roundtrip(video: np.ndarray) -> np.ndarray:
     import cv2
 
     frame_count, height, width, _ = video.shape
-    bgr_video = np.ascontiguousarray(video[..., ::-1])
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False, dir="/dev/shm") as tmp:
         tmp_path = tmp.name
     try:
         writer = cv2.VideoWriter(tmp_path, cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (width, height))
         try:
             for frame_index in range(frame_count):
-                writer.write(bgr_video[frame_index])
+                writer.write(cv2.cvtColor(video[frame_index], cv2.COLOR_RGB2BGR))
         finally:
             writer.release()
         return _decode_video(tmp_path)
@@ -129,21 +129,8 @@ def _codec_roundtrip_videos(vids: dict[str, Any], codec: str) -> float:
     for (key, _, _), decoded in zip(clips, decoded_clips, strict=True):
         decoded_by_key[key].append(decoded)
     for key in arrays:
-        vids[key] = np.stack(decoded_by_key[key], axis=0).astype(np.uint8)
+        vids[key] = np.stack(decoded_by_key[key], axis=0).astype(np.uint8, copy=False)
     return time.perf_counter() - start
-
-
-def _env_bool(name: str, *, default: bool) -> bool:
-    """Parse a boolean env var. Accepts 1/0, true/false, yes/no (case-insensitive)."""
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    val = raw.strip().lower()
-    if val in ("1", "true", "yes", "y", "on"):
-        return True
-    if val in ("0", "false", "no", "n", "off"):
-        return False
-    raise ValueError(f"{name}={raw!r} is not a boolean (expected 1/0/true/false/yes/no)")
 
 
 def _env_int(name: str, *, default: int) -> int:
@@ -316,6 +303,9 @@ class Gr00tN2Policy(Gr00tPolicy):
         self.joint_denoise = _env_bool("GROOT_N2_JOINT_DENOISE", default=True)
         self.num_video_steps = _env_int("GROOT_N2_NUM_VIDEO_STEPS", default=2)
         self.codec_roundtrip = _resolve_codec_roundtrip(codec_roundtrip)
+        image_workers = _env_int("GROOT_N2_IMAGE_PREPROCESS_WORKERS", default=1)
+        if not 1 <= image_workers <= 4:
+            raise ValueError("GROOT_N2_IMAGE_PREPROCESS_WORKERS must be between 1 and 4")
         acceleration = N2AccelerationOptions.resolve(
             trt_engine_dir=trt_engine_dir,
             use_cuda_graph=use_cuda_graph,
@@ -341,7 +331,17 @@ class Gr00tN2Policy(Gr00tPolicy):
         ):
             model = model.wrapped_model
         model.eval()
-        model.to(device=device, dtype=torch.bfloat16)
+        if acceleration.use_tensorrt:
+            # The eager transformer/VAE are replaced by TRT. Keep the text
+            # tower on CPU until its serving residency policy is installed.
+            model.to(dtype=torch.bfloat16)
+            for name, child in model.named_children():
+                if name not in {"text_encoder", "transformer", "vae"}:
+                    child.to(device=device)
+            if list(model.parameters(recurse=False)) or list(model.buffers(recurse=False)):
+                raise RuntimeError("N2 TRT placement requires module-owned parameters/buffers")
+        else:
+            model.to(device=device, dtype=torch.bfloat16)
         self.model = model
         trt_runtime = None
         if acceleration.use_tensorrt:
@@ -375,6 +375,8 @@ class Gr00tN2Policy(Gr00tPolicy):
 
         self.processor: types.BaseProcessor = transformers.AutoProcessor.from_pretrained(model_dir)
         self.processor.eval()
+        if image_workers != 1:
+            self.processor.set_inference_image_workers(image_workers)
 
         self.embodiment_tag = embodiment_tag
         self.modality_configs = self._load_modality_configs()
@@ -390,7 +392,8 @@ class Gr00tN2Policy(Gr00tPolicy):
             f"shift={self.shift}, "
             f"joint_denoise={self.joint_denoise}, "
             f"kv_cache_cond={self.kv_cache_cond}, "
-            f"codec_roundtrip={self.codec_roundtrip}"
+            f"codec_roundtrip={self.codec_roundtrip}, "
+            f"image_preprocess_workers={image_workers}"
         )
         acceleration_state = resolve_policy_acceleration_state(
             self,
@@ -401,6 +404,7 @@ class Gr00tN2Policy(Gr00tPolicy):
             "precision": "bf16",
             "policy_class": f"{type(self).__module__}.{type(self).__qualname__}",
             "codec": self.codec_roundtrip,
+            "image_preprocess_workers": image_workers,
             "num_video_steps": self.num_video_steps,
             "num_action_steps": self.num_inference_steps,
             "shift": self.shift,
@@ -411,6 +415,9 @@ class Gr00tN2Policy(Gr00tPolicy):
             "seed": self.seed,
         }
         if trt_runtime is not None:
+            self.benchmark_runtime_contract["text_encoder_offload"] = dict(
+                model.n2_text_encoder_diagnostics
+            )
             self.benchmark_runtime_contract["runtime_artifacts"] = (
                 trt_runtime.measurement_artifacts(
                     backend=acceleration.backend,
@@ -463,10 +470,9 @@ class Gr00tN2Policy(Gr00tPolicy):
     def _run_predict_graph(self, collated_inputs: Any, prompt_embs: Any = None) -> dict[str, Any]:
         """Replay a captured CUDA graph of the denoise, capturing on first use.
 
-        Prompt embeddings are a fixed static graph input. A prompt-cache miss
-        after capture fails closed and requires a fresh process. Replay also
-        requires the exact captured input key, shape, dtype, device, and padding
-        contract.
+        Prompt encoding happens outside capture. Replay copies embeddings into
+        an owned static buffer while preserving the captured key, shape, dtype,
+        device, and padding contract.
         """
         if self.save_video_dir is not None or self.enable_n2_pred_comparison:
             raise RuntimeError(
@@ -570,6 +576,15 @@ class Gr00tN2Policy(Gr00tPolicy):
         A capture/replay failure or recapture marks the process unhealthy until
         it is restarted.
         """
+        encoder = getattr(getattr(self, "model", None), "n2_prompt_encoder", None)
+        if getattr(encoder, "failure", None) is not None:
+            return {
+                "schema_version": "n2-server-readiness-v1",
+                "status": "failed",
+                "healthy": False,
+                "ready": False,
+                "message": "text encoding failed; restart the policy server",
+            }
         if not getattr(self, "_use_predict_graph", False):
             return {
                 "schema_version": "n2-server-readiness-v1",
@@ -751,14 +766,10 @@ class Gr00tN2Policy(Gr00tPolicy):
 
     def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
         self._flush_video()
-        # A captured graph is qualified for one fixed prompt per process. Keep
-        # that prompt's tensor identity across rollout resets so the same task
-        # can replay; a different language key still misses and fails closed in
-        # _run_predict_graph rather than being silently associated with the old
-        # capture.
-        if not self._use_predict_graph:
-            self._cached_prompt_embs = None
-            self._cached_language_dict = None
+        # The graph owns its prompt buffer; the bounded encoder LRU survives
+        # rollout resets independently of this single-request fast cache.
+        self._cached_prompt_embs = None
+        self._cached_language_dict = None
         return super().reset(options)
 
     def save_video(
