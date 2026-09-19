@@ -146,6 +146,7 @@ class TorchTrainer:
         self.workers = []
         self.training_fn = None
         self.training_fn_cfg = None
+        self.driver_config = None
         self.dataset_build_artifacts = None
         self.num_workers = None
         # Store the initial number of GPUs in the cluster
@@ -200,11 +201,26 @@ class TorchTrainer:
             )
 
         if self.workers:
-            head_node_addr, port = ray.get(self.workers[0].get_address.remote())
+            worker_addresses = ray.get([worker.get_address.remote() for worker in self.workers])
+            head_node_addr, port = worker_addresses[0]
+            workers_by_node: dict[str, list[int]] = {}
+            for world_rank, (node_addr, _) in enumerate(worker_addresses):
+                workers_by_node.setdefault(node_addr, []).append(world_rank)
+            node_coordinates = {
+                world_rank: (local_rank, len(world_ranks))
+                for world_ranks in workers_by_node.values()
+                for local_rank, world_rank in enumerate(world_ranks)
+            }
             ray.get(
                 [
-                    worker.setup_env_vars.remote(head_node_addr, port, i, len(self.workers))
-                    for i, worker in enumerate(self.workers)
+                    worker.setup_env_vars.remote(
+                        head_node_addr,
+                        port,
+                        world_rank,
+                        len(self.workers),
+                        *node_coordinates[world_rank],
+                    )
+                    for world_rank, worker in enumerate(self.workers)
                 ]
             )
 
@@ -219,14 +235,16 @@ class TorchTrainer:
         training_fn_cfg,
         *,
         dataset_build_artifacts=None,
+        driver_config: base_config.Config | None = None,
     ):
+        self.driver_config = training_fn_cfg if driver_config is None else driver_config
         self.setup_workers(
             training_fn,
             training_fn_cfg,
             dataset_build_artifacts,
         )
         retries = 0
-        max_retries = max(self.training_fn_cfg.training.max_retries, 1)
+        max_retries = max(self.driver_config.training.max_retries, 1)
         while retries < max_retries:
             try:
                 ray.get([worker.train.remote() for worker in self.workers])
@@ -259,7 +277,7 @@ class TorchTrainer:
                 # 1. Dump error to file
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 error_path = os.path.join(
-                    self.training_fn_cfg.training.output_dir.format(user=getpass.getuser()),
+                    self.driver_config.training.output_dir.format(user=getpass.getuser()),
                     f"error_{timestamp}.txt",
                 )
                 os.makedirs(os.path.dirname(error_path), exist_ok=True)
@@ -357,13 +375,27 @@ class _TrainingWorker:
     def get_address(self):
         return _ray_train_utils.get_address_and_port()
 
-    def setup_env_vars(self, addr, port, world_rank, world_size):
+    def setup_env_vars(
+        self,
+        addr,
+        port,
+        world_rank,
+        world_size,
+        node_local_rank,
+        node_local_world_size,
+    ):
         # HERE: Set all important environment variables in this function
         os.environ["MASTER_ADDR"] = addr
         os.environ["MASTER_PORT"] = str(port)
         os.environ["RANK"] = str(world_rank)
         os.environ["LOCAL_RANK"] = str(0)
         os.environ["WORLD_SIZE"] = str(world_size)
+        # Ray exposes one assigned GPU to each actor, so LOCAL_RANK must remain zero for CUDA.
+        # These separate coordinates describe the workers that share this node and its local
+        # filesystem, which lets node-scoped caches partition transfers without confusing device
+        # selection.
+        os.environ["RAY_LOCAL_RANK"] = str(node_local_rank)
+        os.environ["RAY_LOCAL_WORLD_SIZE"] = str(node_local_world_size)
 
         colossus_training_cuda_device = _bind_colossus_training_cuda_device()
 

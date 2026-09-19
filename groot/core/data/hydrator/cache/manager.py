@@ -83,6 +83,7 @@ class CacheManager:
         retry_delay: Initial delay between retries
         runtime_env: Optional Ray runtime_env for worker pool
             (e.g. ``{"py_executable": sys.executable}`` in tests).
+        worker_node_affinity: Keep I/O workers on this process's Ray node for node-local caches.
         rank: This process's rank in the distributed group (0-indexed).
         world_size: Total number of ranks (1 = no sharding).
         partition_strategy: Decides per-file ownership and DuckDB shard
@@ -111,6 +112,7 @@ class CacheManager:
         retry_attempts: int = 3,
         retry_delay: float = 1.0,
         runtime_env: dict | None = None,
+        worker_node_affinity: bool = False,
         enable_download_index: bool = False,
         rank: int = 0,
         world_size: int = 1,
@@ -178,6 +180,7 @@ class CacheManager:
             retry_attempts=retry_attempts,
             retry_delay=retry_delay,
             runtime_env=runtime_env,
+            worker_node_affinity=worker_node_affinity,
             download_index_db_dir=download_index_db_dir,
         )
         self.workers.on_download_complete = self._on_download_complete
