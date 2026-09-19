@@ -38,7 +38,7 @@ apt-get install -y build-essential ca-certificates curl git python3-dev \
   python3-venv ffmpeg yasm cmake libtool pkg-config libass-dev \
   libfreetype6-dev libvorbis-dev autoconf automake texinfo
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --frozen --extra training
+uv sync --frozen --extra training --extra tensorrt
 
 uv run --no-sync python examples/prepare_minimal_dataset.py \
   --output-dir "$HOME/gr00t2/data/gr00t_red_test"</code></pre>
@@ -76,7 +76,8 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
         <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss eval \
   --checkpoint &lt;hf-uri-or-local-path&gt; \
   --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag &lt;dataset-embodiment-tag&gt;</code></pre>
+  --embodiment-tag &lt;dataset-embodiment-tag&gt; \
+  --enable-trt</code></pre>
       </td>
     </tr>
     <tr>
@@ -91,7 +92,8 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
       <td>
         <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss train-eval \
   --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag &lt;dataset-embodiment-tag&gt;</code></pre>
+  --embodiment-tag &lt;dataset-embodiment-tag&gt; \
+  --enable-trt</code></pre>
       </td>
     </tr>
     <tr>
@@ -107,6 +109,7 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
         <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss policy-server \
   --checkpoint &lt;hf-uri-or-local-path&gt; \
   --embodiment-tag &lt;dataset-embodiment-tag&gt; \
+  --enable-trt \
   --host 0.0.0.0 \
   --port 5555</code></pre>
         <p>Add <code>--dry-run</code> to inspect the resolved server command without
@@ -273,6 +276,7 @@ Run the N2 policy against any simulator plugin that implements the shared backen
 ```bash
 uv run --no-sync python -m groot.infra.oss closed-loop-eval \
   --checkpoint <hf-uri-or-local-path> \
+  --enable-trt \
   --backend <python-module:BackendClass> \
   --suite <suite-name> \
   --embodiment-tag <checkpoint-embodiment-tag> \
@@ -283,7 +287,20 @@ Without `--ray-address`, the command starts local Ray. Pass a Ray client or GCS
 address to use an existing cluster. A run writes its resolved request,
 success-rate report, comparison history, and optional videos below the output
 directory. Simulator-specific setup and supported suites are documented by
-each backend.
+each backend. `--enable-trt` reuses a matching validated bundle from the local
+cache or builds and validates one inside the target Ray policy worker. With
+`--rebuild-trt`, each distinct runtime/cache identity rebuilds once; workers
+sharing that identity reuse the newly published bundle. Automatic bundles
+currently require four denoising steps. After a build, eager and TensorRT run
+the same deterministic checkpoint-derived observations. Invalid decoded
+actions fail the build; finite numerical drift is recorded in the cached
+`n2_trt_policy_measurement.json` receipt and logged as a warning for follow-up.
+The automatic cache identity also includes the effective
+`GROOT_N2_CODEC_ROUNDTRIP` value (`mp4v` by default), so `h264`, `mp4v`, and
+`none` builds cannot be mixed.
+Add `--use-cuda-graph` to any
+accelerated evaluation or policy-server command to compose CUDA graph replay
+with TensorRT.
 
 ### LIBERO and LIBERO-PRO
 

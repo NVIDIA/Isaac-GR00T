@@ -8,7 +8,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""Functional OSS train/eval GPU smoke tests."""
+"""Functional GPU training and evaluation tests for ``groot.infra.oss``."""
 
 from __future__ import annotations
 

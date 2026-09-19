@@ -37,6 +37,7 @@ from groot.core.policy.benchmark_contract import resolve_policy_acceleration_sta
 from groot.core.policy.env_utils import env_bool as _env_bool
 from groot.core.policy.gr00t_policy import Gr00tPolicy, _rec_to_dtype
 from groot.core.policy.n2_acceleration import N2AccelerationOptions
+from groot.core.policy.n2_codec import resolve_n2_codec_roundtrip
 
 N2_VIEW_NAMES = ("top", "left", "right", "bottom")
 
@@ -44,7 +45,6 @@ N2_VIEW_NAMES = ("top", "left", "right", "bottom")
 # Gr00tN2Policy._codec_roundtrip_views). "h264" matches purchased/h264-converted
 # datasets, "mp4v" matches in-house cv2.VideoWriter('mp4v') datasets, "none"
 # disables the roundtrip (feed raw frames).
-_CODEC_ROUNDTRIPS = ("h264", "none", "mp4v")
 _MAX_CODEC_WORKERS = 4
 
 
@@ -147,36 +147,7 @@ def _env_float(name: str, *, default: float) -> float:
     return float(raw)
 
 
-def _resolve_codec_roundtrip(codec_roundtrip: str = "mp4v") -> str:
-    """Resolve the observation-video codec, letting the env override the ctor arg.
-
-    Shared with ``open_loop/live_policy.py``: that path builds the policy through
-    ``__new__`` and never runs ``__init__``, so a second hand-written copy of this
-    logic would silently drift from this one.
-
-    ``GROOT_N2_CODEC_ROUNDTRIP`` is the only roundtrip variable this policy reads.
-    Any other ``GROOT_N2_*_ROUNDTRIP`` export — a retired spelling, a typo — is
-    rejected rather than ignored: silently falling back to the default would hand
-    the policy a different codec than the caller asked for, and a codec mismatch
-    surfaces as degraded success rates rather than as an error.
-    """
-    stale = sorted(
-        name
-        for name in os.environ
-        if name.startswith("GROOT_N2_")
-        and name.endswith("_ROUNDTRIP")
-        and name != "GROOT_N2_CODEC_ROUNDTRIP"
-    )
-    if stale:
-        raise ValueError(
-            f"unrecognized roundtrip env var(s) {stale}; this policy reads only "
-            f"GROOT_N2_CODEC_ROUNDTRIP (one of {_CODEC_ROUNDTRIPS}). A retired "
-            "boolean spelling maps 0 -> 'none' and 1 -> 'h264'."
-        )
-    codec = os.environ.get("GROOT_N2_CODEC_ROUNDTRIP", codec_roundtrip).lower()
-    if codec not in _CODEC_ROUNDTRIPS:
-        raise ValueError(f"codec_roundtrip must be one of {_CODEC_ROUNDTRIPS}, got {codec!r}")
-    return codec
+_resolve_codec_roundtrip = resolve_n2_codec_roundtrip
 
 
 def apply_torch_compile(model, mode: str = "reduce-overhead") -> None:
@@ -360,6 +331,7 @@ class Gr00tN2Policy(Gr00tPolicy):
                 model,
                 acceleration.trt_engine_dir,
                 contract=contract,
+                expected_codec=self.codec_roundtrip,
             )
         _install_inference_acceleration(
             self,

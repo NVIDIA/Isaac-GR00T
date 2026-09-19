@@ -269,18 +269,22 @@ def _run_assignments(
         num_cpus=config.cpus_per_worker,
         num_gpus=config.gpus_per_worker,
     )(ClosedLoopRayWorker)
-    workers = [
-        worker_type.remote(
-            backend_path=config.backend,
-            checkpoint=config.policy.checkpoint,
-            cache_root=config.policy.cache_root,
-            policy_options=config.policy.options,
-            suite=config.suite,
-            backend_options=config.backend_options,
-        )
-        for _ in range(worker_count)
-    ]
+    workers = []
     try:
+        for _ in range(worker_count):
+            policy_options = _worker_policy_options(
+                config.policy.options,
+                rebuild_token=paths.run_id,
+            )
+            worker = worker_type.remote(
+                backend_path=config.backend,
+                checkpoint=config.policy.checkpoint,
+                cache_root=config.policy.cache_root,
+                policy_options=policy_options,
+                suite=config.suite,
+                backend_options=config.backend_options,
+            )
+            workers.append(worker)
         references = [
             workers[index % worker_count].evaluate.remote(
                 assignment,
@@ -295,6 +299,14 @@ def _run_assignments(
     finally:
         for worker in workers:
             ray.kill(worker, no_restart=True)
+
+
+def _worker_policy_options(options: dict[str, Any], *, rebuild_token: str) -> dict[str, Any]:
+    """Coordinate one forced rebuild for each runtime/cache identity."""
+    worker_options = dict(options)
+    if worker_options.get("rebuild_trt"):
+        worker_options["trt_rebuild_token"] = rebuild_token
+    return worker_options
 
 
 def _select_tasks(available: tuple[str, ...], requested: tuple[str, ...]) -> tuple[str, ...]:

@@ -314,6 +314,119 @@ def validate_action(
             raise AssertionError(f"{key} contains non-finite values")
 
 
+CHECKPOINT_FLAT_SYNTHETIC_INPUT_ID = "camera-keyed-gradient-v3+bounded-state-seed-schedule-v2"
+
+
+def load_checkpoint_flat_workload(
+    checkpoint: Path,
+    embodiment: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Load the checkpoint-shaped workload shared by G1 and TRT measurements."""
+    config_path = checkpoint / "config.json"
+    processor_path = checkpoint / "processor_config.json"
+    statistics_path = checkpoint / "statistics.json"
+    for path in (config_path, processor_path, statistics_path):
+        if not path.is_file():
+            raise FileNotFoundError(f"checkpoint metadata is missing: {path}")
+
+    processor = json.loads(processor_path.read_text())
+    statistics = json.loads(statistics_path.read_text())
+    modality_configs = processor["processor_kwargs"]["modality_configs"]
+    key = embodiment.lower()
+    if key not in modality_configs or key not in statistics:
+        raise ValueError(f"checkpoint does not contain embodiment {key!r}")
+    modality = modality_configs[key]
+    if tuple(modality["state"]["delta_indices"]) != (0,):
+        raise ValueError(
+            f"checkpoint-flat measurement expects one state frame, got {modality['state']['delta_indices']}"
+        )
+    return modality, statistics[key], checkpoint_workload(checkpoint, embodiment)
+
+
+def _checkpoint_flat_gradient_video(
+    frames: int,
+    height: int,
+    width: int,
+    *,
+    seed: int,
+    camera_index: int,
+) -> np.ndarray:
+    rng = np.random.default_rng(np.random.SeedSequence([seed, camera_index, 0x4731]))
+    x = np.arange(width, dtype=np.uint32)[None, :]
+    y = np.arange(height, dtype=np.uint32)[:, None]
+    coefficients = rng.integers(1, 32, size=(frames, 3, 3), dtype=np.uint32)
+    video = np.empty((frames, height, width, 3), dtype=np.uint8)
+    for frame_index in range(frames):
+        for channel in range(3):
+            x_scale, y_scale, offset = coefficients[frame_index, channel]
+            video[frame_index, :, :, channel] = ((x * x_scale + y * y_scale + offset) % 256).astype(
+                np.uint8
+            )
+    return video
+
+
+def _checkpoint_flat_bounded_state(
+    statistics: Mapping[str, Any], *, seed: int, state_index: int
+) -> np.ndarray:
+    mean = np.asarray(statistics["mean"], dtype=np.float32)
+    if mean.ndim != 1:
+        raise ValueError("state statistics mean must be one-dimensional")
+    if not bool(np.isfinite(mean).all()):
+        raise ValueError("state statistics mean contains non-finite values")
+    std = statistics.get("std")
+    if std is None:
+        scale = np.maximum(np.abs(mean), np.float32(1.0))
+    else:
+        scale = np.asarray(std, dtype=np.float32)
+        if scale.shape != mean.shape:
+            raise ValueError("state statistics std does not match mean shape")
+        if not bool(np.isfinite(scale).all()):
+            raise ValueError("state statistics std contains non-finite values")
+        scale = np.maximum(np.abs(scale), np.float32(1e-3))
+    rng = np.random.default_rng(np.random.SeedSequence([seed, state_index, 0x5354]))
+    perturbation = rng.uniform(-0.25, 0.25, size=mean.shape).astype(np.float32) * scale
+    return (mean + perturbation).astype(np.float32, copy=False)
+
+
+def make_checkpoint_flat_observation(
+    modality: Mapping[str, Any],
+    statistics: Mapping[str, Any],
+    workload: Mapping[str, Any],
+    *,
+    instruction: str,
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Build one deterministic checkpoint-flat measurement observation."""
+    frames = int(workload["history_frames_per_camera"])
+    height, width = workload["image_target_size"]
+    observation: dict[str, Any] = {}
+    for camera_index, key in enumerate(modality["video"]["modality_keys"]):
+        observation[f"video.{key}"] = _checkpoint_flat_gradient_video(
+            frames, height, width, seed=seed, camera_index=camera_index
+        )
+    for state_index, key in enumerate(modality["state"]["modality_keys"]):
+        state = _checkpoint_flat_bounded_state(
+            statistics["state"][key], seed=seed, state_index=state_index
+        )
+        observation[f"state.{key}"] = state[None, :]
+    for key in modality["language"]["modality_keys"]:
+        observation[key] = instruction
+    return observation
+
+
+def expected_checkpoint_flat_actions(
+    modality: Mapping[str, Any],
+    statistics: Mapping[str, Any],
+    workload: Mapping[str, Any],
+) -> dict[str, tuple[int, int]]:
+    """Return exact decoded-action shapes at the flat policy interface."""
+    horizon = int(workload["action_horizon"])
+    return {
+        f"action.{key}": (horizon, len(statistics["action"][key]["mean"]))
+        for key in modality["action"]["modality_keys"]
+    }
+
+
 def action_equivalence(
     reference: Mapping[str, np.ndarray],
     candidate: Mapping[str, np.ndarray],
@@ -469,8 +582,7 @@ def _validate_target_profile(
     for field in PROFILE_WORKLOAD_FIELDS:
         if workload.get(field) != profile[field]:
             raise RuntimeError(
-                f"target profile {target_profile!r} requires {field}={profile[field]}, "
-                f"got {workload.get(field)!r}"
+                f"target profile {target_profile!r} requires {field}={profile[field]}, got {workload.get(field)!r}"
             )
     for field in PROFILE_RUNTIME_FIELDS:
         if runtime_contract.get(field) != profile[field]:
@@ -482,8 +594,7 @@ def _validate_target_profile(
     expected_name = str(profile["gpu_name_contains"])
     if expected_name.lower() not in gpu_name.lower():
         raise RuntimeError(
-            f"target profile {target_profile!r} requires GPU name containing "
-            f"{expected_name!r}, got {gpu_name!r}"
+            f"target profile {target_profile!r} requires GPU name containing {expected_name!r}, got {gpu_name!r}"
         )
     return dict(profile)
 
@@ -784,8 +895,7 @@ def _reference_gate_bounds(contents: Mapping[str, Any]) -> dict[str, float]:
         value = float(value)
         if not math.isfinite(value) or value < 0:
             raise ValueError(
-                f"reference approval candidate_gate_bounds.{field} must be finite "
-                "and non-negative"
+                f"reference approval candidate_gate_bounds.{field} must be finite and non-negative"
             )
         validated[field] = value
     return validated
@@ -796,13 +906,11 @@ def cuda_graph_lifecycle_snapshot(runtime_contract: Mapping[str, Any]) -> dict[s
     lifecycle = runtime_contract.get("cuda_graph_lifecycle")
     if not isinstance(lifecycle, Mapping):
         raise TypeError(
-            "formal CUDA-graph candidates must report cuda_graph_lifecycle "
-            "in the live runtime contract"
+            "formal CUDA-graph candidates must report cuda_graph_lifecycle in the live runtime contract"
         )
     if lifecycle.get("schema_version") != CUDA_GRAPH_LIFECYCLE_SCHEMA_VERSION:
         raise ValueError(
-            "cuda_graph_lifecycle uses an unsupported schema; expected "
-            f"{CUDA_GRAPH_LIFECYCLE_SCHEMA_VERSION!r}"
+            f"cuda_graph_lifecycle uses an unsupported schema; expected {CUDA_GRAPH_LIFECYCLE_SCHEMA_VERSION!r}"
         )
     snapshot: dict[str, int | str] = {
         "schema_version": CUDA_GRAPH_LIFECYCLE_SCHEMA_VERSION,
@@ -874,8 +982,7 @@ def validate_candidate_runtime_artifacts(
         )
     if artifacts.get("schema_version") != RUNTIME_ARTIFACT_SCHEMA_VERSION:
         raise ValueError(
-            "runtime_artifacts uses an unsupported schema; expected "
-            f"{RUNTIME_ARTIFACT_SCHEMA_VERSION!r}"
+            f"runtime_artifacts uses an unsupported schema; expected {RUNTIME_ARTIFACT_SCHEMA_VERSION!r}"
         )
     for field in ("backend", "precision", "quantize_mode", "tensorrt_version"):
         if not isinstance(artifacts.get(field), str) or not artifacts[field]:
@@ -931,8 +1038,7 @@ def validate_candidate_runtime_artifacts(
         raise TypeError("runtime_artifacts must identify the loaded engine bundle by role")
     if set(engine_records) != set(REQUIRED_TRT_ENGINE_ROLES):
         raise ValueError(
-            "runtime_artifacts loaded_engines must contain exactly "
-            f"{list(REQUIRED_TRT_ENGINE_ROLES)}"
+            f"runtime_artifacts loaded_engines must contain exactly {list(REQUIRED_TRT_ENGINE_ROLES)}"
         )
     loaded_engines = {
         role: _validate_artifact_record(engine_records[role], label=f"loaded {role} engine")
@@ -1259,8 +1365,7 @@ def validate_measurement_role_args(
         raise ValueError("candidate role requires a formal --target-profile")
     if role == "candidate" and not has_gate:
         raise ValueError(
-            "candidate role requires --ref-actions, --ref-receipt, --gate-rtol, and "
-            "--gate-max-abs"
+            "candidate role requires --ref-actions, --ref-receipt, --gate-rtol, and --gate-max-abs"
         )
     if role == "diagnostic" and target_profile is not None:
         raise ValueError("diagnostic role cannot use a formal --target-profile")
@@ -1324,8 +1429,7 @@ def validate_reference_runtime_source(
         diagnostics = reachability.stderr.strip() or reachability.stdout.strip()
         detail = f": {diagnostics}" if diagnostics else ""
         raise RuntimeError(
-            "git failed while validating approved-reference reachability"
-            f" (exit {reachability.returncode}){detail}"
+            f"git failed while validating approved-reference reachability (exit {reachability.returncode}){detail}"
         )
     return {
         "approved_runtime_sha": approved_reference_runtime_sha,
@@ -1371,15 +1475,13 @@ def validate_formal_measurement_source(
         raise RuntimeError("cannot resolve origin/main for measurement-source validation") from exc
     if reachability.returncode == 1:
         raise RuntimeError(
-            "formal measurement source is not reachable from the locally fetched origin/main: "
-            f"{sha}"
+            f"formal measurement source is not reachable from the locally fetched origin/main: {sha}"
         )
     if reachability.returncode != 0:
         diagnostics = reachability.stderr.strip() or reachability.stdout.strip()
         detail = f": {diagnostics}" if diagnostics else ""
         raise RuntimeError(
-            "git failed while validating measurement-source reachability "
-            f"(exit {reachability.returncode}){detail}"
+            f"git failed while validating measurement-source reachability (exit {reachability.returncode}){detail}"
         )
     return {
         "measurement_source_sha": sha,
@@ -1438,8 +1540,7 @@ def validate_reference_approval(
             raise ValueError(f"candidate {field} must be finite and non-negative")
         if selected > approved_bounds[field]:
             raise ValueError(
-                f"candidate {field}={selected:g} exceeds the PIC-declared maximum "
-                f"{approved_bounds[field]:g}"
+                f"candidate {field}={selected:g} exceeds the PIC-declared maximum {approved_bounds[field]:g}"
             )
     recorded = {name: approval.get(name) for name in ("path", "size_bytes", "sha256")}
     if not all(recorded.values()):

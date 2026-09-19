@@ -43,6 +43,32 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--denoising-steps", type=int)
     parser.add_argument("--action-steps", type=int, default=8)
     parser.add_argument("--device", default="cuda:0")
+    acceleration = parser.add_mutually_exclusive_group()
+    acceleration.add_argument(
+        "--trt-engine-dir",
+        default="",
+        help="TensorRT engine bundle directory. When unset, use eager inference.",
+    )
+    acceleration.add_argument(
+        "--enable-trt",
+        action="store_true",
+        help="Reuse or build and validate a target-local TensorRT engine bundle.",
+    )
+    parser.add_argument(
+        "--trt-cache-dir",
+        default="",
+        help="Cache root for bundles created by --enable-trt.",
+    )
+    parser.add_argument(
+        "--rebuild-trt",
+        action="store_true",
+        help="Rebuild the matching cached bundle used by --enable-trt.",
+    )
+    parser.add_argument(
+        "--use-cuda-graph",
+        action="store_true",
+        help="Replay N2 prediction through a CUDA graph.",
+    )
     parser.add_argument("--cache-root", default="")
     parser.add_argument("--output-dir", type=Path, default=Path("benchmark-results"))
     parser.add_argument("--no-record-video", action="store_true")
@@ -65,6 +91,13 @@ def config_from_args(args: argparse.Namespace) -> ClosedLoopEvalConfig:
     }
     if args.denoising_steps is not None:
         policy_options["denoising_steps"] = args.denoising_steps
+    if args.trt_engine_dir:
+        policy_options["trt_engine_dir"] = args.trt_engine_dir
+    if args.enable_trt:
+        policy_options["enable_trt"] = True
+        policy_options["trt_cache_dir"] = args.trt_cache_dir or None
+        policy_options["rebuild_trt"] = args.rebuild_trt
+    policy_options["use_cuda_graph"] = args.use_cuda_graph
     return ClosedLoopEvalConfig(
         policy=ClosedLoopPolicyConfig(
             checkpoint=args.checkpoint,
@@ -87,6 +120,26 @@ def config_from_args(args: argparse.Namespace) -> ClosedLoopEvalConfig:
     )
 
 
+def prepare_trt_args(args: argparse.Namespace) -> None:
+    """Validate automatic TensorRT options before Ray workers start."""
+    _validate_acceleration_args(args)
+
+
+def _validate_acceleration_args(args: argparse.Namespace) -> None:
+    if args.rebuild_trt and not args.enable_trt:
+        raise ValueError("--rebuild-trt requires --enable-trt")
+    if args.trt_cache_dir and not args.enable_trt:
+        raise ValueError("--trt-cache-dir requires --enable-trt")
+    if not args.enable_trt:
+        return
+    from groot.deployment.n2_trt.resolver import SUPPORTED_DENOISING_STEPS
+
+    if args.enable_trt and args.denoising_steps not in (None, SUPPORTED_DENOISING_STEPS):
+        raise ValueError(
+            f"--enable-trt currently requires --denoising-steps {SUPPORTED_DENOISING_STEPS}"
+        )
+
+
 def parse_backend_options(values: Sequence[str]) -> dict[str, object]:
     """Parse repeatable ``NAME=JSON`` backend options."""
     options: dict[str, object] = {}
@@ -106,6 +159,11 @@ def run(config: ClosedLoopEvalConfig, *, dry_run: bool) -> int:
         _emit(f"suite={config.suite}")
         _emit(f"ray_address={config.resolved_ray_address or '<local>'}")
         _emit(f"output_dir={config.output_dir.expanduser().resolve()}")
+        _emit(f"trt_engine_dir={config.policy.options.get('trt_engine_dir', '')}")
+        _emit(f"enable_trt={config.policy.options.get('enable_trt', False)}")
+        _emit(f"trt_cache_dir={config.policy.options.get('trt_cache_dir') or ''}")
+        _emit(f"rebuild_trt={config.policy.options.get('rebuild_trt', False)}")
+        _emit(f"use_cuda_graph={config.policy.options.get('use_cuda_graph', False)}")
         return 0
     try:
         report_path = ClosedLoopEvaluator(config).run()
@@ -132,6 +190,7 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the standalone entrypoint."""
     args = parser().parse_args(argv)
+    prepare_trt_args(args)
     return run(config_from_args(args), dry_run=args.dry_run)
 
 
