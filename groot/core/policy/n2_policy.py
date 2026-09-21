@@ -701,7 +701,22 @@ class Gr00tN2Policy(Gr00tPolicy):
             f"total={t_end - t0:.3f}s  "
             f"action_shapes={action_shapes}"
         )
-        return casted_action, {}
+        # Optional heads travel in info, never in the physical action vector.
+        # Keep the batch dimension and use CPU arrays for the policy RPC codec.
+        info = {}
+        for key in (
+            "completion_cdf",
+            "completion_hazard_probability",
+            "completion_tau",
+            "completion_query_denoising_step",
+            "completion_action_edge",
+        ):
+            if key in result:
+                value = result[key]
+                info[key] = (
+                    value.detach().float().cpu().numpy() if torch.is_tensor(value) else value
+                )
+        return casted_action, info
 
     def _decode_latest_video_frames(self) -> dict[str, np.ndarray] | None:
         """Decode latest latent chunk to per-view pixel frames."""
