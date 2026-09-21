@@ -92,8 +92,9 @@ def run_vectorized_rollout(
     num_envs: int,
     num_episodes: int,
     progress: RolloutProgress | None = None,
+    record_episode_steps: bool = False,
 ) -> RolloutResult:
-    """Run the established batched environment loop without owning setup or reporting."""
+    """Run episodes; enable step recording only when each env.step executes one action."""
     if num_envs <= 0:
         raise ValueError("num_envs must be positive")
     if num_episodes < num_envs:
@@ -101,6 +102,8 @@ def run_vectorized_rollout(
 
     successes: list[bool] = []
     current_successes = [False] * num_envs
+    current_steps = [0] * num_envs
+    first_success_steps: list[int | None] = [None] * num_envs
     completed_episodes = 0
     episode_infos: defaultdict[str, list[Any]] = defaultdict(list)
 
@@ -115,16 +118,26 @@ def run_vectorized_rollout(
             policy.on_env_reset(reset_indices)
 
             for env_index in range(num_envs):
-                if "success" in infos:
-                    current_successes[env_index] |= _coerce_success(infos["success"][env_index])
-                else:
-                    current_successes[env_index] = False
                 final_info = _final_info_at(infos, env_index)
-                if final_info is not None and "success" in final_info:
-                    current_successes[env_index] |= _coerce_success(final_info["success"])
+                # Autoreset can put the next episode's info at the top level.
+                if final_info is not None:
+                    current_successes[env_index] |= _coerce_success(
+                        final_info.get("success", False)
+                    )
+                elif "success" in infos:
+                    current_successes[env_index] |= _coerce_success(infos["success"][env_index])
+                if record_episode_steps:
+                    current_steps[env_index] += 1
+                    if current_successes[env_index] and first_success_steps[env_index] is None:
+                        first_success_steps[env_index] = current_steps[env_index]
                 if not (terminations[env_index] or truncations[env_index]):
                     continue
                 successes.append(current_successes[env_index])
+                if record_episode_steps:
+                    episode_infos["steps_executed"].append(current_steps[env_index])
+                    episode_infos["first_success_step"].append(first_success_steps[env_index])
+                    current_steps[env_index] = 0
+                    first_success_steps[env_index] = None
                 current_successes[env_index] = False
                 completed_episodes += 1
                 if progress is not None:
