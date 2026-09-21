@@ -57,15 +57,6 @@ def test_oss_cli_does_not_eagerly_import_optional_policy_server_runtime() -> Non
         ["train-eval"],
         ["train-eval", "--benchmark-recipe", "recipe.json", "--dataset-path", "data"],
         ["benchmark"],
-        [
-            "train-eval",
-            "--benchmark-recipe",
-            "recipe.json",
-            "--output-dir",
-            "output",
-            "--success-step-budgets",
-            "100",
-        ],
     ],
 )
 def test_oss_train_eval_rejects_incomplete_inputs(argv):
@@ -107,17 +98,8 @@ def test_oss_train_eval_benchmark_recipe_delegates_to_report_runner(
     assert args.dry_run is True
 
 
-@pytest.mark.parametrize(
-    ("arguments", "expected"),
-    [
-        ([], []),
-        (["--success-step-budgets", "100", "200"], [100, 200]),
-        (["--max-episode-steps", "400"], [100, 200, 300, 400]),
-        (["--max-episode-steps", "400", "--success-step-budgets", ".25", "1.0"], [100, 400]),
-    ],
-)
 def test_oss_closed_loop_dry_run_uses_generic_backend(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path, arguments, expected
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     engine_dir = tmp_path / "engines"
     status = oss.main(
@@ -136,7 +118,6 @@ def test_oss_closed_loop_dry_run_uses_generic_backend(
             "--use-cuda-graph",
             "--output-dir",
             str(tmp_path),
-            *arguments,
             "--dry-run",
         ]
     )
@@ -146,10 +127,6 @@ def test_oss_closed_loop_dry_run_uses_generic_backend(
     assert "backend=custom.backend:Backend" in output
     assert f"trt_engine_dir={engine_dir}" in output
     assert "use_cuda_graph=True" in output
-    if expected:
-        assert f"success_step_budgets={expected}" in output
-    else:
-        assert "success_step_budgets=" not in output
 
 
 def test_oss_closed_loop_dry_run_reports_automatic_trt_settings(
@@ -182,7 +159,6 @@ def test_oss_closed_loop_dry_run_reports_automatic_trt_settings(
     assert "enable_trt=True" in output
     assert f"trt_cache_dir={trt_cache}" in output
     assert "rebuild_trt=True" in output
-    assert "success_step_budgets=" not in output
 
 
 def test_oss_closed_loop_enable_trt_defers_build_to_worker(monkeypatch, tmp_path: Path) -> None:
@@ -218,8 +194,6 @@ def test_oss_closed_loop_enable_trt_defers_build_to_worker(monkeypatch, tmp_path
     assert configs[0].policy.options["enable_trt"] is True
     assert configs[0].policy.options["trt_cache_dir"] == str(tmp_path / "trt-cache")
     assert configs[0].policy.options["rebuild_trt"] is False
-    assert configs[0].max_episode_steps is None
-    assert configs[0].resolved_success_step_budgets == ()
 
 
 def test_oss_public_hf_dependencies_are_commit_pinned() -> None:

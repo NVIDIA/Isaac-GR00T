@@ -39,22 +39,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cpus-per-worker", type=float, default=1.0)
     parser.add_argument("--gpus-per-worker", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument(
-        "--max-episode-steps",
-        type=int,
-        help="Episode limit; required for fractional success budgets.",
-    )
-    parser.add_argument(
-        "--success-step-budgets",
-        type=_parse_step_budget,
-        nargs="*",
-        metavar="STEPS_OR_FRACTION",
-        help=(
-            "Integer action steps or float fractions of --max-episode-steps (1.0 = 100%%). "
-            "Defaults to 0.25 0.5 0.75 1.0 when --max-episode-steps is set; "
-            "pass no values to disable budget metrics."
-        ),
-    )
+    parser.add_argument("--max-episode-steps", type=int)
     parser.add_argument("--denoising-steps", type=int)
     parser.add_argument("--action-steps", type=int, default=8)
     parser.add_argument("--device", default="cuda:0")
@@ -97,13 +82,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dry-run", action="store_true")
 
 
-def _parse_step_budget(value: str) -> int | float:
-    try:
-        return int(value)
-    except ValueError:
-        return float(value)
-
-
 def config_from_args(args: argparse.Namespace) -> ClosedLoopEvalConfig:
     """Convert parsed CLI arguments to a portable evaluator configuration."""
     policy_options: dict[str, object] = {
@@ -136,9 +114,6 @@ def config_from_args(args: argparse.Namespace) -> ClosedLoopEvalConfig:
         gpus_per_worker=args.gpus_per_worker,
         seed=args.seed,
         max_episode_steps=args.max_episode_steps,
-        success_step_budgets=(
-            None if args.success_step_budgets is None else tuple(args.success_step_budgets)
-        ),
         record_video=not args.no_record_video,
         output_dir=args.output_dir,
         backend_options=parse_backend_options(args.backend_option),
@@ -182,9 +157,6 @@ def run(config: ClosedLoopEvalConfig, *, dry_run: bool) -> int:
         _emit(f"checkpoint={config.policy.checkpoint}")
         _emit(f"backend={config.backend}")
         _emit(f"suite={config.suite}")
-        budgets = config.resolved_success_step_budgets
-        if budgets:
-            _emit(f"success_step_budgets={list(budgets)}")
         _emit(f"ray_address={config.resolved_ray_address or '<local>'}")
         _emit(f"output_dir={config.output_dir.expanduser().resolve()}")
         _emit(f"trt_engine_dir={config.policy.options.get('trt_engine_dir', '')}")
