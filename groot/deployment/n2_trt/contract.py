@@ -292,8 +292,21 @@ class N2TensorRTContract:
                 "actual": self.camera_count,
                 "requirement": "at least one configured camera",
             }
-        if self.schedule != "2v4a":
-            failures["schedule"] = {"actual": self.schedule, "supported": ["2v4a"]}
+        steps_are_positive_integers = all(
+            isinstance(steps, int) and not isinstance(steps, bool) and steps > 0
+            for steps in (self.video_denoising_steps, self.action_denoising_steps)
+        )
+        if (
+            not steps_are_positive_integers
+            or self.action_denoising_steps % self.video_denoising_steps != 0
+        ):
+            failures["schedule"] = {
+                "actual": self.schedule,
+                "requirement": (
+                    "positive integer video/action steps with action steps an exact multiple "
+                    "of video steps"
+                ),
+            }
         if self.model_dtype != "bfloat16":
             failures["model_dtype"] = {"actual": self.model_dtype, "supported": ["bfloat16"]}
         if (
