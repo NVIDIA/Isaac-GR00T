@@ -62,6 +62,10 @@ test.oss.cpu:
         "$OSS_PACKAGE_ROOT/tests/skills" \
         --ignore "$OSS_PACKAGE_ROOT/tests/skills/autoresearch/test_local_open_loop_eval.py" \
         -m "not gpu" \
+        -vv \
+        --tb=short \
+        --durations=0 \
+        -ra \
         --junitxml "$CI_PROJECT_DIR/junit.oss.cpu.xml"
 
   artifacts:
@@ -118,6 +122,10 @@ test.oss.gpu:
       python -m pytest -s \
         "$OSS_PACKAGE_ROOT/tests/groot" \
         -m gpu \
+        -vv \
+        --tb=short \
+        --durations=0 \
+        -ra \
         --junitxml "$CI_PROJECT_DIR/junit.oss.gpu.xml"
 
   artifacts:

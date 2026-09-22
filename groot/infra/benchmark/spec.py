@@ -21,6 +21,8 @@ from pathlib import Path
 import re
 from typing import Any
 
+from groot.infra.closed_loop.budgets import resolve_success_step_budgets
+
 BENCHMARK_SPEC_SCHEMA_VERSION = "groot-n2-benchmark-spec-v1"
 
 _EXPERIMENT = re.compile(r"[a-z][a-z0-9_]*")
@@ -220,7 +222,7 @@ def required_metrics(evaluation: Mapping[str, Any]) -> set[str]:
 
 def _validate_closed_loop(evaluation: Mapping[str, Any]) -> None:
     _keys(
-        evaluation,
+        {key: value for key, value in evaluation.items() if key != "success_step_budgets"},
         {
             "backend",
             "suite",
@@ -239,6 +241,11 @@ def _validate_closed_loop(evaluation: Mapping[str, Any]) -> None:
     _integer(evaluation["seed"], "evaluation.closed_loop.seed", minimum=0)
     for key in ("episodes_per_task", "max_episode_steps", "action_steps", "denoising_steps"):
         _integer(evaluation[key], f"evaluation.closed_loop.{key}", minimum=1)
+    if "success_step_budgets" in evaluation:
+        budgets = evaluation["success_step_budgets"]
+        if not isinstance(budgets, list):
+            raise TypeError("evaluation.closed_loop.success_step_budgets must be an array")
+        resolve_success_step_budgets(budgets, evaluation["max_episode_steps"])
 
 
 def _resolve_path(recipe: str, builtin_dir: Path | None) -> Path:

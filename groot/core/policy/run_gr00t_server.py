@@ -53,7 +53,7 @@ from groot.core.policy.n2_policy_factory import (
 from groot.core.policy.server_client import PolicyServer
 
 DEFAULT_MODEL_SERVER_PORT = 5555
-N2_MODEL_TYPES = {"GrootN2", "GrootN2RL", "GrootN2TTT"}
+N2_MODEL_TYPES = {"GrootN2", "GrootN2RL", "GrootN2TTT", "GrootN2SubtaskTermination"}
 # "gr00t" covers the migrated N1 series (GrootN1d6 / GrootN1d7) and any other
 # non-N2 core model — they load through the generic Gr00tPolicy branch below.
 # "groot_n2" is GrootN2 and may install an admitted N2 TensorRT bundle through

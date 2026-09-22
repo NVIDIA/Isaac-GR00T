@@ -172,7 +172,7 @@ class Hydrator:
 
     Args:
         job_name: Unique job identifier (e.g., Ray job ID)
-        worker_id: DataLoader worker ID (int) for per-process cache isolation.
+        worker_id: DataLoader worker ID or path-safe process identifier for cache isolation.
         config: Service configuration
     """
 
@@ -296,7 +296,7 @@ class Hydrator:
     def __init__(
         self,
         job_name: str,
-        worker_id: int,
+        worker_id: int | str,
         config: hydrator_config.HydratorConfig | None = None,
     ):
         self.job_name = job_name
@@ -374,6 +374,7 @@ class Hydrator:
             retry_attempts=self.config.retry_attempts,
             retry_delay=self.config.retry_delay,
             runtime_env=self.config.runtime_env,
+            worker_node_affinity=self.config.worker_node_affinity,
             enable_download_index=self.config.enable_download_index,
             rank=self.config.rank,
             world_size=self.config.world_size,

@@ -27,6 +27,7 @@ Usage:
     python train.py --data.task bc --data.mode single_turn --training.num_gpus 8
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import json
@@ -37,7 +38,7 @@ import shutil
 import sys
 import threading
 import time
-from typing import Literal, cast, get_args
+from typing import Any, Literal, cast, get_args
 import warnings
 
 from omegaconf import OmegaConf
@@ -874,6 +875,8 @@ def _build_open_loop_eval_callback(
 def run(
     config: Config,
     dataset_build_artifacts: DatasetBuildArtifacts | None = None,
+    *,
+    pipeline_kwargs: Mapping[str, Any] | None = None,
 ):
     warn_configs(config)
 
@@ -1267,6 +1270,7 @@ def run(
             config,
             save_cfg_dir,
             dataset_build_artifacts=dataset_build_artifacts,
+            **dict(pipeline_kwargs or {}),
         )
         if os.environ.get("_GROOT_DRY_RUN_STUB_MODEL") == "1":
             pipeline._create_model = lambda: IdentityModel()  # noqa: SLF001

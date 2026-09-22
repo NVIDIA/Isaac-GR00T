@@ -637,6 +637,7 @@ class N2TensorRTRuntime:
         *,
         contract: N2TensorRTContract,
         runtime_identity: RuntimeIdentity | None = None,
+        expected_codec: str | None = None,
     ) -> N2TensorRTRuntime:
         """Validate the complete artifact bundle before deserializing plans."""
         root = Path(engine_dir).expanduser().resolve(strict=True)
@@ -646,6 +647,11 @@ class N2TensorRTRuntime:
             contract=contract,
             runtime=runtime_identity or RuntimeIdentity.capture(),
         )
+        if expected_codec is not None and manifest.build_settings.codec != expected_codec:
+            raise RuntimeError(
+                "N2 TensorRT bundle codec does not match the serving policy: "
+                f"bundle={manifest.build_settings.codec!r}, policy={expected_codec!r}"
+            )
         missing = [name for name in required_serving_files(manifest) if not (root / name).is_file()]
         if missing:
             raise FileNotFoundError(f"incomplete N2 TensorRT serving bundle; missing {missing}")

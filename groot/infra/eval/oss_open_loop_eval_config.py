@@ -72,6 +72,15 @@ class OssOpenLoopEvalConfig:
     trt_engine_dir: str | None = None
     """TensorRT engine bundle directory. When unset, use eager inference."""
 
+    enable_trt: bool = False
+    """Resolve or build a validated TensorRT engine bundle before evaluation."""
+
+    trt_cache_dir: str | None = None
+    """Cache root for automatically built TensorRT engine bundles."""
+
+    rebuild_trt: bool = False
+    """Discard and rebuild the matching automatically cached TensorRT bundle."""
+
     use_cuda_graph: bool = False
     """Replay policy prediction through a CUDA graph."""
 

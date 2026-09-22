@@ -37,16 +37,17 @@ class HydratorConfig:
             credentials from :class:`DataSourceResolver` is used.
         credentials_file: Path to data credentials file (default: ~/.gear/data_credentials).
         runtime_env: Optional Ray runtime_env for worker pool (e.g. tests use py_executable).
+        worker_node_affinity: Keep I/O workers on the process's Ray node. Enable this when the
+            cache directory is node-local rather than shared storage.
     """
 
     # None = auto-detect: num_nodes * 8 (requires Ray to be initialized).
     # Falls back to 8 if Ray is unavailable.
     max_workers: int | None = None
     max_cache_size_gb: float = 50.0
-    # NOTE: In distributed Ray training, tmp_root must point to a LustreFS mount
-    # (e.g. /lustre/...). Because downloads are executed by remote Ray actors that may
-    # run on different machines than the DataLoader workers, a shared filesystem is
-    # required so that files downloaded on one node are accessible by readers on another.
+    # In distributed Ray training, tmp_root must point to shared storage unless
+    # worker_node_affinity is enabled and actors share the cache mount. Node affinity keeps
+    # I/O on the owning machine; container deployments must also provide a shared mount.
     tmp_root: str | None = None
     download_timeout: float = 300.0
     retry_attempts: int = 3
@@ -58,6 +59,7 @@ class HydratorConfig:
     credentials_profile: str | None = None
     credentials_file: str = DataCredentials.DEFAULT_CREDENTIALS_FILE
     runtime_env: dict[str, Any] | None = None
+    worker_node_affinity: bool = False
     # Enable shared DuckDB download index on Lustre for cross-rank file discovery. The
     # in-memory files dict is sufficient for single-rank or non-distributed use cases.
     #
@@ -93,6 +95,8 @@ class HydratorConfig:
             raise ValueError(f"max_cache_size_gb must be positive, got {self.max_cache_size_gb}")
         if not 0 < self.eviction_buffer <= 1.0:
             raise ValueError(f"eviction_buffer must be in (0, 1], got {self.eviction_buffer}")
+        if type(self.worker_node_affinity) is not bool:
+            raise TypeError("worker_node_affinity must be a boolean")
         # rank/world_size validate once resolved; ``None`` is "unspecified", not invalid.
         if self.world_size is not None and self.world_size <= 0:
             raise ValueError(f"world_size must be positive, got {self.world_size}")

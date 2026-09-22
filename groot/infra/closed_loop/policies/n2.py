@@ -19,6 +19,34 @@ from typing import Any
 import numpy as np
 
 
+def _resolve_automatic_trt(
+    *,
+    checkpoint: str,
+    embodiment: str,
+    denoising_steps: int | None,
+    cache_root: str | None,
+    rebuild: bool,
+    rebuild_token: str | None,
+    device: str,
+    codec: str,
+) -> tuple[str, str]:
+    """Resolve one explicit device and its compatible automatic bundle."""
+    from groot.deployment.n2_trt.resolver import resolve_n2_trt_bundle, resolve_n2_trt_device
+
+    resolved_device = resolve_n2_trt_device(device)
+    bundle = resolve_n2_trt_bundle(
+        checkpoint=checkpoint,
+        embodiment=embodiment,
+        denoising_steps=denoising_steps,
+        cache_root=cache_root,
+        rebuild=rebuild,
+        device=resolved_device,
+        codec=codec,
+        rebuild_token=rebuild_token,
+    )
+    return resolved_device, str(bundle)
+
+
 class TemporalObservationHistory:
     """Stack raw observations at the temporal offsets requested by N2."""
 
@@ -67,7 +95,19 @@ class N2RolloutPolicy:
         options: Mapping[str, Any],
     ) -> None:
         unknown = sorted(
-            set(options) - {"embodiment_tag", "denoising_steps", "device", "action_steps"}
+            set(options)
+            - {
+                "embodiment_tag",
+                "denoising_steps",
+                "device",
+                "action_steps",
+                "trt_engine_dir",
+                "enable_trt",
+                "trt_cache_dir",
+                "rebuild_trt",
+                "trt_rebuild_token",
+                "use_cuda_graph",
+            }
         )
         if unknown:
             raise ValueError(f"unsupported N2 policy options: {', '.join(unknown)}")
@@ -79,12 +119,41 @@ class N2RolloutPolicy:
         self._action_steps = int(options.get("action_steps", 8))
         if self._action_steps <= 0:
             raise ValueError("N2 action_steps must be positive")
+        trt_engine_dir_value = options.get("trt_engine_dir")
+        trt_engine_dir = None if trt_engine_dir_value in (None, "") else str(trt_engine_dir_value)
+        enable_trt = options.get("enable_trt", False)
+        rebuild_trt = options.get("rebuild_trt", False)
+        if not isinstance(enable_trt, bool):
+            raise TypeError("N2 enable_trt must be a boolean")
+        if not isinstance(rebuild_trt, bool):
+            raise TypeError("N2 rebuild_trt must be a boolean")
+        if trt_engine_dir is not None and enable_trt:
+            raise ValueError("N2 trt_engine_dir and enable_trt are mutually exclusive")
+        trt_cache_dir_value = options.get("trt_cache_dir")
+        trt_cache_dir = None if trt_cache_dir_value in (None, "") else str(trt_cache_dir_value)
+        if not enable_trt and rebuild_trt:
+            raise ValueError("N2 rebuild_trt requires enable_trt")
+        if not enable_trt and trt_cache_dir is not None:
+            raise ValueError("N2 trt_cache_dir requires enable_trt")
+        trt_rebuild_token_value = options.get("trt_rebuild_token")
+        trt_rebuild_token = (
+            None if trt_rebuild_token_value in (None, "") else str(trt_rebuild_token_value)
+        )
+        use_cuda_graph = options.get("use_cuda_graph", False)
+        if not isinstance(use_cuda_graph, bool):
+            raise TypeError("N2 use_cuda_graph must be a boolean")
         self._policy = self._load_policy(
             checkpoint=checkpoint,
             cache_root=cache_root,
             embodiment_tag=embodiment_tag,
             denoising_steps=denoising_steps,
             device=str(options.get("device", "cuda:0")),
+            trt_engine_dir=trt_engine_dir,
+            enable_trt=enable_trt,
+            trt_cache_dir=trt_cache_dir,
+            rebuild_trt=rebuild_trt,
+            trt_rebuild_token=trt_rebuild_token,
+            use_cuda_graph=use_cuda_graph,
         )
         self._history: TemporalObservationHistory | None = None
         self._action_chunk: dict[str, np.ndarray] = {}
@@ -98,9 +167,16 @@ class N2RolloutPolicy:
         embodiment_tag: str,
         denoising_steps: int | None,
         device: str,
+        trt_engine_dir: str | None,
+        enable_trt: bool,
+        trt_cache_dir: str | None,
+        rebuild_trt: bool,
+        trt_rebuild_token: str | None,
+        use_cuda_graph: bool,
     ) -> Any:
         from groot.core.data import schema
         from groot.core.policy.gr00t_policy import Gr00tFlatPolicyWrapper
+        from groot.core.policy.n2_codec import resolve_n2_codec_roundtrip
         from groot.core.policy.n2_policy import Gr00tN2Policy
         from groot.core.training.models.n2.utils.cosmos_model_deps import ensure_cosmos_model_deps
         from groot.infra.eval.oss_open_loop_eval_config import OssOpenLoopEvalConfig
@@ -109,12 +185,27 @@ class N2RolloutPolicy:
         model_path = OssOpenLoopEvaluator(
             OssOpenLoopEvalConfig(checkpoint=checkpoint, cache_root=cache_root)
         ).resolve_model_path()
+        codec = resolve_n2_codec_roundtrip()
+        if enable_trt:
+            device, trt_engine_dir = _resolve_automatic_trt(
+                checkpoint=str(model_path),
+                embodiment=embodiment_tag,
+                denoising_steps=denoising_steps,
+                cache_root=trt_cache_dir,
+                rebuild=rebuild_trt,
+                rebuild_token=trt_rebuild_token,
+                device=device,
+                codec=codec,
+            )
         ensure_cosmos_model_deps(str(model_path))
         try:
             tag = schema.EmbodimentTag[embodiment_tag]
         except KeyError:
             tag = schema.EmbodimentTag(embodiment_tag)
-        policy_options: dict[str, int] = {}
+        policy_options: dict[str, Any] = {
+            "trt_engine_dir": trt_engine_dir,
+            "use_cuda_graph": use_cuda_graph,
+        }
         if denoising_steps is not None:
             policy_options["num_inference_timesteps"] = denoising_steps
         policy = Gr00tN2Policy(
@@ -122,6 +213,7 @@ class N2RolloutPolicy:
             model_path=str(model_path),
             device=device,
             strict=True,
+            codec_roundtrip=codec,
             **policy_options,
         )
         return Gr00tFlatPolicyWrapper(policy, strict=True)

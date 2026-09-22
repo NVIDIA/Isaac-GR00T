@@ -25,10 +25,10 @@ from typing import Any
 from groot.deployment.n2_trt.artifacts import resolve_checkpoint_vae_weights
 from groot.deployment.n2_trt.contract import N2TensorRTContract
 
-MANIFEST_SCHEMA = "groot_n2_tensorrt_engine_manifest_v3"
+MANIFEST_SCHEMA = "groot_n2_tensorrt_engine_manifest_v4"
 MANIFEST_FILENAME = "n2_trt_manifest.json"
 BUILD_FILENAME = "n2_trt_build.json"
-BUILD_SCHEMA = "groot_n2_trt_build_v3"
+BUILD_SCHEMA = "groot_n2_trt_build_v4"
 VALIDATION_FILENAME = "n2_trt_validation.json"
 REQUIRED_SERVING_RECEIPTS = (
     BUILD_FILENAME,
@@ -342,6 +342,7 @@ class BuildSettings:
     builder_optimization_level: int
     transformer_precision: str
     vae_precision: str
+    codec: str
 
     def validate(self, contract: N2TensorRTContract) -> None:
         if not self.strongly_typed:
@@ -352,6 +353,8 @@ class BuildSettings:
             raise ValueError("transformer build precision does not match the runtime contract")
         if self.vae_precision != contract.vae_precision:
             raise ValueError("VAE build precision does not match the runtime contract")
+        if self.codec not in {"h264", "mp4v", "none"}:
+            raise ValueError(f"unsupported N2 TensorRT serving codec: {self.codec!r}")
 
 
 @dataclass(frozen=True)
