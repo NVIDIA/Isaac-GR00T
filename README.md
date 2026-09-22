@@ -38,7 +38,7 @@ apt-get install -y build-essential ca-certificates curl git python3-dev \
   python3-venv ffmpeg yasm cmake libtool pkg-config libass-dev \
   libfreetype6-dev libvorbis-dev autoconf automake texinfo
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --frozen --extra training --extra tensorrt
+uv sync --frozen --extra training
 
 uv run --no-sync python examples/prepare_minimal_dataset.py \
   --output-dir "$HOME/gr00t2/data/gr00t_red_test"</code></pre>
@@ -76,8 +76,7 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
         <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss eval \
   --checkpoint &lt;hf-uri-or-local-path&gt; \
   --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag &lt;dataset-embodiment-tag&gt; \
-  --enable-trt</code></pre>
+  --embodiment-tag &lt;dataset-embodiment-tag&gt;</code></pre>
       </td>
     </tr>
     <tr>
@@ -92,8 +91,7 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
       <td>
         <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss train-eval \
   --dataset-path /path/to/lerobot_dataset \
-  --embodiment-tag &lt;dataset-embodiment-tag&gt; \
-  --enable-trt</code></pre>
+  --embodiment-tag &lt;dataset-embodiment-tag&gt;</code></pre>
       </td>
     </tr>
     <tr>
@@ -109,7 +107,6 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
         <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss policy-server \
   --checkpoint &lt;hf-uri-or-local-path&gt; \
   --embodiment-tag &lt;dataset-embodiment-tag&gt; \
-  --enable-trt \
   --host 0.0.0.0 \
   --port 5555</code></pre>
         <p>Add <code>--dry-run</code> to inspect the resolved server command without
@@ -276,11 +273,9 @@ Run the N2 policy against any simulator plugin that implements the shared backen
 ```bash
 uv run --no-sync python -m groot.infra.oss closed-loop-eval \
   --checkpoint <hf-uri-or-local-path> \
-  --enable-trt \
   --backend <python-module:BackendClass> \
   --suite <suite-name> \
   --embodiment-tag <checkpoint-embodiment-tag> \
-  --max-episode-steps <episode-limit> \
   --output-dir ./benchmark-results
 ```
 
@@ -288,75 +283,7 @@ Without `--ray-address`, the command starts local Ray. Pass a Ray client or GCS
 address to use an existing cluster. A run writes its resolved request,
 success-rate report, comparison history, and optional videos below the output
 directory. Simulator-specific setup and supported suites are documented by
-each backend. `--enable-trt` reuses a matching validated bundle from the local
-cache or builds and validates one inside the target Ray policy worker. With
-`--rebuild-trt`, each distinct runtime/cache identity rebuilds once; workers
-sharing that identity reuse the newly published bundle. Automatic bundles
-currently require four denoising steps. After a build, eager and TensorRT run
-the same deterministic checkpoint-derived observations. Invalid decoded
-actions fail the build; finite numerical drift is recorded in the cached
-`n2_trt_policy_measurement.json` receipt and logged as a warning for follow-up.
-The automatic cache identity also includes the effective
-`GROOT_N2_CODEC_ROUNDTRIP` value (`mp4v` by default), so `h264`, `mp4v`, and
-`none` builds cannot be mixed.
-Add `--use-cuda-graph` to any
-accelerated evaluation or policy-server command to compose CUDA graph replay
-with TensorRT.
-
-When `--max-episode-steps` is set, success budgets default to 25%, 50%, 75%,
-and 100% of that limit. For a 400-step limit, the report includes success within
-100, 200, 300, and 400 steps per episode, plus AUC. Override them with `--success-step-budgets 100 200 400`
-or fractions such as `--success-step-budgets 0.25 0.5 1.0`. Integer `1` means one
-step; float `1.0` means the full episode limit. Fractions round down to whole
-steps, with a minimum of one; coincident thresholds appear once.
-
-When both options are omitted, the backend owns the episode limit and budget
-metrics are disabled. Explicit fractions require `--max-episode-steps`; integer
-budgets also work with backend-owned limits. Pass `--success-step-budgets` without
-values to disable budget metrics even with an explicit limit. Results appear
-under `success_rate_by_step_budget` in the existing summary, per-task summaries,
-and comparison history. Failed episodes stay in the denominator. With the default budgets and a 400-step limit, four
-attempts with two successes, first observed at steps 100 and 300, give this excerpt:
-
-```json
-{
-  "episodes": 4,
-  "successes": 2,
-  "success_rate": 0.5,
-  "success_rate_by_step_budget": {"100": 0.25, "200": 0.25, "300": 0.5, "400": 0.5},
-  "success_rate_auc": 0.25,
-  "task_success_rate_mean": 0.5,
-  "task_success_rate_std": 0.0
-}
-```
-
-`success_rate_auc` summarizes how often and how early episodes succeed, overall
-and per task. It is the area under the empirical success-rate step curve from
-0 to the largest requested budget `H`, divided by `H`. Each episode contributes
-`max(H - first_success_step, 0) / H`; failures contribute zero. The average is
-between 0 and 1, with higher values rewarding earlier success. A success exactly
-at `H` contributes zero area but still counts toward success at that budget.
-The example gives `(0.75 + 0.25 + 0 + 0) / 4 = 0.25`. Intermediate budget choices
-do not affect AUC; compare it using the same `H` and episode limits.
-
-The overall summary also includes `task_success_rate_mean` and
-`task_success_rate_std`: the equally weighted mean and population standard
-deviation of the evaluated tasks' final success rates. These are available
-without step budgets. The example has one task, so its standard deviation is
-zero. This measures variation across tasks, not uncertainty across repeated runs.
-
-The existing `benchmark.json` also records `episode_results` with each episode's
-task, success, `steps_executed`, and `first_success_step` (`null` if it never
-succeeded). Steps count individual simulator actions, starting at 1, rather than
-policy inference calls or seconds. Recording success does not stop an episode.
-Budgets do not extend the simulator's episode limit; compare runs with the same
-tasks and episode limits.
-
-`train-eval --benchmark-recipe` uses the same defaults and the recipe's
-`evaluation.closed_loop.max_episode_steps`. Override the optional
-`evaluation.closed_loop.success_step_budgets` array with integer steps or float
-fractions; an empty array disables budget metrics. The combined benchmark
-report carries the same summary; no separate reporting command is needed.
+each backend.
 
 ### LIBERO and LIBERO-PRO
 
@@ -430,9 +357,8 @@ uv run --no-sync python -m groot.infra.oss closed-loop-eval \
   --embodiment-tag robocasa365_panda_omron
 ```
 
-The backend uses the same per-task horizons as internal evaluation. Pass integer
-step budgets to report success at fixed thresholds while retaining those horizons.
-Set `--backend-option robocasa_root='"/path/to/robocasa"'` to use an existing
+The backend uses the same per-task horizons as internal evaluation. Set
+`--backend-option robocasa_root='"/path/to/robocasa"'` to use an existing
 checkout instead of the setup script's default.
 
 ### RoboDojo
@@ -450,9 +376,8 @@ uv run --no-sync python -m groot.infra.oss closed-loop-eval \
   --embodiment-tag arx_x5
 ```
 
-RoboDojo owns its task horizons; use integer budgets to enable budget metrics
-with those limits, as with RoboCasa365 above. The shared actor automatically
-replaces unstable layout seeds while preserving the requested episode count.
+The shared actor automatically replaces unstable layout seeds while preserving
+the requested episode count.
 
 ## Model Artifacts
 

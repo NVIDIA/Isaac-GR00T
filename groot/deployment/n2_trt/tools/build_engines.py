@@ -225,10 +225,6 @@ def main() -> int:
     actual_sample_digests = {role: sha256_file(path) for role, path in sample_paths.items()}
     if exported_sample_digests != actual_sample_digests:
         raise RuntimeError("validation samples changed after export")
-    transformer_export = json.loads((root / "n2_transformer_export.json").read_text())
-    codec = transformer_export.get("codec_roundtrip")
-    if codec not in {"h264", "mp4v", "none"}:
-        raise ValueError(f"transformer export has invalid serving codec: {codec!r}")
 
     import tensorrt as trt
 
@@ -259,7 +255,6 @@ def main() -> int:
             "builder_optimization_level": args.builder_optimization_level,
             "transformer_precision": TRANSFORMER_PRECISION,
             "vae_precision": "bf16",
-            "codec": codec,
         },
         "timing_cache": timing_cache.name,
         "validation_samples": exported_sample_digests,

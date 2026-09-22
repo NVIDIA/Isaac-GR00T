@@ -20,11 +20,9 @@ import importlib
 import json
 import os
 from pathlib import Path
-from statistics import fmean, pstdev
 from typing import Any, Protocol
 import uuid
 
-from groot.infra.closed_loop.budgets import resolve_success_step_budgets
 from groot.infra.closed_loop.policies import load_n2_policy
 from groot.infra.closed_loop.rollout import (
     TaskAssignment,
@@ -34,7 +32,7 @@ from groot.infra.closed_loop.rollout import (
 
 
 class ClosedLoopBackend(Protocol):
-    """Simulator plugin contract; vector environments execute one action per step call."""
+    """Simulator plugin contract consumed by the portable Ray worker."""
 
     def __init__(self, *, suite: str, options: Mapping[str, Any]) -> None: ...
 
@@ -94,7 +92,6 @@ class ClosedLoopEvalConfig:
     max_episode_steps: int | None = None
     record_video: bool = True
     backend_options: dict[str, Any] = field(default_factory=dict)
-    success_step_budgets: Sequence[int | float] | None = None
 
     def __post_init__(self) -> None:
         _split_class_path(self.backend)
@@ -108,12 +105,6 @@ class ClosedLoopEvalConfig:
             raise ValueError("worker resources must be non-negative and include a positive CPU")
         if self.max_episode_steps is not None and self.max_episode_steps <= 0:
             raise ValueError("max_episode_steps must be positive when provided")
-        resolve_success_step_budgets(self.success_step_budgets, self.max_episode_steps)
-
-    @property
-    def resolved_success_step_budgets(self) -> tuple[int, ...]:
-        """Resolve percentage budgets against the configured episode limit."""
-        return resolve_success_step_budgets(self.success_step_budgets, self.max_episode_steps)
 
     @property
     def resolved_ray_address(self) -> str | None:
@@ -187,16 +178,11 @@ class ClosedLoopRayWorker:
             policy=self._policy,
             num_envs=1,
             num_episodes=assignment.num_episodes,
-            record_episode_steps=True,
         )
         return {
             "task": assignment.task,
             "episodes": assignment.num_episodes,
             "successes": list(result.successes[: assignment.num_episodes]),
-            "episode_infos": {
-                name: list(values[: assignment.num_episodes])
-                for name, values in result.episode_infos.items()
-            },
         }
 
 
@@ -283,22 +269,18 @@ def _run_assignments(
         num_cpus=config.cpus_per_worker,
         num_gpus=config.gpus_per_worker,
     )(ClosedLoopRayWorker)
-    workers = []
+    workers = [
+        worker_type.remote(
+            backend_path=config.backend,
+            checkpoint=config.policy.checkpoint,
+            cache_root=config.policy.cache_root,
+            policy_options=config.policy.options,
+            suite=config.suite,
+            backend_options=config.backend_options,
+        )
+        for _ in range(worker_count)
+    ]
     try:
-        for _ in range(worker_count):
-            policy_options = _worker_policy_options(
-                config.policy.options,
-                rebuild_token=paths.run_id,
-            )
-            worker = worker_type.remote(
-                backend_path=config.backend,
-                checkpoint=config.policy.checkpoint,
-                cache_root=config.policy.cache_root,
-                policy_options=policy_options,
-                suite=config.suite,
-                backend_options=config.backend_options,
-            )
-            workers.append(worker)
         references = [
             workers[index % worker_count].evaluate.remote(
                 assignment,
@@ -313,14 +295,6 @@ def _run_assignments(
     finally:
         for worker in workers:
             ray.kill(worker, no_restart=True)
-
-
-def _worker_policy_options(options: dict[str, Any], *, rebuild_token: str) -> dict[str, Any]:
-    """Coordinate one forced rebuild for each runtime/cache identity."""
-    worker_options = dict(options)
-    if worker_options.get("rebuild_trt"):
-        worker_options["trt_rebuild_token"] = rebuild_token
-    return worker_options
 
 
 def _select_tasks(available: tuple[str, ...], requested: tuple[str, ...]) -> tuple[str, ...]:
@@ -368,26 +342,14 @@ def _completed_report(
     ray_context: Mapping[str, Any],
     started_at: str,
 ) -> dict[str, Any]:
-    budgets = config.resolved_success_step_budgets
     per_task: dict[str, dict[str, Any]] = {}
-    episode_results = [
-        {
-            "task": result["task"],
-            "success": bool(success),
-            "steps_executed": steps,
-            "first_success_step": first_success_step,
-        }
-        for result in results
-        for success, steps, first_success_step in zip(
-            result["successes"],
-            result["episode_infos"]["steps_executed"],
-            result["episode_infos"]["first_success_step"],
-            strict=True,
-        )
-    ]
     for task in tasks:
-        task_episodes = [episode for episode in episode_results if episode["task"] == task]
-        successes = [episode["success"] for episode in task_episodes]
+        successes = [
+            bool(success)
+            for result in results
+            if result["task"] == task
+            for success in result["successes"]
+        ]
         if len(successes) != config.episodes_per_task:
             raise ValueError(
                 f"backend returned {len(successes)} episodes for {task}; expected {config.episodes_per_task}"
@@ -396,11 +358,9 @@ def _completed_report(
             "episodes": len(successes),
             "successes": sum(successes),
             "success_rate": sum(successes) / len(successes),
-            **_success_budget_summary(task_episodes, budgets),
         }
     episodes = sum(item["episodes"] for item in per_task.values())
     successes = sum(item["successes"] for item in per_task.values())
-    task_success_rates = [item["success_rate"] for item in per_task.values()]
     return {
         "run_id": paths.run_id,
         "status": "completed",
@@ -414,51 +374,17 @@ def _completed_report(
             "episodes_per_task": config.episodes_per_task,
         },
         "execution": {"ray": dict(ray_context), "workers": worker_count},
-        "episode_results": episode_results,
         "summary": {
             "episodes": episodes,
             "successes": successes,
             "success_rate": successes / episodes,
-            "task_success_rate_mean": fmean(task_success_rates),
-            "task_success_rate_std": pstdev(task_success_rates),
             "per_task": per_task,
-            **_success_budget_summary(episode_results, budgets),
         },
         "artifacts": {
             "request": str(paths.request_path),
             "videos_dir": str(paths.run_dir / "videos"),
         },
         "error": None,
-    }
-
-
-def _success_budget_summary(
-    episodes: Sequence[Mapping[str, Any]], budgets: Sequence[int]
-) -> dict[str, Any]:
-    """Report success by budget and normalized area under the empirical step curve.
-
-    Integrate from zero to the largest budget: a success at step s contributes
-    max(horizon - s, 0) / horizon. Failures contribute zero to every metric.
-    """
-    if not budgets:
-        return {}
-    horizon = max(budgets)
-    return {
-        "success_rate_by_step_budget": {
-            str(budget): sum(
-                episode["first_success_step"] is not None
-                and episode["first_success_step"] <= budget
-                for episode in episodes
-            )
-            / len(episodes)
-            for budget in budgets
-        },
-        "success_rate_auc": sum(
-            max(horizon - episode["first_success_step"], 0)
-            for episode in episodes
-            if episode["first_success_step"] is not None
-        )
-        / (len(episodes) * horizon),
     }
 
 

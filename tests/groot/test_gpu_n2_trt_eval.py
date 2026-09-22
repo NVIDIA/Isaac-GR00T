@@ -8,17 +8,17 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""Functional TensorRT GPU tests for ``groot.infra.oss``."""
+"""Functional OSS N2 TensorRT open-loop GPU smoke test."""
 
 from __future__ import annotations
 
+from dataclasses import asdict, replace
 import json
 import math
 import os
+from pathlib import Path
 import subprocess
 import sys
-from dataclasses import asdict, dataclass, replace
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -26,7 +26,13 @@ import pytest
 
 from groot.infra import oss
 
-pytestmark = pytest.mark.gpu
+pytestmark = [
+    pytest.mark.gpu,
+    pytest.mark.skipif(
+        "OSS_PACKAGE_ROOT" not in os.environ,
+        reason="Run this OSS-only GPU test through oss/tests.",
+    ),
+]
 
 _EMBODIMENT = "xdof_relative_eef_relative_joint"
 _CAMERAS = ("video.top", "video.left", "video.right")
@@ -42,46 +48,40 @@ _VIDEO_TOKENS = (
 )
 
 
-@dataclass(frozen=True)
-class _TensorRTFixture:
-    checkpoint: Path
-    engine_dir: Path
-
-
-@pytest.fixture(scope="module")
-def trt_fixture(tmp_path_factory: pytest.TempPathFactory) -> _TensorRTFixture:
-    """Build the minimal target-local TensorRT bundle once for every OSS CLI path."""
-    root = tmp_path_factory.mktemp("n2-trt-cli")
-    checkpoint = _write_checkpoint(root / "checkpoint")
-    return _TensorRTFixture(
-        checkpoint=checkpoint,
-        engine_dir=_build_engine_bundle(checkpoint, root / "engines"),
-    )
-
-
 def test_oss_open_loop_eval_executes_real_tensorrt_and_cuda_graph(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    trt_fixture: _TensorRTFixture,
 ) -> None:
     """Enter through the OSS CLI and execute target-built TRT engines in both modes."""
     import torch
+    import transformers
 
+    from groot.core.training.models.n2 import model as n2_model
+    from groot.core.training.models.n2.components import sequence_packing
     from groot.infra.eval.metric_summary import MetricSummary
     from groot.infra.eval.oss_open_loop_evaluator import OssOpenLoopEvaluator
 
     assert torch.cuda.is_available(), "OSS TensorRT smoke requires CUDA"
-    checkpoint = trt_fixture.checkpoint
-    engine_dir = trt_fixture.engine_dir
+    checkpoint = _write_checkpoint(tmp_path / "checkpoint")
+    engine_dir = _build_engine_bundle(checkpoint, tmp_path / "engines")
     dataset_path = tmp_path / "dataset"
     dataset_path.mkdir()
 
-    _install_model_fixture(monkeypatch)
-    resolved_bundles: list[dict[str, Any]] = []
+    monkeypatch.setenv("GROOT_N2_CODEC_ROUNDTRIP", "none")
+    monkeypatch.setenv("GROOT_N2_TRT_OFFLOAD_TEXT_ENCODER", "0")
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", lambda *_a, **_k: _make_model())
     monkeypatch.setattr(
-        oss,
-        "_resolve_or_build_trt",
-        lambda **kwargs: resolved_bundles.append(kwargs) or engine_dir,
+        transformers.AutoProcessor,
+        "from_pretrained",
+        lambda *_a, **_k: _Processor(),
+    )
+    # PredictGraphRunner temporarily rebinds these module globals. Register them
+    # with monkeypatch so pytest restores the process after graph capture.
+    monkeypatch.setattr(n2_model, "BetaFlowMatchEulerScheduler", _Scheduler)
+    monkeypatch.setattr(
+        sequence_packing,
+        "_build_attention_mask",
+        sequence_packing._build_attention_mask,
     )
 
     observations: list[dict[str, Any]] = []
@@ -170,9 +170,8 @@ def test_oss_open_loop_eval_executes_real_tensorrt_and_cuda_graph(
             str(_ACTION_HORIZON),
             "--denoising-steps",
             "4",
-            "--enable-trt",
-            "--trt-cache-dir",
-            str(tmp_path / "trt-cache"),
+            "--trt-engine-dir",
+            str(engine_dir),
             "--output-json",
             str(output_json),
             "--local-only",
@@ -194,206 +193,11 @@ def test_oss_open_loop_eval_executes_real_tensorrt_and_cuda_graph(
         == ["transformer_action_cached", "transformer_joint_capture", "vae_encode"]
         for record in observations
     )
-    assert len(resolved_bundles) == 2
-    assert all(record["checkpoint"] == checkpoint for record in resolved_bundles)
     assert observations[1]["lifecycle"] == {
         "schema_version": "n2-cuda-graph-lifecycle-v1",
         "capture_count": 1,
         "recapture_count": 0,
         "replay_count": 2,
-    }
-
-
-def test_oss_policy_server_executes_real_tensorrt(
-    monkeypatch: pytest.MonkeyPatch,
-    trt_fixture: _TensorRTFixture,
-) -> None:
-    """Enter through ``policy-server`` and execute its TensorRT-backed N2 policy."""
-    from groot.core.policy import run_gr00t_server
-
-    _install_model_fixture(monkeypatch)
-    resolved_bundles: list[dict[str, Any]] = []
-    observations: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        oss,
-        "_resolve_or_build_trt",
-        lambda **kwargs: resolved_bundles.append(kwargs) or trt_fixture.engine_dir,
-    )
-
-    class PolicyServerProbe:
-        def __init__(self, policy: Any, host: str, port: int) -> None:
-            assert host == "127.0.0.1"
-            assert port == 5556
-            self.policy = policy
-
-        def run(self) -> None:
-            observations.append(_execute_real_trt(_unwrap_n2_policy(self.policy), action_seed=6))
-
-    monkeypatch.setattr(run_gr00t_server, "PolicyServer", PolicyServerProbe)
-
-    assert (
-        oss.main(
-            [
-                "policy-server",
-                "--checkpoint",
-                str(trt_fixture.checkpoint),
-                "--embodiment-tag",
-                _EMBODIMENT,
-                "--host",
-                "127.0.0.1",
-                "--port",
-                "5556",
-                "--enable-trt",
-                "--trt-cache-dir",
-                str(trt_fixture.engine_dir.parent),
-            ]
-        )
-        == 0
-    )
-    assert len(resolved_bundles) == 1
-    assert resolved_bundles[0]["checkpoint"] == trt_fixture.checkpoint
-    assert observations == [{"backend": "trt", "action_seed": 6}]
-
-
-def test_oss_closed_loop_eval_executes_real_tensorrt(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    trt_fixture: _TensorRTFixture,
-) -> None:
-    """Enter through ``closed-loop-eval`` and execute its TensorRT-backed N2 policy."""
-    from groot.deployment.n2_trt import auto_builder
-    from groot.infra.closed_loop import cli as closed_loop_cli
-    from groot.infra.closed_loop.policies import load_n2_policy
-
-    _install_model_fixture(monkeypatch)
-    resolved_bundles: list[dict[str, Any]] = []
-    observations: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        auto_builder,
-        "resolve_or_build_engine_bundle",
-        lambda **kwargs: resolved_bundles.append(kwargs) or trt_fixture.engine_dir,
-    )
-
-    class ClosedLoopEvaluatorProbe:
-        def __init__(self, config: Any) -> None:
-            self.config = config
-
-        def run(self) -> Path:
-            policy = load_n2_policy(
-                checkpoint=self.config.policy.checkpoint,
-                cache_root=self.config.policy.cache_root,
-                options=self.config.policy.options,
-            )
-            observations.append(_execute_real_trt(_unwrap_n2_policy(policy), action_seed=9))
-            report_path = self.config.output_dir / "minimal-trt-benchmark.json"
-            report_path.parent.mkdir(parents=True, exist_ok=True)
-            report_path.write_text(
-                json.dumps(
-                    {
-                        "summary": {
-                            "episodes": 1,
-                            "successes": 1,
-                            "success_rate": 1.0,
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-            return report_path
-
-    monkeypatch.setattr(closed_loop_cli, "ClosedLoopEvaluator", ClosedLoopEvaluatorProbe)
-
-    assert (
-        oss.main(
-            [
-                "closed-loop-eval",
-                "--checkpoint",
-                str(trt_fixture.checkpoint),
-                "--backend",
-                "minimal.fixture:Backend",
-                "--suite",
-                "minimal",
-                "--embodiment-tag",
-                _EMBODIMENT,
-                "--output-dir",
-                str(tmp_path / "closed-loop"),
-                "--enable-trt",
-                "--trt-cache-dir",
-                str(trt_fixture.engine_dir.parent),
-                "--no-record-video",
-            ]
-        )
-        == 0
-    )
-    assert len(resolved_bundles) == 1
-    assert Path(resolved_bundles[0]["checkpoint"]) == trt_fixture.checkpoint
-    assert observations == [{"backend": "trt", "action_seed": 9}]
-
-
-def _install_model_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Install the minimal N2 model at the normal Transformers construction seam."""
-    import transformers
-
-    from groot.core.training.models.n2 import model as n2_model
-    from groot.core.training.models.n2.components import sequence_packing
-
-    monkeypatch.setenv("GROOT_N2_CODEC_ROUNDTRIP", "none")
-    monkeypatch.setenv("GROOT_N2_TRT_OFFLOAD_TEXT_ENCODER", "0")
-    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", lambda *_a, **_k: _make_model())
-    monkeypatch.setattr(
-        transformers.AutoProcessor,
-        "from_pretrained",
-        lambda *_a, **_k: _Processor(),
-    )
-    # PredictGraphRunner temporarily rebinds these module globals. Register them
-    # with monkeypatch so pytest restores the process after graph capture.
-    monkeypatch.setattr(n2_model, "BetaFlowMatchEulerScheduler", _Scheduler)
-    monkeypatch.setattr(
-        sequence_packing,
-        "_build_attention_mask",
-        sequence_packing._build_attention_mask,
-    )
-
-
-def _unwrap_n2_policy(policy: Any) -> Any:
-    """Find the real N2 policy beneath server and closed-loop adapters."""
-    while not hasattr(policy, "_run_predict"):
-        policy = getattr(policy, "policy", getattr(policy, "_policy", None))
-        if policy is None:
-            raise AssertionError("OSS entrypoint did not construct an N2 policy")
-    return policy
-
-
-def _execute_real_trt(policy: Any, *, action_seed: int) -> dict[str, Any]:
-    """Execute the admitted engines and return the observable backend identity."""
-    import torch
-
-    images = torch.zeros(
-        (1, 3, len(_CAMERAS) * 5, 224, 320),
-        device="cuda",
-        dtype=torch.bfloat16,
-    )
-    prompt = torch.zeros((1, 1, 1), device="cuda", dtype=torch.bfloat16)
-    result = policy._run_predict(  # noqa: SLF001 - verifies the installed runtime seam.
-        {
-            "images": images,
-            "action_seed": torch.full(
-                (1, _ACTION_HORIZON, 1),
-                action_seed,
-                device="cuda",
-                dtype=torch.bfloat16,
-            ),
-        },
-        prompt,
-    )
-    torch.cuda.synchronize()
-    torch.testing.assert_close(
-        result["action_pred"],
-        torch.full_like(result["action_pred"], action_seed),
-    )
-    return {
-        "backend": policy.inference_acceleration_state["backend"],
-        "action_seed": action_seed,
     }
 
 
@@ -542,8 +346,8 @@ class _Processor:
 
 
 def _write_checkpoint(path: Path) -> Path:
-    import torch
     from safetensors.torch import save_file
+    import torch
 
     path.mkdir()
     vae_weights = path / "vae.pth"
@@ -718,10 +522,6 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
         checkpoint_file_hashes,
         sha256_file,
     )
-    from groot.deployment.n2_trt.policy_measurement import (
-        POLICY_MEASUREMENT_FILENAME,
-        POLICY_MEASUREMENT_SCHEMA,
-    )
     from groot.deployment.n2_trt.validation import _artifact_records
 
     _write_onnx_bundle(root)
@@ -733,10 +533,9 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
     (root / "n2_transformer_export.json").write_text(
         json.dumps(
             {
-                "codec_roundtrip": "none",
                 "validation_sample_sha256": {
                     role: digest for role, digest in sample_digests.items() if role != "vae_eager"
-                },
+                }
             }
         ),
         encoding="utf-8",
@@ -836,7 +635,6 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
             builder_optimization_level=0,
             transformer_precision="bf16",
             vae_precision="bf16",
-            codec="none",
         ),
         tool_sources=tuple(
             SourceRevision(component=component, revision="oss-gpu-fixture")
@@ -849,40 +647,5 @@ def _build_engine_bundle(checkpoint: Path, root: Path) -> Path:
         vae_weights_path=checkpoint / "vae.pth",
         vae_weights_sha256=vae_weights_sha256,
     )
-    manifest_path = root / MANIFEST_FILENAME
-    manifest.write(manifest_path)
-    # The resolver requires retained post-build evidence. This fixture exercises
-    # every generated engine directly above, so a synthetic no-drift receipt is
-    # sufficient to cover resolver admission without running a second full policy.
-    (root / POLICY_MEASUREMENT_FILENAME).write_text(
-        json.dumps(
-            {
-                "schema": POLICY_MEASUREMENT_SCHEMA,
-                "status": "complete",
-                "contract_sha256": contract_sha256,
-                "checkpoint_sha256": canonical_sha256(checkpoint_files),
-                "manifest_sha256": sha256_file(manifest_path),
-                "synthetic_input_id": "oss-real-trt-fixture-v1",
-                "instruction": "fixture",
-                "warmup_requests": 1,
-                "measured_requests": 1,
-                "observation_seed_schedule": {
-                    "warmup_start": 0,
-                    "measured_start": 1,
-                    "step": 1,
-                },
-                "action_shapes": {"action": [_ACTION_HORIZON, 1]},
-                "equivalence": {"action": {"max_abs": 0.0, "rel_rmse": 0.0}},
-                "exact_equivalence_breaches": [],
-                "backends": {
-                    "eager": {"runtime_contract": {"backend": "eager"}},
-                    "trt": {"runtime_contract": {"backend": "trt"}},
-                },
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    manifest.write(root / MANIFEST_FILENAME)
     return root

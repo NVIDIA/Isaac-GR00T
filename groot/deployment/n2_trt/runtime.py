@@ -637,7 +637,6 @@ class N2TensorRTRuntime:
         *,
         contract: N2TensorRTContract,
         runtime_identity: RuntimeIdentity | None = None,
-        expected_codec: str | None = None,
     ) -> N2TensorRTRuntime:
         """Validate the complete artifact bundle before deserializing plans."""
         root = Path(engine_dir).expanduser().resolve(strict=True)
@@ -647,11 +646,6 @@ class N2TensorRTRuntime:
             contract=contract,
             runtime=runtime_identity or RuntimeIdentity.capture(),
         )
-        if expected_codec is not None and manifest.build_settings.codec != expected_codec:
-            raise RuntimeError(
-                "N2 TensorRT bundle codec does not match the serving policy: "
-                f"bundle={manifest.build_settings.codec!r}, policy={expected_codec!r}"
-            )
         missing = [name for name in required_serving_files(manifest) if not (root / name).is_file()]
         if missing:
             raise FileNotFoundError(f"incomplete N2 TensorRT serving bundle; missing {missing}")
@@ -774,7 +768,7 @@ class N2TensorRTRuntime:
         )
         if skip_reason is not None:
             raise RuntimeError(f"fixed-shape N2 TensorRT {mode} call rejected: {skip_reason}")
-        if mode == "joint" and kv_cache is None:
+        if mode == "joint" and kv_cache is None and self.num_action_steps > self.num_video_steps:
             raise RuntimeError("joint TensorRT call requires a KV-cache destination")
         return runner(packed=packed, prompt_embs=prompt_embs, kv_cache=kv_cache)
 

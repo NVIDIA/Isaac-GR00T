@@ -8,17 +8,15 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""Tests for the public ``groot.infra.oss`` entrypoint."""
+"""Tests for the public OSS CLI entrypoint."""
 
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 import re
 import shlex
 import subprocess
-import sys
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -26,25 +24,6 @@ import pytest
 import yaml
 
 from groot.infra import oss
-
-
-def _install_fake_torch(monkeypatch: pytest.MonkeyPatch, *, current_device: int) -> None:
-    """Provide the CUDA subset used by the device resolver without requiring PyTorch."""
-
-    class FakeDevice:
-        def __init__(self, value: str) -> None:
-            device_type, separator, index = value.partition(":")
-            self.type = device_type
-            self.index = int(index) if separator else None
-
-    monkeypatch.setitem(
-        sys.modules,
-        "torch",
-        SimpleNamespace(
-            device=FakeDevice,
-            cuda=SimpleNamespace(current_device=lambda: current_device),
-        ),
-    )
 
 
 def test_oss_cli_does_not_eagerly_import_optional_policy_server_runtime() -> None:
@@ -57,15 +36,6 @@ def test_oss_cli_does_not_eagerly_import_optional_policy_server_runtime() -> Non
         ["train-eval"],
         ["train-eval", "--benchmark-recipe", "recipe.json", "--dataset-path", "data"],
         ["benchmark"],
-        [
-            "train-eval",
-            "--benchmark-recipe",
-            "recipe.json",
-            "--output-dir",
-            "output",
-            "--success-step-budgets",
-            "100",
-        ],
     ],
 )
 def test_oss_train_eval_rejects_incomplete_inputs(argv):
@@ -107,56 +77,9 @@ def test_oss_train_eval_benchmark_recipe_delegates_to_report_runner(
     assert args.dry_run is True
 
 
-@pytest.mark.parametrize(
-    ("arguments", "expected"),
-    [
-        ([], []),
-        (["--success-step-budgets", "100", "200"], [100, 200]),
-        (["--max-episode-steps", "400"], [100, 200, 300, 400]),
-        (["--max-episode-steps", "400", "--success-step-budgets", ".25", "1.0"], [100, 400]),
-    ],
-)
 def test_oss_closed_loop_dry_run_uses_generic_backend(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path, arguments, expected
-) -> None:
-    engine_dir = tmp_path / "engines"
-    status = oss.main(
-        [
-            "closed-loop-eval",
-            "--checkpoint",
-            "checkpoint",
-            "--backend",
-            "custom.backend:Backend",
-            "--suite",
-            "suite-a",
-            "--embodiment-tag",
-            "custom_tag",
-            "--trt-engine-dir",
-            str(engine_dir),
-            "--use-cuda-graph",
-            "--output-dir",
-            str(tmp_path),
-            *arguments,
-            "--dry-run",
-        ]
-    )
-
-    assert status == 0
-    output = capsys.readouterr().out
-    assert "backend=custom.backend:Backend" in output
-    assert f"trt_engine_dir={engine_dir}" in output
-    assert "use_cuda_graph=True" in output
-    if expected:
-        assert f"success_step_budgets={expected}" in output
-    else:
-        assert "success_step_budgets=" not in output
-
-
-def test_oss_closed_loop_dry_run_reports_automatic_trt_settings(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    trt_cache = tmp_path / "trt-cache"
-
     status = oss.main(
         [
             "closed-loop-eval",
@@ -168,58 +91,14 @@ def test_oss_closed_loop_dry_run_reports_automatic_trt_settings(
             "suite-a",
             "--embodiment-tag",
             "custom_tag",
-            "--enable-trt",
-            "--trt-cache-dir",
-            str(trt_cache),
-            "--rebuild-trt",
+            "--output-dir",
+            str(tmp_path),
             "--dry-run",
         ]
     )
 
     assert status == 0
-    output = capsys.readouterr().out
-    assert "trt_engine_dir=\n" in output
-    assert "enable_trt=True" in output
-    assert f"trt_cache_dir={trt_cache}" in output
-    assert "rebuild_trt=True" in output
-    assert "success_step_budgets=" not in output
-
-
-def test_oss_closed_loop_enable_trt_defers_build_to_worker(monkeypatch, tmp_path: Path) -> None:
-    from groot.infra.closed_loop import cli as closed_loop_cli
-
-    configs: list[object] = []
-    monkeypatch.setattr(
-        closed_loop_cli,
-        "run",
-        lambda config, *, dry_run: configs.append(config) or int(dry_run),
-    )
-
-    status = oss.main(
-        [
-            "closed-loop-eval",
-            "--checkpoint",
-            "hf://model/org/repo@revision/checkpoint",
-            "--backend",
-            "custom.backend:Backend",
-            "--suite",
-            "suite-a",
-            "--embodiment-tag",
-            "test_embodiment",
-            "--enable-trt",
-            "--trt-cache-dir",
-            str(tmp_path / "trt-cache"),
-        ]
-    )
-
-    assert status == 0
-    assert len(configs) == 1
-    assert configs[0].policy.checkpoint == "hf://model/org/repo@revision/checkpoint"
-    assert configs[0].policy.options["enable_trt"] is True
-    assert configs[0].policy.options["trt_cache_dir"] == str(tmp_path / "trt-cache")
-    assert configs[0].policy.options["rebuild_trt"] is False
-    assert configs[0].max_episode_steps is None
-    assert configs[0].resolved_success_step_budgets == ()
+    assert "backend=custom.backend:Backend" in capsys.readouterr().out
 
 
 def test_oss_public_hf_dependencies_are_commit_pinned() -> None:
@@ -697,209 +576,6 @@ def test_oss_eval_invokes_open_loop_evaluator_without_running_gpu_backend(
     assert config.use_cuda_graph is True
 
 
-def test_oss_eval_enable_trt_resolves_checkpoint_and_builds_cached_bundle(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    checkpoint = tmp_path / "checkpoint"
-    checkpoint.mkdir()
-    engine_dir = tmp_path / "trt-cache" / "bundle"
-    engine_dir.mkdir(parents=True)
-    configs: list[oss.OssOpenLoopEvalConfig] = []
-    builds: list[dict[str, object]] = []
-
-    class FakeEvaluator:
-        def __init__(self, config: oss.OssOpenLoopEvalConfig) -> None:
-            self.config = config
-            configs.append(config)
-
-        def resolve_model_path(self) -> Path:
-            return checkpoint
-
-        def run(self) -> None:
-            return None
-
-    monkeypatch.setattr(oss, "OssOpenLoopEvaluator", FakeEvaluator)
-    _install_fake_torch(monkeypatch, current_device=0)
-    monkeypatch.setattr(
-        oss,
-        "_resolve_or_build_trt",
-        lambda **kwargs: builds.append(kwargs) or engine_dir,
-    )
-
-    status = oss.main(
-        [
-            "eval",
-            "--checkpoint",
-            "hf://model/org/repo@revision/checkpoint",
-            "--embodiment-tag",
-            "test_embodiment",
-            "--dataset-path",
-            str(tmp_path / "dataset"),
-            "--enable-trt",
-            "--trt-cache-dir",
-            str(tmp_path / "trt-cache"),
-            "--rebuild-trt",
-        ]
-    )
-
-    assert status == 0
-    assert builds == [
-        {
-            "checkpoint": checkpoint,
-            "embodiment": "test_embodiment",
-            "denoising_steps": 4,
-            "cache_dir": str(tmp_path / "trt-cache"),
-            "rebuild": True,
-            "device": "cuda:0",
-            "codec": "mp4v",
-        }
-    ]
-    assert configs[-1].checkpoint == str(checkpoint)
-    assert configs[-1].device == "cuda:0"
-    assert configs[-1].trt_engine_dir == str(engine_dir)
-
-
-def test_oss_eval_enable_trt_surfaces_eager_trt_drift(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    tmp_path: Path,
-) -> None:
-    from groot.deployment.n2_trt import auto_builder, policy_measurement
-
-    checkpoint = tmp_path / "checkpoint"
-    checkpoint.mkdir()
-    engine_dir = tmp_path / "bundle"
-    engine_dir.mkdir()
-    receipt = engine_dir / policy_measurement.POLICY_MEASUREMENT_FILENAME
-    receipt.write_text(
-        json.dumps(
-            {
-                "status": "complete_with_drift",
-                "equivalence": {
-                    "action.gripper": {"max_abs": 0.01234567, "rel_rmse": 0.00432109},
-                    "action.joint": {"max_abs": 0.25, "rel_rmse": 0.125},
-                },
-                "exact_equivalence_breaches": ["drift"],
-            }
-        )
-    )
-    builds: list[dict[str, object]] = []
-
-    class FakeEvaluator:
-        def __init__(self, _config: oss.OssOpenLoopEvalConfig) -> None:
-            pass
-
-        def resolve_model_path(self) -> Path:
-            return checkpoint
-
-        def run(self) -> None:
-            return None
-
-    monkeypatch.setattr(oss, "OssOpenLoopEvaluator", FakeEvaluator)
-    _install_fake_torch(monkeypatch, current_device=0)
-    monkeypatch.setenv("GROOT_N2_CODEC_ROUNDTRIP", "h264")
-    monkeypatch.setattr(
-        auto_builder,
-        "resolve_or_build_engine_bundle",
-        lambda **kwargs: builds.append(kwargs) or engine_dir,
-    )
-
-    with caplog.at_level(logging.WARNING, logger=policy_measurement.__name__):
-        assert (
-            oss.main(
-                [
-                    "eval",
-                    "--checkpoint",
-                    str(checkpoint),
-                    "--embodiment-tag",
-                    "test_embodiment",
-                    "--enable-trt",
-                ]
-            )
-            == 0
-        )
-
-    warning = caplog.text
-    assert "TensorRT decoded-action drift from eager" in warning
-    assert "action.gripper: max_abs=0.0123457, rel_rmse=0.00432109" in warning
-    assert "action.joint: max_abs=0.25, rel_rmse=0.125" in warning
-    assert str(receipt) in warning
-    assert builds[0]["codec"] == "h264"
-
-
-def test_oss_eval_uses_one_explicit_nonzero_device_for_build_and_inference(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    from groot.deployment.n2_trt import auto_builder, policy_measurement
-
-    checkpoint = tmp_path / "checkpoint"
-    checkpoint.mkdir()
-    engine_dir = tmp_path / "bundle"
-    engine_dir.mkdir()
-    (engine_dir / policy_measurement.POLICY_MEASUREMENT_FILENAME).write_text(
-        '{"equivalence": {}, "exact_equivalence_breaches": []}'
-    )
-    builds: list[dict[str, object]] = []
-
-    class FakeEvaluator:
-        def __init__(self, config: oss.OssOpenLoopEvalConfig) -> None:
-            self.config = config
-
-        def resolve_model_path(self) -> Path:
-            return checkpoint
-
-    _install_fake_torch(monkeypatch, current_device=1)
-    monkeypatch.setattr(oss, "OssOpenLoopEvaluator", FakeEvaluator)
-    monkeypatch.setattr(
-        auto_builder,
-        "resolve_or_build_engine_bundle",
-        lambda **kwargs: builds.append(kwargs) or engine_dir,
-    )
-    config = oss.OssOpenLoopEvalConfig(
-        checkpoint=str(checkpoint),
-        embodiment_tag="test_embodiment",
-        enable_trt=True,
-        device=None,
-    )
-
-    oss._prepare_eval_trt(config)  # noqa: SLF001
-
-    assert config.device == "cuda:1"
-    assert config.trt_engine_dir == str(engine_dir)
-    assert builds[0]["device"] == "cuda:1"
-
-
-def test_oss_cli_rejects_incoherent_automatic_trt_options() -> None:
-    with pytest.raises(SystemExit):
-        oss.main(
-            [
-                "eval",
-                "--checkpoint",
-                "checkpoint",
-                "--trt-engine-dir",
-                "engines",
-                "--enable-trt",
-            ]
-        )
-
-    with pytest.raises(SystemExit):
-        oss.main(["eval", "--checkpoint", "checkpoint", "--rebuild-trt"])
-
-    with pytest.raises(SystemExit):
-        oss.main(
-            [
-                "eval",
-                "--checkpoint",
-                "checkpoint",
-                "--enable-trt",
-                "--denoising-steps",
-                "3",
-            ]
-        )
-
-
 def test_oss_policy_server_dry_run_reports_effective_config(capsys, tmp_path: Path) -> None:
     engine_dir = tmp_path / "engines"
     status = oss.main(
@@ -1005,121 +681,6 @@ def test_oss_policy_server_invokes_core_server_in_process_without_running_gpu_ba
     ]
 
 
-def test_oss_policy_server_enable_trt_builds_bundle_before_serving(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    checkpoint = tmp_path / "checkpoint-100"
-    checkpoint.mkdir()
-    engine_dir = tmp_path / "trt-cache" / "bundle"
-    engine_dir.mkdir(parents=True)
-    calls: list[tuple[Path, oss.OssPolicyServerConfig]] = []
-    builds: list[dict[str, object]] = []
-
-    class FakeEvaluator:
-        def __init__(self, _config: oss.OssOpenLoopEvalConfig) -> None:
-            pass
-
-        def resolve_model_path(self) -> Path:
-            return checkpoint
-
-    monkeypatch.setattr(oss, "OssOpenLoopEvaluator", FakeEvaluator)
-    _install_fake_torch(monkeypatch, current_device=0)
-    monkeypatch.setattr(
-        oss,
-        "_resolve_or_build_trt",
-        lambda **kwargs: builds.append(kwargs) or engine_dir,
-    )
-    monkeypatch.setattr(
-        oss,
-        "_run_gr00t_policy_server",
-        lambda model_path, config: calls.append((model_path, config)),
-    )
-
-    status = oss.main(
-        [
-            "policy-server",
-            "--checkpoint",
-            "hf://model/org/repo@revision/checkpoint-100",
-            "--embodiment-tag",
-            "test_embodiment",
-            "--enable-trt",
-            "--trt-cache-dir",
-            str(tmp_path / "trt-cache"),
-        ]
-    )
-
-    assert status == 0
-    assert builds == [
-        {
-            "checkpoint": checkpoint,
-            "embodiment": "test_embodiment",
-            "denoising_steps": 4,
-            "cache_dir": str(tmp_path / "trt-cache"),
-            "rebuild": False,
-            "device": "cuda:0",
-            "codec": "mp4v",
-        }
-    ]
-    assert calls[0][0] == checkpoint
-    assert calls[0][1].checkpoint == str(checkpoint)
-    assert calls[0][1].device == "cuda:0"
-    assert calls[0][1].trt_engine_dir == str(engine_dir)
-
-
-def test_oss_policy_server_bare_cuda_uses_real_resolver_with_current_index(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    from groot.deployment.n2_trt import auto_builder, policy_measurement
-
-    checkpoint = tmp_path / "checkpoint-100"
-    checkpoint.mkdir()
-    engine_dir = tmp_path / "bundle"
-    engine_dir.mkdir()
-    (engine_dir / policy_measurement.POLICY_MEASUREMENT_FILENAME).write_text(
-        '{"equivalence": {}, "exact_equivalence_breaches": []}'
-    )
-    builds: list[dict[str, object]] = []
-    calls: list[oss.OssPolicyServerConfig] = []
-
-    class FakeEvaluator:
-        def __init__(self, _config: oss.OssOpenLoopEvalConfig) -> None:
-            pass
-
-        def resolve_model_path(self) -> Path:
-            return checkpoint
-
-    _install_fake_torch(monkeypatch, current_device=1)
-    monkeypatch.setattr(oss, "OssOpenLoopEvaluator", FakeEvaluator)
-    monkeypatch.setattr(
-        auto_builder,
-        "resolve_or_build_engine_bundle",
-        lambda **kwargs: builds.append(kwargs) or engine_dir,
-    )
-    monkeypatch.setattr(
-        oss,
-        "_run_gr00t_policy_server",
-        lambda _model_path, config: calls.append(config),
-    )
-
-    status = oss.main(
-        [
-            "policy-server",
-            "--checkpoint",
-            str(checkpoint),
-            "--embodiment-tag",
-            "test_embodiment",
-            "--enable-trt",
-        ]
-    )
-
-    assert status == 0
-    assert builds[0]["device"] == "cuda:1"
-    assert calls[0].device == "cuda:1"
-    assert calls[0].trt_engine_dir == str(engine_dir)
-
-
 def test_oss_policy_server_builds_server_config_at_runtime(monkeypatch, tmp_path: Path) -> None:
     from groot.core import policy as policy_package
 
@@ -1155,65 +716,30 @@ def test_oss_policy_server_builds_server_config_at_runtime(monkeypatch, tmp_path
     assert server_config.use_cuda_graph is True
 
 
-def test_oss_train_eval_always_evaluates_new_final_checkpoint_with_hf_vae(
+def test_oss_train_eval_passes_trained_checkpoint_to_eval_without_gpu_backend(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    import huggingface_hub
-
-    from groot.deployment.n2_trt import resolve_checkpoint_vae_weights
-
     _set_training_env(monkeypatch)
     output_dir = tmp_path / "train-output"
-    engine_dir = tmp_path / "engines"
-    remote_vae = "hf://model/organization/vae@revision/vae.pth"
     eval_configs: list[oss.OssOpenLoopEvalConfig] = []
-    builds: list[dict[str, object]] = []
-    resolved_vae: list[Path] = []
 
     def fake_run(
         command: list[str], *, env: dict[str, str], check: bool
     ) -> subprocess.CompletedProcess[str]:
         assert env["NUM_GPUS"] == "8"
         assert check is True
-        checkpoint = output_dir / "checkpoint-2"
-        checkpoint.mkdir(parents=True)
-        (checkpoint / "config.json").write_text(
-            json.dumps({"vae_cfg": {"vae_pretrained_path": remote_vae}}),
-            encoding="utf-8",
-        )
         return subprocess.CompletedProcess(command, 0)
-
-    def snapshot_download(**kwargs: object) -> str:
-        assert kwargs["repo_id"] == "organization/vae"
-        assert kwargs["revision"] == "revision"
-        snapshot = tmp_path / "hf-cache" / "snapshot"
-        snapshot.mkdir(parents=True)
-        (snapshot / "vae.pth").write_bytes(b"fixture-vae")
-        return str(snapshot)
-
-    def resolve_bundle(**kwargs: object) -> Path:
-        builds.append(kwargs)
-        resolved_vae.append(resolve_checkpoint_vae_weights(kwargs["checkpoint"]))
-        return engine_dir
 
     class FakeEvaluator:
         def __init__(self, config: oss.OssOpenLoopEvalConfig) -> None:
-            self.config = config
-
-        def resolve_model_path(self) -> Path:
-            assert self.config.checkpoint is not None
-            return Path(self.config.checkpoint)
+            eval_configs.append(config)
 
         def run(self) -> None:
-            eval_configs.append(self.config)
+            return None
 
     monkeypatch.setattr(oss.subprocess, "run", fake_run)
-    _install_fake_torch(monkeypatch, current_device=0)
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
-    monkeypatch.setenv("GROOT_HF_ARTIFACT_CACHE_ROOT", str(tmp_path / "hf-cache"))
     monkeypatch.setattr(oss, "OssOpenLoopEvaluator", FakeEvaluator)
-    monkeypatch.setattr(oss, "_resolve_or_build_trt", resolve_bundle)
 
     status = oss.main(
         [
@@ -1230,39 +756,18 @@ def test_oss_train_eval_always_evaluates_new_final_checkpoint_with_hf_vae(
             "4",
             "--output-dir",
             str(output_dir),
-            "--checkpoint",
-            str(tmp_path / "old-checkpoint"),
             "--dataset-path",
             str(tmp_path / "dataset"),
             "--traj-ids",
             "0",
             "--steps",
             "2",
-            "--enable-trt",
-            "--trt-cache-dir",
-            str(tmp_path / "trt-cache"),
-            "--use-cuda-graph",
         ]
     )
 
     assert status == 0
-    assert builds == [
-        {
-            "checkpoint": output_dir / "checkpoint-2",
-            "embodiment": "so100_2rgb",
-            "denoising_steps": 4,
-            "cache_dir": str(tmp_path / "trt-cache"),
-            "rebuild": False,
-            "device": "cuda:0",
-            "codec": "mp4v",
-        }
-    ]
-    assert resolved_vae == [(tmp_path / "hf-cache" / "snapshot" / "vae.pth").resolve()]
     assert len(eval_configs) == 1
     assert eval_configs[0].checkpoint == str(output_dir / "checkpoint-2")
-    assert eval_configs[0].device == "cuda:0"
-    assert eval_configs[0].trt_engine_dir == str(engine_dir)
-    assert eval_configs[0].use_cuda_graph is True
     assert not (output_dir / "benchmark-report.json").exists()
 
 
@@ -1359,10 +864,6 @@ def test_oss_gpu_ci_job_runs_gpu_marked_package_tests() -> None:
     assert "groot imported outside OSS export" in ci_config
     assert '"$OSS_PACKAGE_ROOT/tests/groot"' in gpu_job
     assert "-m gpu" in gpu_job
-    assert "--durations=0" in gpu_job
-    assert "--tb=short" in gpu_job
-    assert "-vv" in gpu_job
-    assert "-ra" in gpu_job
     assert "tensorrt-cu13==10.16.1.11" in gpu_job
     assert '-m "not gpu"' in ci_config
 

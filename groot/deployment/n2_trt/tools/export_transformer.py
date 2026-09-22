@@ -26,7 +26,7 @@ from groot.core.training.models.n2.utils.cosmos_model_deps import ensure_cosmos_
 from groot.deployment.n2_trt.contract import N2TensorRTContract, TransformerPrecision
 
 DEFAULT_EMBODIMENT = "xdof_relative_eef_relative_joint"
-DEFAULT_CODEC_ROUNDTRIP = "mp4v"
+DEFAULT_CODEC_ROUNDTRIP = "h264"
 
 
 def _prepare_checkpoint(checkpoint: str) -> Path:

@@ -313,7 +313,6 @@ def install_n2_tensorrt(
     *,
     contract: N2TensorRTContract,
     runtime_identity: RuntimeIdentity | None = None,
-    expected_codec: str | None = None,
 ) -> N2TensorRTRuntime:
     """Replace only one normal model instance's fixed inference collaborators."""
     if getattr(model, "n2_trt_runtime", None) is not None:
@@ -341,7 +340,6 @@ def install_n2_tensorrt(
             engine_dir,
             contract=contract,
             runtime_identity=runtime_identity,
-            expected_codec=expected_codec,
         )
 
     from groot.deployment.n2_trt.prompt_encoder import CachedPromptEncoder

@@ -25,7 +25,6 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from dataclasses import dataclass
-from dataclasses import replace as dataclass_replace
 import getpass
 import json
 import os
@@ -87,9 +86,6 @@ class OssPolicyServerConfig:
     device: str
     denoising_steps: int
     trt_engine_dir: str | None = None
-    enable_trt: bool = False
-    trt_cache_dir: str | None = None
-    rebuild_trt: bool = False
     use_cuda_graph: bool = False
 
 
@@ -132,7 +128,9 @@ def _run_train_eval(args: argparse.Namespace, *, benchmark: BenchmarkRun | None 
         benchmark.record_training(resolved)
         benchmark.stage = "evaluation"
         return benchmark.evaluate(resolved.final_checkpoint)
-    return _run_eval(_eval_config(args, checkpoint=str(resolved.final_checkpoint)), dry_run=False)
+    checkpoint = args.checkpoint or str(resolved.final_checkpoint)
+    OssOpenLoopEvaluator(_eval_config(args, checkpoint=checkpoint)).run()
+    return 0
 
 
 def _prepare_train_dataset(args: argparse.Namespace, *, dry_run: bool) -> None:
@@ -209,65 +207,15 @@ def _run_eval(config: OssOpenLoopEvalConfig, *, dry_run: bool) -> int:
         _emit(f"output_json={config.output_json}")
         _emit(f"traj_ids={','.join(str(item) for item in config.traj_ids)}")
         _emit(f"trt_engine_dir={config.trt_engine_dir or ''}")
-        _emit(f"enable_trt={config.enable_trt}")
-        _emit(f"trt_cache_dir={config.trt_cache_dir or ''}")
-        _emit(f"rebuild_trt={config.rebuild_trt}")
         _emit(f"use_cuda_graph={config.use_cuda_graph}")
         return 0
-    _prepare_eval_trt(config)
     OssOpenLoopEvaluator(config).run()
     return 0
 
 
-def _prepare_eval_trt(config: OssOpenLoopEvalConfig) -> None:
-    if not config.enable_trt:
-        return
-    from groot.core.policy.n2_codec import resolve_n2_codec_roundtrip
-    from groot.deployment.n2_trt.resolver import resolve_n2_trt_device
-
-    config.device = resolve_n2_trt_device(config.device)
-    model_path = OssOpenLoopEvaluator(config).resolve_model_path()
-    config.checkpoint = str(model_path)
-    config.trt_engine_dir = str(
-        _resolve_or_build_trt(
-            checkpoint=model_path,
-            embodiment=config.embodiment_tag,
-            denoising_steps=config.denoising_steps,
-            cache_dir=config.trt_cache_dir,
-            rebuild=config.rebuild_trt,
-            device=config.device,
-            codec=resolve_n2_codec_roundtrip(),
-        )
-    )
-
-
-def _resolve_or_build_trt(
-    *,
-    checkpoint: str | Path,
-    embodiment: str,
-    denoising_steps: int | None,
-    cache_dir: str | Path | None,
-    rebuild: bool,
-    device: str | None,
-    codec: str,
-) -> Path:
-    from groot.deployment.n2_trt.resolver import resolve_n2_trt_bundle
-
-    return resolve_n2_trt_bundle(
-        checkpoint=checkpoint,
-        embodiment=embodiment,
-        denoising_steps=denoising_steps,
-        cache_root=cache_dir,
-        rebuild=rebuild,
-        device=device,
-        codec=codec,
-    )
-
-
 def _run_closed_loop_eval(args: argparse.Namespace) -> int:
-    from groot.infra.closed_loop.cli import config_from_args, prepare_trt_args, run
+    from groot.infra.closed_loop.cli import config_from_args, run
 
-    prepare_trt_args(args)
     return run(config_from_args(args), dry_run=args.dry_run)
 
 
@@ -280,9 +228,6 @@ def _run_policy_server(config: OssPolicyServerConfig, *, dry_run: bool) -> int:
         _emit(f"device={config.device}")
         _emit(f"denoising_steps={config.denoising_steps}")
         _emit(f"trt_engine_dir={config.trt_engine_dir or ''}")
-        _emit(f"enable_trt={config.enable_trt}")
-        _emit(f"trt_cache_dir={config.trt_cache_dir or ''}")
-        _emit(f"rebuild_trt={config.rebuild_trt}")
         _emit(f"use_cuda_graph={config.use_cuda_graph}")
         return 0
 
@@ -291,27 +236,6 @@ def _run_policy_server(config: OssPolicyServerConfig, *, dry_run: bool) -> int:
         cache_root=config.cache_root,
     )
     model_path = OssOpenLoopEvaluator(artifact_config).resolve_model_path()
-    if config.enable_trt:
-        from groot.core.policy.n2_codec import resolve_n2_codec_roundtrip
-        from groot.deployment.n2_trt.resolver import resolve_n2_trt_device
-
-        device = resolve_n2_trt_device(config.device)
-        config = dataclass_replace(
-            config,
-            checkpoint=str(model_path),
-            device=device,
-            trt_engine_dir=str(
-                _resolve_or_build_trt(
-                    checkpoint=model_path,
-                    embodiment=config.embodiment_tag,
-                    denoising_steps=config.denoising_steps,
-                    cache_dir=config.trt_cache_dir,
-                    rebuild=config.rebuild_trt,
-                    device=device,
-                    codec=resolve_n2_codec_roundtrip(),
-                )
-            ),
-        )
     _run_gr00t_policy_server(model_path, config)
     return 0
 
@@ -421,9 +345,6 @@ def _eval_config(
         server_parity_tolerance=args.server_parity_tolerance,
         local_only=args.local_only,
         trt_engine_dir=args.trt_engine_dir or None,
-        enable_trt=args.enable_trt,
-        trt_cache_dir=args.trt_cache_dir or None,
-        rebuild_trt=args.rebuild_trt,
         use_cuda_graph=args.use_cuda_graph,
     )
 
@@ -438,9 +359,6 @@ def _policy_server_config(args: argparse.Namespace) -> OssPolicyServerConfig:
         device=args.device,
         denoising_steps=args.denoising_steps,
         trt_engine_dir=args.trt_engine_dir or None,
-        enable_trt=args.enable_trt,
-        trt_cache_dir=args.trt_cache_dir or None,
-        rebuild_trt=args.rebuild_trt,
         use_cuda_graph=args.use_cuda_graph,
     )
 
@@ -479,7 +397,6 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Approved recipe ID or spec JSON fixing run settings and enabling a benchmark report.",
     )
     args = parser.parse_args(argv)
-    _validate_acceleration_args(args, parser)
     if args.command == "train-eval":
         if args.benchmark_recipe:
             if not args.output_dir:
@@ -566,45 +483,11 @@ def _add_eval_options(
 
 
 def _add_acceleration_options(parser: argparse.ArgumentParser) -> None:
-    selection = parser.add_mutually_exclusive_group()
-    selection.add_argument("--trt-engine-dir", default="")
-    selection.add_argument(
-        "--enable-trt",
-        action="store_true",
-        help="Reuse or build and validate a target-local TensorRT engine bundle.",
-    )
-    parser.add_argument(
-        "--trt-cache-dir",
-        default="",
-        help="Cache root for bundles created by --enable-trt.",
-    )
-    parser.add_argument(
-        "--rebuild-trt",
-        action="store_true",
-        help="Rebuild the matching cached bundle used by --enable-trt.",
-    )
+    parser.add_argument("--trt-engine-dir", default="")
     parser.add_argument(
         "--use-cuda-graph",
         action="store_true",
     )
-
-
-def _validate_acceleration_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    if getattr(args, "rebuild_trt", False) and not getattr(args, "enable_trt", False):
-        parser.error("--rebuild-trt requires --enable-trt")
-    if getattr(args, "trt_cache_dir", "") and not getattr(args, "enable_trt", False):
-        parser.error("--trt-cache-dir requires --enable-trt")
-    if not getattr(args, "enable_trt", False):
-        return
-    from groot.deployment.n2_trt.resolver import SUPPORTED_DENOISING_STEPS
-
-    if getattr(args, "denoising_steps", SUPPORTED_DENOISING_STEPS) not in (
-        None,
-        SUPPORTED_DENOISING_STEPS,
-    ):
-        parser.error(
-            f"--enable-trt currently requires --denoising-steps {SUPPORTED_DENOISING_STEPS}"
-        )
 
 
 def _job_name(experiment: str, compute_type: str) -> str:

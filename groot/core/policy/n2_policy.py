@@ -37,7 +37,6 @@ from groot.core.policy.benchmark_contract import resolve_policy_acceleration_sta
 from groot.core.policy.env_utils import env_bool as _env_bool
 from groot.core.policy.gr00t_policy import Gr00tPolicy, _rec_to_dtype
 from groot.core.policy.n2_acceleration import N2AccelerationOptions
-from groot.core.policy.n2_codec import resolve_n2_codec_roundtrip
 
 N2_VIEW_NAMES = ("top", "left", "right", "bottom")
 
@@ -45,6 +44,7 @@ N2_VIEW_NAMES = ("top", "left", "right", "bottom")
 # Gr00tN2Policy._codec_roundtrip_views). "h264" matches purchased/h264-converted
 # datasets, "mp4v" matches in-house cv2.VideoWriter('mp4v') datasets, "none"
 # disables the roundtrip (feed raw frames).
+_CODEC_ROUNDTRIPS = ("h264", "none", "mp4v")
 _MAX_CODEC_WORKERS = 4
 
 
@@ -140,6 +140,13 @@ def _env_int(name: str, *, default: int) -> int:
     return int(raw)
 
 
+def _resolve_constructor_env_int(name: str, *, constructor_value: int | None, default: int) -> int:
+    """Resolve an integer as constructor argument, environment, then default."""
+    if constructor_value is not None:
+        return int(constructor_value)
+    return _env_int(name, default=default)
+
+
 def _env_float(name: str, *, default: float) -> float:
     raw = os.environ.get(name)
     if raw is None:
@@ -147,7 +154,36 @@ def _env_float(name: str, *, default: float) -> float:
     return float(raw)
 
 
-_resolve_codec_roundtrip = resolve_n2_codec_roundtrip
+def _resolve_codec_roundtrip(codec_roundtrip: str = "mp4v") -> str:
+    """Resolve the observation-video codec, letting the env override the ctor arg.
+
+    Shared with ``open_loop/live_policy.py``: that path builds the policy through
+    ``__new__`` and never runs ``__init__``, so a second hand-written copy of this
+    logic would silently drift from this one.
+
+    ``GROOT_N2_CODEC_ROUNDTRIP`` is the only roundtrip variable this policy reads.
+    Any other ``GROOT_N2_*_ROUNDTRIP`` export — a retired spelling, a typo — is
+    rejected rather than ignored: silently falling back to the default would hand
+    the policy a different codec than the caller asked for, and a codec mismatch
+    surfaces as degraded success rates rather than as an error.
+    """
+    stale = sorted(
+        name
+        for name in os.environ
+        if name.startswith("GROOT_N2_")
+        and name.endswith("_ROUNDTRIP")
+        and name != "GROOT_N2_CODEC_ROUNDTRIP"
+    )
+    if stale:
+        raise ValueError(
+            f"unrecognized roundtrip env var(s) {stale}; this policy reads only "
+            f"GROOT_N2_CODEC_ROUNDTRIP (one of {_CODEC_ROUNDTRIPS}). A retired "
+            "boolean spelling maps 0 -> 'none' and 1 -> 'h264'."
+        )
+    codec = os.environ.get("GROOT_N2_CODEC_ROUNDTRIP", codec_roundtrip).lower()
+    if codec not in _CODEC_ROUNDTRIPS:
+        raise ValueError(f"codec_roundtrip must be one of {_CODEC_ROUNDTRIPS}, got {codec!r}")
+    return codec
 
 
 def apply_torch_compile(model, mode: str = "reduce-overhead") -> None:
@@ -231,7 +267,7 @@ class Gr00tN2Policy(Gr00tPolicy):
         embodiment_tag: schema.EmbodimentTag,
         model_path: str,
         *,
-        num_inference_timesteps: int = 4,
+        num_inference_timesteps: int | None = None,
         video_guidance_scale: float = 1.0,
         action_guidance_scale: float = 1.0,
         shift: float = 5.0,
@@ -265,7 +301,11 @@ class Gr00tN2Policy(Gr00tPolicy):
         # essential setup directly.
         super(Gr00tPolicy, self).__init__(strict=strict)
 
-        self.num_inference_steps = num_inference_timesteps
+        self.num_inference_steps = _resolve_constructor_env_int(
+            "GROOT_N2_NUM_ACTION_STEPS",
+            constructor_value=num_inference_timesteps,
+            default=4,
+        )
         self.video_guidance_scale = video_guidance_scale
         self.action_guidance_scale = action_guidance_scale
         self.shift = _env_float("GROOT_N2_SHIFT", default=shift)
@@ -331,7 +371,6 @@ class Gr00tN2Policy(Gr00tPolicy):
                 model,
                 acceleration.trt_engine_dir,
                 contract=contract,
-                expected_codec=self.codec_roundtrip,
             )
         _install_inference_acceleration(
             self,
@@ -359,7 +398,7 @@ class Gr00tN2Policy(Gr00tPolicy):
 
         print(
             f"[Gr00tN2Policy] inference config: "
-            f"num_inference_timesteps={num_inference_timesteps}, "
+            f"num_inference_timesteps={self.num_inference_steps}, "
             f"num_video_steps={self.num_video_steps}, "
             f"shift={self.shift}, "
             f"joint_denoise={self.joint_denoise}, "
@@ -701,22 +740,7 @@ class Gr00tN2Policy(Gr00tPolicy):
             f"total={t_end - t0:.3f}s  "
             f"action_shapes={action_shapes}"
         )
-        # Optional heads travel in info, never in the physical action vector.
-        # Keep the batch dimension and use CPU arrays for the policy RPC codec.
-        info = {}
-        for key in (
-            "completion_cdf",
-            "completion_hazard_probability",
-            "completion_tau",
-            "completion_query_denoising_step",
-            "completion_action_edge",
-        ):
-            if key in result:
-                value = result[key]
-                info[key] = (
-                    value.detach().float().cpu().numpy() if torch.is_tensor(value) else value
-                )
-        return casted_action, info
+        return casted_action, {}
 
     def _decode_latest_video_frames(self) -> dict[str, np.ndarray] | None:
         """Decode latest latent chunk to per-view pixel frames."""

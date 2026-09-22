@@ -45,6 +45,7 @@ from groot.core.policy.n2_policy import (
     _env_float,
     _env_int,
     _resolve_codec_roundtrip,
+    _resolve_constructor_env_int,
 )
 
 # ^ _env_bool / _env_int / _env_float / _resolve_codec_roundtrip are module-private
@@ -330,9 +331,11 @@ def _make_n2_concrete(
     policy.language_key = policy.modality_configs["language"].modality_keys[0]
 
     # KEEP IN SYNC WITH Gr00tN2Policy.__init__:
-    #   constructor-default constants (not env-driven)
-    policy.num_inference_steps = (
-        int(num_inference_timesteps) if num_inference_timesteps is not None else 4
+    #   constructor > environment > default action-step precedence
+    policy.num_inference_steps = _resolve_constructor_env_int(
+        "GROOT_N2_NUM_ACTION_STEPS",
+        constructor_value=num_inference_timesteps,
+        default=4,
     )
     policy.video_guidance_scale = 1.0
     policy.action_guidance_scale = 1.0

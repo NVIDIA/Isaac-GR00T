@@ -89,82 +89,22 @@ python -P -m groot.deployment.n2_trt.validation \
 Validation writes `n2_trt_manifest.json`. Serving authenticates that manifest, the checkpoint,
 all three engine files, their fixed I/O schemas, TensorRT version, and target GPU.
 
-## Build or reuse engines automatically
+## Serve a policy
 
-For the standard OSS workflow, pass `--enable-trt`. The first invocation
-exports, builds, and validates a target-local bundle; later invocations reuse
-the content-addressed bundle after authenticating it against the checkpoint and
-runtime:
+CUDA graph replay is disabled by default. Start the server:
 
 ```bash
-python -P -m groot.infra.oss eval \
-  --checkpoint "$CHECKPOINT" \
-  --dataset-path /path/to/lerobot-dataset \
-  --embodiment-tag "$PROCESSOR_EMBODIMENT" \
-  --enable-trt
-```
-
-The default cache is `~/.cache/groot/tensorrt`. Override it with
-`--trt-cache-dir` or `GROOT_TRT_CACHE_ROOT`; use `--rebuild-trt` with
-`--enable-trt` to replace the matching cache entry. Automatic builds use the
-checkout revision when Git metadata is available, or the installed wheel's
-immutable `RECORD` contents. Unsupported checkpoint contracts and failed
-validation stop the command without eager fallback. Automatic bundles
-currently require `--denoising-steps 4`.
-
-`train-eval --enable-trt` builds only after training has produced its final
-checkpoint. `closed-loop-eval --enable-trt` resolves or builds a compatible
-bundle on each Ray worker, so each worker uses its local GPU and cache. A
-forced rebuild runs once for each distinct runtime/cache identity and is reused
-by workers sharing that identity.
-
-## Use an explicitly managed engine bundle
-
-The OSS open-loop evaluator, closed-loop evaluator, and policy server all use
-`--trt-engine-dir` when a bundle is built and retained outside the automatic
-cache. The checkpoint must match the checkpoint used to export and validate the
-bundle.
-
-Run open-loop evaluation:
-
-```bash
-python -P -m groot.infra.oss eval \
-  --checkpoint "$CHECKPOINT" \
-  --dataset-path /path/to/lerobot-dataset \
-  --embodiment-tag "$PROCESSOR_EMBODIMENT" \
-  --trt-engine-dir "$TRT_ARTIFACT_DIR"
-```
-
-Run closed-loop evaluation with any installed OSS simulator backend:
-
-```bash
-python -P -m groot.infra.oss closed-loop-eval \
-  --checkpoint "$CHECKPOINT" \
-  --trt-engine-dir "$TRT_ARTIFACT_DIR" \
-  --backend <python-module:BackendClass> \
-  --suite <suite-name> \
-  --embodiment-tag "$PROCESSOR_EMBODIMENT"
-```
-
-Start the policy server:
-
-```bash
-python -P -m groot.infra.oss policy-server \
-  --checkpoint "$CHECKPOINT" \
+python -P -m groot.core.policy.run_gr00t_server \
+  --model-path "$CHECKPOINT" \
   --embodiment-tag "$SERVER_EMBODIMENT" \
   --trt-engine-dir "$TRT_ARTIFACT_DIR" \
   --host 0.0.0.0 \
   --port 5555
 ```
 
-To enable graph replay, add `--use-cuda-graph` to any of these commands. On the
-policy server it fixes the prompt for the life of the process, disables video
-prediction, and requires one real-shaped client warmup with
-`PolicyClient.warmup_and_require_ready(observation)`. Benchmark both modes on
-the target hardware.
-
-TensorRT is an inference runtime and does not replace the trainable PyTorch
-model used by `groot.infra.oss train`.
+To enable graph replay, add `--use-cuda-graph` to the command. It fixes the prompt for the life of
+the server process, disables video prediction, and requires one real-shaped client warmup with
+`PolicyClient.warmup_and_require_ready(observation)`. Benchmark both modes on the target hardware.
 
 ---
 

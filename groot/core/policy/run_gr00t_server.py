@@ -53,7 +53,7 @@ from groot.core.policy.n2_policy_factory import (
 from groot.core.policy.server_client import PolicyServer
 
 DEFAULT_MODEL_SERVER_PORT = 5555
-N2_MODEL_TYPES = {"GrootN2", "GrootN2RL", "GrootN2TTT", "GrootN2SubtaskTermination"}
+N2_MODEL_TYPES = {"GrootN2", "GrootN2RL", "GrootN2TTT"}
 # "gr00t" covers the migrated N1 series (GrootN1d6 / GrootN1d7) and any other
 # non-N2 core model — they load through the generic Gr00tPolicy branch below.
 # "groot_n2" is GrootN2 and may install an admitted N2 TensorRT bundle through
@@ -105,8 +105,8 @@ class ServerConfig:
     """Whether to enforce strict input and output validation"""
 
     num_inference_timesteps: int | None = None
-    """Number of inference (denoising) timesteps; None uses the policy default
-    (Gr00tPolicy: checkpoint default; Gr00tN2Policy: 4)."""
+    """Number of inference (denoising) timesteps; for Gr00tN2Policy, None uses
+    GROOT_N2_NUM_ACTION_STEPS and then the default of 4."""
 
     # Flow-matching timestep shift (groot_n2 only) is read by Gr00tN2Policy from
     # the GROOT_N2_SHIFT env var, not a CLI flag — keeps the launch uniform for N1
@@ -310,7 +310,7 @@ def main(config: ServerConfig) -> None:
             model_path=config.model_path,
             device=config.device,
             strict=config.strict,
-            num_inference_timesteps=config.num_inference_timesteps or 4,
+            num_inference_timesteps=config.num_inference_timesteps,
             use_torch_compile=config.use_torch_compile,
             torch_compile_mode=config.torch_compile_mode,
             trt_engine_dir=config.trt_engine_dir,

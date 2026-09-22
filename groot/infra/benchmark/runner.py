@@ -133,14 +133,8 @@ class BenchmarkRun:
                     embodiment_tag=self.args.embodiment_tag,
                     output_json=self.args.output_json,
                     traj_ids=settings["trajectory_ids"],
-                    trt_engine_dir=self.args.trt_engine_dir or None,
-                    enable_trt=self.args.enable_trt,
-                    trt_cache_dir=self.args.trt_cache_dir or None,
-                    rebuild_trt=self.args.rebuild_trt,
-                    use_cuda_graph=self.args.use_cuda_graph,
                     **{key: value for key, value in settings.items() if key != "trajectory_ids"},
                 )
-                _prepare_open_loop_trt(config)
                 result = OssOpenLoopEvaluator(config).run()
                 if Path(result.artifacts.model_path).resolve() != Path(checkpoint).resolve():
                     raise ValueError("Open-loop evaluator used a different checkpoint")
@@ -207,11 +201,6 @@ def _closed_loop_config(
                 "embodiment_tag": args.embodiment_tag,
                 "action_steps": settings["action_steps"],
                 "denoising_steps": settings["denoising_steps"],
-                "trt_engine_dir": args.trt_engine_dir or None,
-                "enable_trt": args.enable_trt,
-                "trt_cache_dir": args.trt_cache_dir or None,
-                "rebuild_trt": args.rebuild_trt,
-                "use_cuda_graph": args.use_cuda_graph,
             },
         ),
         output_dir=Path(args.output_dir) / "closed-loop",
@@ -220,28 +209,6 @@ def _closed_loop_config(
             for key, value in settings.items()
             if key not in {"action_steps", "denoising_steps"}
         },
-    )
-
-
-def _prepare_open_loop_trt(config: OssOpenLoopEvalConfig) -> None:
-    if not config.enable_trt:
-        return
-    from groot.core.policy.n2_codec import resolve_n2_codec_roundtrip
-    from groot.deployment.n2_trt.resolver import resolve_n2_trt_bundle, resolve_n2_trt_device
-
-    config.device = resolve_n2_trt_device(config.device)
-    model_path = OssOpenLoopEvaluator(config).resolve_model_path()
-    config.checkpoint = str(model_path)
-    config.trt_engine_dir = str(
-        resolve_n2_trt_bundle(
-            checkpoint=model_path,
-            embodiment=config.embodiment_tag,
-            denoising_steps=config.denoising_steps,
-            cache_root=config.trt_cache_dir,
-            rebuild=config.rebuild_trt,
-            device=config.device,
-            codec=resolve_n2_codec_roundtrip(),
-        )
     )
 
 
@@ -275,7 +242,6 @@ def run_benchmark(
         spec = load_benchmark_spec(args.benchmark_recipe)
         benchmark.spec = spec
         _apply_recipe(spec, args=args, output_dir=output_dir)
-        _validate_trt_recipe(spec, args=args)
         _populate_spec_report(report, spec=spec, args=args)
         if not args.dry_run:
             benchmark.stage = "dataset"
@@ -388,17 +354,7 @@ def _apply_recipe(
     provided = {
         token.split("=", maxsplit=1)[0] for token in args.invocation if token.startswith("--")
     }
-    unsupported = provided - {
-        "--benchmark-recipe",
-        "--output-dir",
-        "--output-json",
-        "--dry-run",
-        "--trt-engine-dir",
-        "--enable-trt",
-        "--trt-cache-dir",
-        "--rebuild-trt",
-        "--use-cuda-graph",
-    }
+    unsupported = provided - {"--benchmark-recipe", "--output-dir", "--output-json", "--dry-run"}
     if unsupported:
         raise ValueError(
             f"Recipe owns experiment settings; remove: {', '.join(sorted(unsupported))}"
@@ -428,25 +384,6 @@ def _apply_recipe(
         raise ValueError("--output-json must not overwrite benchmark metadata")
     if "--output-json" in provided and "open_loop" not in spec.evaluation:
         raise ValueError("--output-json requires open_loop evaluation")
-
-
-def _validate_trt_recipe(spec: BenchmarkSpec, *, args: argparse.Namespace) -> None:
-    """Reject incompatible recipe-owned settings before dataset or training work."""
-    if not args.enable_trt:
-        return
-    from groot.deployment.n2_trt.resolver import SUPPORTED_DENOISING_STEPS
-
-    incompatible = {
-        mode: settings["denoising_steps"]
-        for mode, settings in spec.evaluation.items()
-        if settings["denoising_steps"] != SUPPORTED_DENOISING_STEPS
-    }
-    if incompatible:
-        configured = ", ".join(f"{mode}={steps}" for mode, steps in sorted(incompatible.items()))
-        raise ValueError(
-            "--enable-trt currently requires benchmark recipe denoising_steps="
-            f"{SUPPORTED_DENOISING_STEPS}; got {configured}"
-        )
 
 
 def _dry_run_plan(

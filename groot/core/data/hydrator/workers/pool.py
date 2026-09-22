@@ -64,7 +64,6 @@ class WorkerPool:
         retry_attempts: int = 3,
         retry_delay: float = 1.0,
         runtime_env: dict | None = None,
-        worker_node_affinity: bool = False,
         download_index_db_dir: str | None = None,
     ) -> None:
         self.backend_type = backend_type
@@ -75,7 +74,6 @@ class WorkerPool:
         self.retry_attempts = retry_attempts
         self.retry_delay = retry_delay
         self._runtime_env = runtime_env
-        self._worker_node_affinity = worker_node_affinity
         self._download_index_db_dir = download_index_db_dir
 
         self.on_download_complete: Callable[[str, str], None] | None = None
@@ -128,14 +126,6 @@ class WorkerPool:
         # actors inherit it automatically.  Only pass runtime_env when the caller
         # explicitly provides one via HydratorConfig.runtime_env.
         runtime_env = self._runtime_env
-        scheduling_strategy = None
-        if self._worker_node_affinity:
-            from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
-
-            node_id = ray.get_runtime_context().get_node_id()
-            if not node_id:
-                raise RuntimeError("Hydrator could not identify its cache-owning Ray node")
-            scheduling_strategy = NodeAffinitySchedulingStrategy(node_id=node_id, soft=False)
 
         self._worker_group = xenna.WorkerGroup(
             worker.StorageIOWorker,
@@ -150,7 +140,6 @@ class WorkerPool:
                 "download_index_db_dir": self._download_index_db_dir,
             },
             runtime_env=runtime_env,
-            scheduling_strategy=scheduling_strategy,
         )
         worker_log.info("WorkerPool: calling WorkerGroup.start() (blocks until actors ready) ...")
         worker_log.info(

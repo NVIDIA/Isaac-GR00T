@@ -36,13 +36,9 @@ from groot.deployment.n2_trt.manifest import (
     checkpoint_file_hashes,
     sha256_file,
 )
-from groot.deployment.n2_trt.policy_measurement import (
-    POLICY_MEASUREMENT_FILENAME,
-    validate_policy_measurement,
-)
 
 DEFAULT_BUILDER_OPTIMIZATION_LEVEL = 3
-DEFAULT_CODEC = "mp4v"
+DEFAULT_CODEC = "h264"
 
 
 def default_trt_cache_root() -> Path:
@@ -62,12 +58,8 @@ def resolve_or_build_engine_bundle(
     cache_root: str | Path | None = None,
     rebuild: bool = False,
     device: str | None = None,
-    rebuild_token: str | None = None,
-    codec: str = DEFAULT_CODEC,
 ) -> Path:
     """Return a validated cached bundle, building it once when necessary."""
-    if codec not in {"h264", "mp4v", "none"}:
-        raise ValueError(f"unsupported N2 TensorRT serving codec: {codec!r}")
     cuda_device_index = _select_cuda_device(device)
     checkpoint_path = Path(checkpoint).expanduser().resolve(strict=True)
     root = Path(cache_root).expanduser() if cache_root is not None else default_trt_cache_root()
@@ -98,25 +90,18 @@ def resolve_or_build_engine_bundle(
             "runtime": asdict(runtime),
             "source_revision": source.revision,
             "builder_optimization_level": DEFAULT_BUILDER_OPTIMIZATION_LEVEL,
-            "codec": codec,
+            "codec": DEFAULT_CODEC,
         }
     )
     bundle = root / identity
     lock_path = root / f".{identity}.lock"
     generations = root / f".{identity}.generations"
-    rebuild_marker = root / f".{identity}.rebuild-token"
 
     with _exclusive_lock(lock_path):
-        rebuild_required = rebuild and not _rebuild_token_matches(rebuild_marker, rebuild_token)
         bundle_present = bundle.exists() or bundle.is_symlink()
-        if bundle_present and not rebuild_required:
+        if bundle_present and not rebuild:
             try:
-                _validate_cached_bundle(
-                    bundle,
-                    contract=contract,
-                    runtime=runtime,
-                    codec=codec,
-                )
+                _validate_cached_bundle(bundle, contract=contract, runtime=runtime)
             except (OSError, RuntimeError, TypeError, ValueError):
                 pass
             else:
@@ -133,14 +118,8 @@ def resolve_or_build_engine_bundle(
                 artifact_root=temporary,
                 source_revision=source.revision,
                 cuda_device_index=cuda_device_index,
-                codec=codec,
             )
-            _validate_cached_bundle(
-                temporary,
-                contract=contract,
-                runtime=runtime,
-                codec=codec,
-            )
+            _validate_cached_bundle(temporary, contract=contract, runtime=runtime)
             retired = _promote_generation(
                 bundle=bundle,
                 candidate=temporary,
@@ -148,8 +127,6 @@ def resolve_or_build_engine_bundle(
             )
             temporary = None
             _remove_retired_generation(retired, generations=generations)
-            if rebuild and rebuild_token is not None:
-                _write_rebuild_token(rebuild_marker, rebuild_token)
         except BaseException:
             if temporary is not None:
                 shutil.rmtree(temporary, ignore_errors=True)
@@ -157,27 +134,6 @@ def resolve_or_build_engine_bundle(
 
     _emit(f"Created validated TensorRT bundle: {bundle}")
     return bundle
-
-
-def _rebuild_token_matches(marker: Path, token: str | None) -> bool:
-    if token is None:
-        return False
-    try:
-        return marker.read_text(encoding="utf-8") == token
-    except FileNotFoundError:
-        return False
-
-
-def _write_rebuild_token(marker: Path, token: str) -> None:
-    """Publish a successful rebuild token atomically under the identity lock."""
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{marker.name}.", dir=marker.parent)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as temporary:
-            temporary.write(token)
-        os.replace(temporary_name, marker)
-    except BaseException:
-        Path(temporary_name).unlink(missing_ok=True)
-        raise
 
 
 def _select_cuda_device(device: str | None) -> int:
@@ -189,10 +145,8 @@ def _select_cuda_device(device: str | None) -> int:
     target = torch.device(device)
     if target.type != "cuda":
         raise ValueError(f"automatic TensorRT builds require a CUDA device, got {device!r}")
-    if target.index is None:
-        return torch.cuda.current_device()
     torch.cuda.set_device(target)
-    return target.index
+    return target.index if target.index is not None else torch.cuda.current_device()
 
 
 def _promote_generation(*, bundle: Path, candidate: Path, generations: Path) -> Path | None:
@@ -265,21 +219,9 @@ def _validate_cached_bundle(
     *,
     contract: N2TensorRTContract,
     runtime: RuntimeIdentity,
-    codec: str,
 ) -> None:
-    manifest_path = bundle / MANIFEST_FILENAME
-    manifest = EngineManifest.read(manifest_path)
+    manifest = EngineManifest.read(bundle / MANIFEST_FILENAME)
     manifest.validate(artifact_root=bundle, contract=contract, runtime=runtime)
-    if manifest.build_settings.codec != codec:
-        raise RuntimeError(
-            "N2 TensorRT bundle codec does not match the requested serving codec: "
-            f"bundle={manifest.build_settings.codec!r}, requested={codec!r}"
-        )
-    validate_policy_measurement(
-        bundle / POLICY_MEASUREMENT_FILENAME,
-        contract=contract,
-        manifest_path=manifest_path,
-    )
 
 
 def _run_build_pipeline(
@@ -289,7 +231,6 @@ def _run_build_pipeline(
     artifact_root: Path,
     source_revision: str,
     cuda_device_index: int,
-    codec: str = DEFAULT_CODEC,
 ) -> None:
     commands: tuple[tuple[Any, ...], ...] = (
         (
@@ -302,7 +243,7 @@ def _run_build_pipeline(
             "--embodiment",
             embodiment,
             "--codec",
-            codec,
+            DEFAULT_CODEC,
             "--output-dir",
             artifact_root,
             "--source-revision",
@@ -347,22 +288,6 @@ def _run_build_pipeline(
             embodiment,
             "--source-revision",
             source_revision,
-        ),
-        (
-            sys.executable,
-            "-P",
-            "-m",
-            "groot.deployment.n2_trt.policy_measurement",
-            "--checkpoint",
-            checkpoint,
-            "--embodiment",
-            embodiment,
-            "--engine-dir",
-            artifact_root,
-            "--codec",
-            codec,
-            "--out",
-            artifact_root / POLICY_MEASUREMENT_FILENAME,
         ),
     )
     environment = os.environ.copy()
