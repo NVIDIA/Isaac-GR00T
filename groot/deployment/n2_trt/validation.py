@@ -430,15 +430,13 @@ def validate_bundle(
     checkpoint: Path,
     embodiment: str,
     source_revision: str | None = None,
-    num_video_steps: int = 2,
-    num_action_steps: int = 4,
 ) -> dict[str, Any]:
     root = artifact_root.expanduser().resolve(strict=True)
     contract = N2TensorRTContract.from_checkpoint(
         checkpoint,
         embodiment=embodiment,
-        video_denoising_steps=num_video_steps,
-        action_denoising_steps=num_action_steps,
+        video_denoising_steps=2,
+        action_denoising_steps=4,
         joint_denoise=True,
         conditional_kv_cache=True,
     )
@@ -570,16 +568,12 @@ def main() -> int:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--embodiment", required=True)
     parser.add_argument("--source-revision")
-    parser.add_argument("--num-video-steps", type=int, default=2)
-    parser.add_argument("--num-action-steps", type=int, default=4)
     args = parser.parse_args()
     payload = validate_bundle(
         artifact_root=args.artifact_root,
         checkpoint=args.checkpoint,
         embodiment=args.embodiment,
         source_revision=args.source_revision,
-        num_video_steps=args.num_video_steps,
-        num_action_steps=args.num_action_steps,
     )
     print(json.dumps({"passed": payload["passed"]}, sort_keys=True))  # noqa: T201
     return 0

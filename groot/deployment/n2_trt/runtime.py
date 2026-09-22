@@ -774,7 +774,7 @@ class N2TensorRTRuntime:
         )
         if skip_reason is not None:
             raise RuntimeError(f"fixed-shape N2 TensorRT {mode} call rejected: {skip_reason}")
-        if mode == "joint" and kv_cache is None and self.num_action_steps > self.num_video_steps:
+        if mode == "joint" and kv_cache is None:
             raise RuntimeError("joint TensorRT call requires a KV-cache destination")
         return runner(packed=packed, prompt_embs=prompt_embs, kv_cache=kv_cache)
 

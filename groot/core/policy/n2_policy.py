@@ -140,13 +140,6 @@ def _env_int(name: str, *, default: int) -> int:
     return int(raw)
 
 
-def _resolve_constructor_env_int(name: str, *, constructor_value: int | None, default: int) -> int:
-    """Resolve an integer as constructor argument, environment, then default."""
-    if constructor_value is not None:
-        return int(constructor_value)
-    return _env_int(name, default=default)
-
-
 def _env_float(name: str, *, default: float) -> float:
     raw = os.environ.get(name)
     if raw is None:
@@ -238,7 +231,7 @@ class Gr00tN2Policy(Gr00tPolicy):
         embodiment_tag: schema.EmbodimentTag,
         model_path: str,
         *,
-        num_inference_timesteps: int | None = None,
+        num_inference_timesteps: int = 4,
         video_guidance_scale: float = 1.0,
         action_guidance_scale: float = 1.0,
         shift: float = 5.0,
@@ -272,11 +265,7 @@ class Gr00tN2Policy(Gr00tPolicy):
         # essential setup directly.
         super(Gr00tPolicy, self).__init__(strict=strict)
 
-        self.num_inference_steps = _resolve_constructor_env_int(
-            "GROOT_N2_NUM_ACTION_STEPS",
-            constructor_value=num_inference_timesteps,
-            default=4,
-        )
+        self.num_inference_steps = num_inference_timesteps
         self.video_guidance_scale = video_guidance_scale
         self.action_guidance_scale = action_guidance_scale
         self.shift = _env_float("GROOT_N2_SHIFT", default=shift)
@@ -370,7 +359,7 @@ class Gr00tN2Policy(Gr00tPolicy):
 
         print(
             f"[Gr00tN2Policy] inference config: "
-            f"num_inference_timesteps={self.num_inference_steps}, "
+            f"num_inference_timesteps={num_inference_timesteps}, "
             f"num_video_steps={self.num_video_steps}, "
             f"shift={self.shift}, "
             f"joint_denoise={self.joint_denoise}, "

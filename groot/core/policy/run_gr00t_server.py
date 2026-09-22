@@ -105,8 +105,8 @@ class ServerConfig:
     """Whether to enforce strict input and output validation"""
 
     num_inference_timesteps: int | None = None
-    """Number of inference (denoising) timesteps; for Gr00tN2Policy, None uses
-    GROOT_N2_NUM_ACTION_STEPS and then the default of 4."""
+    """Number of inference (denoising) timesteps; None uses the policy default
+    (Gr00tPolicy: checkpoint default; Gr00tN2Policy: 4)."""
 
     # Flow-matching timestep shift (groot_n2 only) is read by Gr00tN2Policy from
     # the GROOT_N2_SHIFT env var, not a CLI flag — keeps the launch uniform for N1
@@ -310,7 +310,7 @@ def main(config: ServerConfig) -> None:
             model_path=config.model_path,
             device=config.device,
             strict=config.strict,
-            num_inference_timesteps=config.num_inference_timesteps,
+            num_inference_timesteps=config.num_inference_timesteps or 4,
             use_torch_compile=config.use_torch_compile,
             torch_compile_mode=config.torch_compile_mode,
             trt_engine_dir=config.trt_engine_dir,

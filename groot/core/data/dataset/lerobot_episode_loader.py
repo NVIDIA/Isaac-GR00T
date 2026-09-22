@@ -466,9 +466,7 @@ class LeRobotEpisodeLoader:
 
         for image_key in image_keys:
             # Resolve the original key used in video file naming
-            original_key = self.modality_meta["video"][image_key].get(
-                "original_key", f"observation.images.{image_key}"
-            )
+            original_key = self._resolve_video_original_key(image_key)
             assert (
                 original_key in self.feature_config
             ), f"Original key {original_key} not found in feature config"
@@ -501,6 +499,12 @@ class LeRobotEpisodeLoader:
 
         return video_data
 
+    def _resolve_video_original_key(self, image_key: str) -> str:
+        """Use the canonical feature name when modality.json omits a video alias."""
+        canonical_key = f"observation.images.{image_key}"
+        image_meta = self.modality_meta.get("video", {}).get(image_key, {})
+        return image_meta.get("original_key", canonical_key)
+
     def _get_video_paths_for_episodes(self, episode_indices: list[int]) -> list[str]:
         """Return all video file paths (remote or local) needed for the given episodes, deduplicated.
 
@@ -514,9 +518,7 @@ class LeRobotEpisodeLoader:
         for ep_idx in episode_indices:
             chunk_idx = ep_idx // self.chunk_size
             for image_key in image_keys:
-                original_key = self.modality_meta["video"][image_key].get(
-                    "original_key", f"observation.images.{image_key}"
-                )
+                original_key = self._resolve_video_original_key(image_key)
                 if original_key not in self.feature_config:
                     continue
                 video_filename = self.video_path_pattern.format(
