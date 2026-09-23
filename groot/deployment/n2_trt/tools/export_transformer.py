@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass
 import json
 import os
@@ -24,6 +25,7 @@ from groot.core.training.models.n2.components.flash_attention import (
 )
 from groot.core.training.models.n2.utils.cosmos_model_deps import ensure_cosmos_model_deps
 from groot.deployment.n2_trt.contract import N2TensorRTContract, TransformerPrecision
+from groot.deployment.n2_trt.tools.conditioning import export_conditioning
 
 DEFAULT_EMBODIMENT = "xdof_relative_eef_relative_joint"
 DEFAULT_CODEC_ROUNDTRIP = "mp4v"
@@ -669,6 +671,7 @@ def _install_call_probe(
     captured: dict[str, dict[str, Any]] = {}
     sample_paths: dict[str, Path] = {}
     original = model._call_transformer
+    model._conditioning_probe_calls = []
     token_merge_layers = (
         tuple(model.config.token_merge_layers)
         if model.config.token_merge_kernel is not None
@@ -705,6 +708,18 @@ def _install_call_probe(
             mode = "joint_full_capture"
         elif cache is not None and not store_kv:
             mode = "action_cached"
+        if mode is not None:
+            sigmas = packed.timesteps.detach().to(device="cpu", dtype=torch.bfloat16).clone()
+            if not torch.isfinite(sigmas).all():
+                raise ValueError("production probe supplied nonfinite conditioning sigmas")
+            model._conditioning_probe_calls.append(
+                {
+                    "mode": mode,
+                    "denoising_step": denoising_step,
+                    "shape": list(sigmas.shape),
+                    "sigmas": torch.unique(sigmas),
+                }
+            )
         if mode is not None and mode not in captured:
             payload = {
                 "packed": packed,
@@ -836,6 +851,7 @@ def _run_policy_probe(
         strict=True,
         use_cuda_graph=False,
     )
+    original_call_transformer = policy.model._call_transformer
     captured, sample_paths = _install_call_probe(policy.model, sample_dir)
     observation = make_synthetic_observation(
         Path(args.checkpoint),
@@ -844,8 +860,11 @@ def _run_policy_probe(
         video_mode="gradient",
         seed=0,
     )
-    with torch.inference_mode():
-        Gr00tFlatPolicyWrapper(policy, strict=True).get_action(observation)
+    try:
+        with torch.inference_mode():
+            Gr00tFlatPolicyWrapper(policy, strict=True).get_action(observation)
+    finally:
+        policy.model._call_transformer = original_call_transformer
     missing = {"joint_full_capture", "action_cached"} - set(captured)
     if missing:
         raise RuntimeError(
@@ -1184,7 +1203,19 @@ def main() -> int:
     joint_output = None
     action_adapter = None
     action_inputs = None
+    conditioning_stack = ExitStack()
     try:
+        conditioning_metadata = conditioning_stack.enter_context(
+            export_conditioning(
+                model.transformer,
+                torch.cat([call["sigmas"] for call in model._conditioning_probe_calls]),
+            )
+        )
+        conditioning_metadata["observed_call_count"] = len(model._conditioning_probe_calls)
+        conditioning_metadata["probe_calls"] = [
+            {**call, "sigmas": call["sigmas"].float().tolist()}
+            for call in model._conditioning_probe_calls
+        ]
         if wanted_joint:
             joint_payload = captured_samples["joint_full_capture"]
             packed = joint_payload["packed"]
@@ -1372,6 +1403,7 @@ def main() -> int:
             {
                 "output_dir": str(output_dir),
                 "production_sample_oracle": production_sample_oracle,
+                "conditioning": conditioning_metadata,
                 "engine_oracles": {
                     "joint": TRANSFORMER_EXPORT_JOINT_ORACLE,
                     "action_cache": TRANSFORMER_EXPORT_ACTION_ORACLE,
@@ -1404,6 +1436,7 @@ def main() -> int:
         )
         _write_json(output_dir / "n2_transformer_export.json", manifest)
     finally:
+        conditioning_stack.close()
         _restore_flex_patch(original_flex_attention)
 
     print("[n2-transformer-export] done")

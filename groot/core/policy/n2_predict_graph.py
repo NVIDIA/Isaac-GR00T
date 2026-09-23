@@ -333,6 +333,10 @@ class PredictGraphRunner:
 
         model = self.model
         idx_cache: dict = {}
+        # TRT's joint output slabs outlive the immediately following cached
+        # action call. Keep prefix views so its runner can compact each whole
+        # slab once. Other graph backends retain independent per-layer copies.
+        borrow_trt_prefix = getattr(model, "n2_trt_runtime", None) is not None
 
         def graph_safe_slice(cache, modality_ids, token_valid_mask=None, token_merge=None):
             key = (tuple(modality_ids[0].shape), token_merge is not None)
@@ -357,6 +361,14 @@ class PredictGraphRunner:
                 coarse_idx = None
                 if token_merge is not None:
                     fine_idx, coarse_idx = token_merge.keep_indices_per_segment(keep)
+                if borrow_trt_prefix:
+                    for index in (fine_idx, coarse_idx):
+                        if index is not None and not torch.equal(
+                            index, torch.arange(index.numel(), device=index.device)
+                        ):
+                            raise RuntimeError(
+                                "TensorRT KV handoff requires a contiguous static prefix"
+                            )
                 idx_cache[key] = (fine_idx, coarse_idx)
             fine_idx, coarse_idx = idx_cache[key]
             sliced = n2_model.CondKVCache()
@@ -368,8 +380,15 @@ class PredictGraphRunner:
                     if token_merge is not None and token_merge.is_reduced_layer(layer_idx)
                     else fine_idx
                 )
-                sliced.key_cache.append(k_layer.index_select(2, keep_idx).clone())
-                sliced.value_cache.append(v_layer.index_select(2, keep_idx).clone())
+                if borrow_trt_prefix:
+                    # Only metadata operations during capture. The runner
+                    # materializes dense bindings before the next joint call
+                    # can overwrite this engine-owned storage.
+                    sliced.key_cache.append(k_layer[:, :, : keep_idx.numel(), :])
+                    sliced.value_cache.append(v_layer[:, :, : keep_idx.numel(), :])
+                else:
+                    sliced.key_cache.append(k_layer.index_select(2, keep_idx).clone())
+                    sliced.value_cache.append(v_layer.index_select(2, keep_idx).clone())
             return sliced
 
         model._slice_cache_to_static_prefix = graph_safe_slice
