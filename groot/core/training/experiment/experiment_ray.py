@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 import time
 import traceback
 
@@ -107,6 +108,46 @@ def _bind_colossus_training_cuda_device() -> str:
     if not torch.cuda.is_initialized():
         os.environ["CUDA_VISIBLE_DEVICES"] = device
     return device
+
+
+def _normalize_colossus_cuda_visible_device(device: str) -> None:
+    """Expose the already-bound single GPU as ordinal zero to downstream libraries.
+
+    Colossus identifies the GPU assigned to a Ray actor by UUID. PyTorch accepts that form, but
+    DeepSpeed's NVML memory probe parses every ``CUDA_VISIBLE_DEVICES`` entry as an integer. Keep
+    the UUID until PyTorch has initialized the intended device, then express that same sole visible
+    device as ordinal zero for libraries that only understand CUDA ordinals.
+    """
+    if not device or not device.startswith("GPU-"):
+        return
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+    if visible == "0":
+        return
+    if visible != device:
+        raise RuntimeError(
+            "Colossus training GPU binding changed before compatibility normalization: "
+            f"expected {device}, got {visible or '<unset>'}"
+        )
+    if not torch.cuda.is_initialized():
+        raise RuntimeError("Colossus training GPU must be initialized before UUID normalization")
+    if torch.cuda.device_count() != 1:
+        raise RuntimeError(
+            "Colossus training UUID normalization requires exactly one visible GPU, got "
+            f"{torch.cuda.device_count()}"
+        )
+    # The worker container is created with only this CDI device attached. Inside that container,
+    # its physical NVML index and CUDA logical index are therefore both zero. CUDA has already
+    # bound the UUID above; changing the spelling here only accommodates downstream code that
+    # parses CUDA_VISIBLE_DEVICES as integer ordinals.
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+
+def _configured_training_device() -> torch.device:
+    """Reuse the device resolved during worker setup without asking Ray to map it again."""
+    configured = os.environ.get("ACCELERATE_TORCH_DEVICE", "").strip()
+    if configured:
+        return torch.device(configured)
+    return train_loop_utils.get_device()
 
 
 def train_func(cfg, dataset_build_artifacts=None):
@@ -256,8 +297,8 @@ class TorchTrainer:
                     logging.info("Training already finished")
                     break
                 if (
-                    node_local_checkpoint_output(self.training_fn_cfg.training.output_dir)
-                    or getattr(self.training_fn_cfg.training, "resume_from_checkpoint", None)
+                    node_local_checkpoint_output(self.driver_config.training.output_dir)
+                    or getattr(self.driver_config.training, "resume_from_checkpoint", None)
                     is not None
                 ):
                     logging.exception(
@@ -404,9 +445,11 @@ class _TrainingWorker:
             gpu_name = torch.cuda.get_device_name(device)
             if gpu_name != "NVIDIA GB300":
                 raise RuntimeError(f"Colossus training requires NVIDIA GB300, got {gpu_name}")
+            _normalize_colossus_cuda_visible_device(colossus_training_cuda_device)
         os.environ["ACCELERATE_TORCH_DEVICE"] = str(device)
 
     def train(self):
+        exit_code = 1
         try:
             # Clear stale TorchInductor cache to avoid corrupted autotune entries
             import shutil
@@ -416,7 +459,7 @@ class _TrainingWorker:
                 shutil.rmtree(cache_dir, ignore_errors=True)
                 logging.info(f"Cleared TorchInductor cache at {cache_dir}")
 
-            device = train_loop_utils.get_device()
+            device = _configured_training_device()
             # Guard for CPU-only runs (launch_identity_cpu_dry_run /
             # ``--training.num_gpus 0``). torch.cuda.set_device crashes
             # when CUDA isn't available.
@@ -426,6 +469,7 @@ class _TrainingWorker:
                 self.training_fn_cfg,
                 self.dataset_build_artifacts,
             )
+            exit_code = 0
         except Exception as e:
             if "ECC" in str(e) or "CUDA driver initialization failed" in str(e):
                 # Force stop Ray if we encounter GPU errors
@@ -454,6 +498,29 @@ class _TrainingWorker:
                 ) from e
             else:
                 raise
+        finally:
+            _finish_worker_services(exit_code)
+
+
+def _finish_worker_services(exit_code: int) -> None:
+    """Finish worker-owned services before the launcher removes their placement group."""
+    logging.info("Finishing trainer worker services (training exit code %s)", exit_code)
+    wandb = sys.modules.get("wandb")
+    if wandb is not None:
+        try:
+            try:
+                if wandb.run is not None:
+                    wandb.finish(exit_code=exit_code)
+            finally:
+                wandb.teardown(exit_code=exit_code)
+        except Exception:  # Cleanup must not retrain a completed job.
+            logging.exception("W&B worker shutdown failed (training exit code %s)", exit_code)
+    try:
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
+    except Exception:  # Preserve the original training result.
+        logging.exception("Trainer process-group shutdown failed")
+    logging.info("Trainer worker service cleanup returned (training exit code %s)", exit_code)
 
 
 def main():
