@@ -141,7 +141,7 @@ class YamN2VaeEncodeExportAdapter(nn.Module):
         # the graph validator then rejects. self.encoder is the same object encode()
         # runs, so the override still lands where it matters.
         object.__setattr__(self, "_pipeline_encode", vae.model.encode)
-        self.use_pipeline_encode = isinstance(vae, WanVideoVAE38)
+        self.use_pipeline_encode = hasattr(vae, "upsampling_factor")
 
     def forward(self, videos: torch.Tensor) -> torch.Tensor:
         # The full-sequence graph is equivalent for complete 1+4k windows and

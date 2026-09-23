@@ -23,12 +23,13 @@ from typing import Any
 
 from groot.infra.closed_loop.budgets import resolve_success_step_budgets
 
-BENCHMARK_SPEC_SCHEMA_VERSION = "groot-n2-benchmark-spec-v1"
+BENCHMARK_SPEC_SCHEMA_VERSION = "groot-n2-benchmark-spec-v2"
 
 _EXPERIMENT = re.compile(r"[a-z][a-z0-9_]*")
 _REVISION = re.compile(r"[0-9a-f]{40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _VIDEO_BACKENDS = {"decord", "torchvision_av", "torchcodec"}
+_CODECS = {"h264", "none", "mp4v"}
 _RESERVED_OVERRIDES = {
     "compute.num_gpus",
     "compute.per_device_batch_size",
@@ -53,6 +54,7 @@ class BenchmarkSpec:
     benchmark: Mapping[str, Any]
     dataset: Mapping[str, Any]
     base_checkpoint: Mapping[str, Any]
+    codec: str
     training: Mapping[str, Any]
     evaluation: Mapping[str, Any]
     expectations: Mapping[str, Mapping[str, Any]]
@@ -79,6 +81,7 @@ def load_benchmark_spec(recipe: str, *, builtin_dir: Path | None = None) -> Benc
             "benchmark",
             "dataset",
             "base_checkpoint",
+            "codec",
             "training",
             "evaluation",
             "expectations",
@@ -87,6 +90,9 @@ def load_benchmark_spec(recipe: str, *, builtin_dir: Path | None = None) -> Benc
     )
     if root["schema_version"] != BENCHMARK_SPEC_SCHEMA_VERSION:
         raise ValueError(f"Unsupported benchmark recipe schema: {root['schema_version']!r}")
+    codec = _string(root["codec"], "codec").lower()
+    if codec not in _CODECS:
+        raise ValueError(f"codec must be one of {sorted(_CODECS)}, got {codec!r}")
 
     benchmark = _object(root["benchmark"], "benchmark")
     _keys(benchmark, {"recipe_id", "recipe_version", "provenance"}, "benchmark")
@@ -165,6 +171,7 @@ def load_benchmark_spec(recipe: str, *, builtin_dir: Path | None = None) -> Benc
         benchmark=benchmark,
         dataset=dataset,
         base_checkpoint=checkpoint,
+        codec=codec,
         training=training,
         evaluation=evaluation,
         expectations=expectations,

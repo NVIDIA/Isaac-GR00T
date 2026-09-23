@@ -101,6 +101,7 @@ python -P -m groot.infra.oss eval \
   --checkpoint "$CHECKPOINT" \
   --dataset-path /path/to/lerobot-dataset \
   --embodiment-tag "$PROCESSOR_EMBODIMENT" \
+  --codec none \
   --enable-trt
 ```
 
@@ -132,6 +133,7 @@ python -P -m groot.infra.oss eval \
   --checkpoint "$CHECKPOINT" \
   --dataset-path /path/to/lerobot-dataset \
   --embodiment-tag "$PROCESSOR_EMBODIMENT" \
+  --codec mp4v \
   --trt-engine-dir "$TRT_ARTIFACT_DIR"
 ```
 
@@ -141,6 +143,7 @@ Run closed-loop evaluation with any installed OSS simulator backend:
 python -P -m groot.infra.oss closed-loop-eval \
   --checkpoint "$CHECKPOINT" \
   --trt-engine-dir "$TRT_ARTIFACT_DIR" \
+  --codec mp4v \
   --backend <python-module:BackendClass> \
   --suite <suite-name> \
   --embodiment-tag "$PROCESSOR_EMBODIMENT"
@@ -152,6 +155,7 @@ Start the policy server:
 python -P -m groot.infra.oss policy-server \
   --checkpoint "$CHECKPOINT" \
   --embodiment-tag "$SERVER_EMBODIMENT" \
+  --codec mp4v \
   --trt-engine-dir "$TRT_ARTIFACT_DIR" \
   --host 0.0.0.0 \
   --port 5555

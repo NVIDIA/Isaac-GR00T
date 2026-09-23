@@ -77,6 +77,7 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
   --checkpoint &lt;hf-uri-or-local-path&gt; \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag &lt;dataset-embodiment-tag&gt; \
+  --codec none \
   --enable-trt</code></pre>
       </td>
     </tr>
@@ -93,6 +94,7 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
         <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss train-eval \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag &lt;dataset-embodiment-tag&gt; \
+  --codec none \
   --enable-trt</code></pre>
       </td>
     </tr>
@@ -109,6 +111,7 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
         <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss policy-server \
   --checkpoint &lt;hf-uri-or-local-path&gt; \
   --embodiment-tag &lt;dataset-embodiment-tag&gt; \
+  --codec none \
   --enable-trt \
   --host 0.0.0.0 \
   --port 5555</code></pre>
@@ -172,7 +175,8 @@ Here is the complete bundled recipe. You can also pass a JSON file directly:
 
 ```json
 {
-  "schema_version": "groot-n2-benchmark-spec-v1",
+  "schema_version": "groot-n2-benchmark-spec-v2",
+  "codec": "none",
   "benchmark": {
     "recipe_id": "libero_10_n2",
     "recipe_version": "1",
@@ -276,6 +280,7 @@ Run the N2 policy against any simulator plugin that implements the shared backen
 ```bash
 uv run --no-sync python -m groot.infra.oss closed-loop-eval \
   --checkpoint <hf-uri-or-local-path> \
+  --codec none \
   --enable-trt \
   --backend <python-module:BackendClass> \
   --suite <suite-name> \
@@ -296,9 +301,13 @@ currently require four denoising steps. After a build, eager and TensorRT run
 the same deterministic checkpoint-derived observations. Invalid decoded
 actions fail the build; finite numerical drift is recorded in the cached
 `n2_trt_policy_measurement.json` receipt and logged as a warning for follow-up.
-The automatic cache identity also includes the effective
-`GROOT_N2_CODEC_ROUNDTRIP` value (`mp4v` by default), so `h264`, `mp4v`, and
-`none` builds cannot be mixed.
+The OSS CLI defaults to `--codec none`, preserving the input pixels without an
+additional lossy encode/decode pass. For raw camera or simulator frames, set
+`--codec h264` or `--codec mp4v` only when a roundtrip is needed to reproduce the
+observation encoding used for training. The resolved choice appears in
+`--dry-run` output and applies consistently to eager preprocessing, TensorRT
+conversion, cache identity, validation, and serving. Incompatible codec builds
+cannot be mixed in the automatic cache.
 Add `--use-cuda-graph` to any
 accelerated evaluation or policy-server command to compose CUDA graph replay
 with TensorRT.

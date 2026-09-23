@@ -1,5 +1,6 @@
 {
-  "schema_version": "groot-n2-benchmark-spec-v1",
+  "schema_version": "groot-n2-benchmark-spec-v2",
+  "codec": "none",
   "benchmark": {
     "recipe_id": "libero_10_n2",
     "recipe_version": "1",

@@ -23,7 +23,8 @@ Train-eval optionally records a benchmark report under an approved recipe.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 import getpass
@@ -62,6 +63,8 @@ OSS_VAE_URI = (
 OSS_PRETRAIN_CHECKPOINT_URI = (
     "hf://model/nvidia/GR00T2Internal@4fe662abaf302ee46916881c447377da8c4bd15a/base_200k"
 )
+OSS_N2_CODEC_ENV = "GROOT_N2_CODEC_ROUNDTRIP"
+OSS_N2_CODECS = ("none", "h264", "mp4v")
 
 
 # TODO(cuonguyen): Consolidate this OSS train path with `uv ol train` once the  # noqa: TD003
@@ -95,6 +98,14 @@ class OssPolicyServerConfig:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
+    if hasattr(args, "codec"):
+        with _oss_codec_environment(args.codec) as codec:
+            args.codec = codec
+            return _dispatch(args)
+    return _dispatch(args)
+
+
+def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "train":
         _prepare_train_dataset(args, dry_run=args.dry_run)
         resolved = resolve_train(args)
@@ -114,6 +125,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _run_train_eval(args: argparse.Namespace, *, benchmark: BenchmarkRun | None = None) -> int:
+    # Benchmark recipes own the codec. Re-scope the OSS process after the
+    # recipe has been applied so open-loop policy construction uses that value.
+    if benchmark and args.codec != _active_oss_codec():
+        with _oss_codec_environment(args.codec):
+            return _run_train_eval_sequence(args, benchmark=benchmark)
+    return _run_train_eval_sequence(args, benchmark=benchmark)
+
+
+def _run_train_eval_sequence(
+    args: argparse.Namespace, *, benchmark: BenchmarkRun | None = None
+) -> int:
     if benchmark:
         benchmark.stage = "dataset"
     _prepare_train_dataset(args, dry_run=args.dry_run)
@@ -127,6 +149,8 @@ def _run_train_eval(args: argparse.Namespace, *, benchmark: BenchmarkRun | None 
         benchmark.stage = "training"
     train_status = _run_train(resolved, dry_run=args.dry_run)
     if train_status != 0 or args.dry_run:
+        if args.dry_run:
+            _emit(f"codec={_active_oss_codec()}")
         return train_status
     if benchmark:
         benchmark.record_training(resolved)
@@ -213,6 +237,7 @@ def _run_eval(config: OssOpenLoopEvalConfig, *, dry_run: bool) -> int:
         _emit(f"trt_cache_dir={config.trt_cache_dir or ''}")
         _emit(f"rebuild_trt={config.rebuild_trt}")
         _emit(f"use_cuda_graph={config.use_cuda_graph}")
+        _emit(f"codec={_active_oss_codec()}")
         return 0
     _prepare_eval_trt(config)
     OssOpenLoopEvaluator(config).run()
@@ -268,7 +293,21 @@ def _run_closed_loop_eval(args: argparse.Namespace) -> int:
     from groot.infra.closed_loop.cli import config_from_args, prepare_trt_args, run
 
     prepare_trt_args(args)
-    return run(config_from_args(args), dry_run=args.dry_run)
+    config = config_from_args(args)
+    config = dataclass_replace(
+        config,
+        policy=dataclass_replace(
+            config.policy,
+            options={
+                **config.policy.options,
+                "codec_roundtrip": _active_oss_codec(),
+            },
+        ),
+    )
+    if args.dry_run:
+        _emit(f"codec={_active_oss_codec()}")
+        return run(config, dry_run=True)
+    return run(config, dry_run=False)
 
 
 def _run_policy_server(config: OssPolicyServerConfig, *, dry_run: bool) -> int:
@@ -284,6 +323,7 @@ def _run_policy_server(config: OssPolicyServerConfig, *, dry_run: bool) -> int:
         _emit(f"trt_cache_dir={config.trt_cache_dir or ''}")
         _emit(f"rebuild_trt={config.rebuild_trt}")
         _emit(f"use_cuda_graph={config.use_cuda_graph}")
+        _emit(f"codec={_active_oss_codec()}")
         return 0
 
     artifact_config = OssOpenLoopEvalConfig(
@@ -342,6 +382,24 @@ def _server_embodiment_tag(embodiment_tag: str) -> schema.EmbodimentTag:
 
 def _emit(line: str) -> None:
     sys.stdout.write(f"{line}\n")
+
+
+def _active_oss_codec() -> str:
+    return os.environ[OSS_N2_CODEC_ENV]
+
+
+@contextmanager
+def _oss_codec_environment(requested: str) -> Iterator[str]:
+    """Scope the OSS CLI codec without changing shared policy defaults."""
+    previous = os.environ.get(OSS_N2_CODEC_ENV)
+    os.environ[OSS_N2_CODEC_ENV] = requested
+    try:
+        yield requested
+    finally:
+        if previous is None:
+            os.environ.pop(OSS_N2_CODEC_ENV, None)
+        else:
+            os.environ[OSS_N2_CODEC_ENV] = previous
 
 
 def _oss_train_overrides(args: argparse.Namespace) -> tuple[str, ...]:
@@ -455,12 +513,12 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     from groot.infra.closed_loop.cli import add_arguments
 
-    add_arguments(
-        subparsers.add_parser(
-            "closed-loop-eval",
-            help="Run a simulator backend locally or on an existing Ray cluster.",
-        )
+    closed_loop = subparsers.add_parser(
+        "closed-loop-eval",
+        help="Run a simulator backend locally or on an existing Ray cluster.",
     )
+    add_arguments(closed_loop)
+    _add_oss_codec_option(closed_loop)
     train_eval = subparsers.add_parser(
         "train-eval",
         help="Run OSS post-training and then open-loop evaluation.",
@@ -533,6 +591,7 @@ def _add_policy_server_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--embodiment-tag", default="xdof_relative_eef_relative_joint")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--denoising-steps", type=int, default=4)
+    _add_oss_codec_option(parser)
     _add_acceleration_options(parser)
     parser.add_argument("--cache-root", default="")
     parser.add_argument("--dry-run", action="store_true")
@@ -560,6 +619,7 @@ def _add_eval_options(
     if include_embodiment_tag:
         parser.add_argument("--embodiment-tag", default="xdof_relative_eef_relative_joint")
     parser.add_argument("--denoising-steps", type=int, default=4)
+    _add_oss_codec_option(parser)
     _add_acceleration_options(parser)
     parser.add_argument("--server-parity-tolerance", type=float, default=0.01)
     parser.add_argument("--local-only", action="store_true")
@@ -586,6 +646,15 @@ def _add_acceleration_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--use-cuda-graph",
         action="store_true",
+    )
+
+
+def _add_oss_codec_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--codec",
+        choices=OSS_N2_CODECS,
+        default="none",
+        help="Observation codec roundtrip used by this OSS inference command. Defaults to none.",
     )
 
 

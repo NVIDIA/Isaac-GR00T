@@ -12,16 +12,17 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, replace
 import json
 import math
 import os
+from pathlib import Path
 import subprocess
 import sys
-from dataclasses import asdict, dataclass, replace
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from groot.infra import oss
@@ -46,6 +47,19 @@ _VIDEO_TOKENS = (
 class _TensorRTFixture:
     checkpoint: Path
     engine_dir: Path
+
+
+def test_oss_runtime_executes_supported_video_codecs() -> None:
+    """Prove the exported deployment environment can encode and decode both codecs."""
+    from groot.core.policy.n2_policy import _codec_roundtrip_clip
+
+    rng = np.random.default_rng(7)
+    video = rng.integers(0, 256, (3, 32, 48, 3), dtype=np.uint8)
+
+    for codec in ("mp4v", "h264"):
+        decoded = _codec_roundtrip_clip(video, codec=codec)
+        assert decoded.shape == video.shape
+        assert decoded.dtype == np.uint8
 
 
 @pytest.fixture(scope="module")
@@ -98,7 +112,7 @@ def test_oss_open_loop_eval_executes_real_tensorrt_and_cuda_graph(
         )
         images.flatten()[0] = 7
         prompt = torch.zeros((1, 1, 1), device="cuda", dtype=torch.bfloat16)
-        first = policy._run_predict(
+        first = policy._run_predict(  # noqa: SLF001 - exercise the real inference seam
             {
                 "images": images,
                 "action_seed": torch.full(
@@ -111,7 +125,7 @@ def test_oss_open_loop_eval_executes_real_tensorrt_and_cuda_graph(
             prompt,
         )
         first_action = first["action_pred"].clone()
-        second = policy._run_predict(
+        second = policy._run_predict(  # noqa: SLF001 - exercise the real inference seam
             {
                 "images": images,
                 "action_seed": torch.full(
@@ -170,6 +184,8 @@ def test_oss_open_loop_eval_executes_real_tensorrt_and_cuda_graph(
             str(_ACTION_HORIZON),
             "--denoising-steps",
             "4",
+            "--codec",
+            "none",
             "--enable-trt",
             "--trt-cache-dir",
             str(tmp_path / "trt-cache"),
@@ -243,6 +259,8 @@ def test_oss_policy_server_executes_real_tensorrt(
                 "127.0.0.1",
                 "--port",
                 "5556",
+                "--codec",
+                "none",
                 "--enable-trt",
                 "--trt-cache-dir",
                 str(trt_fixture.engine_dir.parent),
@@ -315,6 +333,8 @@ def test_oss_closed_loop_eval_executes_real_tensorrt(
                 "minimal",
                 "--embodiment-tag",
                 _EMBODIMENT,
+                "--codec",
+                "none",
                 "--output-dir",
                 str(tmp_path / "closed-loop"),
                 "--enable-trt",
@@ -351,7 +371,7 @@ def _install_model_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         sequence_packing,
         "_build_attention_mask",
-        sequence_packing._build_attention_mask,
+        sequence_packing._build_attention_mask,  # noqa: SLF001 - restore patched module state
     )
 
 
@@ -542,8 +562,8 @@ class _Processor:
 
 
 def _write_checkpoint(path: Path) -> Path:
-    import torch
     from safetensors.torch import save_file
+    import torch
 
     path.mkdir()
     vae_weights = path / "vae.pth"

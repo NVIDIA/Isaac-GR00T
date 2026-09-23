@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 import re
 import shlex
@@ -45,6 +46,33 @@ def _install_fake_torch(monkeypatch: pytest.MonkeyPatch, *, current_device: int)
             cuda=SimpleNamespace(current_device=lambda: current_device),
         ),
     )
+
+
+def _install_fake_ray(
+    monkeypatch: pytest.MonkeyPatch, *, initialized: bool = False
+) -> list[dict[str, object]]:
+    """Capture the OSS job runtime without starting a local Ray cluster."""
+    init_calls: list[dict[str, object]] = []
+
+    def init(**kwargs: object) -> None:
+        nonlocal initialized
+        initialized = True
+        init_calls.append(kwargs)
+
+    def shutdown() -> None:
+        nonlocal initialized
+        initialized = False
+
+    monkeypatch.setitem(
+        sys.modules,
+        "ray",
+        SimpleNamespace(
+            init=init,
+            is_initialized=lambda: initialized,
+            shutdown=shutdown,
+        ),
+    )
+    return init_calls
 
 
 def test_oss_cli_does_not_eagerly_import_optional_policy_server_runtime() -> None:
@@ -182,13 +210,18 @@ def test_oss_closed_loop_dry_run_reports_automatic_trt_settings(
     assert "enable_trt=True" in output
     assert f"trt_cache_dir={trt_cache}" in output
     assert "rebuild_trt=True" in output
+    assert "codec=none" in output
     assert "success_step_budgets=" not in output
 
 
-def test_oss_closed_loop_enable_trt_defers_build_to_worker(monkeypatch, tmp_path: Path) -> None:
+def test_oss_closed_loop_codec_reaches_worker_when_ray_is_preinitialized(
+    monkeypatch, tmp_path: Path
+) -> None:
     from groot.infra.closed_loop import cli as closed_loop_cli
 
     configs: list[object] = []
+    monkeypatch.delenv(oss.OSS_N2_CODEC_ENV, raising=False)
+    ray_inits = _install_fake_ray(monkeypatch, initialized=True)
     monkeypatch.setattr(
         closed_loop_cli,
         "run",
@@ -207,6 +240,8 @@ def test_oss_closed_loop_enable_trt_defers_build_to_worker(monkeypatch, tmp_path
             "--embodiment-tag",
             "test_embodiment",
             "--enable-trt",
+            "--codec",
+            "h264",
             "--trt-cache-dir",
             str(tmp_path / "trt-cache"),
         ]
@@ -218,6 +253,9 @@ def test_oss_closed_loop_enable_trt_defers_build_to_worker(monkeypatch, tmp_path
     assert configs[0].policy.options["enable_trt"] is True
     assert configs[0].policy.options["trt_cache_dir"] == str(tmp_path / "trt-cache")
     assert configs[0].policy.options["rebuild_trt"] is False
+    assert configs[0].policy.options["codec_roundtrip"] == "h264"
+    assert ray_inits == []
+    assert oss.OSS_N2_CODEC_ENV not in os.environ
     assert configs[0].max_episode_steps is None
     assert configs[0].resolved_success_step_budgets == ()
 
@@ -631,6 +669,35 @@ def test_oss_eval_dry_run_uses_open_loop_eval_config(capsys, tmp_path: Path) -> 
     assert "output_json=/tmp/groot_oss_open_loop_eval.json" in output
     assert f"trt_engine_dir={engine_dir}" in output
     assert "use_cuda_graph=True" in output
+    assert "codec=none" in output
+
+
+def test_oss_eval_codec_default_ignores_preexisting_runtime_state(
+    monkeypatch, tmp_path: Path
+) -> None:
+    observed: list[str | None] = []
+
+    class FakeEvaluator:
+        def __init__(self, _config: oss.OssOpenLoopEvalConfig) -> None:
+            pass
+
+        def run(self) -> None:
+            observed.append(os.environ.get(oss.OSS_N2_CODEC_ENV))
+
+    monkeypatch.setenv(oss.OSS_N2_CODEC_ENV, "h264")
+    monkeypatch.setattr(oss, "OssOpenLoopEvaluator", FakeEvaluator)
+
+    status = oss.main(
+        [
+            "eval",
+            "--checkpoint",
+            str(tmp_path / "checkpoint"),
+        ]
+    )
+
+    assert status == 0
+    assert observed == ["none"]
+    assert os.environ[oss.OSS_N2_CODEC_ENV] == "h264"
 
 
 def test_oss_eval_invokes_open_loop_evaluator_without_running_gpu_backend(
@@ -737,6 +804,8 @@ def test_oss_eval_enable_trt_resolves_checkpoint_and_builds_cached_bundle(
             "--dataset-path",
             str(tmp_path / "dataset"),
             "--enable-trt",
+            "--codec",
+            "h264",
             "--trt-cache-dir",
             str(tmp_path / "trt-cache"),
             "--rebuild-trt",
@@ -752,7 +821,7 @@ def test_oss_eval_enable_trt_resolves_checkpoint_and_builds_cached_bundle(
             "cache_dir": str(tmp_path / "trt-cache"),
             "rebuild": True,
             "device": "cuda:0",
-            "codec": "mp4v",
+            "codec": "h264",
         }
     ]
     assert configs[-1].checkpoint == str(checkpoint)
@@ -798,7 +867,6 @@ def test_oss_eval_enable_trt_surfaces_eager_trt_drift(
 
     monkeypatch.setattr(oss, "OssOpenLoopEvaluator", FakeEvaluator)
     _install_fake_torch(monkeypatch, current_device=0)
-    monkeypatch.setenv("GROOT_N2_CODEC_ROUNDTRIP", "h264")
     monkeypatch.setattr(
         auto_builder,
         "resolve_or_build_engine_bundle",
@@ -814,6 +882,8 @@ def test_oss_eval_enable_trt_surfaces_eager_trt_drift(
                     str(checkpoint),
                     "--embodiment-tag",
                     "test_embodiment",
+                    "--codec",
+                    "h264",
                     "--enable-trt",
                 ]
             )
@@ -946,6 +1016,7 @@ def test_oss_policy_server_invokes_core_server_in_process_without_running_gpu_ba
     engine_dir = tmp_path / "engines"
     configs: list[oss.OssOpenLoopEvalConfig] = []
     calls: list[tuple[Path, oss.OssPolicyServerConfig]] = []
+    codecs: list[str | None] = []
 
     class FakeEvaluator:
         def __init__(self, config: oss.OssOpenLoopEvalConfig) -> None:
@@ -958,7 +1029,10 @@ def test_oss_policy_server_invokes_core_server_in_process_without_running_gpu_ba
     monkeypatch.setattr(
         oss,
         "_run_gr00t_policy_server",
-        lambda model_path, config: calls.append((model_path, config)),
+        lambda model_path, config: (
+            calls.append((model_path, config)),
+            codecs.append(os.environ.get(oss.OSS_N2_CODEC_ENV)),
+        ),
     )
 
     status = oss.main(
@@ -978,12 +1052,15 @@ def test_oss_policy_server_invokes_core_server_in_process_without_running_gpu_ba
             str(tmp_path / "hf-cache"),
             "--trt-engine-dir",
             str(engine_dir),
+            "--codec",
+            "mp4v",
             "--use-cuda-graph",
         ]
     )
 
     assert status == 0
     assert len(configs) == 1
+    assert codecs == ["mp4v"]
     assert configs[0].checkpoint == "hf://model/org/repo@main/checkpoint-100"
     assert configs[0].cache_root == str(tmp_path / "hf-cache")
 
@@ -1058,7 +1135,7 @@ def test_oss_policy_server_enable_trt_builds_bundle_before_serving(
             "cache_dir": str(tmp_path / "trt-cache"),
             "rebuild": False,
             "device": "cuda:0",
-            "codec": "mp4v",
+            "codec": "none",
         }
     ]
     assert calls[0][0] == checkpoint
@@ -1254,7 +1331,7 @@ def test_oss_train_eval_always_evaluates_new_final_checkpoint_with_hf_vae(
             "cache_dir": str(tmp_path / "trt-cache"),
             "rebuild": False,
             "device": "cuda:0",
-            "codec": "mp4v",
+            "codec": "none",
         }
     ]
     assert resolved_vae == [(tmp_path / "hf-cache" / "snapshot" / "vae.pth").resolve()]

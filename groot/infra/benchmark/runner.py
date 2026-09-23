@@ -212,6 +212,7 @@ def _closed_loop_config(
                 "trt_cache_dir": args.trt_cache_dir or None,
                 "rebuild_trt": args.rebuild_trt,
                 "use_cuda_graph": args.use_cuda_graph,
+                "codec_roundtrip": args.codec,
             },
         ),
         output_dir=Path(args.output_dir) / "closed-loop",
@@ -322,6 +323,7 @@ def _empty_report(args: argparse.Namespace, *, started_at: datetime) -> dict[str
         "inputs": {
             "dataset": None,
             "base_checkpoint": None,
+            "codec": None,
             "resolved_training_configuration": None,
         },
         "execution": {
@@ -365,6 +367,7 @@ def _populate_spec_report(
         "uri": sanitize_text(spec.base_checkpoint["uri"]),
         "revision": spec.base_checkpoint["revision"],
     }
+    report["inputs"]["codec"] = spec.codec
     report["execution"]["seed"] = spec.training["seed"]
     report["training"]["configured_steps"] = spec.training["max_steps"]
     report["evaluation"] = {
@@ -414,6 +417,7 @@ def _apply_recipe(
         "batch_size": spec.training["batch_size"],
         "config_overrides": list(spec.training["config_overrides"]),
         "dataset_path": str(output_dir / "dataset"),
+        "codec": spec.codec,
     }
     for name, value in settings.items():
         setattr(args, name, value)
@@ -471,6 +475,7 @@ def _dry_run_plan(
         "mode": report["execution"]["mode"],
         "dataset": report["inputs"]["dataset"],
         "base_checkpoint": report["inputs"]["base_checkpoint"],
+        "codec": report["inputs"]["codec"],
         "training": training,
         "evaluation": report["evaluation"],
         "output_report": REPORT_FILENAME,

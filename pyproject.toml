@@ -98,6 +98,7 @@ deployment = [
     "msgpack",
     "multi-storage-client[boto3]==0.46.0",
     "ninja",
+    "opencv-python-headless==4.11.0.86",
     "pandas",
     "peft",
     "pillow",

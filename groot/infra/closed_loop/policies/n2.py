@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
+import os
 from typing import Any
 
 import numpy as np
@@ -107,6 +108,7 @@ class N2RolloutPolicy:
                 "rebuild_trt",
                 "trt_rebuild_token",
                 "use_cuda_graph",
+                "codec_roundtrip",
             }
         )
         if unknown:
@@ -142,6 +144,17 @@ class N2RolloutPolicy:
         use_cuda_graph = options.get("use_cuda_graph", False)
         if not isinstance(use_cuda_graph, bool):
             raise TypeError("N2 use_cuda_graph must be a boolean")
+        codec_roundtrip_value = options.get("codec_roundtrip")
+        codec_roundtrip = (
+            None if codec_roundtrip_value is None else str(codec_roundtrip_value).lower()
+        )
+        if codec_roundtrip is not None:
+            from groot.core.policy.n2_codec import N2_CODEC_ROUNDTRIPS
+
+            if codec_roundtrip not in N2_CODEC_ROUNDTRIPS:
+                raise ValueError(
+                    f"N2 codec_roundtrip must be one of {N2_CODEC_ROUNDTRIPS}, got {codec_roundtrip!r}"
+                )
         self._policy = self._load_policy(
             checkpoint=checkpoint,
             cache_root=cache_root,
@@ -154,6 +167,7 @@ class N2RolloutPolicy:
             rebuild_trt=rebuild_trt,
             trt_rebuild_token=trt_rebuild_token,
             use_cuda_graph=use_cuda_graph,
+            codec_roundtrip=codec_roundtrip,
         )
         self._history: TemporalObservationHistory | None = None
         self._action_chunk: dict[str, np.ndarray] = {}
@@ -173,10 +187,11 @@ class N2RolloutPolicy:
         rebuild_trt: bool,
         trt_rebuild_token: str | None,
         use_cuda_graph: bool,
+        codec_roundtrip: str | None,
     ) -> Any:
         from groot.core.data import schema
         from groot.core.policy.gr00t_policy import Gr00tFlatPolicyWrapper
-        from groot.core.policy.n2_codec import resolve_n2_codec_roundtrip
+        from groot.core.policy.n2_codec import N2_CODEC_ROUNDTRIPS, resolve_n2_codec_roundtrip
         from groot.core.policy.n2_policy import Gr00tN2Policy
         from groot.core.training.models.n2.utils.cosmos_model_deps import ensure_cosmos_model_deps
         from groot.infra.eval.oss_open_loop_eval_config import OssOpenLoopEvalConfig
@@ -185,37 +200,60 @@ class N2RolloutPolicy:
         model_path = OssOpenLoopEvaluator(
             OssOpenLoopEvalConfig(checkpoint=checkpoint, cache_root=cache_root)
         ).resolve_model_path()
-        codec = resolve_n2_codec_roundtrip()
-        if enable_trt:
-            device, trt_engine_dir = _resolve_automatic_trt(
-                checkpoint=str(model_path),
-                embodiment=embodiment_tag,
-                denoising_steps=denoising_steps,
-                cache_root=trt_cache_dir,
-                rebuild=rebuild_trt,
-                rebuild_token=trt_rebuild_token,
-                device=device,
-                codec=codec,
+        if codec_roundtrip is None:
+            codec = resolve_n2_codec_roundtrip()
+        elif codec_roundtrip not in N2_CODEC_ROUNDTRIPS:
+            raise ValueError(
+                f"N2 codec_roundtrip must be one of {N2_CODEC_ROUNDTRIPS}, got {codec_roundtrip!r}"
             )
-        ensure_cosmos_model_deps(str(model_path))
+        else:
+            # An explicit policy option is serialized to Ray actors and must
+            # win over any stale worker environment inherited by the cluster.
+            codec = codec_roundtrip
+        # Gr00tN2Policy keeps environment override compatibility for legacy
+        # callers. A serialized closed-loop option is stronger: hide any stale
+        # worker override while resolving a cold automatic TensorRT bundle and
+        # constructing this explicitly configured policy. The builder copies
+        # this environment into its policy-measurement subprocess.
+        env_name = "GROOT_N2_CODEC_ROUNDTRIP"
+        missing = object()
+        previous: object = missing
+        if codec_roundtrip is not None:
+            previous = os.environ.pop(env_name, missing)
         try:
-            tag = schema.EmbodimentTag[embodiment_tag]
-        except KeyError:
-            tag = schema.EmbodimentTag(embodiment_tag)
-        policy_options: dict[str, Any] = {
-            "trt_engine_dir": trt_engine_dir,
-            "use_cuda_graph": use_cuda_graph,
-        }
-        if denoising_steps is not None:
-            policy_options["num_inference_timesteps"] = denoising_steps
-        policy = Gr00tN2Policy(
-            embodiment_tag=tag,
-            model_path=str(model_path),
-            device=device,
-            strict=True,
-            codec_roundtrip=codec,
-            **policy_options,
-        )
+            if enable_trt:
+                device, trt_engine_dir = _resolve_automatic_trt(
+                    checkpoint=str(model_path),
+                    embodiment=embodiment_tag,
+                    denoising_steps=denoising_steps,
+                    cache_root=trt_cache_dir,
+                    rebuild=rebuild_trt,
+                    rebuild_token=trt_rebuild_token,
+                    device=device,
+                    codec=codec,
+                )
+            ensure_cosmos_model_deps(str(model_path))
+            try:
+                tag = schema.EmbodimentTag[embodiment_tag]
+            except KeyError:
+                tag = schema.EmbodimentTag(embodiment_tag)
+            policy_options: dict[str, Any] = {
+                "trt_engine_dir": trt_engine_dir,
+                "use_cuda_graph": use_cuda_graph,
+            }
+            if denoising_steps is not None:
+                policy_options["num_inference_timesteps"] = denoising_steps
+            policy = Gr00tN2Policy(
+                embodiment_tag=tag,
+                model_path=str(model_path),
+                device=device,
+                strict=True,
+                codec_roundtrip=codec,
+                **policy_options,
+            )
+        finally:
+            if codec_roundtrip is not None and previous is not missing:
+                os.environ[env_name] = str(previous)
         return Gr00tFlatPolicyWrapper(policy, strict=True)
 
     def on_env_init(self, env: Any) -> None:
