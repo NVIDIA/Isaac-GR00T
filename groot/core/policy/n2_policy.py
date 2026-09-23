@@ -157,6 +157,15 @@ def _env_float(name: str, *, default: float) -> float:
 _resolve_codec_roundtrip = resolve_n2_codec_roundtrip
 
 
+def _normalize_n2rl_config_for_inference(config: Any) -> Any:
+    """Map legacy actor-only BC modes onto the loadable inference wrapper."""
+    if getattr(config, "model_type", None) == "GrootN2RL" and getattr(
+        config, "loss_mode", None
+    ) in {"BC", "BC_NORMAL_ONLY", "BC_CONTINUOUS_WEIGHTED"}:
+        config.loss_mode = "BC_QUALITY_WEIGHTED"
+    return config
+
+
 def apply_torch_compile(model, mode: str = "reduce-overhead") -> None:
     """Compile the predict()-path entry points of a GrootN2 model.
 
@@ -304,7 +313,11 @@ class Gr00tN2Policy(Gr00tPolicy):
             )
 
         model_dir = model_path
-        model = transformers.AutoModel.from_pretrained(model_dir)
+        model_config = transformers.AutoConfig.from_pretrained(model_dir)
+        # Inference immediately unwraps the base actor. Normalize only the in-memory load config;
+        # the checkpoint remains an immutable record of the training recipe that produced it.
+        model_config = _normalize_n2rl_config_for_inference(model_config)
+        model = transformers.AutoModel.from_pretrained(model_dir, config=model_config)
         # GrootN2RL actor checkpoints only wrap the base GrootN2 actor; inference
         # uses the inner model's predict/vae/decode_latents APIs directly.
         if (
