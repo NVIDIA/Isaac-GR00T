@@ -361,6 +361,43 @@ _TOKEN_MERGE_CACHE_NAMES = {
 }
 
 
+def _stack_cache_layers(layers: list[torch.Tensor]) -> torch.Tensor:
+    """Compact layer views from one engine output slab with a single copy.
+
+    A joint engine returns [layer, batch, head, token, channel] storage. The
+    graph's prefix slices retain that owner and its layer stride, including
+    the skipped action suffix in each head. Prove the shared layout before
+    rebuilding the stacked view; independent or reordered caches retain the
+    ordinary stack path. No tensor values or arithmetic are changed.
+    """
+    if len(layers) < 2:
+        return torch.stack(layers, dim=0)
+    first = layers[0]
+    if first.layout != torch.strided or first.ndim != 4 or first.device.type == "meta":
+        return torch.stack(layers, dim=0)
+    stride = first.stride()
+    offset = first.storage_offset()
+    layer_stride = layers[1].storage_offset() - offset
+    storage = first.untyped_storage().data_ptr()
+    if layer_stride <= 0 or any(
+        layer.layout != torch.strided
+        or layer.shape != first.shape
+        or layer.dtype != first.dtype
+        or layer.device != first.device
+        or layer.requires_grad
+        or layer.stride() != stride
+        or layer.storage_offset() != offset + index * layer_stride
+        or layer.untyped_storage().data_ptr() != storage
+        for index, layer in enumerate(layers)
+    ):
+        return torch.stack(layers, dim=0)
+    # as_strided inherits the first view's storage offset. Every addressed
+    # layer above already exists in this storage, so the combined view cannot
+    # introduce an out-of-bounds access. Keep the dense engine binding owned
+    # independently when the prefix omits the joint action suffix.
+    return first.as_strided((len(layers), *first.shape), (layer_stride, *stride)).contiguous()
+
+
 def _stack_token_merge_cache(
     cache: CondKVCache,
     token_merge_layers: tuple[int, int],
@@ -376,10 +413,10 @@ def _stack_token_merge_cache(
     fine_keys = cache.key_cache[:start] + cache.key_cache[end:]
     fine_values = cache.value_cache[:start] + cache.value_cache[end:]
     return (
-        torch.stack(fine_keys, dim=0),
-        torch.stack(fine_values, dim=0),
-        torch.stack(cache.key_cache[start:end], dim=0),
-        torch.stack(cache.value_cache[start:end], dim=0),
+        _stack_cache_layers(fine_keys),
+        _stack_cache_layers(fine_values),
+        _stack_cache_layers(cache.key_cache[start:end]),
+        _stack_cache_layers(cache.value_cache[start:end]),
     )
 
 
@@ -484,8 +521,8 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
             tensors["extra_pos_emb"] = packed.extra_pos_emb
         if kv_cache is not None and len(kv_cache) > 0:
             if token_merge_layers is None:
-                tensors["kv_cache_key"] = torch.stack(kv_cache.key_cache, dim=0)
-                tensors["kv_cache_value"] = torch.stack(kv_cache.value_cache, dim=0)
+                tensors["kv_cache_key"] = _stack_cache_layers(kv_cache.key_cache)
+                tensors["kv_cache_value"] = _stack_cache_layers(kv_cache.value_cache)
             else:
                 key_fine, value_fine, key_coarse, value_coarse = _stack_token_merge_cache(
                     kv_cache,
@@ -508,16 +545,18 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
         prompt_embs: torch.Tensor,
         kv_cache: CondKVCache | None,
     ) -> str | None:
-        if packed.extra_pos_emb is not None and "extra_pos_emb" not in self.inputs:
-            return "extra_pos_emb_present"
-        return super().skip_reason(
-            self._candidate_tensors(
-                packed=packed,
-                prompt_embs=prompt_embs,
-                kv_cache=kv_cache,
-                token_merge_layers=self.token_merge_layers,
-            )
+        tensors = self._candidate_tensors(
+            packed=packed,
+            prompt_embs=prompt_embs,
+            kv_cache=kv_cache,
+            token_merge_layers=self.token_merge_layers,
         )
+        return self._prepared_tensors_skip_reason(tensors)
+
+    def _prepared_tensors_skip_reason(self, tensors: dict[str, torch.Tensor]) -> str | None:
+        if "extra_pos_emb" in tensors and "extra_pos_emb" not in self.inputs:
+            return "extra_pos_emb_present"
+        return super().skip_reason(tensors)
 
     def __call__(
         self,
@@ -532,6 +571,9 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
             kv_cache=kv_cache,
             token_merge_layers=self.token_merge_layers,
         )
+        skip_reason = self._prepared_tensors_skip_reason(tensors)
+        if skip_reason is not None:
+            raise RuntimeError(f"fixed-shape N2 TensorRT {self.mode} call rejected: {skip_reason}")
         self._execute(tensors)
         if self.mode == "joint":
             _store_joint_kv_outputs(
@@ -766,16 +808,9 @@ class N2TensorRTRuntime:
             raise RuntimeError(
                 f"fixed-shape N2 TensorRT only supports explicit joint/action calls; got {mode!r}"
             )
-        runner = self.transformer_runners[mode]
-        skip_reason = runner.skip_reason(
-            packed=packed,
-            prompt_embs=prompt_embs,
-            kv_cache=kv_cache,
-        )
-        if skip_reason is not None:
-            raise RuntimeError(f"fixed-shape N2 TensorRT {mode} call rejected: {skip_reason}")
         if mode == "joint" and kv_cache is None and self.num_action_steps > self.num_video_steps:
             raise RuntimeError("joint TensorRT call requires a KV-cache destination")
+        runner = self.transformer_runners[mode]
         return runner(packed=packed, prompt_embs=prompt_embs, kv_cache=kv_cache)
 
     def encode_video(self, videos: torch.Tensor, *, tiled: bool) -> torch.Tensor:
