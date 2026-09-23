@@ -397,7 +397,7 @@ class S3Boto3Backend(base.StorageBackend):
             creds_file = f.name
 
         cmd = [
-            os.environ.get("GROOT_S5CMD_PATH") or "s5cmd",
+            "s5cmd",
             "--numworkers",
             str(self.s5cmd_numworkers),
             "--credentials-file",
