@@ -18,30 +18,49 @@ from groot.core.training.configs.model.n1d6 import GrootN1d6Config
 from groot.core.training.configs.model.n1d7 import GrootN1d7Config
 from groot.core.training.configs.model.n2 import GrootN2Config
 
+_N2_IQL_FIELD_DEFAULTS = {
+    "q_loss_coeff": 1.0,
+    "v_loss_coeff": 1.0,
+    "advantage_beta_inverse": 1.0,
+    "awr_weight_clip": 100.0,
+    "q_model_ensemble_size": 2,
+    "q_model_polyak": 0.995,
+    "q_model_polyak_fp32": True,
+    "q_model_gamma": 0.99,
+    "v_model_iql_quantile": 0.7,
+    "reward_key": "next.delta_progress",
+    "reward_scale": 1.0,
+    "include_video_loss_in_iql": True,
+}
 
-_N2_STALE_RL_FIELD_NAMES = (
-    "q_loss_coeff",
-    "v_loss_coeff",
+_N2_ALWAYS_STALE_RL_FIELD_NAMES = (
     "pretrained_q_model_path",
     "pretrained_v_model_path",
     "tune_q_model",
     "tune_v_model",
-    "advantage_beta_inverse",
     "q_model_pooling_method",
     "q_model_pooling_qformer_cfg",
-    "q_model_ensemble_size",
-    "q_model_polyak",
-    "q_model_gamma",
     "v_model_pooling_method",
     "v_model_pooling_qformer_cfg",
-    "v_model_iql_quantile",
     "residual_action_scale",
     "residual_use_base_action",
     "residual_pooling_method",
     "residual_pooling_qformer_cfg",
     "hidden_size",
-    "reward_key",
 )
+
+_N2_STALE_RL_FIELD_NAMES = (
+    *_N2_IQL_FIELD_DEFAULTS,
+    *_N2_ALWAYS_STALE_RL_FIELD_NAMES,
+)
+
+_N2_ACTOR_ONLY_LOSS_MODES = {
+    "BC",
+    "BC_NORMAL_ONLY",
+    "BC_HUMAN_NORMAL_ONLY",
+    "BC_QUALITY_WEIGHTED",
+    "BC_CONTINUOUS_WEIGHTED",
+}
 
 
 def _is_neutral_stale_value(value: Any) -> bool:
@@ -49,9 +68,7 @@ def _is_neutral_stale_value(value: Any) -> bool:
         return True
     if isinstance(value, int | float) and value == 0:
         return True
-    if value in ("", [], {}, ()):
-        return True
-    return False
+    return value in ("", [], {}, ())
 
 
 @dataclass
@@ -74,10 +91,17 @@ class GrootN2RLConfig(PretrainedConfig):
     quality_w2: float | None = None
 
     def __init__(self, **kwargs):
+        actor_only_checkpoint = kwargs.get("loss_mode") in _N2_ACTOR_ONLY_LOSS_MODES
         stale_fields = {
             key: kwargs[key]
             for key in _N2_STALE_RL_FIELD_NAMES
-            if key in kwargs and not _is_neutral_stale_value(kwargs[key])
+            if key in kwargs
+            and not _is_neutral_stale_value(kwargs[key])
+            and not (
+                actor_only_checkpoint
+                and key in _N2_IQL_FIELD_DEFAULTS
+                and kwargs[key] == _N2_IQL_FIELD_DEFAULTS[key]
+            )
         }
         if stale_fields:
             raise ValueError(
@@ -87,10 +111,13 @@ class GrootN2RLConfig(PretrainedConfig):
         if kwargs.get("residual", False):
             raise ValueError("GrootN2RL does not support residual=True in weighted-BC MVP")
 
+        kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key not in _N2_STALE_RL_FIELD_NAMES and key != "residual"
+        }
         super().__init__(**kwargs)
         for key, value in kwargs.items():
-            if key in _N2_STALE_RL_FIELD_NAMES or key == "residual":
-                continue
             setattr(self, key, value)
         if not hasattr(self, "model_dtype"):
             self.model_dtype = "bfloat16"

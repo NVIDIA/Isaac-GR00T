@@ -136,12 +136,29 @@ class StorageIOWorker:
         was chosen by the caller rather than by a glob, so a rank can own objects that share a name
         prefix with objects it does not own.
         """
-        return self._sync_with_index(
+        from groot.core.data.hydrator.cache.download_index import DownloadRecord
+
+        result = self._sync_with_index(
             "sync_files",
             s3_base,
             lambda backend, on_pair: backend.sync_files(file_pairs, on_pair=on_pair),
             profile,
         )
+        error_message = result[3]
+        if error_message is not None and self._download_index is not None:
+            # Directory waiters poll by file URI. Publishing only the directory-level failure
+            # leaves every waiter looking like its object is merely slow until timeout.
+            self._download_index.batch_insert(
+                [
+                    DownloadRecord(
+                        s3_uri=remote_uri,
+                        local_path=None,
+                        error_message=error_message,
+                    )
+                    for remote_uri, _local_path in file_pairs
+                ]
+            )
+        return result
 
     def _sync_with_index(
         self,

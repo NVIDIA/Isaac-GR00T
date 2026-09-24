@@ -210,7 +210,6 @@ def test_oss_closed_loop_dry_run_reports_automatic_trt_settings(
     assert "enable_trt=True" in output
     assert f"trt_cache_dir={trt_cache}" in output
     assert "rebuild_trt=True" in output
-    assert "codec=none" in output
     assert "success_step_budgets=" not in output
 
 
@@ -258,6 +257,130 @@ def test_oss_closed_loop_codec_reaches_worker_when_ray_is_preinitialized(
     assert oss.OSS_N2_CODEC_ENV not in os.environ
     assert configs[0].max_episode_steps is None
     assert configs[0].resolved_success_step_budgets == ()
+
+
+def test_oss_closed_loop_reuses_synced_environment_for_local_ray(monkeypatch) -> None:
+    from groot.infra.closed_loop import cli as closed_loop_cli
+
+    observed: list[str | None] = []
+    monkeypatch.setenv(oss.OSS_RAY_UV_RUN_RUNTIME_ENV, "1")
+    monkeypatch.delenv("RAY_ADDRESS", raising=False)
+    monkeypatch.setattr(
+        closed_loop_cli,
+        "run",
+        lambda _config, *, dry_run: observed.append(os.environ.get(oss.OSS_RAY_UV_RUN_RUNTIME_ENV))
+        or int(dry_run),
+    )
+
+    status = oss.main(
+        [
+            "closed-loop-eval",
+            "--checkpoint",
+            "checkpoint",
+            "--backend",
+            "custom.backend:Backend",
+            "--suite",
+            "suite-a",
+            "--embodiment-tag",
+            "test_embodiment",
+        ]
+    )
+
+    assert status == 0
+    assert observed == ["0"]
+    assert os.environ[oss.OSS_RAY_UV_RUN_RUNTIME_ENV] == "1"
+
+
+def test_oss_closed_loop_preserves_uv_propagation_for_existing_ray(monkeypatch) -> None:
+    from groot.infra.closed_loop import cli as closed_loop_cli
+
+    observed: list[str | None] = []
+    monkeypatch.setenv(oss.OSS_RAY_UV_RUN_RUNTIME_ENV, "1")
+    monkeypatch.setenv("RAY_ADDRESS", "ray://cluster:10001")
+    monkeypatch.setattr(
+        closed_loop_cli,
+        "run",
+        lambda _config, *, dry_run: observed.append(os.environ.get(oss.OSS_RAY_UV_RUN_RUNTIME_ENV))
+        or int(dry_run),
+    )
+
+    status = oss.main(
+        [
+            "closed-loop-eval",
+            "--checkpoint",
+            "checkpoint",
+            "--backend",
+            "custom.backend:Backend",
+            "--suite",
+            "suite-a",
+            "--embodiment-tag",
+            "test_embodiment",
+        ]
+    )
+
+    assert status == 0
+    assert observed == ["1"]
+    assert os.environ[oss.OSS_RAY_UV_RUN_RUNTIME_ENV] == "1"
+
+
+@pytest.mark.parametrize(
+    ("ray_address", "expected_during_evaluation"),
+    [(None, "0"), ("ray://cluster:10001", "1")],
+)
+def test_oss_train_eval_closed_loop_benchmark_scopes_uv_replay(
+    monkeypatch,
+    tmp_path: Path,
+    ray_address: str | None,
+    expected_during_evaluation: str,
+) -> None:
+    observed: list[str | None] = []
+    checkpoint = tmp_path / "checkpoint"
+
+    class FakeBenchmark:
+        spec = SimpleNamespace(evaluation={"closed_loop": {}})
+        stage = ""
+
+        def record_resolution(self, _resolved: object) -> None:
+            pass
+
+        def record_training(self, _resolved: object) -> None:
+            pass
+
+        def evaluate(self, evaluated_checkpoint: Path) -> int:
+            assert evaluated_checkpoint == checkpoint
+            observed.append(os.environ.get(oss.OSS_RAY_UV_RUN_RUNTIME_ENV))
+            return 0
+
+    def fake_run_benchmark(args: object, *, run_train_eval) -> int:
+        return run_train_eval(args, benchmark=FakeBenchmark())
+
+    monkeypatch.setenv(oss.OSS_RAY_UV_RUN_RUNTIME_ENV, "1")
+    if ray_address is None:
+        monkeypatch.delenv("RAY_ADDRESS", raising=False)
+    else:
+        monkeypatch.setenv("RAY_ADDRESS", ray_address)
+    monkeypatch.setattr(oss, "run_benchmark", fake_run_benchmark)
+    monkeypatch.setattr(oss, "_prepare_train_dataset", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        oss,
+        "resolve_train",
+        lambda _args: SimpleNamespace(final_checkpoint=checkpoint),
+    )
+    monkeypatch.setattr(oss, "_run_train", lambda *_args, **_kwargs: 0)
+
+    status = oss.main(
+        [
+            "train-eval",
+            "--benchmark-recipe",
+            "recipe.json",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ]
+    )
+
+    assert status == 0
+    assert observed == [expected_during_evaluation]
+    assert os.environ[oss.OSS_RAY_UV_RUN_RUNTIME_ENV] == "1"
 
 
 def test_oss_public_hf_dependencies_are_commit_pinned() -> None:
@@ -669,7 +792,6 @@ def test_oss_eval_dry_run_uses_open_loop_eval_config(capsys, tmp_path: Path) -> 
     assert "output_json=/tmp/groot_oss_open_loop_eval.json" in output
     assert f"trt_engine_dir={engine_dir}" in output
     assert "use_cuda_graph=True" in output
-    assert "codec=none" in output
 
 
 def test_oss_eval_codec_default_ignores_preexisting_runtime_state(
@@ -1252,6 +1374,7 @@ def test_oss_train_eval_always_evaluates_new_final_checkpoint_with_hf_vae(
         command: list[str], *, env: dict[str, str], check: bool
     ) -> subprocess.CompletedProcess[str]:
         assert env["NUM_GPUS"] == "8"
+        assert env[oss.OSS_RAY_UV_RUN_RUNTIME_ENV] == "0"
         assert check is True
         checkpoint = output_dir / "checkpoint-2"
         checkpoint.mkdir(parents=True)

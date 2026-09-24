@@ -30,6 +30,8 @@ import shutil
 import tempfile
 from typing import Any
 
+from filelock import FileLock
+
 logger = logging.getLogger(__name__)
 
 # Known Lustre prefixes that contain model deps
@@ -139,6 +141,9 @@ def _is_cosmos_checkpoint(checkpoint_dir: Path) -> bool:
 def ensure_cosmos_model_deps(
     checkpoint_dir: str | Path,
     cache_dir: str | Path | None = None,
+    *,
+    cache_is_prepared: bool = False,
+    lock_dir: str | Path | None = None,
 ) -> None:
     """Download model dependencies from S3 if not locally available.
 
@@ -153,14 +158,46 @@ def ensure_cosmos_model_deps(
 
     Args:
         checkpoint_dir: Path to the checkpoint directory containing config.json
-        cache_dir: Where to cache downloaded model deps. Defaults to ~/checkpoints/model_deps/
+        cache_dir: Where to find or cache model deps. Defaults to ~/checkpoints/model_deps/
+        cache_is_prepared: Require every dependency to already exist instead of downloading it.
+        lock_dir: Writable directory for the inter-process lock when cache_dir is read-only.
     """
     checkpoint_dir = Path(checkpoint_dir)
     if cache_dir is None:
         cache_dir = Path("~/checkpoints/model_deps").expanduser()
     else:
         cache_dir = Path(cache_dir)
+    if cache_is_prepared:
+        if not cache_dir.is_dir():
+            raise FileNotFoundError(
+                f"prepared model dependency directory does not exist: {cache_dir}"
+            )
+    else:
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
+    lock_root = Path(lock_dir) if lock_dir is not None else cache_dir
+    lock_root.mkdir(parents=True, exist_ok=True)
+
+    # Trainer ranks on one machine share this cache. Only one of them may inspect or populate it
+    # at a time: a dependency directory exists as soon as its first object lands, but it is not a
+    # usable model until the complete prefix has arrived. The lock also serializes config rewrites
+    # in the node-local checkpoint shared by those ranks.
+    lock_name = ".model-deps.lock" if lock_dir is not None else ".download.lock"
+    with FileLock(str(lock_root / lock_name)):
+        _ensure_cosmos_model_deps_locked(
+            checkpoint_dir,
+            cache_dir,
+            allow_download=not cache_is_prepared,
+        )
+
+
+def _ensure_cosmos_model_deps_locked(
+    checkpoint_dir: Path,
+    cache_dir: Path,
+    *,
+    allow_download: bool,
+) -> None:
+    """Resolve dependencies while holding the cache's inter-process lock."""
     config_path = checkpoint_dir / "config.json"
     if not config_path.exists():
         logger.warning(f"No config.json found in {checkpoint_dir}, skipping model deps check")
@@ -216,6 +253,11 @@ def ensure_cosmos_model_deps(
 
     # Download missing deps
     if paths_to_download:
+        if not allow_download:
+            missing = ", ".join(relative for _original, relative in paths_to_download)
+            raise FileNotFoundError(
+                f"prepared model dependency directory {cache_dir} is incomplete; missing: {missing}"
+            )
         _download_deps(paths_to_download, cache_dir)
 
     # Rewrite config files — replace all Lustre paths with local cache paths
@@ -229,6 +271,16 @@ def _get_s3_client():
     the standard Gear data credential source.
     """
     from gear.data import get_s3_client
+
+    if os.environ.get("GEAR_DATA_CREDENTIALS") and not (
+        os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY")
+    ):
+        import boto3
+
+        from groot.core.data.hydrator.utils.aws import get_boto3_client_config
+
+        profile = os.environ.get("GROOT_RL_PDX_CREDENTIALS_PROFILE", "default")
+        return boto3.client("s3", **get_boto3_client_config(profile=profile))
 
     endpoint_url = os.environ.get("AWS_ENDPOINT_URL") or os.environ.get("S3_ENDPOINT_URL")
     region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")

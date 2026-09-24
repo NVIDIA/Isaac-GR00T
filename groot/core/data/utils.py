@@ -41,8 +41,7 @@ def apply_sin_cos_encoding(values: np.ndarray) -> np.ndarray:
 
 
 def nested_dict_to_numpy(data):
-    """
-    Recursively converts bottom-level list of lists to NumPy arrays.
+    """Recursively converts bottom-level list of lists to NumPy arrays.
 
     Args:
         data: A nested dictionary where bottom nodes are list of lists,
@@ -87,8 +86,7 @@ def _align_stats_bounds(values: np.ndarray, stats: np.ndarray):
 
 
 def normalize_values_minmax(values, params):
-    """
-    Normalize values using min-max normalization to [-1, 1] range.
+    """Normalize values using min-max normalization to [-1, 1] range.
 
     Args:
         values: Input values to normalize
@@ -130,9 +128,8 @@ def normalize_values_minmax(values, params):
     return normalized
 
 
-def unnormalize_values_minmax(normalized_values, params):
-    """
-    Min-max unnormalization from [-1, 1] range back to original range.
+def unnormalize_values_minmax(normalized_values, params, clip: bool = True):
+    """Min-max unnormalization from [-1, 1] range back to original range.
 
     Args:
         normalized_values: Normalized input values in [-1, 1] range
@@ -145,6 +142,8 @@ def unnormalize_values_minmax(normalized_values, params):
             - params["max"]: Original maximum values used for normalization
                 * Case 1 - 1D bounds: Shape (D,) - same min/max for all steps
                 * Case 2 - 2D bounds: Shape (T, D) - different min/max per step
+        clip: Clamp ``normalized_values`` to [-1, 1] before the affine inverse (default True).
+            With False, values past +/-1 decode past the [min, max] band.
 
     Returns:
         Unnormalized values in original range [min, max]
@@ -159,19 +158,20 @@ def unnormalize_values_minmax(normalized_values, params):
         # 2D bounds - per-step unnormalization
         normalized_values: (8, 4), params["min"]: (8, 4), params["max"]: (8, 4)
     """
-
     max_vals = _align_stats_bounds(normalized_values, params["max"])
     min_vals = _align_stats_bounds(normalized_values, params["min"])
     range_vals = max_vals - min_vals
 
-    # Unnormalize from [-1, 1]
-    unnormalized = (np.clip(normalized_values, -1.0, 1.0) + 1.0) / 2.0 * range_vals + min_vals
+    # Unnormalize from [-1, 1]. With clip=False the affine inverse is applied as-is, so a
+    # value past +/-1 decodes past the min/max (or q01/q99) band instead of being cut to it.
+    if clip:
+        normalized_values = np.clip(normalized_values, -1.0, 1.0)
+    unnormalized = (normalized_values + 1.0) / 2.0 * range_vals + min_vals
     return unnormalized
 
 
 def normalize_values_meanstd(values, params):
-    """
-    Normalize values using mean-std (z-score) normalization.
+    """Normalize values using mean-std (z-score) normalization.
 
     Args:
         values: Input values to normalize
@@ -217,8 +217,7 @@ def normalize_values_meanstd(values, params):
 
 
 def unnormalize_values_meanstd(normalized_values, params):
-    """
-    Mean-std unnormalization (reverse z-score normalization).
+    """Mean-std unnormalization (reverse z-score normalization).
 
     Args:
         normalized_values: Normalized input values (z-scores)
@@ -266,8 +265,7 @@ def unnormalize_values_meanstd(normalized_values, params):
 
 
 def to_json_serializable(obj: Any) -> Any:
-    """
-    Recursively convert dataclasses and numpy arrays to JSON-serializable format.
+    """Recursively convert dataclasses and numpy arrays to JSON-serializable format.
 
     Args:
         obj: Object to convert (can be dataclass, numpy array, dict, list, etc.)
@@ -325,8 +323,7 @@ def parse_modality_configs(
 
 
 class RandomResizedCropSameSize(DualTransform):
-    """
-    Random Resized Crop that keeps the output size equal to the *current* image size.
+    """Random Resized Crop that keeps the output size equal to the *current* image size.
 
     This transform handles images of different original resolutions while being compatible
     with Albumentations ReplayMode by using deterministic random parameters.
@@ -365,8 +362,8 @@ class RandomResizedCropSameSize(DualTransform):
         self.mask_interpolation = mask_interpolation
 
     def get_params(self):
-        """
-        Generate random parameters that are independent of the input image.
+        """Generate random parameters that are independent of the input image.
+
         These will be used consistently across all targets in ReplayMode.
         """
         # Generate random scale factor
@@ -398,8 +395,8 @@ class RandomResizedCropSameSize(DualTransform):
         return ["image"]
 
     def get_params_dependent_on_targets(self, params):
-        """
-        Compute image-dependent parameters using the random factors from get_params().
+        """Compute image-dependent parameters using the random factors from get_params().
+
         This ensures ReplayMode compatibility while handling different image sizes.
         """
         img = params["image"]
@@ -420,8 +417,8 @@ class RandomResizedCropSameSize(DualTransform):
 
         # Try to compute crop dimensions
         target_area = area * scale_factor
-        new_w = int(round(math.sqrt(target_area * aspect_ratio)))
-        new_h = int(round(math.sqrt(target_area / aspect_ratio)))
+        new_w = round(math.sqrt(target_area * aspect_ratio))
+        new_h = round(math.sqrt(target_area / aspect_ratio))
 
         # Ensure crop fits within image bounds
         if new_w > w or new_h > h or new_w <= 0 or new_h <= 0:
@@ -430,10 +427,10 @@ class RandomResizedCropSameSize(DualTransform):
                 in_ratio = w / h
                 if in_ratio < self.ratio[0]:
                     new_w = w
-                    new_h = int(round(new_w / self.ratio[0]))
+                    new_h = round(new_w / self.ratio[0])
                 elif in_ratio > self.ratio[1]:
                     new_h = h
-                    new_w = int(round(new_h * self.ratio[1]))
+                    new_w = round(new_h * self.ratio[1])
                 else:
                     new_w, new_h = w, h
             else:
@@ -459,13 +456,13 @@ class RandomResizedCropSameSize(DualTransform):
         }
 
     def apply(
-        self, img: np.ndarray, x1=0, y1=0, crop_w=0, crop_h=0, orig_w=0, orig_h=0, **params
+        self, img: np.ndarray, x1=0, y1=0, crop_w=0, crop_h=0, orig_w=0, orig_h=0, **_params
     ) -> np.ndarray:
         cropped = img[y1 : y1 + crop_h, x1 : x1 + crop_w]
         return cv2.resize(cropped, (orig_w, orig_h), interpolation=self.interpolation)
 
     def apply_to_mask(
-        self, mask: np.ndarray, x1=0, y1=0, crop_w=0, crop_h=0, orig_w=0, orig_h=0, **params
+        self, mask: np.ndarray, x1=0, y1=0, crop_w=0, crop_h=0, orig_w=0, orig_h=0, **_params
     ) -> np.ndarray:
         cropped = mask[y1 : y1 + crop_h, x1 : x1 + crop_w]
         return cv2.resize(cropped, (orig_w, orig_h), interpolation=self.mask_interpolation)
@@ -473,9 +470,7 @@ class RandomResizedCropSameSize(DualTransform):
     def apply_to_bbox(
         self, bbox: tuple[float, float, float, float], **params
     ) -> tuple[float, float, float, float]:
-        """
-        Assumes 'pascal_voc' format: (x_min, y_min, x_max, y_max)
-        """
+        """Assumes 'pascal_voc' format: (x_min, y_min, x_max, y_max)."""
         x1, y1 = params["x1"], params["y1"]
         crop_w, crop_h = params["crop_w"], params["crop_h"]
         orig_w, orig_h = params["orig_w"], params["orig_h"]
@@ -508,8 +503,8 @@ class RandomResizedCropSameSize(DualTransform):
         return (bx1, by1, bx2, by2)
 
     def apply_to_keypoint(self, keypoint: tuple[float, float, Any, Any], **params):
-        """
-        Assumes 'xy' keypoints: (x, y[, ...]).
+        """Assumes 'xy' keypoints: (x, y[, ...]).
+
         Any extra fields are preserved.
         """
         x, y, *rest = keypoint
