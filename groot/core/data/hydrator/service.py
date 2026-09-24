@@ -580,10 +580,6 @@ class Hydrator:
         assert self.cache_manager.download_index is not None
         while time.time() < deadline:
             record = self.cache_manager.download_index.lookup(path)
-            if record is not None and record.error_message is not None:
-                raise exceptions.HydratorException(
-                    f"Directory sync failed for {path}: {record.error_message}"
-                )
             if (
                 record is not None
                 and record.local_path is not None
