@@ -135,3 +135,23 @@ test.oss.gpu:
       - script_failure
   allow_failure: false
   timeout: 120m
+
+build.oss.dependencies:
+  extends: .minimal
+  stage: premerge
+  needs:
+    - image.minimal
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$POSTMERGE_TESTS == "true"'
+  before_script:
+    - *oss_package_before_script
+  script:
+    - uv lock --locked --project .
+    - |
+      for lockfile in scripts/deployment/*/uv.lock; do
+        [ -f "$lockfile" ] || continue
+        uv lock --locked --project "${lockfile%/uv.lock}" || exit 1
+      done
+  timeout: 10m
