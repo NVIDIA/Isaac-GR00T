@@ -1,0 +1,39 @@
+{
+  "schema_version": "groot-n2-benchmark-spec-v2",
+  "codec": "none",
+  "benchmark": {
+    "recipe_id": "libero_goal_n2",
+    "recipe_version": "1",
+    "provenance": "LIBERO family benchmark walkthrough: Goal"
+  },
+  "dataset": {
+    "repo_id": "IPEC-COMMUNITY/libero_goal_no_noops_1.0.0_lerobot_fixed",
+    "revision": "222cf888ed360fad0a5f983748c1cc40743d43e7"
+  },
+  "base_checkpoint": {
+    "uri": "hf://model/nvidia/GR00T2Internal@4fe662abaf302ee46916881c447377da8c4bd15a/base_200k",
+    "revision": "4fe662abaf302ee46916881c447377da8c4bd15a"
+  },
+  "training": {
+    "experiment": "n2_oss_libero_goal",
+    "compute_type": "h100",
+    "embodiment_tag": "libero_sim",
+    "seed": 24,
+    "max_steps": 10000,
+    "num_gpus": 8,
+    "batch_size": 4,
+    "config_overrides": []
+  },
+  "evaluation": {
+    "closed_loop": {
+      "backend": "groot.infra.closed_loop.backends.libero_pro.backend:LiberoProBackend",
+      "suite": "libero_pro_goal",
+      "episodes_per_task": 50,
+      "seed": 0,
+      "max_episode_steps": 400,
+      "action_steps": 8,
+      "denoising_steps": 4
+    }
+  },
+  "expectations": {}
+}

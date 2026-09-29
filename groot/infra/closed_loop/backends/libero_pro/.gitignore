@@ -1,4 +1,6 @@
 .libero-config/
+.libero-bddl/
+.libero-init-files/
 .libero-pro/
 .libero-pro-data/
 .venv/

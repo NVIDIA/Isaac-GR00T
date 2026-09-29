@@ -1482,7 +1482,15 @@ def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
     assert (package_root / "groot/infra/experiments").is_dir()
     public_configs = package_root / "groot/infra/experiments/training/configs"
     exported_files.append(public_configs / f"{oss.OSS_TRAINING_EXPERIMENT}.py")
-    exported_files.append(public_configs / "n2_oss_libero_10.py")
+    exported_files.extend(
+        public_configs / name
+        for name in (
+            "n2_oss_libero_10.py",
+            "n2_oss_libero_goal.py",
+            "n2_oss_libero_object.py",
+            "n2_oss_libero_spatial.py",
+        )
+    )
 
     for exported_file in exported_files:
         assert exported_file.is_file()
