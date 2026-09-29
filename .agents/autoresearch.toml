@@ -19,10 +19,6 @@ Automatically perform model-driven research to post-train gr00t models.
 """
 
 [[skills.config]]
-path = "./skills/insights/SKILL.md"
-enabled = true
-
-[[skills.config]]
 path = "./skills/onboarding/SKILL.md"
 enabled = true
 

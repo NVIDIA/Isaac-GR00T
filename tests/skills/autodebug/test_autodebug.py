@@ -267,9 +267,7 @@ def test_new_incident_matches_a_verified_case_and_resumes(tmp_path: Path) -> Non
     incident = _incident(tmp_path)
     assert incident.phase == "reproduce"
     assert incident.related_case_ids == ["case-shard"]
-    assert incident.runs[0]["kind"] == "insights"
-    assert incident.runs[0]["available"] is False
-    assert incident.runs[0]["record_ids"] == []
+    assert incident.runs == []
 
     same_incident = AutoDebugIncident.init_from_report(
         incident.report_path,
@@ -416,10 +414,9 @@ def test_checked_in_runtime_cases_are_valid() -> None:
 def test_agent_skill_discovery_surfaces_are_complete() -> None:
     oss_root = Path(__file__).resolve().parents[3]
     for runtime in (".codex", ".claude"):
-        for skill in ("autodebug", "insights"):
-            discovered = oss_root / runtime / "skills" / skill / "SKILL.md"
-            canonical = oss_root / "skills" / skill / "SKILL.md"
-            assert discovered.read_bytes() == canonical.read_bytes()
+        discovered = oss_root / runtime / "skills" / "autodebug" / "SKILL.md"
+        canonical = oss_root / "skills" / "autodebug" / "SKILL.md"
+        assert discovered.read_bytes() == canonical.read_bytes()
         assert not (oss_root / runtime / "skills" / "autodebug-verify").exists()
     assert (oss_root / ".claude" / "agents" / "autodebug.md").read_bytes() == (
         oss_root / ".agents" / "autodebug.md"

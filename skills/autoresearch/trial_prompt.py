@@ -64,7 +64,6 @@ def build_prompt(
     trial_index: int,
     parent_revision: str | None = None,
     parent_score: float | None = None,
-    prior_insights: str = "",
 ) -> str:
     """Build one Codex prompt for an isolated, scoreable candidate."""
     idea_type = idea_type_for_index(config, trial_index)
@@ -90,7 +89,6 @@ def build_prompt(
         "Follow this configured idea category while making one isolated training-side change.",
     )
     user_guidance = config.user_guidance or "No additional user guidance was provided."
-    insight_handoff = prior_insights or "- No relevant published Insights were available."
     return f"""\
 You are AutoResearch running trial {trial_index} (`{trial_id}`) for study
 `{config.study_id}`.
@@ -108,9 +106,6 @@ Goal:
 User guidance:
 {user_guidance}
 
-Prior Insights:
-{insight_handoff}
-
 Rules:
 - When User guidance is provided, treat it as the required research scope. It takes precedence
   over the broader generic idea-type guidance. Obey its requested changes and exclusions.
@@ -127,8 +122,6 @@ Rules:
 - Do not change or bypass the pinned pretrained/base model, dataset/script inputs, or source
   revision checks.
 - Use prior results below to avoid repeating failed changes and to build on useful evidence.
-- Use Prior Insights only to prioritize hypotheses. They are historical guidance, not evidence
-  about this study. User guidance and current-study train/eval results take precedence.
 - Do not commit, push, create branches, or submit training/evaluation jobs. The controller owns
   those operations.
 - Run focused local validation when practical.

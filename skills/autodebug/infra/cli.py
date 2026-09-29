@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-import json
 from pathlib import Path
 import sys
 
@@ -34,7 +33,6 @@ def parser() -> argparse.ArgumentParser:
     new.add_argument("--run-root", type=Path, default=Path(".autodebug-runs"))
     new.add_argument("--case-dir", type=Path, default=DEFAULT_CASE_DIRECTORY)
     new.add_argument("--target-config", type=Path)
-    new.add_argument("--insights-root", type=Path)
 
     for name in ("show", "cases", "targets", "cancel"):
         command = commands.add_parser(name)
@@ -68,12 +66,6 @@ def parser() -> argparse.ArgumentParser:
     probe.add_argument("--command", dest="execution_command", required=True)
     probe.add_argument("--timeout", type=int, default=300)
 
-    insights = commands.add_parser("insights")
-    insights.add_argument("--incident", type=Path, required=True)
-    insights.add_argument("--query", required=True)
-    insights.add_argument("--insights-root", type=Path)
-    insights.add_argument("--limit", type=int, default=5)
-
     handoff = commands.add_parser("handoff")
     handoff.add_argument("--incident", type=Path, required=True)
     handoff.add_argument("--analysis", required=True)
@@ -106,7 +98,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 run_root=args.run_root,
                 case_directory=args.case_dir,
                 target_config=args.target_config,
-                insights_root=args.insights_root,
             )
         else:
             incident = AutoDebugIncident.init_from_path(args.incident)
@@ -118,15 +109,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 0
             if args.action == "targets":
                 sys.stdout.write(incident.execution_targets_text())
-                return 0
-            if args.action == "insights":
-                result = incident.lookup_insights(
-                    args.query,
-                    insights_root=args.insights_root,
-                    limit=args.limit,
-                )
-                result["incident"] = str(incident.path)
-                sys.stdout.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
                 return 0
             if args.action == "reproduce":
                 incident.run_reproducer(

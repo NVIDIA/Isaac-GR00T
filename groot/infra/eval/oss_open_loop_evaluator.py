@@ -213,7 +213,7 @@ class OssOpenLoopEvaluator:
             client = PolicyClient(
                 address=server.address,
                 timeout_ms=self.config.server_timeout_ms,
-                jpeg_enabled=False,  # Preserve identical pixels for local/server parity.
+                jpeg_enabled=True,
             )
             adapter = PolicyClientAdapter(client, ready=not self.config.use_cuda_graph)
             try:

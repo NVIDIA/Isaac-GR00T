@@ -233,7 +233,7 @@ def test_skill_routes_out_of_scope_requests() -> None:
     assert "local OSS setup, dry-runs, training, evaluation, or policy serving" in normalized
     assert "Use the onboarding skill to handle this local OSS workflow" in normalized
     assert "product, support, concept, or documentation questions" in normalized
-    assert "Use the faq agent to answer this question" in normalized
+    assert "answer from authoritative repository documentation" in normalized
     assert "unrelated GR00T failure diagnosis" in normalized
     assert "`$autodebug`" in normalized
     assert '"Resume `/work/study/autoresearch.yaml`."' in normalized

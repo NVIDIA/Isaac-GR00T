@@ -33,9 +33,8 @@ an AutoResearch study.
 - For local OSS setup, dry-runs, training, evaluation, or policy serving outside
   an AutoResearch study, stop and say: `Use the onboarding skill to handle this
   local OSS workflow.`
-- For product, support, concept, or documentation questions, stop and say: `Use
-  the faq agent to answer this question from repository documentation and
-  published Insights.`
+- For product, support, concept, or documentation questions, stop and answer
+  from authoritative repository documentation outside this skill.
 - For unrelated GR00T failure diagnosis, stop and tell the user to call
   `$autodebug`.
 
@@ -46,7 +45,7 @@ Examples:
 | "Resume `/work/study/autoresearch.yaml`." | AutoResearch |
 | "Why did this trial fail according to `state.json`?" | AutoResearch |
 | "Dry-run local post-training on `/data/task`." | `onboarding` |
-| "Which datasets does GR00T support?" | FAQ agent |
+| "Which datasets does GR00T support?" | Repository documentation |
 | "Importing GR00T fails in a clean checkout." | `$autodebug` |
 
 Do not inspect state.json, run preflight, modify files, or execute scripts after

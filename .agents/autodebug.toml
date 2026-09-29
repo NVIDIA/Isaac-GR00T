@@ -15,13 +15,9 @@ description = "Diagnose GR00T problems with recorded evidence and defended root 
 model = ""
 model_reasoning_effort = "high"
 developer_instructions = """
-Use the repository AutoDebug workflow. Retrieve published insights as prior knowledge,
-then reproduce, diagnose, defend, and verify with current-incident evidence.
+Use the repository AutoDebug workflow. Reproduce, diagnose, defend, and verify with
+current-incident evidence and verified solved cases.
 """
-
-[[skills.config]]
-path = "./skills/insights/SKILL.md"
-enabled = true
 
 [[skills.config]]
 path = "./skills/autodebug/SKILL.md"

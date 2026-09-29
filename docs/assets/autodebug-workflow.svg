@@ -48,7 +48,7 @@ its affiliates is strictly prohibited.
   <text class="heading" x="195" y="180">Receive the report and evidence</text>
   <text class="body" x="195" y="220">
     <tspan x="195" dy="0">Freeze the report, revision, evidence, and compute.</tspan>
-    <tspan x="195" dy="30">Retrieve related Insights and solved cases.</tspan>
+    <tspan x="195" dy="30">Retrieve related verified solved cases.</tspan>
   </text>
 
   <path class="arrow" d="M460 275 L460 330"/>

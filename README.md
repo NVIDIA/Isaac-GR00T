@@ -122,29 +122,13 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
   </tbody>
 </table>
 
-For agent-guided AutoResearch, AutoResearch visualization, AutoDebug, and FAQ
+For agent-guided AutoResearch, AutoResearch visualization, and AutoDebug
 workflows, see the [agentic workflows and skills guide](skills/README.md).
 
 ## TensorRT Deployment
 
 For accelerated N2 inference, see the
 [TensorRT deployment and inference guide](scripts/deployment/README.md).
-
-## Benchmarks
-
-The completed 10,000-step LIBERO family runs produced the following closed-loop
-success rates with 50 episodes per task:
-
-| Family | Standard suite | LIBERO-PRO suite |
-| --- | ---: | ---: |
-| LIBERO-10 | 94.0% | 49.8% |
-| Spatial | 92.6% | 65.0% |
-| Object | 99.2% | 48.5% |
-| Goal | 97.4% | 54.3% |
-
-See the [LIBERO family benchmark walkthrough](docs/libero_family_benchmarks.md)
-for requirements, checked-in training recipes, launch commands, per-task
-results, and perturbation breakdowns.
 
 ## Inputs and Outputs
 
@@ -173,11 +157,58 @@ Add `--benchmark-recipe` to train once, evaluate that checkpoint, and connect th
 inputs and results in `benchmark-report.json`. The recipe selects open-loop
 evaluation, closed-loop simulation, or both, using the existing evaluators.
 
+The bundled `libero_10_n2` recipe follows the LIBERO-10 onboarding example below.
+It requires eight GPUs, access to the pinned starting checkpoint, and the existing
+simulator setup:
+
+```bash
+groot/infra/closed_loop/backends/libero_pro/setup.sh
+uv run --no-sync python -m groot.infra.oss train-eval \
+  --benchmark-recipe libero_10_n2 --output-dir /tmp/n2-libero-benchmark
+```
+
 Use `--dry-run` first to inspect the recipe without downloads, dataset preparation,
 GPU inspection, training, or evaluation. Benchmark runs require a clean Git
 checkout; keep outputs outside it or in an ignored directory.
 
-Empty `expectations` records results
+Here is the complete bundled recipe. You can also pass a JSON file directly:
+
+```json
+{
+  "schema_version": "groot-n2-benchmark-spec-v2",
+  "codec": "none",
+  "benchmark": {
+    "recipe_id": "libero_10_n2",
+    "recipe_version": "1",
+    "provenance": "OSS LIBERO-10 onboarding: oss/README.md and n2_oss_libero_10"
+  },
+  "dataset": {
+    "repo_id": "IPEC-COMMUNITY/libero_10_no_noops_1.0.0_lerobot",
+    "revision": "e1a223d30b896c1613f270a2bfc63d382b3de7e1"
+  },
+  "base_checkpoint": {
+    "uri": "hf://model/nvidia/GR00T2Internal@4fe662abaf302ee46916881c447377da8c4bd15a/base_200k",
+    "revision": "4fe662abaf302ee46916881c447377da8c4bd15a"
+  },
+  "training": {
+    "experiment": "n2_oss_libero_10", "compute_type": "h100",
+    "embodiment_tag": "libero_sim", "seed": 24,
+    "max_steps": 10000, "num_gpus": 8, "batch_size": 4,
+    "config_overrides": []
+  },
+  "evaluation": {
+    "closed_loop": {
+      "backend": "groot.infra.closed_loop.backends.libero_pro.backend:LiberoProBackend",
+      "suite": "libero_pro_10", "episodes_per_task": 50, "seed": 0,
+      "max_episode_steps": 400, "action_steps": 8, "denoising_steps": 4
+    }
+  },
+  "expectations": {}
+}
+```
+
+This uses the OSS CLI's pinned base checkpoint. Reproducing the published score
+through this wrapper remains to be validated. Empty `expectations` records results
 as `completed`, without claiming a performance pass. Agreed ranges specify
 `minimum`, `maximum`, and `provenance` for metrics such as
 `evaluation.closed_loop.success_rate` (a fraction from 0 to 1). Missing or
@@ -213,6 +244,34 @@ excluding root `.git` and `.cache` bookkeeping. Each run verifies the source,
 copies metadata into its output dataset, and links the large data files. Existing
 preparation code operates on that view; the report identifies the prepared
 metadata. Keep source data unchanged while a run is in progress.
+
+## LIBERO-10 post-training recipe
+
+Use `libero_10_n2` to post-train the existing `n2_oss_libero_10` experiment and
+evaluate its final checkpoint on the ten LIBERO tasks. The recipe downloads and
+verifies the pinned public dataset, prepares its metadata, and starts training
+from the pinned `base_200k` checkpoint.
+
+After completing the [simulator setup](#libero-and-libero-pro), run:
+
+```bash
+uv run --no-sync python -m groot.infra.oss train-eval \
+  --benchmark-recipe libero_10_n2 \
+  --output-dir ./outputs/n2-libero-10
+```
+
+The experiment config preserves the validated LIBERO-10 data window, model
+head, optimizer, and global batch of 384. Its default topology is one eight-GPU
+node with batch 4 per GPU and gradient accumulation 12.
+
+Add `--dry-run` to inspect the recipe and resolved commands without downloading
+data, preparing metadata, training, or evaluating.
+
+The final checkpoint is written to
+`./outputs/n2-libero-10/checkpoint-10000` and evaluated with 50 episodes per task.
+The combined `./outputs/n2-libero-10/benchmark-report.json` records the inputs,
+checkpoint, and results. See [Reproducible Benchmark Reports](#reproducible-benchmark-reports)
+for the complete recipe and report details.
 
 ## Closed-loop Evaluation
 
@@ -310,9 +369,61 @@ report carries the same summary; no separate reporting command is needed.
 
 ### LIBERO and LIBERO-PRO
 
-See the [LIBERO family benchmark walkthrough](docs/libero_family_benchmarks.md)
-for simulator setup, training recipes, exact evaluation commands, and published
-results for LIBERO-10, Spatial, Object, and Goal.
+Install the pinned simulator and assets once:
+
+```bash
+groot/infra/closed_loop/backends/libero_pro/setup.sh
+```
+
+Run the original ten LIBERO tasks with 50 episodes per task:
+
+```bash
+uv run --no-sync python -m groot.infra.oss closed-loop-eval \
+  --checkpoint ./outputs/n2-libero-10/checkpoint-10000 \
+  --backend groot.infra.closed_loop.backends.libero_pro.backend:LiberoProBackend \
+  --suite libero_pro_10 \
+  --embodiment-tag libero_sim \
+  --episodes-per-task 50 \
+  --action-steps 8 \
+  --max-episode-steps 400 \
+  --output-dir ./benchmark-results/libero-10
+```
+
+Run all 40 LIBERO-PRO perturbation tasks—ten each for object, position swap,
+language, and task—with 50 episodes per task:
+
+```bash
+uv run --no-sync python -m groot.infra.oss closed-loop-eval \
+  --checkpoint ./outputs/n2-libero-10/checkpoint-10000 \
+  --backend groot.infra.closed_loop.backends.libero_pro.backend:LiberoProBackend \
+  --suite libero_pro_10_all \
+  --embodiment-tag libero_sim \
+  --episodes-per-task 50 \
+  --action-steps 8 \
+  --max-episode-steps 400 \
+  --output-dir ./benchmark-results/libero-pro-10
+```
+
+The suite names resolve checked-in task YAMLs. Without `--ray-address`, each
+command uses the local GPUs visible to Ray. Pass an existing Ray address to
+distribute the sweep, or use `--tasks` and fewer episodes for a smoke test.
+
+The OSS public-data checkpoint at step 10,000 produced the following results.
+LIBERO-10 uses 50 episodes for each of its ten tasks:
+
+| LIBERO-10 result | Episodes | Successes | Success rate |
+| --- | ---: | ---: | ---: |
+| **Overall** | **500** | **470** | **94.0%** |
+
+LIBERO-PRO uses 50 episodes for each of ten tasks on every perturbation axis:
+
+| LIBERO-PRO perturbation | Episodes | Successes | Success rate |
+| --- | ---: | ---: | ---: |
+| Object | 500 | 341 | 68.2% |
+| Position swap | 500 | 71 | 14.2% |
+| Language | 500 | 476 | 95.2% |
+| Task | 500 | 107 | 21.4% |
+| **Overall** | **2,000** | **995** | **49.8%** |
 
 ### RoboCasa365
 

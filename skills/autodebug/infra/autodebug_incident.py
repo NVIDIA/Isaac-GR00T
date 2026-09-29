@@ -32,7 +32,6 @@ from skills.autodebug.infra.execution_target import (
 )
 from skills.autodebug.infra.git_checkout import GitCheckout
 from skills.autodebug.infra.solved_case import SolvedCase
-from skills.insights.infra.insight_projection import search_insights
 
 REQUIRED_REPORT_HEADINGS = (
     "Problem",
@@ -88,7 +87,6 @@ class AutoDebugIncident:
         run_root: Path,
         case_directory: Path = DEFAULT_CASE_DIRECTORY,
         target_config: Path | None = None,
-        insights_root: Path | None = None,
     ) -> AutoDebugIncident:
         report_path = report_path.resolve()
         workspace = workspace.resolve()
@@ -152,10 +150,6 @@ class AutoDebugIncident:
             execution_targets=load_execution_targets(target_config, default_workspace=workspace),
         )
         incident.save()
-        incident.lookup_insights(
-            incident._initial_insight_query(incident.report),
-            insights_root=insights_root,
-        )
         return incident
 
     @classmethod
@@ -224,9 +218,6 @@ class AutoDebugIncident:
             parts = [str(run.get("kind", "unknown"))]
             if run.get("target"):
                 parts.append(f"target={run['target']}")
-            if run.get("kind") == "insights":
-                parts.append(f"available={run.get('available', False)}")
-                parts.append(f"records={len(run.get('record_ids', []))}")
             if "exit_code" in run:
                 parts.append(f"exit={run['exit_code']}")
             if run.get("outcome"):
@@ -325,64 +316,6 @@ class AutoDebugIncident:
             )
             + "\n"
         )
-
-    @staticmethod
-    def _initial_insight_query(report: str) -> str:
-        sections = []
-        for heading in ("Problem", "Observed behavior"):
-            match = re.search(
-                rf"^##\s+{re.escape(heading)}\s*$\n(?P<body>.*?)(?=^##\s+|\Z)",
-                report,
-                flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
-            )
-            if match and match.group("body").strip():
-                sections.append(match.group("body").strip())
-        return " ".join(sections) or report
-
-    def lookup_insights(
-        self,
-        query: str,
-        *,
-        insights_root: Path | None = None,
-        limit: int = 5,
-    ) -> dict[str, Any]:
-        """Record a deterministic, non-authoritative knowledge lookup."""
-        if self.status in TERMINAL_STATUSES:
-            raise ValueError(f"Terminal incident cannot be changed: {self.status}")
-        started = time.monotonic()
-        result = search_insights(
-            query,
-            start=self.workspace,
-            insights_root=insights_root,
-            limit=limit,
-        )
-        duration_seconds = time.monotonic() - started
-        log_directory = self.path.parent / "logs"
-        log_directory.mkdir(parents=True, exist_ok=True)
-        index = len(self.runs) + 1
-        log_path = log_directory / f"{index:03d}-insights.log"
-        log_text = json.dumps(result, indent=2, sort_keys=True) + "\n"
-        log_path.write_text(log_text, encoding="utf-8")
-        projection = result.get("projection") or {}
-        self.runs.append(
-            {
-                "index": index,
-                "kind": "insights",
-                "query": result["query"],
-                "available": result["available"],
-                "record_ids": list(result["record_ids"]),
-                "projection_schema_version": projection.get("schema_version"),
-                "projection_generated_at": projection.get("generated_at"),
-                "projection_sha256": projection.get("sha256"),
-                "projection_root": projection.get("root"),
-                "error": result.get("error"),
-                "duration_seconds": duration_seconds,
-                "log": str(log_path),
-                "log_sha256": hashlib.sha256(log_text.encode()).hexdigest(),
-            }
-        )
-        self.save()
-        return result
 
     def run_probe(
         self,
@@ -1024,19 +957,6 @@ class AutoDebugIncident:
                 lines.append(f"- Passed: `{run['passed']}`")
             if run.get("note"):
                 lines.append(f"- Downstream or resume note: {run['note']}")
-            if kind == "insights":
-                lines.append(f"- Knowledge available: `{run.get('available', False)}`")
-                lines.append(f"- Query: {run.get('query')}")
-                lines.append(
-                    f"- Projection SHA-256: `{run.get('projection_sha256') or 'unavailable'}`"
-                )
-                records = run.get("record_ids", [])
-                lines.append(
-                    "- Retrieved records: "
-                    + (", ".join(f"`{record_id}`" for record_id in records) if records else "none")
-                )
-                if run.get("error"):
-                    lines.append(f"- Grounding gap: {run['error']}")
             if run.get("command"):
                 lines.extend(["- Command:", "", f"    {run['command']}"])
             if run.get("log"):

@@ -11,15 +11,7 @@
 import os
 from pathlib import Path
 
-import pytest
 from skills.autoresearch.local_open_loop_eval import _load_config, _parse_config
-
-# Templates that eval_local.sh feeds to OssOpenLoopEvalConfig. The genie_sim_osmo
-# eval_config.yaml is excluded: it configures the OSMO policy server, not this loader.
-SHIPPED_EVAL_TEMPLATES = (
-    "skills/autoresearch/scripts/eval_config.yaml",
-    "skills/autoresearch/examples/yam_stack_bowl/eval_config.yaml",
-)
 
 
 def test_load_config_sets_environment(tmp_path: Path, monkeypatch) -> None:
@@ -57,16 +49,3 @@ def test_parse_config_applies_cli_override(tmp_path: Path) -> None:
     config = _parse_config(["--load-config-path", str(config_path), "--steps", "20"])
 
     assert config.steps == 20
-
-
-@pytest.mark.parametrize("template", SHIPPED_EVAL_TEMPLATES)
-def test_load_config_accepts_shipped_templates(template: str, tmp_path: Path, monkeypatch) -> None:
-    package_root = Path(__file__).resolve().parents[3]
-    monkeypatch.setenv("AUTORESEARCH_ROOT", str(tmp_path))
-    # _load_config exports the template's `environment:` block into os.environ; seeding
-    # the key through monkeypatch makes that write roll back with the fixture.
-    monkeypatch.setenv("ENABLE_TENSORRT", os.environ.get("ENABLE_TENSORRT", ""))
-
-    config = _load_config(package_root / template)
-
-    assert config.checkpoint

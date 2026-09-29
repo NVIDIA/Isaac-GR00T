@@ -2,7 +2,7 @@
 environment:
   ENABLE_TENSORRT: "True"
 
-checkpoint: /path/to/training_output
+model_path: /path/to/training_output
 dataset_path: /path/to/eval_dataset
 output_json: /path/to/eval_output/results.json
 save_plot_dir: /path/to/eval_output/plots

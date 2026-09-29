@@ -32,24 +32,12 @@ printf '%s\n' "$source_dir" > "$site_packages/libero_pro_source.pth"
 config_dir=${LIBERO_CONFIG_PATH:-"$project_dir/.libero-config"}
 mkdir -p "$config_dir"
 benchmark_root="$source_dir/libero/libero"
-# LIBERO-PRO ships perturbation BDDLs separately from the original LIBERO
-# suites. Present both trees through one config so the same isolated backend
-# can evaluate an original suite and its perturbations without being reinstalled.
-merged_bddl_dir="$project_dir/.libero-bddl"
-merged_init_dir="$project_dir/.libero-init-files"
-mkdir -p "$merged_bddl_dir" "$merged_init_dir"
-for suite_dir in "$benchmark_root/bddl_files"/* "$data_dir/bddl_files"/*; do
-  ln -sfn "$suite_dir" "$merged_bddl_dir/$(basename "$suite_dir")"
-done
-for suite_dir in "$benchmark_root/init_files"/* "$data_dir/init_files"/*; do
-  ln -sfn "$suite_dir" "$merged_init_dir/$(basename "$suite_dir")"
-done
 printf '%s\n' \
   "assets: $benchmark_root/assets" \
-  "bddl_files: $merged_bddl_dir" \
+  "bddl_files: $data_dir/bddl_files" \
   "benchmark_root: $benchmark_root" \
   "datasets: $source_dir/libero/datasets" \
-  "init_states: $merged_init_dir" \
+  "init_states: $data_dir/init_files" \
   > "$config_dir/config.yaml"
 
 "$simulator_python" -c 'from libero.libero import benchmark'

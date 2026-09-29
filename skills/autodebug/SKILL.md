@@ -68,11 +68,6 @@ SSH aliases; never put credentials in the target file:
 }
 ```
 
-`new` automatically searches the published `.insights/` projection using the report's
-problem and observed-behavior sections. The lookup is recorded in `incident.json` with
-the projection hash and retrieved record IDs. Missing knowledge is a recorded grounding
-gap, not a reason to stop diagnosis.
-
 If the same report and workspace already have an incident, `new` resumes it without
 repeating the intake lookup. Read the returned `next` action and follow it exactly. Use
 `show` at any time:
@@ -136,17 +131,8 @@ unless that session is alive and its results continue to enter the runner ledger
    ```
 
 2. If the failure does not reproduce, the runner has already moved the incident to
-   `waiting`. Query Insights using the exact failure, scope, and attempted fixes, then
-   inspect the available artifacts, present qualified suggestions, and ask for the
-   single most useful missing item. Do not call `pause` again:
-
-   ```bash
-   uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py insights \
-     --incident <incident.json> \
-     --query '<symptom, version, embodiment, phase, and attempted fixes>'
-   ```
-
-   After the item arrives, resume the existing incident:
+   `waiting`. Inspect the available artifacts, present qualified suggestions, and ask
+   for the single most useful missing item. After it arrives, resume the existing incident:
 
    ```bash
    uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py resume \
@@ -166,10 +152,8 @@ unless that session is alive and its results continue to enter the runner ledger
      --incident <incident.json>
    ```
 
-   Repeat the `insights` command with the refined boundary, exact symptom, version,
-   embodiment, and attempts when that scope differs from the intake query. Read the
-   recorded finding and paired chunk. Use Insights and solved cases only to prioritize
-   discriminating checks. Neither source establishes the cause of this incident.
+   Use verified solved cases only to prioritize discriminating checks. A precedent does
+   not establish the cause of the current incident.
 
 4. Test one hypothesis with one focused command. Keep all other factors fixed:
 

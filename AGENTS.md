@@ -5,19 +5,14 @@ evaluation.
 
 ## Default Agents and Skills
 
-Use these three OSS agent definitions as the defaults for this package:
+Use these two OSS agent definitions as the defaults for this package:
 
 - [`autoresearch`](.agents/autoresearch.toml) for model-driven research and OSS
   post-training/evaluation. Its configured skills are
-  [`insights`](skills/insights/SKILL.md),
-  [`onboarding`](skills/onboarding/SKILL.md), and
+  [`onboarding`](skills/onboarding/SKILL.md) and
   [`autoresearch`](skills/autoresearch/SKILL.md).
 - [`autodebug`](.agents/autodebug.toml) for debugging repository issues. Its
-  configured skills are [`insights`](skills/insights/SKILL.md) and
-  [`autodebug`](skills/autodebug/SKILL.md).
-- [`faq`](.agents/faq.toml) for concise, source-grounded documentation and
-  FAQ answers. Its configured skill is
-  [`insights`](skills/insights/SKILL.md).
+  configured skill is [`autodebug`](skills/autodebug/SKILL.md).
 
 Treat each agent TOML file as the source of truth for its enabled skills, and
 follow the task-specific local post-training and evaluation rules below.
@@ -26,8 +21,7 @@ follow the task-specific local post-training and evaluation rules below.
 
 When the user asks to set up OSS GR00T or locally train, evaluate, or serve a
 policy, use the `onboarding` skill. Use the `autoresearch` agent to improve an
-existing post-training recipe, `autodebug` to diagnose a repository failure,
-and `faq` for product, support, concept, or documentation questions.
+existing post-training recipe and `autodebug` to diagnose a repository failure.
 
 Do not use OSMO, GitLab staging pipelines, or the `golden-run` skill for local
 OSS post-train work.

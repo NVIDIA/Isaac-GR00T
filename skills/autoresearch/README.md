@@ -295,11 +295,6 @@ Each trial folder contains the agent proposal and diff, train/eval logs, final
 model, and evaluation result. A retry writes a new attempt log instead of
 overwriting the previous failure.
 
-The controller retains the wave-level `prior_insights` retrieval and prompt
-interface, but the provider is temporarily disabled and returns an empty
-handoff without searching published Insights. The controller caches that empty
-handoff in memory, just as it would a populated one.
-
 At the study level, **state.json** records the metric definition, baseline and
 best scores, best trial, active wave, and changes waiting for composition. Each
 trial record contains its parent, hypothesis, code revision, changed files,

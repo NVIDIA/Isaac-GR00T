@@ -49,11 +49,6 @@ class ActionConfig(TypedDict, total=False):
     # with groot/core/training/scripts/patch_eval/patch_rel_stats_q99.py.
     use_percentiles: bool
     clip_outliers: bool  # clip normalized values to [-1, 1] (default True)
-    # Decode (unnormalize) model outputs WITHOUT first clamping them to [-1, 1]. Default
-    # False: decoding always clamps, independent of clip_outliers. Set it together with
-    # clip_outliers=False when the outputs are meant to exceed the q01/q99 band. Absent
-    # from checkpoints saved before this key existed, so those keep clamping.
-    skip_inference_clip: bool
     state_dropout_prob: float  # probability of zeroing out state during training (default 0.0)
     # Beta flow matching noise schedule (N1.7-style)
     noise_beta_alpha: float  # Beta distribution alpha (default 1.5)

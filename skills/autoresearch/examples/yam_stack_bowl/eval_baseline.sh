@@ -22,7 +22,7 @@ PYTHON="${PYTHON:-${PACKAGE_ROOT}/.venv/bin/python}"
 CONFIG_PATH="${CONFIG_PATH:-${PACKAGE_ROOT}/skills/autoresearch/examples/yam_stack_bowl/eval_config.yaml}"
 AUTORESEARCH_ROOT="${AUTORESEARCH_ROOT:?Set AUTORESEARCH_ROOT to a writable shared directory}"
 RUN_ROOT="${RUN_ROOT:-${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline}"
-CHECKPOINT="${CHECKPOINT_PATH:-${MODEL_PATH:-${RUN_ROOT}/training}}"
+MODEL_PATH="${CHECKPOINT_PATH:-${MODEL_PATH:-${RUN_ROOT}/training}}"
 EVAL_DIR="${EVAL_OUTPUT_DIR:-${RUN_ROOT}/eval}"
 RESULT_PATH="${RESULT_PATH:-${EVAL_DIR}/results.json}"
 
@@ -37,6 +37,6 @@ export REPO_ROOT PYTHON
 
 REPO_ROOT="${PACKAGE_ROOT}" bash "${PACKAGE_ROOT}/skills/autoresearch/scripts/eval_local.sh" \
   "${CONFIG_PATH}" \
-  --checkpoint "${CHECKPOINT}" \
+  --model-path "${MODEL_PATH}" \
   --output-json "${RESULT_PATH}" \
   --save-plot-dir "${EVAL_DIR}/plots"

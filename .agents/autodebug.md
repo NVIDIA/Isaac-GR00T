@@ -36,7 +36,7 @@ coding agent applies the change and AutoDebug independently verifies its commit.
 | | |
 |---|---|
 | **You provide** | A bug report, clean checkout, evidence, and optional compute targets |
-| **AutoDebug records** | Repository revision, Insights used, commands, hypotheses, full logs, and hashes |
+| **AutoDebug records** | Repository revision, commands, hypotheses, full logs, and hashes |
 | **Diagnosis returns** | A verified root cause or an inconclusive evidence record |
 | **Optional fix flow** | An immutable fix package followed by independent implementation verification |
 
@@ -46,10 +46,10 @@ problem requires them and the user grants access.
 
 ## Agent contract
 
-Always use the configured `insights` and `autodebug` skills. Their `SKILL.md` files define
-the operational workflow and grounding rules:
+Always use the configured `autodebug` skill. Its `SKILL.md` defines the operational
+workflow and grounding rules:
 
-- use Insights and solved cases only to prioritize tests;
+- use verified solved cases only to prioritize tests;
 - preserve progress in the runner-managed incident and complete hashed logs;
 - reproduce the exact failure in the diagnosis checkout and a clean baseline worktree;
 - test one explanation at a time at the earliest failing boundary;
@@ -70,8 +70,7 @@ updates when the incident is waiting, blocked, terminal, or no command is runnin
 ![Vertical GR00T AutoDebug workflow from report intake through diagnosis and optional fix verification](../docs/assets/autodebug-workflow.svg)
 
 1. **Receive the report.** Freeze the report, clean repository revision, supplied evidence,
-   and granted compute. Search published Insights and verified solved cases for relevant
-   prior experience.
+   and granted compute. Search verified solved cases for relevant prior experience.
 2. **Reproduce the failure.** Run the smallest command that emits the exact reported failure
    signature. Repeat it in a clean worktree at the same baseline revision.
 3. **Find the first failing boundary.** Use the independent
@@ -140,7 +139,7 @@ uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py s
   --incident /absolute/path/to/incident.json
 ```
 
-The lifecycle commands are `show`, `cases`, `insights`, `targets`, `probe`, `reproduce`,
+The lifecycle commands are `show`, `cases`, `targets`, `probe`, `reproduce`,
 `diagnose`, `handoff`, `pause`, `block`, `resume`, `verify`, and `cancel`. The
 [AutoDebug skill](../skills/autodebug/SKILL.md) owns their complete operational contract.
 
@@ -166,22 +165,11 @@ AutoDebug can investigate an external calibration, deployed package, robot state
 dataset mutation. The current resolved path still requires a committed repository change;
 external fixes remain waiting until their state can be frozen and independently verified.
 
-## How knowledge is used
+## How prior cases are used
 
-At intake, the runner searches the published read-only `.insights/` projection using the
-problem and observed behavior. It records the query, projection generation time and hash,
-and stable finding and chunk IDs. Missing knowledge is a grounding gap, not a blocker.
-
-Repeat retrieval after the failing boundary becomes clearer:
-
-```bash
-uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py insights \
-  --incident /absolute/path/to/incident.json \
-  --query 'exact symptom, version, embodiment, failing boundary, and attempted fixes'
-```
-
-Insights and verified solved cases rank likely tests. They never support or defend the
-root cause of a new incident; current-incident evidence does that.
+At intake, the runner ranks checked-in verified solved cases against the problem report.
+They can prioritize likely tests but never support or defend the root cause of a new
+incident; current-incident evidence does that.
 
 ## Compute targets
 
@@ -220,13 +208,13 @@ experiments.
 
 ```text
 incident.json                 lifecycle and compact evidence ledger
-logs/                         complete hashed command and knowledge results
+logs/                         complete hashed command results
 fix-package-NNN.md            immutable downstream implementation request
 verification-result-NNN.md    independent fix verdict and implementation diff digest
 ```
 
-Every executed command and knowledge lookup has a full log. `incident.json` remains the
-only durable progress record; do not maintain a parallel status file.
+Every executed command has a full log. `incident.json` remains the only durable progress
+record; do not maintain a parallel status file.
 
 At handoff, give the fix package to a separate coding agent. It must work in another Git
 worktree, commit only the allowed change paths, and return its worktree plus commit SHA.
@@ -238,9 +226,6 @@ Add a case under `skills/autodebug/infra/cases/` only after the same acceptance 
 before the change and passes after it. The directory's
 [README](../skills/autodebug/infra/cases/README.md) contains the complete schema and evidence
 requirements.
-
-Do not write `.insights/` directly. Submit a verified case to the reviewed knowledge
-pipeline so a later wholesale projection can publish its finding and supporting chunk.
 
 <details>
 <summary><strong>Implementation and verification guarantees</strong></summary>
@@ -292,15 +277,13 @@ change and must pass afterward without revealing the implementation.
 
 ```bash
 uv run --no-project --python 3.10 --with pytest python -m pytest -q \
-  tests/skills/autodebug/test_autodebug.py \
-  tests/skills/insights/test_insights.py
+  tests/skills/autodebug/test_autodebug.py
 ```
 
 ```text
 .agents/autodebug.md                     canonical Claude agent and user guide
 .agents/autodebug.toml                   modern agent configuration
 skills/autodebug/                        workflow, runner, cases, and references
-skills/insights/                         shared knowledge retrieval and projection search
 tests/skills/                             lifecycle and isolation tests
 tests/fixtures/autodebug/                held-out example and evaluation queue
 ```
