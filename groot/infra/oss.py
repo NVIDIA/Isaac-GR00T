@@ -65,6 +65,7 @@ OSS_PRETRAIN_CHECKPOINT_URI = (
 )
 OSS_N2_CODEC_ENV = "GROOT_N2_CODEC_ROUNDTRIP"
 OSS_N2_CODECS = ("none", "h264", "mp4v")
+OSS_RAY_UV_RUN_RUNTIME_ENV = "RAY_ENABLE_UV_RUN_RUNTIME_ENV"
 
 
 # TODO(cuonguyen): Consolidate this OSS train path with `uv ol train` once the  # noqa: TD003
@@ -149,12 +150,14 @@ def _run_train_eval_sequence(
         benchmark.stage = "training"
     train_status = _run_train(resolved, dry_run=args.dry_run)
     if train_status != 0 or args.dry_run:
-        if args.dry_run:
-            _emit(f"codec={_active_oss_codec()}")
         return train_status
     if benchmark:
         benchmark.record_training(resolved)
         benchmark.stage = "evaluation"
+        if benchmark.spec is not None and "closed_loop" in benchmark.spec.evaluation:
+            ray_address = os.environ.get("RAY_ADDRESS") or None
+            with _oss_local_ray_environment(ray_address):
+                return benchmark.evaluate(resolved.final_checkpoint)
         return benchmark.evaluate(resolved.final_checkpoint)
     return _run_eval(_eval_config(args, checkpoint=str(resolved.final_checkpoint)), dry_run=False)
 
@@ -182,7 +185,7 @@ def resolve_train(args: argparse.Namespace) -> ResolvedOssTrain:
     env["BATCH_SIZE"] = str(resolved.batch_size)
     env["NUM_GPUS"] = str(resolved.num_gpus)
     # Local OSS workers must reuse the complete environment that launched Ray.
-    env["RAY_ENABLE_UV_RUN_RUNTIME_ENV"] = "0"
+    env[OSS_RAY_UV_RUN_RUNTIME_ENV] = "0"
     env.setdefault("TRAINING_OUTPUT_ROOT", "/tmp/groot_outputs")  # noqa: S108
     env.setdefault("GROOT_CHECKPOINT_ROOT", os.environ.get("GROOT_CHECKPOINT_ROOT", ""))
 
@@ -237,7 +240,6 @@ def _run_eval(config: OssOpenLoopEvalConfig, *, dry_run: bool) -> int:
         _emit(f"trt_cache_dir={config.trt_cache_dir or ''}")
         _emit(f"rebuild_trt={config.rebuild_trt}")
         _emit(f"use_cuda_graph={config.use_cuda_graph}")
-        _emit(f"codec={_active_oss_codec()}")
         return 0
     _prepare_eval_trt(config)
     OssOpenLoopEvaluator(config).run()
@@ -304,10 +306,32 @@ def _run_closed_loop_eval(args: argparse.Namespace) -> int:
             },
         ),
     )
-    if args.dry_run:
-        _emit(f"codec={_active_oss_codec()}")
-        return run(config, dry_run=True)
-    return run(config, dry_run=False)
+    # Ray normally recreates a driver's ``uv run`` command for each worker. That
+    # is incorrect for the documented local ``uv run --no-sync`` workflow: the
+    # packaged worker directory has no pre-existing .venv, so --no-sync creates
+    # an empty environment that cannot even import Ray. A local cluster already
+    # shares this process's installed environment and source checkout. Preserve
+    # Ray's propagation behavior when connecting to an existing cluster.
+    with _oss_local_ray_environment(config.resolved_ray_address):
+        return run(config, dry_run=args.dry_run)
+
+
+@contextmanager
+def _oss_local_ray_environment(ray_address: str | None) -> Iterator[None]:
+    """Keep local OSS workers in the already-synchronized driver environment."""
+    if ray_address is not None:
+        yield
+        return
+    missing = object()
+    previous: object = os.environ.get(OSS_RAY_UV_RUN_RUNTIME_ENV, missing)
+    os.environ[OSS_RAY_UV_RUN_RUNTIME_ENV] = "0"
+    try:
+        yield
+    finally:
+        if previous is missing:
+            os.environ.pop(OSS_RAY_UV_RUN_RUNTIME_ENV, None)
+        else:
+            os.environ[OSS_RAY_UV_RUN_RUNTIME_ENV] = str(previous)
 
 
 def _run_policy_server(config: OssPolicyServerConfig, *, dry_run: bool) -> int:
@@ -323,7 +347,6 @@ def _run_policy_server(config: OssPolicyServerConfig, *, dry_run: bool) -> int:
         _emit(f"trt_cache_dir={config.trt_cache_dir or ''}")
         _emit(f"rebuild_trt={config.rebuild_trt}")
         _emit(f"use_cuda_graph={config.use_cuda_graph}")
-        _emit(f"codec={_active_oss_codec()}")
         return 0
 
     artifact_config = OssOpenLoopEvalConfig(

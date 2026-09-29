@@ -1,7 +1,7 @@
 environment:
   ENABLE_TENSORRT: "True"
 
-model_path: ${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline/training
+checkpoint: ${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline/training
 dataset_path: ${AUTORESEARCH_ROOT}/yam_stack_bowl/datasets/eval
 output_json: ${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline/eval/results.json
 save_plot_dir: ${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline/eval/plots

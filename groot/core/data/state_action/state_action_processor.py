@@ -71,6 +71,7 @@ class StateActionProcessor:
         apply_sincos_state_encoding: bool = False,
         use_relative_action: bool = False,
         use_q99_for_rel_action: bool | None = None,
+        skip_inference_clip: bool = False,
     ):
         """Initialize unified state and action processor.
 
@@ -91,11 +92,16 @@ class StateActionProcessor:
             use_q99_for_rel_action: Whether relative-action stats should route q01/q99
                 into the min/max slots when use_percentiles is enabled. None preserves
                 the current default behavior (match use_percentiles).
+            skip_inference_clip: Decode (unnormalize) WITHOUT clamping to [-1, 1] first.
+                Off by default, so decoding always clamps regardless of clip_outliers. Set
+                (via action_cfg in the checkpoint's processor config) for models trained
+                with clip_outliers off whose outputs are meant to exceed the q01/q99 band.
         """
         self.modality_configs = parse_modality_configs(modality_configs)
         self.statistics: dict[str, dict[str, dict[str, dict[str, list[float]]]]] = {}
         self.use_percentiles = use_percentiles
         self.clip_outliers = clip_outliers
+        self.skip_inference_clip = skip_inference_clip
         self.apply_sincos_state_encoding = apply_sincos_state_encoding
         self.use_relative_action = use_relative_action
         self.use_q99_for_rel_action = (
@@ -344,7 +350,7 @@ class StateActionProcessor:
             else:
                 params = self.norm_params[embodiment_tag]["state"][joint_group]
                 unnormalized_values[joint_group] = unnormalize_values_minmax(
-                    state[joint_group], params
+                    state[joint_group], params, clip=not self.skip_inference_clip
                 )
 
         return unnormalized_values
@@ -485,7 +491,9 @@ class StateActionProcessor:
             ):
                 unnormalized = unnormalize_values_meanstd(group_values, params)
             else:
-                unnormalized = unnormalize_values_minmax(group_values, params)
+                unnormalized = unnormalize_values_minmax(
+                    group_values, params, clip=not self.skip_inference_clip
+                )
 
             unnormalized_values[joint_group] = unnormalized
 
@@ -768,6 +776,7 @@ class StateActionProcessor:
             f"statistics={self.statistics}, "
             f"use_percentiles={self.use_percentiles}, "
             f"clip_outliers={self.clip_outliers}, "
+            f"skip_inference_clip={self.skip_inference_clip}, "
             f"apply_sincos_state_encoding={self.apply_sincos_state_encoding}, "
             f"use_relative_action={self.use_relative_action})"
         )

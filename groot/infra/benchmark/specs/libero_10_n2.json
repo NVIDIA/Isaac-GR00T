@@ -4,7 +4,7 @@
   "benchmark": {
     "recipe_id": "libero_10_n2",
     "recipe_version": "1",
-    "provenance": "OSS LIBERO-10 onboarding: oss/README.md and n2_oss_libero_10"
+    "provenance": "LIBERO family benchmark walkthrough: LIBERO-10"
   },
   "dataset": {
     "repo_id": "IPEC-COMMUNITY/libero_10_no_noops_1.0.0_lerobot",
