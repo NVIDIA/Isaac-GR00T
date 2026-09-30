@@ -22,6 +22,7 @@ Uses the split architecture:
 - ConcatPacker: packs modality tokens into PackedSequence for the transformer
 """
 
+from collections.abc import Sequence
 import dataclasses
 import glob
 import logging
@@ -99,6 +100,14 @@ def apply_state_keep(state_tokens: torch.Tensor, data: dict) -> torch.Tensor:
         return state_tokens
     keep = torch.as_tensor(state_keep, device=state_tokens.device, dtype=state_tokens.dtype)
     return state_tokens * keep.reshape(-1, 1, 1)
+
+
+def _assert_uniform_cache_mask(mask: torch.Tensor) -> None:
+    """A shared KV prefix requires the same valid positions for every sample."""
+    assert torch.equal(mask, mask[:1].expand_as(mask)), (
+        "kv_cache_cond requires retained token validity uniform across the batch; "
+        "use kv_cache_cond=False for per-sample padding"
+    )
 
 
 @dataclasses.dataclass
@@ -558,6 +567,15 @@ class GrootN2(PreTrainedModel):
         )
         return {}
 
+    def _static_inference_packing_kwargs(self, *, data: dict, video_tokens: torch.Tensor) -> dict:
+        """Supply project conditioning groups for the disjoint (_denoise_action) path.
+
+        Returned groups are packed into the cached static prefix and every uncached
+        action step, so every group must be kv_cacheable. Base N2 has none.
+        """
+        del data, video_tokens
+        return {}
+
     def _build_token_merge_attention_mask(
         self,
         packed: PackedSequence,
@@ -566,18 +584,22 @@ class GrootN2(PreTrainedModel):
     ) -> tuple[BlockMask | None, int]:
         """Build the reduced mask used inside the token-merge layer range.
 
-        Project extensions that add modalities with custom attention semantics
-        may override this hook. Base N2 retains its existing four-modality mask
-        construction exactly.
+        Reuse the packer's extension attention rule at the retained positions.
+        Project extensions may override this hook for other mask constructions.
+        Without a rule, retain the existing four-modality mask construction.
         """
         if packed.attention_mask is None:
             return None, 0
+        rule_kwargs = {}
+        if getattr(packed, "attention_rule", None) is not None:
+            rule_kwargs["attention_rule"] = packed.attention_rule
         return _build_attention_mask(
             packed.modality_ids[:, coarse_token_idx],
             packed.tokens.device,
             getattr(self, "attention_mask_pattern", None),
             token_valid_mask[:, coarse_token_idx] if token_valid_mask is not None else None,
             block_size=self.packer.flex_attention_block_size,
+            **rule_kwargs,
         )
 
     def _build_token_merge_plan(
@@ -601,6 +623,11 @@ class GrootN2(PreTrainedModel):
         kernel = getattr(self.config, "token_merge_kernel", None)
         if kernel is None:
             return None
+        # Caller masks describe the ordinary sequence. The packed mask also
+        # covers appended groups, whose indices survive video token merging.
+        packed_valid_mask = getattr(packed, "token_valid_mask", None)
+        if packed_valid_mask is not None:
+            token_valid_mask = packed_valid_mask
         start, end = self.config.token_merge_layers
         _, kh, kw = kernel
         post_T, post_H, post_W = shape_info["post_T"], shape_info["post_H"], shape_info["post_W"]
@@ -1404,6 +1431,8 @@ class GrootN2(PreTrainedModel):
             device=device,
         )
 
+        # getattr: duck-typed runtimes (e.g. test harnesses) may not define the hook.
+        static_hook = getattr(self, "_static_inference_packing_kwargs", None)
         static_inputs = {
             "shape_info": cond_shape_info,
             "video_tokens": video_tokens,
@@ -1415,6 +1444,9 @@ class GrootN2(PreTrainedModel):
             "state_token_sigmas": state_token_sigmas,
             "state_rope_freqs": state_rope_freqs,
             "token_valid_mask": token_valid_mask,
+            "extra_pack_kwargs": (
+                static_hook(data=data, video_tokens=video_tokens) if static_hook is not None else {}
+            ),
         }
 
         needs_neg_cache = neg_prompt_embs is not None and guidance_scale != 1.0
@@ -1530,6 +1562,10 @@ class GrootN2(PreTrainedModel):
                 static_inputs["video_tokens"].shape[1] + static_inputs["state_tokens"].shape[1]
             )
             tvm = tvm[:, :L_static]
+        # Static conditioning groups ride in the prefix; action reads every cached key.
+        extra = static_inputs.get("extra_pack_kwargs", {})
+        if not all(g.kv_cacheable for g in extra.get("additional_token_groups", ())):
+            raise ValueError("Static-prefix additional token groups must be kv_cacheable")
         packed = self.packer.pack(
             video_tokens=static_inputs["video_tokens"],
             video_timesteps=static_inputs["video_token_sigmas"],
@@ -1541,6 +1577,7 @@ class GrootN2(PreTrainedModel):
             state_rope=static_inputs["state_rope_freqs"],
             attention_mask_pattern=getattr(self, "attention_mask_pattern", None),
             token_valid_mask=tvm,
+            **extra,
         )
         token_merge = self._build_token_merge_plan(packed, static_inputs.get("shape_info"), tvm)
         cache = CondKVCache()
@@ -1554,14 +1591,14 @@ class GrootN2(PreTrainedModel):
         # outputs; the underlying K/V projections (and therefore the cache)
         # are populated regardless of validity. Filter them out here so the
         # downstream consumer sees only real positions.
-        if tvm is not None and not bool(tvm.all()):
-            assert torch.all(
-                tvm == tvm[:1]
-            ), "kv_cache_cond assumes per-view padding is uniform across the batch"
-            keep_fine = tvm[0].nonzero(as_tuple=True)[0]
+        # With appended groups, the packer's mask also covers their positions.
+        keep_mask = packed.token_valid_mask if extra else tvm
+        if keep_mask is not None and not bool(keep_mask.all()):
+            _assert_uniform_cache_mask(keep_mask)
+            keep_fine = keep_mask[0].nonzero(as_tuple=True)[0]
             keep_coarse = None
             if token_merge is not None:
-                keep_fine, keep_coarse = token_merge.keep_indices_per_segment(tvm[0])
+                keep_fine, keep_coarse = token_merge.keep_indices_per_segment(keep_mask[0])
             for layer_idx in range(len(cache.key_cache)):
                 # Mid layers captured the coarse prefix; keep indices follow.
                 keep_idx = (
@@ -1615,6 +1652,7 @@ class GrootN2(PreTrainedModel):
                 state_rope=static_inputs["state_rope_freqs"],
                 attention_mask_pattern=getattr(self, "attention_mask_pattern", None),
                 token_valid_mask=static_inputs.get("token_valid_mask"),
+                **static_inputs.get("extra_pack_kwargs", {}),
             )
             tm_kwargs = {}
             token_merge = self._build_token_merge_plan(
@@ -2067,16 +2105,21 @@ class GrootN2(PreTrainedModel):
             # itself; often v_denoise too).
             if pos_cache is None:
                 continue
-            # Conditional kwarg — see _build_token_merge_plan's docstring.
+            # Conditional kwargs — see _build_token_merge_plan's docstring.
             tm_slice_kwargs = {"token_merge": token_merge} if token_merge is not None else {}
+            slice_valid_mask = token_valid_mask
+            kv_cacheable_modalities = getattr(packed, "kv_cacheable_modalities", ())
+            if kv_cacheable_modalities:
+                tm_slice_kwargs["extra_keep_modalities"] = kv_cacheable_modalities
+                slice_valid_mask = packed.token_valid_mask
             pos_cache = self._slice_cache_to_static_prefix(
-                pos_cache, packed.modality_ids, token_valid_mask=token_valid_mask, **tm_slice_kwargs
+                pos_cache, packed.modality_ids, token_valid_mask=slice_valid_mask, **tm_slice_kwargs
             )
             if neg_cache is not None:
                 neg_cache = self._slice_cache_to_static_prefix(
                     neg_cache,
                     packed.modality_ids,
-                    token_valid_mask=token_valid_mask,
+                    token_valid_mask=slice_valid_mask,
                     **tm_slice_kwargs,
                 )
 
@@ -2141,6 +2184,7 @@ class GrootN2(PreTrainedModel):
         modality_ids: torch.Tensor,
         token_valid_mask: torch.Tensor | None = None,
         token_merge: TokenMergePlan | None = None,
+        extra_keep_modalities: Sequence[int] = (),
     ) -> CondKVCache:
         """Slice a joint-forward cache to positions attended to by action.
 
@@ -2158,7 +2202,8 @@ class GrootN2(PreTrainedModel):
         also dropped (e.g. padded views for ckpts where max_n_cameras >
         actual views). Without this, the cached fast path's unmasked flash
         attention would let action queries attend to padded-view K/V.
-        Assumes per-view padding is uniform across the batch dim.
+        With appended groups, validity of retained positions must be uniform
+        across the batch. Use uncached inference for per-sample padding.
         """
         pattern = self._resolve_attention_mask_pattern()
         table = pattern.to_table()
@@ -2178,24 +2223,28 @@ class GrootN2(PreTrainedModel):
             keep_modalities.append(MODALITY_VIDEO)
         if action_row[2]:
             keep_modalities.append(MODALITY_STATE)
+        # kv_cacheable appended groups (PackedSequence.kv_cacheable_modalities).
+        if any(m <= MODALITY_ACTION for m in extra_keep_modalities):
+            raise ValueError(
+                f"extra_keep_modalities must be appended groups: {extra_keep_modalities}"
+            )
+        keep_modalities.extend(extra_keep_modalities)
 
         ids = modality_ids[0]
         keep = torch.zeros_like(ids, dtype=torch.bool)
         for m in keep_modalities:
             keep |= ids == m
         if token_valid_mask is not None:
-            assert torch.all(
-                token_valid_mask == token_valid_mask[:1]
-            ), "kv_cache_cond assumes per-view padding is uniform across the batch"
-            # Project-local inference hooks may append auxiliary tokens after
-            # the ordinary packed prefix.  Those tokens are excluded above by
-            # modality, while this mask describes only the original prefix.
-            # Apply it to that prefix without assuming both lengths match.
+            # Appended groups are excluded above by modality unless listed in
+            # extra_keep_modalities; callers keeping them pass the packer's
+            # full-length mask. Apply the mask to the prefix it describes.
             if token_valid_mask.shape[1] > keep.shape[0]:
                 raise ValueError(
                     "token_valid_mask is longer than the packed inference sequence: "
                     f"{token_valid_mask.shape[1]} > {keep.shape[0]}"
                 )
+            # Discarded positions cannot affect the cached attention.
+            _assert_uniform_cache_mask(token_valid_mask | ~keep[: token_valid_mask.shape[1]])
             keep[: token_valid_mask.shape[1]] &= token_valid_mask[0]
         fine_idx = keep.nonzero(as_tuple=True)[0]
         # With token_merge, the mid layers captured the coarse prefix; select the
