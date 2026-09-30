@@ -79,6 +79,111 @@ def test_oss_cli_does_not_eagerly_import_optional_policy_server_runtime() -> Non
     assert not hasattr(oss, "run_gr00t_server")
 
 
+def test_oss_build_trt_infers_single_embodiment_and_prints_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    (checkpoint / "processor_config.json").write_text(
+        json.dumps(
+            {
+                "processor_kwargs": {
+                    "modality_configs": {"test_embodiment": {"action": {}, "state": {}}}
+                }
+            }
+        )
+    )
+    bundle = tmp_path / "trt-cache" / "bundle"
+    builds: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        oss,
+        "_resolve_or_build_trt",
+        lambda **kwargs: builds.append(kwargs) or bundle,
+    )
+
+    assert (
+        oss.main(
+            [
+                "build-trt",
+                "--checkpoint",
+                str(checkpoint),
+                "--device",
+                "cuda:1",
+                "--codec",
+                "h264",
+                "--trt-cache-dir",
+                str(tmp_path / "trt-cache"),
+                "--rebuild-trt",
+            ]
+        )
+        == 0
+    )
+
+    assert builds == [
+        {
+            "checkpoint": checkpoint,
+            "embodiment": "test_embodiment",
+            "denoising_steps": 4,
+            "cache_dir": str(tmp_path / "trt-cache"),
+            "rebuild": True,
+            "device": "cuda:1",
+            "codec": "h264",
+        }
+    ]
+    assert capsys.readouterr().out == f"TRT_ENGINE_DIR={bundle}\n"
+
+
+def test_oss_build_trt_requires_selection_for_multiple_embodiments(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    (checkpoint / "processor_config.json").write_text(
+        json.dumps(
+            {
+                "processor_kwargs": {
+                    "modality_configs": {
+                        "embodiment_a": {},
+                        "embodiment_b": {},
+                    }
+                }
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="pass --embodiment-tag"):
+        oss.main(["build-trt", "--checkpoint", str(checkpoint)])
+
+
+def test_oss_build_trt_accepts_explicit_embodiment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    bundle = tmp_path / "bundle"
+    builds: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        oss,
+        "_resolve_or_build_trt",
+        lambda **kwargs: builds.append(kwargs) or bundle,
+    )
+
+    assert (
+        oss.main(
+            [
+                "build-trt",
+                "--checkpoint",
+                str(checkpoint),
+                "--embodiment-tag",
+                "selected_embodiment",
+            ]
+        )
+        == 0
+    )
+    assert builds[0]["embodiment"] == "selected_embodiment"
+
+
 @pytest.mark.parametrize(
     "argv",
     [
@@ -1468,6 +1573,10 @@ def test_oss_train_eval_always_evaluates_new_final_checkpoint_with_hf_vae(
 
 def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
     package_root = _package_root()
+
+    # GEAR workdir-upload policy is internal launch infrastructure, not part of
+    # the OSS runtime or packaging surface.
+    assert not list(package_root.rglob(".gearignore"))
 
     exported_files = [
         package_root / "groot/infra/oss.py",
