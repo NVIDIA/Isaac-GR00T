@@ -38,55 +38,50 @@ only the checkpoint layouts that have been validated end to end:
 | 3 | 80 |
 | 4 | 48 |
 
-## Export, build, and validate engines
+## Build and validate engines
 
-Choose any writable directory for the generated ONNX files, TensorRT engines, and manifest.
-Use the same directory for export, build, validation, and serving. The commands build the
-engines locally; they do not download prebuilt engines.
+Choose a writable cache directory outside the Git checkout for the generated ONNX files,
+TensorRT engines, and manifest, or omit `--trt-cache-dir` to use the default external cache.
+Generated files inside the checkout can invalidate clean-source provenance. The command
+builds engines locally; it does not download prebuilt engines. Serve using the validated
+bundle path printed by the command.
 
 Start from a clean Git checkout. The checkpoint can be in any local directory; it must contain
 `config.json`, `processor_config.json`, `statistics.json`, and the model safetensors. All model
 dependencies referenced by `config.json` must also resolve on the Thor.
 
-Set the checkpoint and output paths. The commands below automatically select the embodiment
-from a single-embodiment checkpoint:
+Set the checkpoint and cache paths. `build-trt` resolves the checkpoint contract, exports the
+ONNX graphs, builds the GPU-specific engines, validates them against PyTorch, and prints the
+validated bundle path. It automatically selects the workload from a single-embodiment
+checkpoint; pass `--embodiment-tag` for a supported multi-embodiment checkpoint.
 
 ```bash
 export CHECKPOINT=/path/to/checkpoint
-export TRT_ARTIFACT_DIR=/path/to/trt-output
-
-export PROCESSOR_EMBODIMENT="$(python -c \
-  'import json, sys; keys=list(json.load(open(sys.argv[1]))); assert len(keys) == 1, f"expected one embodiment, found {keys}"; print(keys[0])' \
-  "$CHECKPOINT/statistics.json")"
-export SERVER_EMBODIMENT="$(printf '%s' "$PROCESSOR_EMBODIMENT" | tr '[:lower:]' '[:upper:]')"
+export TRT_CACHE_DIR=/absolute/path/outside/checkout/trt-cache
 
 # This must print nothing: the engine manifest records clean Git revisions.
 git status --short
 
-# Export the checkpoint-shaped ONNX graphs.
-python -P -m groot.deployment.n2_trt.tools.export_transformer \
+python -P -m groot.infra.oss build-trt \
   --checkpoint "$CHECKPOINT" \
-  --embodiment "$PROCESSOR_EMBODIMENT" \
-  --codec mp4v \
-  --output-dir "$TRT_ARTIFACT_DIR"
-
-python -P -m groot.deployment.n2_trt.tools.export_vae \
-  --checkpoint "$CHECKPOINT" \
-  --embodiment "$PROCESSOR_EMBODIMENT" \
-  --output-dir "$TRT_ARTIFACT_DIR"
-
-# Build GPU-specific TensorRT engines from those ONNX graphs.
-python -P -m groot.deployment.n2_trt.tools.build_engines \
-  --artifact-root "$TRT_ARTIFACT_DIR"
-
-# Verify TensorRT outputs against the captured PyTorch references.
-python -P -m groot.deployment.n2_trt.validation \
-  --artifact-root "$TRT_ARTIFACT_DIR" \
-  --checkpoint "$CHECKPOINT" \
-  --embodiment "$PROCESSOR_EMBODIMENT"
+  --trt-cache-dir "$TRT_CACHE_DIR" \
+  --codec mp4v
 ```
 
-Validation writes `n2_trt_manifest.json`. Serving authenticates that manifest, the checkpoint,
+The build and explicit serving examples use `--codec mp4v`. Choose the codec appropriate
+to your checkpoint and workflow, and use the same `--codec` for building and consuming
+the bundle; a mismatch is rejected. The CLI default is `none`.
+
+The command prints `TRT_ENGINE_DIR=<path>`. Save that path as `TRT_ARTIFACT_DIR` when using
+an explicitly managed bundle. The later inference commands also require the selected workload:
+
+```bash
+export TRT_ARTIFACT_DIR=/path/printed/by/build-trt
+export PROCESSOR_EMBODIMENT=<checkpoint-embodiment-tag>
+export SERVER_EMBODIMENT="$(printf '%s' "$PROCESSOR_EMBODIMENT" | tr '[:lower:]' '[:upper:]')"
+```
+
+Validation writes `n2_trt_manifest.json`; serving authenticates that manifest, the checkpoint,
 all three engine files, their fixed I/O schemas, TensorRT version, and target GPU.
 
 ## Build or reuse engines automatically
@@ -112,6 +107,10 @@ checkout revision when Git metadata is available, or the installed wheel's
 immutable `RECORD` contents. Unsupported checkpoint contracts and failed
 validation stop the command without eager fallback. Automatic bundles
 currently require `--denoising-steps 4`.
+
+Keep cache overrides outside the checkout. The automatic example above selects
+`--codec none` and builds or reuses a bundle for that codec; it does not reuse the
+`mp4v` bundle from the explicit build example.
 
 `train-eval --enable-trt` builds only after training has produced its final
 checkpoint. `closed-loop-eval --enable-trt` resolves or builds a compatible
