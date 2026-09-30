@@ -1469,6 +1469,10 @@ def test_oss_train_eval_always_evaluates_new_final_checkpoint_with_hf_vae(
 def test_oss_infra_surface_exposes_only_temporary_data_credentials() -> None:
     package_root = _package_root()
 
+    # GEAR workdir-upload policy is internal launch infrastructure, not part of
+    # the OSS runtime or packaging surface.
+    assert not list(package_root.rglob(".gearignore"))
+
     exported_files = [
         package_root / "groot/infra/oss.py",
         package_root / "groot/infra/dataset_preparation.py",
