@@ -69,7 +69,7 @@ class TrainingConfig:
 
     # Muon
     use_muon: bool = False
-    muon_impl: str = "dist"  # "dist", "single_batched"
+    muon_impl: str = "dist"  # "dist", "single_batched", "moonlight_zero2"
     muon_lr: float = 0.005
 
     # Legacy optimizer
