@@ -226,7 +226,7 @@ class OLTrainingProgressCallback(TrainerCallback):
 @dataclass
 class OmniTrainingArguments(TrainingArguments):
     use_muon: bool = field(default=False)
-    muon_impl: str = field(default="dist")  # "dist", "single_batched"
+    muon_impl: str = field(default="dist")  # "dist", "single_batched", "moonlight_zero2"
     muon_lr: float = field(default=0.05)
     use_legacy_wd_application: bool = field(default=False)
     log_distributed_aux_losses: bool = field(default=True)
@@ -1378,7 +1378,23 @@ def run(
         assert training_args.muon_impl in (
             "dist",
             "single_batched",
-        ), "muon_impl must be 'dist' or 'single_batched'"
+            "moonlight_zero2",
+        ), "muon_impl must be 'dist', 'single_batched', or 'moonlight_zero2'"
+        # MoonlightZeroOptimizer steps on the flat fp32 partitions ZeRO-2 hands each rank and
+        # all-gathers them over NCCL, so it needs GPU-resident ZeRO-2 partitions.
+        if (
+            training_args.use_muon
+            and training_args.muon_impl == "moonlight_zero2"
+            and (
+                deepspeed_config is None
+                or config.training.deepspeed_stage != 2
+                or config.training.deepspeed_offload_optimizer
+            )
+        ):
+            raise ValueError(
+                "muon_impl='moonlight_zero2' requires DeepSpeed ZeRO stage 2 without "
+                "optimizer offload (num_gpus > 1, use_ddp off)"
+            )
 
         # Create trainer
         trainer_class = pipeline.get_trainer_class(GR00TTrainer)
