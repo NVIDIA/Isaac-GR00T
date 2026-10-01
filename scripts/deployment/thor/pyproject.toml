@@ -30,14 +30,12 @@ dependencies = [
 override-dependencies = [
     "flash-attn==2.8.4",
     "torch==2.10.0",
-    "torchcodec==0.10.0",
     "torchvision==0.25.0",
 ]
 
 [tool.uv.sources]
 isaac-groot-n2 = { path = "../../..", editable = true }
 torch = { index = "jetson-sbsa-cu130" }
-torchcodec = { index = "jetson-sbsa-cu130" }
 torchvision = { index = "jetson-sbsa-cu130" }
 triton = { index = "jetson-sbsa-cu130" }
 flash-attn = { index = "jetson-sbsa-cu130" }

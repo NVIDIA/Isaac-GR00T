@@ -127,29 +127,7 @@ workflows, see the [agentic workflows and skills guide](skills/README.md).
 
 ## TensorRT Deployment
 
-Build and validate a checkpoint-specific TensorRT engine bundle on the GPU that
-will run it:
-
-```bash
-uv run --no-sync python -P -m groot.infra.oss build-trt \
-  --checkpoint <hf-uri-or-local-path> \
-  --codec mp4v
-```
-
-The command infers the workload for a single-embodiment checkpoint; pass
-`--embodiment-tag <checkpoint-embodiment-tag>` when the checkpoint contains
-more than one. It prints `TRT_ENGINE_DIR=<path>` for use with
-`--trt-engine-dir` on `eval`, `closed-loop-eval`, or `policy-server`.
-
-The default bundle cache is `~/.cache/groot/tensorrt` (or under `XDG_CACHE_HOME`
-when set). Keep any `--trt-cache-dir` or `GROOT_TRT_CACHE_ROOT` override outside
-the checkout so generated files do not invalidate clean-source provenance.
-This example uses `mp4v` to match the deployment guide's explicit serving
-examples. Choose the codec appropriate to your checkpoint and workflow, and
-use the same `--codec` when building and consuming the bundle.
-
-For platform setup, supported checkpoint contracts, automatic bundle reuse,
-and serving examples, see the
+For accelerated N2 inference, see the
 [TensorRT deployment and inference guide](scripts/deployment/README.md).
 
 ## Benchmarks

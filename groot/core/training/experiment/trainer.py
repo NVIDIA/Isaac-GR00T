@@ -1299,48 +1299,7 @@ class GR00TTrainer(Trainer):
         - embed_params: embedding parameters
         - scalar_params: parameters with ndim < 2
         - head_params: language model head parameters
-
-        muon_impl="moonlight_zero2": Muon on the CosmosTransformerBlock attn1/attn2/ff matrices
-        only, AdamW everywhere else, one learning rate for both (muon_lr is not read).
         """
-        if self.args.muon_impl == "moonlight_zero2":
-            if self.optimizer is None:
-                from groot.core.training.models.n2.components.transformer_cosmos import (
-                    CosmosTransformerBlock,
-                )
-                from groot.core.utils.moonlight_zero import (
-                    MoonlightZeroOptimizer,
-                    moonlight_param_groups,
-                )
-
-                muon_param_ids = {
-                    id(p)
-                    for module in self.model.modules()
-                    if isinstance(module, CosmosTransformerBlock)
-                    for branch in (module.attn1, module.attn2, module.ff)
-                    for p in branch.parameters()
-                    if p.requires_grad and p.ndim == 2
-                }
-                if not muon_param_ids:
-                    raise ValueError("moonlight_zero2 requires trainable N2 transformer blocks")
-                self.optimizer = MoonlightZeroOptimizer(
-                    moonlight_param_groups(
-                        self.model.named_parameters(),
-                        muon_param_ids,
-                        self.get_decay_parameter_names(self.model),
-                        self.args.weight_decay,
-                    ),
-                    lr=self.args.learning_rate,
-                    betas=(self.args.adam_beta1, self.args.adam_beta2),
-                    eps=self.args.adam_epsilon,
-                )
-                logging.info(
-                    "Moonlight ZeRO-2: %d matrix tensors, lr=%s",
-                    len(muon_param_ids),
-                    self.args.learning_rate,
-                )
-            return self.optimizer
-
         opt_model = self.model
         muon_lr = self.args.muon_lr
 
@@ -1429,8 +1388,7 @@ class GR00TTrainer(Trainer):
                 self.optimizer = MuonWithAuxAdam(param_groups)
             else:
                 raise ValueError(
-                    f"Unknown muon_impl: {self.args.muon_impl}. Expected 'dist', 'single_batched', "
-                    "or 'moonlight_zero2'."
+                    f"Unknown muon_impl: {self.args.muon_impl}. Expected 'single_batched' or 'dist'."
                 )
 
         return self.optimizer

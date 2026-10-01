@@ -338,13 +338,7 @@ class PredictGraphRunner:
         # slab once. Other graph backends retain independent per-layer copies.
         borrow_trt_prefix = getattr(model, "n2_trt_runtime", None) is not None
 
-        def graph_safe_slice(
-            cache, modality_ids, token_valid_mask=None, token_merge=None, extra_keep_modalities=()
-        ):
-            if extra_keep_modalities:
-                raise ValueError(
-                    "predict CUDA graph does not support cacheable AdditionalTokenGroups"
-                )
+        def graph_safe_slice(cache, modality_ids, token_valid_mask=None, token_merge=None):
             key = (tuple(modality_ids[0].shape), token_merge is not None)
             if key not in idx_cache:
                 table = model._resolve_attention_mask_pattern().to_table()

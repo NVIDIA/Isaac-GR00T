@@ -50,12 +50,13 @@ def _launch_app():
         os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
         os.environ.setdefault("ACCEPT_EULA", "Y")
         os.environ.setdefault("PRIVACY_CONSENT", "Y")
+        from env.camera_manager.capture.render_sync import zero_delay_kit_args
         from isaaclab.app import AppLauncher
 
         _APP_LAUNCHER = AppLauncher(
             headless=True,
             enable_cameras=True,
-            kit_args=f"--portable-root {portable_root}",
+            kit_args=f"--portable-root {portable_root} {zero_delay_kit_args()}",
         )
     return _APP_LAUNCHER.app
 
@@ -172,7 +173,7 @@ class RoboDojoEnv(gym.Env):
             for env_idx in range(self._num_envs)
         ]
         capture = self._task.capture_manager
-        self._task.render()
+        self._obs_manager.render_for_capture()
         env_ids = list(range(self._num_envs))
         camera_data = capture.step(env_ids=env_ids)
         for camera_id, data in enumerate(camera_data):
