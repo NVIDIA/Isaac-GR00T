@@ -416,6 +416,13 @@ def _materialize_training_resume_checkpoint(
     return result
 
 
+def _continuation_checkpoint(resume_from_checkpoint: str | bool, output_dir: Path) -> str | None:
+    """Checkpoint that trainer.train(resume_from_checkpoint=...) will restore, if any."""
+    if resume_from_checkpoint is True:
+        return get_last_checkpoint(str(output_dir))
+    return resume_from_checkpoint or None
+
+
 def _materialize_explicit_resume(
     config: Config, selected: str, output_dir: str, global_rank: int
 ) -> str:
@@ -1272,6 +1279,7 @@ def run(
             dataset_build_artifacts=dataset_build_artifacts,
             **dict(pipeline_kwargs or {}),
         )
+        pipeline.resume_checkpoint = _continuation_checkpoint(resume_from_checkpoint, output_dir)
         if os.environ.get("_GROOT_DRY_RUN_STUB_MODEL") == "1":
             pipeline._create_model = lambda: IdentityModel()  # noqa: SLF001
         pipeline.setup()

@@ -38,6 +38,9 @@ class ModelPipeline:
         self.eval_dataset = None
         self.data_collator = None
         self._dataset_factory = None
+        # Checkpoint that training continues from (None for a fresh run); set by
+        # experiment.run before setup().
+        self.resume_checkpoint: str | None = None
 
     def setup(self):
         pass
