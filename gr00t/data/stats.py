@@ -292,25 +292,35 @@ def generate_stats(dataset_path: Path | str):
 
 
 class RelativeActionLoader:
-    def __init__(self, dataset_path: Path | str, embodiment_tag: EmbodimentTag, action_key: str):
+    def __init__(
+        self,
+        dataset_path: Path | str,
+        embodiment_tag: EmbodimentTag,
+        action_key: str,
+        *,
+        modality_configs: dict[str, ModalityConfig] | None = None,
+    ):
+        configs = (
+            MODALITY_CONFIGS[embodiment_tag.value] if modality_configs is None else modality_configs
+        )
         self.dataset_path = Path(dataset_path)
         self.modality_configs: dict[str, ModalityConfig] = {}
         self.action_key = action_key
         # Check action config
-        assert action_key in MODALITY_CONFIGS[embodiment_tag.value]["action"].modality_keys
-        idx = MODALITY_CONFIGS[embodiment_tag.value]["action"].modality_keys.index(action_key)
-        action_configs = MODALITY_CONFIGS[embodiment_tag.value]["action"].action_configs
-        assert action_configs is not None, MODALITY_CONFIGS[embodiment_tag.value]["action"]
+        assert action_key in configs["action"].modality_keys
+        idx = configs["action"].modality_keys.index(action_key)
+        action_configs = configs["action"].action_configs
+        assert action_configs is not None, configs["action"]
         self.action_config = action_configs[idx]
         self.modality_configs["action"] = ModalityConfig(
-            delta_indices=MODALITY_CONFIGS[embodiment_tag.value]["action"].delta_indices,
+            delta_indices=configs["action"].delta_indices,
             modality_keys=[action_key],
         )
         # Check state config
         state_key = self.action_config.state_key or action_key
-        assert state_key in MODALITY_CONFIGS[embodiment_tag.value]["state"].modality_keys
+        assert state_key in configs["state"].modality_keys
         self.modality_configs["state"] = ModalityConfig(
-            delta_indices=MODALITY_CONFIGS[embodiment_tag.value]["state"].delta_indices,
+            delta_indices=configs["state"].delta_indices,
             modality_keys=[state_key],
         )
         # Check state-action consistency
@@ -368,8 +378,12 @@ def calculate_stats_for_key(
     embodiment_tag: EmbodimentTag,
     group_key: str,
     max_episodes: int = -1,
+    *,
+    modality_configs: dict[str, ModalityConfig] | None = None,
 ) -> dict:
-    loader = RelativeActionLoader(dataset_path, embodiment_tag, group_key)
+    loader = RelativeActionLoader(
+        dataset_path, embodiment_tag, group_key, modality_configs=modality_configs
+    )
     trajectories = []
     for episode_id in tqdm(range(len(loader)), desc=f"Loading trajectories for key {group_key}"):
         if max_episodes != -1 and episode_id >= max_episodes:
@@ -385,7 +399,12 @@ def calculate_stats_for_key(
     }
 
 
-def _compute_relative_action_fingerprint(embodiment_tag: EmbodimentTag, action_key: str) -> str:
+def _compute_relative_action_fingerprint(
+    embodiment_tag: EmbodimentTag,
+    action_key: str,
+    *,
+    modality_configs: dict[str, ModalityConfig] | None = None,
+) -> str:
     """Hash the inputs that change ``calculate_stats_for_key``'s output.
 
     Cached entries in ``relative_stats.json`` are only safe to reuse when every
@@ -394,8 +413,11 @@ def _compute_relative_action_fingerprint(embodiment_tag: EmbodimentTag, action_k
     silently reused for a different combo with the same ``action_key`` name,
     leading to wrong normalization without any error.
     """
-    action_modality = MODALITY_CONFIGS[embodiment_tag.value]["action"]
-    state_modality = MODALITY_CONFIGS[embodiment_tag.value]["state"]
+    configs = (
+        MODALITY_CONFIGS[embodiment_tag.value] if modality_configs is None else modality_configs
+    )
+    action_modality = configs["action"]
+    state_modality = configs["state"]
     idx = action_modality.modality_keys.index(action_key)
     action_config = action_modality.action_configs[idx]
     payload = {
@@ -412,9 +434,18 @@ def _compute_relative_action_fingerprint(embodiment_tag: EmbodimentTag, action_k
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) -> None:
+def generate_rel_stats(
+    dataset_path: Path | str,
+    embodiment_tag: EmbodimentTag,
+    *,
+    modality_configs: dict[str, ModalityConfig] | None = None,
+) -> None:
+    """Use the run's resolved modalities; standalone callers retain registry defaults."""
     dataset_path = Path(dataset_path)
-    action_config = MODALITY_CONFIGS[embodiment_tag.value]["action"]
+    configs = (
+        MODALITY_CONFIGS[embodiment_tag.value] if modality_configs is None else modality_configs
+    )
+    action_config = configs["action"]
     if action_config.action_configs is None:
         return
     action_keys = [
@@ -426,11 +457,16 @@ def generate_rel_stats(dataset_path: Path | str, embodiment_tag: EmbodimentTag) 
     stats = _load_stats_cache(stats_path)
     fingerprints = stats.setdefault(STATS_FINGERPRINTS_KEY, {})
     for action_key in sorted(action_keys):
-        expected_fp = _compute_relative_action_fingerprint(embodiment_tag, action_key)
+        expected_fp = _compute_relative_action_fingerprint(
+            embodiment_tag, action_key, modality_configs=configs
+        )
         if action_key in stats and fingerprints.get(action_key) == expected_fp:
             continue
         print(f"Generating relative stats for {dataset_path} {embodiment_tag} {action_key}")
-        stats[action_key] = calculate_stats_for_key(dataset_path, embodiment_tag, action_key)
+        options = {} if modality_configs is None else {"modality_configs": configs}
+        stats[action_key] = calculate_stats_for_key(
+            dataset_path, embodiment_tag, action_key, **options
+        )
         fingerprints[action_key] = expected_fp
     _dump_stats_cache_atomic(stats_path, to_json_serializable(dict(stats)))
 

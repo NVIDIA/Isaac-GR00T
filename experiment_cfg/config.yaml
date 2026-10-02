@@ -1,0 +1,262 @@
+load_config_path: null
+model:
+  model_type: Gr00tN1d7
+  model_dtype: bfloat16
+  model_name: nvidia/Cosmos-Reason2-2B
+  backbone_model_type: qwen
+  model_revision: null
+  tune_top_llm_layers: 0
+  backbone_embedding_dim: 2048
+  tune_llm: false
+  tune_visual: false
+  select_layer: 12
+  reproject_vision: false
+  use_flash_attention: true
+  load_bf16: false
+  backbone_trainable_params_fp32: true
+  image_crop_size:
+  - 230
+  - 230
+  image_target_size:
+  - 256
+  - 256
+  shortest_image_edge: null
+  crop_fraction: null
+  random_rotation_angle: null
+  color_jitter_params: null
+  use_albumentations_transforms: true
+  letter_box_transform: false
+  extra_augmentation_config: null
+  formalize_language: true
+  apply_sincos_state_encoding: false
+  use_percentiles: true
+  use_relative_action: true
+  max_state_dim: 132
+  max_action_dim: 132
+  use_tactile: true
+  tactile_encoder: finger_mlp
+  tactile_embed_dim: 32
+  tactile_state_keys:
+  - tactile_left
+  - tactile_right
+  tactile_input_shape:
+  - 2
+  - 5
+  - 9
+  action_horizon: 40
+  hidden_size: 1024
+  input_embedding_dim: 1536
+  state_history_length: 1
+  add_pos_embed: true
+  attn_dropout: 0.2
+  use_vlln: true
+  max_seq_len: 1024
+  use_alternate_vl_dit: true
+  attend_text_every_n_blocks: 2
+  diffusion_model_cfg:
+    positional_embeddings: null
+    num_layers: 16
+    num_attention_heads: 32
+    attention_head_dim: 48
+    norm_type: ada_norm
+    dropout: 0.2
+    final_dropout: true
+    output_dim: 1024
+    interleave_self_attention: true
+  num_inference_timesteps: 4
+  noise_beta_alpha: 1.5
+  noise_beta_beta: 1.0
+  noise_s: 0.999
+  num_timestep_buckets: 1000
+  tune_projector: true
+  tune_diffusion_model: true
+  tune_vlln: true
+  state_dropout_prob: 0.2
+  exclude_state: false
+  use_mean_std: false
+  max_num_embodiments: 32
+data:
+  datasets:
+  - dataset_paths:
+    - ../hand_intern/data/lerobot/Task_000650_Pick_and_hold_two_items_Hand_Intern_lerobot_v21
+    embodiment_tag: new_embodiment
+    mix_ratio: 1.0
+    dataset_type: physical_embodiment
+    val_dataset_path: null
+  modality_configs:
+    new_embodiment:
+      video:
+        delta_indices:
+        - 0
+        modality_keys:
+        - cam_left_head
+        - cam_left_wrist
+        - cam_right_wrist
+        sin_cos_embedding_keys: null
+        mean_std_embedding_keys: null
+        action_configs: null
+      state:
+        delta_indices:
+        - 0
+        modality_keys:
+        - left_arm
+        - right_arm
+        - left_hand
+        - right_hand
+        - tactile_left
+        - tactile_right
+        sin_cos_embedding_keys: null
+        mean_std_embedding_keys: null
+        action_configs: null
+      action:
+        delta_indices:
+        - 0
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+        - 6
+        - 7
+        - 8
+        - 9
+        - 10
+        - 11
+        - 12
+        - 13
+        - 14
+        - 15
+        - 16
+        - 17
+        - 18
+        - 19
+        - 20
+        - 21
+        - 22
+        - 23
+        - 24
+        - 25
+        - 26
+        - 27
+        - 28
+        - 29
+        - 30
+        - 31
+        - 32
+        - 33
+        - 34
+        - 35
+        - 36
+        - 37
+        - 38
+        - 39
+        modality_keys:
+        - left_arm
+        - right_arm
+        - left_hand
+        - right_hand
+        sin_cos_embedding_keys: null
+        mean_std_embedding_keys: null
+        action_configs:
+        - rep: absolute
+          type: non_eef
+          format: default
+          state_key: null
+        - rep: absolute
+          type: non_eef
+          format: default
+          state_key: null
+        - rep: absolute
+          type: non_eef
+          format: default
+          state_key: null
+        - rep: absolute
+          type: non_eef
+          format: default
+          state_key: null
+      language:
+        delta_indices:
+        - 0
+        modality_keys:
+        - annotation.human.task_description
+        sin_cos_embedding_keys: null
+        mean_std_embedding_keys: null
+        action_configs: null
+  download_cache: false
+  shard_size: 256
+  episode_sampling_rate: 0.1
+  num_shards_per_epoch: 100000
+  ds_weights_alpha: null
+  override_pretraining_statistics: true
+  mode: single_turn
+  random_chop: 0.0
+  mock_dataset_mode: false
+  shuffle: true
+  seed: 42
+  multiprocessing_context: fork
+  allow_padding: false
+  subsample_ratio: 1.0
+  image_crop_size:
+  - 244
+  - 244
+  image_target_size:
+  - 224
+  - 224
+training:
+  output_dir: ''
+  experiment_name: ''
+  max_steps: 2000000
+  global_batch_size: 8
+  per_gpu_batch_size: null
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0001
+  lr_scheduler_type: cosine
+  weight_decay: 1.0e-05
+  warmup_ratio: 0.0005
+  warmup_steps: 0
+  max_grad_norm: 1.0
+  optim: adamw_torch
+  start_from_checkpoint: nvidia/GR00T-N1.7-3B
+  skip_weight_loading: false
+  tf32: true
+  fp16: false
+  bf16: true
+  eval_bf16: true
+  logging_steps: 10
+  save_steps: 5000
+  save_total_limit: 1
+  save_vl_model: false
+  save_only_model: false
+  resume_from_checkpoint: false
+  upload_checkpoints: false
+  upload_every: 1000
+  upload_last_n_checkpoints: 5
+  max_concurrent_uploads: 2
+  eval_strategy: 'no'
+  eval_steps: 500
+  eval_set_split_ratio: 0.1
+  eval_batch_size: 2
+  save_best_eval_metric_name: ''
+  save_best_eval_metric_greater_is_better: true
+  deepspeed_stage: 2
+  gradient_checkpointing: false
+  transformers_trust_remote_code: true
+  transformers_local_files_only: false
+  transformers_cache_dir: null
+  transformers_access_token: null
+  use_ddp: false
+  ddp_bucket_cap_mb: 100
+  num_gpus: 1
+  dataloader_num_workers: 2
+  remove_unused_columns: false
+  use_wandb: true
+  wandb_project: sh5-gr00t
+  enable_profiling: false
+  max_retries: 3
+  assert_loss_less_than: null
+  add_rl_callback: false
+  enable_open_loop_eval: false
+  open_loop_eval_traj_ids:
+  - 0
+  open_loop_eval_steps_per_traj: 100
+  open_loop_eval_plot_indices: null

@@ -262,3 +262,48 @@ def test_per_action_key_payload_unchanged_shape(dataset_dir, mock_calculate):
         payload = json.load(f)
     for key in RELATIVE_KEYS:
         assert set(payload[key].keys()) == {"mean", "std", "min", "max", "q01", "q99"}
+
+
+def test_explicit_json_config_without_registry(dataset_dir, monkeypatch):
+    from copy import deepcopy
+    from pathlib import Path
+
+    from gr00t.data import stats as module
+    from gr00t.data.types import ActionRepresentation
+    from gr00t.experiment.launch_finetune import load_modality_config
+
+    tag = EmbodimentTag.NEW_EMBODIMENT
+    monkeypatch.delitem(MODALITY_CONFIGS, tag.value, raising=False)
+    original = deepcopy(MODALITY_CONFIGS)
+    config, _ = load_modality_config(
+        str(Path(__file__).resolve().parents[3] / "gr00t/configs/data/sh5.json"),
+        embodiment_tag=tag.value,
+        use_tactile=True,
+    )
+    # SH5 absolute actions need no relative trajectories, but still traverse
+    # the same factory stats entry point that previously raised KeyError.
+    generate_rel_stats(dataset_dir, tag, modality_configs=config)
+    assert MODALITY_CONFIGS == original
+
+    config["action"].action_configs[0].rep = ActionRepresentation.RELATIVE
+    calls = []
+
+    def calculate(path, embodiment_tag, key, *, modality_configs):
+        assert modality_configs is config
+        calls.append(key)
+        return _stub_stats()
+
+    monkeypatch.setattr(module, "calculate_stats_for_key", calculate)
+    generate_rel_stats(dataset_dir, tag, modality_configs=config)
+    generate_rel_stats(dataset_dir, tag, modality_configs=config)
+    assert calls == ["left_arm"]
+    config["action"].delta_indices = [0, 1]
+    generate_rel_stats(dataset_dir, tag, modality_configs=config)
+    assert calls == ["left_arm", "left_arm"]
+    with patch.object(module, "LeRobotEpisodeLoader") as loader:
+        relative = module.RelativeActionLoader(
+            dataset_dir, tag, "left_arm", modality_configs=config
+        )
+        assert relative.modality_configs["action"].delta_indices == [0, 1]
+        loader.assert_called_once()
+    assert MODALITY_CONFIGS == original

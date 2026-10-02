@@ -891,6 +891,18 @@ class Gr00tN1d7Processor(BaseProcessor):
             modality_configs = kwargs.pop("modality_configs", {})
             for embodiment_tag, modality_config in modality_configs.items():
                 processor_kwargs["modality_configs"][embodiment_tag] = modality_config
+            # None explicitly clears the checkpoint's aspect-ratio resize/crop mode.
+            # With no overrides, inference retains the saved image recipe.
+            for key in (
+                "image_crop_size",
+                "image_target_size",
+                "shortest_image_edge",
+                "crop_fraction",
+                "use_albumentations",
+                "letter_box_transform",
+            ):
+                if key in kwargs:
+                    processor_kwargs[key] = kwargs.pop(key)
             override_keys = [
                 "random_rotation_angle",
                 "color_jitter_params",

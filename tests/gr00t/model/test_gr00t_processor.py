@@ -269,3 +269,38 @@ class TestFixtureCompleteness:
             f"Fixture has fields that save_pretrained() no longer writes: {extra}. "
             f"Remove them from tests/fixtures/processor_config/processor_config.json."
         )
+
+
+@pytest.mark.parametrize("training", [False, True])
+def test_fixed_image_size_override_and_reload(tmp_path, training):
+    """Mixed SH5 camera aspects stack after loading and saving the fixed recipe."""
+    from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor
+
+    with patch("gr00t.model.gr00t_n1d7.processing_gr00t_n1d7.build_processor"):
+        proc = Gr00tN1d7Processor.from_pretrained(
+            FIXTURE_DIR,
+            image_target_size=[256, 256],
+            image_crop_size=[230, 230],
+            shortest_image_edge=None,
+            crop_fraction=None,
+            use_albumentations=True,
+        )
+        proc.save_pretrained(tmp_path)
+        reloaded = Gr00tN1d7Processor.from_pretrained(tmp_path)
+    images = {
+        key: [np.zeros((h, w, 3), dtype=np.uint8)]
+        for key, (h, w) in zip(["head", "left", "right"], [(360, 640), (640, 480), (640, 480)])
+    }
+    for candidate in (proc, reloaded):
+        assert candidate.shortest_image_edge is None
+        assert candidate.crop_fraction is None
+        transform = candidate.train_image_transform if training else candidate.eval_image_transform
+        with patch.object(candidate, "_apply_vlm_processing", return_value={}) as vlm:
+            candidate._get_vlm_inputs(
+                image_keys=list(images),
+                images=images,
+                masks=None,
+                image_transform=transform,
+                language="pick up two items",
+            )
+        assert vlm.call_args.args[0].shape == (3, 3, 256, 256)

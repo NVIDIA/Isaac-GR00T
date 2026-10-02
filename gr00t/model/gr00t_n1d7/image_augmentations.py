@@ -411,6 +411,15 @@ def build_image_transformations_albumentations(
     else:
         max_size = shortest_image_edge
 
+    def make_resize():
+        if shortest_image_edge is None:
+            return A.Resize(
+                height=image_target_size[0],
+                width=image_target_size[1],
+                interpolation=cv2.INTER_AREA,
+            )
+        return A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA)
+
     extra_augmentation_config = extra_augmentation_config or {}
 
     # Training transforms (using ReplayCompose for consistent augmentation across views).
@@ -419,9 +428,9 @@ def build_image_transformations_albumentations(
         train_transform_list.append(LetterBoxPad())
     train_transform_list.extend(
         [
-            A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
+            make_resize(),
             FractionalRandomCrop(crop_fraction=fraction_to_use),
-            A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
+            make_resize(),
         ]
     )
 
@@ -482,9 +491,9 @@ def build_image_transformations_albumentations(
         eval_transform_list.append(LetterBoxPad())
     eval_transform_list.extend(
         [
-            A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
+            make_resize(),
             FractionalCenterCrop(crop_fraction=fraction_to_use),
-            A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
+            make_resize(),
         ]
     )
     eval_transform = A.Compose(eval_transform_list)
