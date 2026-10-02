@@ -244,6 +244,10 @@ class Gr00tN1d7Processor(BaseProcessor):
         # Normalization
         use_mean_std: bool = False,
         letter_box_transform: bool = False,
+        use_tactile: bool = False,
+        tactile_state_keys: list[str] | None = None,
+        tactile_input_shape: tuple[int, int, int] = (2, 5, 9),
+        tactile_embed_dim: int = 32,
     ):
         self.modality_configs = parse_modality_configs(modality_configs)
 
@@ -276,6 +280,19 @@ class Gr00tN1d7Processor(BaseProcessor):
         self.model_name = model_name
         self.model_type = model_type
 
+        self.use_tactile = use_tactile
+        self.tactile_state_keys = list(tactile_state_keys or [])
+        self.tactile_input_shape = tuple(tactile_input_shape)
+        self.tactile_embed_dim = tactile_embed_dim
+        if use_tactile:
+            if not self.tactile_state_keys or len(set(self.tactile_state_keys)) != len(
+                self.tactile_state_keys
+            ):
+                raise ValueError("tactile_state_keys must contain unique ordered state keys")
+            if not 0 < tactile_embed_dim < max_state_dim:
+                raise ValueError("tactile_embed_dim must leave room for joint state")
+            if len(self.tactile_input_shape) != 3 or any(d <= 0 for d in self.tactile_input_shape):
+                raise ValueError("tactile_input_shape must have three positive dimensions")
         self.max_state_dim = max_state_dim
         self.max_action_dim = max_action_dim
         self.max_action_horizon = max_action_horizon
@@ -442,6 +459,36 @@ class Gr00tN1d7Processor(BaseProcessor):
         )
         return {f"action.{key}": value for key, value in result.items()}
 
+    def _pack_state(self, normalized, state_keys, drop_state=False):
+        """Split normalized pressures before padding; encode them inside the model."""
+        keys = state_keys
+        result = {}
+        reserved = 0
+        if self.use_tactile:
+            if not set(self.tactile_state_keys).issubset(state_keys):
+                raise ValueError("Active modality config is missing tactile_state_keys")
+            tactile = torch.cat(
+                [torch.from_numpy(normalized[k]) for k in self.tactile_state_keys], dim=-1
+            )
+            if tactile.shape[-1] != int(np.prod(self.tactile_input_shape)):
+                raise ValueError("Tactile state dimensions do not match tactile_input_shape")
+            tactile = tactile.reshape(*tactile.shape[:-1], *self.tactile_input_shape)
+            result["tactile"] = (torch.zeros_like(tactile) if drop_state else tactile).to(
+                torch.get_default_dtype()
+            )
+            keys = [k for k in state_keys if k not in self.tactile_state_keys]
+            reserved = self.tactile_embed_dim
+        if not keys:
+            raise ValueError("At least one non-tactile state key is required")
+        state = torch.cat([torch.from_numpy(normalized[k]) for k in keys], dim=-1)
+        if state.shape[-1] + reserved > self.max_state_dim:
+            raise ValueError("Joint state plus tactile latent exceeds max_state_dim")
+        if drop_state:
+            state = torch.zeros_like(state)
+        padding = state.new_zeros(*state.shape[:-1], self.max_state_dim - state.shape[-1])
+        result["state"] = torch.cat((state, padding), dim=-1).to(torch.get_default_dtype())
+        return result
+
     def process_observation(self, observation: dict[str, Any], embodiment_tag: EmbodimentTag):
         """Process batched observation tensors for inference.
 
@@ -462,27 +509,14 @@ class Gr00tN1d7Processor(BaseProcessor):
         exclude_state = self.exclude_state or getattr(
             modality_config["state"], "exclude_state", False
         )
-        if exclude_state:
-            normalized_states = torch.cat(
-                [torch.from_numpy(np.zeros_like(state_data[key])) for key in state_keys], dim=-1
-            )
-        else:
-            norm_state_dict = self.state_action_processor.apply_state(
+        norm_state_dict = (
+            self.state_action_processor.apply_state(
                 state=state_data, embodiment_tag=embodiment_tag.value
             )
-            normalized_states = torch.cat(
-                [torch.from_numpy(norm_state_dict[key]) for key in state_keys], dim=-1
-            )
-
-        assert normalized_states.shape[1] <= self.max_state_dim, (
-            f"State dimension {normalized_states.shape[1]} exceeds max_state_dim {self.max_state_dim}"
+            if not exclude_state
+            else state_data
         )
-        padding_shape = (
-            *normalized_states.shape[:-1],
-            self.max_state_dim - normalized_states.shape[-1],
-        )
-        normalized_states = torch.cat([normalized_states, torch.zeros(padding_shape)], dim=-1)
-        transformed_observation["state"] = normalized_states
+        transformed_observation.update(self._pack_state(norm_state_dict, state_keys, exclude_state))
 
         # Process images: observation values are (B, T, H, W, C) numpy arrays
         image_keys = modality_config["video"].modality_keys
@@ -645,28 +679,12 @@ class Gr00tN1d7Processor(BaseProcessor):
         exclude_state = self.exclude_state or getattr(
             self.modality_configs[embodiment_tag.value]["state"], "exclude_state", False
         )
-        if exclude_state or (
+        drop_state = exclude_state or (
             self.state_dropout_prob > 0
             and random.random() < self.state_dropout_prob
             and self.training
-        ):
-            normalized_states = torch.cat(
-                [torch.from_numpy(np.zeros_like(state_data[key])) for key in state_keys], dim=-1
-            )
-        else:
-            normalized_states = torch.cat(
-                [torch.from_numpy(norm_state_dict[key]) for key in state_keys], dim=-1
-            )
-        normalized_states = torch.cat(
-            [
-                normalized_states,
-                torch.zeros(
-                    normalized_states.shape[0],
-                    self.max_state_dim - normalized_states.shape[1],
-                ),
-            ],
-            dim=-1,
         )
+        state_inputs = self._pack_state(norm_state_dict, state_keys, drop_state)
 
         # Crop and resize images.
         if self.training:
@@ -689,9 +707,7 @@ class Gr00tN1d7Processor(BaseProcessor):
             language=language,
         )
 
-        transformed_inputs = {
-            "state": normalized_states.to(torch.get_default_dtype()),
-        }
+        transformed_inputs = state_inputs
         if normalized_actions is not None:
             transformed_inputs["action"] = normalized_actions.to(torch.get_default_dtype())
         # Add VLM inputs
@@ -793,6 +809,13 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "state_dropout_prob": self.state_dropout_prob,
             },
         }
+        if self.use_tactile:
+            config["processor_kwargs"].update(
+                use_tactile=True,
+                tactile_state_keys=self.tactile_state_keys,
+                tactile_input_shape=self.tactile_input_shape,
+                tactile_embed_dim=self.tactile_embed_dim,
+            )
         with open(main_config_file, "w") as f:
             json.dump(config, f, indent=2)
         # Save statistics
@@ -880,6 +903,10 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "max_action_horizon",
                 "max_state_dim",
                 "max_action_dim",
+                "use_tactile",
+                "tactile_state_keys",
+                "tactile_input_shape",
+                "tactile_embed_dim",
             ]
             for key in override_keys:
                 if key in kwargs:

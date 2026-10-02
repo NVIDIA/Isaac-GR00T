@@ -1,0 +1,119 @@
+{
+  "embodiment_tag": "new_embodiment",
+  "modalities": {
+    "video": {
+      "delta_indices": [
+        0
+      ],
+      "modality_keys": [
+        "cam_left_head",
+        "cam_left_wrist",
+        "cam_right_wrist"
+      ]
+    },
+    "state": {
+      "delta_indices": [
+        0
+      ],
+      "modality_keys": [
+        "left_arm",
+        "right_arm",
+        "left_hand",
+        "right_hand"
+      ]
+    },
+    "action": {
+      "delta_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "modality_keys": [
+        "left_arm",
+        "right_arm",
+        "left_hand",
+        "right_hand"
+      ],
+      "action_configs": [
+        {
+          "rep": "ABSOLUTE",
+          "type": "NON_EEF",
+          "format": "DEFAULT"
+        },
+        {
+          "rep": "ABSOLUTE",
+          "type": "NON_EEF",
+          "format": "DEFAULT"
+        },
+        {
+          "rep": "ABSOLUTE",
+          "type": "NON_EEF",
+          "format": "DEFAULT"
+        },
+        {
+          "rep": "ABSOLUTE",
+          "type": "NON_EEF",
+          "format": "DEFAULT"
+        }
+      ]
+    },
+    "language": {
+      "delta_indices": [
+        0
+      ],
+      "modality_keys": [
+        "annotation.human.task_description"
+      ]
+    }
+  },
+  "tactile": {
+    "state_keys": [
+      "tactile_left",
+      "tactile_right"
+    ],
+    "input_shape": [
+      2,
+      5,
+      9
+    ],
+    "encoder": "finger_mlp",
+    "embed_dim": 32
+  }
+}

@@ -263,6 +263,9 @@ class ArgsConfig:
     model_path: str | None = None
     """Path to the model checkpoint."""
 
+    use_tactile: bool = False
+    """Must match the saved checkpoint tactile setting."""
+
     denoising_steps: int = 4
     """Number of denoising steps to use."""
 
@@ -274,6 +277,10 @@ class ArgsConfig:
 
 
 def main(args: ArgsConfig):
+    if args.use_tactile and args.model_path is None:
+        raise ValueError(
+            "--use_tactile requires --model-path; set it on the server for remote inference"
+        )
     args.embodiment_tag = EmbodimentTag.resolve(args.embodiment_tag)
     # Set up logging
     logging.basicConfig(level=logging.INFO)
@@ -304,6 +311,7 @@ def main(args: ArgsConfig):
             embodiment_tag=args.embodiment_tag,
             model_path=local_model_path,
             device="cuda" if torch.cuda.is_available() else "cpu",
+            use_tactile=args.use_tactile,
         )
         # Apply --denoising-steps: the action head reads num_inference_timesteps
         # at sampling time.

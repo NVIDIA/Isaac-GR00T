@@ -87,6 +87,7 @@ class Gr00tPolicy(BasePolicy):
         *,
         device: int | str,
         strict: bool = True,
+        use_tactile: bool = False,
     ):
         """Initialize the Gr00t Policy.
 
@@ -96,6 +97,7 @@ class Gr00tPolicy(BasePolicy):
             model_path: Path to the pretrained model checkpoint directory
             device: Device to run the model on (e.g., 'cuda:0', 0, 'cpu')
             strict: Whether to enforce strict input validation (default: True)
+            use_tactile: Must match the saved model and processor tactile setting.
         """
         # Import this to register all models.
         import gr00t.model  # noqa: F401
@@ -106,7 +108,17 @@ class Gr00tPolicy(BasePolicy):
         model_dir = Path(model_path)
 
         # Load the pretrained model and move to target device with bfloat16 precision
-        model = AutoModel.from_pretrained(model_dir)
+        if use_tactile:
+            model, loading_info = AutoModel.from_pretrained(model_dir, output_loading_info=True)
+            if any(
+                loading_info.get(k)
+                for k in ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")
+            ):
+                raise RuntimeError(f"Tactile checkpoint weight mismatch: {loading_info}")
+        else:
+            model = AutoModel.from_pretrained(model_dir)
+        if (getattr(model.config, "use_tactile", False) is True) != use_tactile:
+            raise ValueError("--use_tactile must match the saved model configuration")
         model.eval()  # Set model to evaluation mode
         model.to(device=device, dtype=torch.bfloat16)
         self.model = model
@@ -123,6 +135,24 @@ class Gr00tPolicy(BasePolicy):
         )
         self.processor: BaseProcessor = AutoProcessor.from_pretrained(processor_dir)
         self.processor.eval()
+        if (getattr(self.processor, "use_tactile", False) is True) != use_tactile:
+            raise ValueError("--use_tactile must match the saved processor configuration")
+        if use_tactile:
+            for key in (
+                "tactile_state_keys",
+                "tactile_input_shape",
+                "tactile_embed_dim",
+                "max_state_dim",
+                "max_action_dim",
+            ):
+                model_value, processor_value = (
+                    getattr(model.config, key),
+                    getattr(self.processor, key),
+                )
+                if isinstance(model_value, (tuple, list)):
+                    model_value, processor_value = list(model_value), list(processor_value)
+                if model_value != processor_value:
+                    raise ValueError(f"Model and processor disagree on {key}")
 
         # Store embodiment-specific configurations
         self.embodiment_tag = embodiment_tag

@@ -64,6 +64,9 @@ class ServerConfig:
     device: str = "cuda"
     """Device to run the model on"""
 
+    use_tactile: bool = False
+    """Must match the saved checkpoint tactile setting."""
+
     # Replay policy configs
     dataset_path: str | None = None
     """Path to the dataset for replay trajectory"""
@@ -89,6 +92,8 @@ class ServerConfig:
 
 
 def main(config: ServerConfig):
+    if config.use_tactile and config.model_path is None:
+        raise ValueError("--use_tactile requires --model-path (not dataset replay)")
     config.embodiment_tag = EmbodimentTag.resolve(config.embodiment_tag)
     print("Starting GR00T inference server...")
     print(f"  Embodiment tag: {config.embodiment_tag}")
@@ -107,6 +112,7 @@ def main(config: ServerConfig):
             model_path=config.model_path,
             device=config.device,
             strict=config.strict,
+            use_tactile=config.use_tactile,
         )
     elif config.dataset_path is not None:
         if config.execution_horizon is None:

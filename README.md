@@ -485,6 +485,107 @@ Replace `demo_data/cube_to_bowl_5` and `examples/SO100/so100_config.py` with you
 
 > **Note:** Use `uv run torchrun` (not bare `torchrun`) to ensure the correct virtual environment is used. Add `--use-wandb` to enable Weights & Biases logging. For more extensive configuration, use `gr00t/experiment/launch_train.py`.
 
+### SH5 configuration and optional tactile input
+
+SH5 uses the existing `Gr00tN1d7`, `Gr00tN1d7Processor`, `Gr00tPolicy`, and
+`NEW_EMBODIMENT` projector slot. No hand-specific model or policy is needed.
+[`gr00t/configs/data/sh5.json`](gr00t/configs/data/sh5.json) contains the joint
+modality configuration and an optional tactile section selected by `--use_tactile`.
+Existing Python modality registrations and other robots work without tactile flags.
+
+| Mode | Observed joints | Raw tactile | Encoded tactile | Decoded actions |
+| --- | --- | --- | --- | --- |
+| Default SH5 JSON | 54 | None | None | 54 |
+| Same JSON with `--use_tactile` | 54 | 90 | 32 by default | 54 |
+
+The original 132D state/action adapters and their pretrained weights are preserved.
+Joints occupy the first 54 state slots; when enabled, touch occupies the last 32
+slots after encoding, with zeros between them. Actions are padded to 132 internally;
+the existing mask and decoder use only the configured 54 joint dimensions.
+The model encodes touch during forward/inference, so its encoder learns with the
+rest of the model. `tune_projector` also controls the tactile encoder.
+
+The JSON's joint keys are ordered `left_arm` (7), `right_arm` (7), `left_hand` (20),
+`right_hand` (20). Cameras are `cam_left_head`, `cam_left_wrist`, `cam_right_wrist`;
+actions are absolute joint commands with a 40-step horizon. Tactile keys are
+`tactile_left`, `tactile_right`, each a 45D state array (policy input `[B,T,45]`).
+The processor normalizes these using saved training statistics, then reshapes to
+`[B,T,2,5,9]`: hands left/right, sensors 1–5, `Present Pressure 1`–`9`.
+This ordering does not imply a physical 3x3 taxel geometry.
+
+Task 000650 is prepared locally at
+`../hand_intern/data/lerobot/Task_000650_Pick_and_hold_two_items_Hand_Intern_lerobot_v21`:
+248 episodes, 164,292 frames at 30 Hz, including all three videos, raw tactile,
+statistics and `meta/modality.json`. Both tactile modes use this same dataset.
+The MCAP source remains unchanged under
+`../hand_intern/data/Task_000650_Pick_and_hold_two_items_only_left_Hand_Intern_MCAP`.
+The task uses both hands; “only left” refers to the head camera.
+
+[The conversion tool](../hand_intern/tools/convert_sh5_mcap_to_groot.py) reuses
+Cyclo's causal joint extraction/video synchronization and the existing SH5 tactile
+parser. Raw absolute leader commands are preserved without clipping. Approximately
+15 Hz camera frames are causally repeated on the 30 Hz joint grid. Source episode
+numbers omit 221–225, so output IDs are contiguous 0–247 with original paths/IDs
+in `conversion_receipt.json`. Source episode 220 still had pending MJPEG wrist
+videos: its recorded 270-degree rotation was completed in the output; already
+transcoded videos were not rotated again. See `validation_receipt.json` and
+`_conversion/` for validation, timing alignment, configuration and source mapping.
+
+The training JSON above selects keys and time offsets. The converted dataset's
+`meta/modality.json` separately defines their actual array dimensions:
+
+| Key | `observation.state` / `action` slice |
+| --- | --- |
+| `left_arm` | `[0:7]` |
+| `right_arm` | `[7:14]` |
+| `left_hand` | `[14:34]` |
+| `right_hand` | `[34:54]` |
+
+For touch, add these entries under the dataset metadata's `state` section, with
+corresponding 45D Parquet features/columns:
+
+```json
+"tactile_left": {"original_key": "observation.tactile.left", "start": 0, "end": 45},
+"tactile_right": {"original_key": "observation.tactile.right", "start": 0, "end": 45}
+```
+
+After conversion, from the repository root:
+
+```bash
+.venv/bin/python gr00t/experiment/launch_finetune.py \
+  --base-model-path nvidia/GR00T-N1.7-3B \
+  --dataset-path ../hand_intern/data/lerobot/Task_000650_Pick_and_hold_two_items_Hand_Intern_lerobot_v21 \
+  --embodiment-tag NEW_EMBODIMENT \
+  --modality-config-path gr00t/configs/data/sh5.json \
+  --use_tactile --tactile_encoder finger_mlp \
+  --num-gpus 1 --global-batch-size 8 --max-steps 2000 \
+  --output-dir /path/to/sh5_run
+
+.venv/bin/python gr00t/eval/run_gr00t_server.py \
+  --model-path /path/to/sh5_run/checkpoint-2000 \
+  --embodiment-tag NEW_EMBODIMENT --use_tactile
+```
+
+For joints only, omit `--use_tactile` and encoder overrides in training, and omit
+`--use_tactile` in inference. Both hyphen and underscore flag spellings work.
+`open_loop_eval.py` accepts the same flag for a local model; remote evaluation uses
+the server's setting. Inference restores the selected configuration and encoder
+weights from the checkpoint; it does not accept a different encoder or modality
+JSON for the trained model. The flag must match the checkpoint. Continuing tactile
+training also requires the same encoder, latent width, shape, and state keys.
+Advanced `launch_train.py` users can set the same `model.use_tactile` and
+`model.tactile_*` fields with the matching state keys in their training config.
+
+Only [`tactile_encoders.py`](gr00t/model/modules/tactile_encoders.py) adds model
+components: `finger_mlp` and `finger_transformer` are small numeric baselines,
+not pretrained SoTA implementations. A trusted installed research adapter can be
+selected during training with `--tactile_encoder package.module:factory`. Its
+factory accepts `embed_dim` and `input_shape`, builds an `nn.Module` mapping
+`[...,*input_shape]` to `[...,embed_dim]`, and must not download weights during
+construction. The package must also be installed for inference. The complete
+encoder weights are saved with the GR00T model. A pretrained tactile research
+model needs a validated sensor adapter before it can consume SH5 pressures.
+
 ### Training Tips
 
 - Maximize batch size for your hardware and train for a few thousand steps.

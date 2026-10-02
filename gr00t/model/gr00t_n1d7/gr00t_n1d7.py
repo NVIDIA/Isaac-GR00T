@@ -69,6 +69,9 @@ class Gr00tN1d7ActionHead(nn.Module):
             hidden_dim=self.hidden_size,
             output_dim=self.input_embedding_dim,
         )
+        self.tactile_encoder = None
+        if config.use_tactile:
+            self.enable_tactile(config)
         self.action_encoder = MultiEmbodimentActionEncoder(
             action_dim=self.action_dim,
             hidden_size=self.input_embedding_dim,
@@ -118,6 +121,50 @@ class Gr00tN1d7ActionHead(nn.Module):
             config.tune_projector, config.tune_diffusion_model, config.tune_vlln
         )
 
+    def enable_tactile(self, config):
+        """Attach touch to existing adapters, including after base weight loading."""
+        from gr00t.model.modules.tactile_encoders import build_tactile_encoder
+
+        if not config.tactile_state_keys or len(set(config.tactile_state_keys)) != len(
+            config.tactile_state_keys
+        ):
+            raise ValueError("tactile_state_keys must contain unique ordered state keys")
+        if not 0 < config.tactile_embed_dim < self.config.max_state_dim:
+            raise ValueError("tactile_embed_dim must leave room for joint state")
+        encoder = build_tactile_encoder(
+            config.tactile_encoder, config.tactile_embed_dim, config.tactile_input_shape
+        )
+        reference = next(self.state_encoder.parameters())
+        self.tactile_encoder = encoder.to(device=reference.device, dtype=reference.dtype)
+        self.tactile_encoder.requires_grad_(config.tune_projector)
+        for key in (
+            "use_tactile",
+            "tactile_encoder",
+            "tactile_embed_dim",
+            "tactile_state_keys",
+            "tactile_input_shape",
+        ):
+            setattr(self.config, key, getattr(config, key))
+
+    def _encode_state(self, action_input):
+        state = action_input.state
+        if state.shape[1:] != (self.config.state_history_length, self.config.max_state_dim):
+            raise ValueError("State shape must match state_history_length and max_state_dim")
+        if self.tactile_encoder is not None:
+            tactile = action_input.get("tactile")
+            expected = (*state.shape[:2], *self.config.tactile_input_shape)
+            if tactile is None or tuple(tactile.shape) != expected:
+                raise ValueError(f"tactile must have shape {expected}")
+            latent = self.tactile_encoder(tactile)
+            if latent.shape != (*state.shape[:2], self.config.tactile_embed_dim):
+                raise ValueError("Tactile encoder output does not match tactile_embed_dim")
+            # The processor reserves these trailing slots; keep joint slots and
+            # pretrained CategorySpecificMLP weights intact.
+            state = torch.cat((state[..., : -self.config.tactile_embed_dim], latent), dim=-1)
+        elif "tactile" in action_input:
+            raise ValueError("Received tactile input for a model without tactile enabled")
+        return self.state_encoder(state.reshape(state.shape[0], 1, -1), action_input.embodiment_id)
+
     def set_trainable_parameters(
         self, tune_projector: bool, tune_diffusion_model: bool, tune_vlln: bool
     ):
@@ -128,6 +175,8 @@ class Gr00tN1d7ActionHead(nn.Module):
             p.requires_grad = True
         if not tune_projector:
             self.state_encoder.requires_grad_(False)
+            if self.tactile_encoder is not None:
+                self.tactile_encoder.requires_grad_(False)
             self.action_encoder.requires_grad_(False)
             self.action_decoder.requires_grad_(False)
             if self.config.add_pos_embed:
@@ -157,6 +206,8 @@ class Gr00tN1d7ActionHead(nn.Module):
         if self.training:
             if not self.tune_projector:
                 self.state_encoder.eval()
+                if self.tactile_encoder is not None:
+                    self.tactile_encoder.eval()
                 self.action_encoder.eval()
                 self.action_decoder.eval()
                 if self.config.add_pos_embed:
@@ -209,12 +260,7 @@ class Gr00tN1d7ActionHead(nn.Module):
         # Get embodiment ID.
         embodiment_id = action_input.embodiment_id
 
-        # Handle state history
-        assert action_input.state.shape[1] == self.config.state_history_length
-        action_input.state = action_input.state.view(action_input.state.shape[0], 1, -1)
-
-        # Embed state.
-        state_features = self.state_encoder(action_input.state, embodiment_id)
+        state_features = self._encode_state(action_input)
 
         # Dropout state features (training only): zero out dropped states.
         if self.training and self.state_dropout_prob > 0:
@@ -308,17 +354,7 @@ class Gr00tN1d7ActionHead(nn.Module):
 
         # Get vision and language embeddings.
         vl_embeds = backbone_output.backbone_features
-        embodiment_id = action_input.embodiment_id
-
-        # Handle state history: if we have fewer timesteps than expected, repeat to fill
-        state = action_input.state
-        current_T = state.shape[1]
-        assert current_T == self.config.state_history_length, "current_T != state_history_length"
-        # Reshape state from [B, state_history_length, max_state_dim] to [B, 1, state_history_length * max_state_dim]
-        state = state.view(state.shape[0], 1, -1)
-
-        # Embed state.
-        state_features = self.state_encoder(state, embodiment_id)
+        state_features = self._encode_state(action_input)
 
         return BatchFeature(data={"backbone_features": vl_embeds, "state_features": state_features})
 
