@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +24,17 @@ from gr00t.data.interfaces import ShardedDataset
 from gr00t.data.types import EmbodimentTag, MessageType, ModalityConfig, VLAStepData
 
 from .lerobot_episode_loader import LeRobotEpisodeLoader
+
+
+ACTION_CHUNK_FILTER = Path("meta/action_chunk_filter.json")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def extract_step_data(
@@ -153,9 +166,48 @@ class ShardedSingleStepDataset(ShardedDataset):
             dataset_path=dataset_path,
             modality_configs=modality_configs,
         )
+        self.excluded_step_indices = self._load_action_chunk_filter()
 
         # Create balanced shards from episode timesteps
         self.shard_dataset()
+
+    def _load_action_chunk_filter(self) -> dict[int, set[int]]:
+        """Load an optional dataset-owned list of semantically invalid chunk starts."""
+        config_path = Path(self.dataset_path) / ACTION_CHUNK_FILTER
+        if not config_path.is_file():
+            return {}
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        if config.get("schema_version") != 1 or config.get("kind") != "exclude_action_chunk_starts":
+            raise ValueError(f"Unsupported action chunk filter: {config_path}")
+        if int(config.get("action_horizon", -1)) != self.action_horizon:
+            raise ValueError(
+                f"{config_path}: action horizon {config.get('action_horizon')} does not match "
+                f"configured horizon {self.action_horizon}"
+            )
+        starts_path = Path(self.dataset_path) / str(config["excluded_starts"])
+        if not starts_path.is_file():
+            raise FileNotFoundError(f"Missing action chunk exclusions: {starts_path}")
+        expected_sha256 = str(config.get("excluded_starts_sha256", ""))
+        if expected_sha256 and _sha256_file(starts_path) != expected_sha256:
+            raise ValueError(f"Action chunk exclusion checksum mismatch: {starts_path}")
+        frame = pd.read_parquet(starts_path, columns=["episode_index", "frame_index"])
+        if len(frame) != int(config.get("excluded_start_count", -1)):
+            raise ValueError(f"Action chunk exclusion count mismatch: {starts_path}")
+        excluded: dict[int, set[int]] = {}
+        for episode, step in zip(frame["episode_index"], frame["frame_index"], strict=True):
+            excluded.setdefault(int(episode), set()).add(int(step))
+        if sum(map(len, excluded.values())) != len(frame):
+            raise ValueError(f"Duplicate action chunk exclusions: {starts_path}")
+        for episode, steps in excluded.items():
+            if episode < 0 or episode >= len(self.episode_loader.episode_lengths):
+                raise ValueError(f"Unknown episode {episode} in action chunk exclusions: {starts_path}")
+            effective_length = self.get_effective_episode_length(episode)
+            if any(step < 0 or step >= effective_length for step in steps):
+                raise ValueError(
+                    f"Out-of-range action chunk exclusion for episode {episode}: {starts_path}"
+                )
+        print(f"Excluded {len(frame)} action chunk starts using {config_path}")
+        return excluded
 
     def shard_dataset(self):
         """
@@ -185,6 +237,11 @@ class ShardedSingleStepDataset(ShardedDataset):
         total_steps = 0
         for ep_idx in shuffled_episode_indices:
             step_indices = np.arange(0, self.get_effective_episode_length(ep_idx))
+            excluded = self.excluded_step_indices.get(int(ep_idx), set())
+            if excluded:
+                step_indices = np.asarray(
+                    [step for step in step_indices if int(step) not in excluded], dtype=np.int64
+                )
             self.rng.shuffle(step_indices)
             total_steps += len(step_indices)
             for i in range(num_splits):

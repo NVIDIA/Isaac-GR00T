@@ -476,6 +476,66 @@ class TestShardedSingleStepDataset:
         # effective = 50 - 8 + 1 = 43
         assert dataset.get_effective_episode_length(0) == 43
 
+    def test_action_chunk_filter_excludes_semantic_boundary_starts(self, tmp_path):
+        import hashlib
+        import json
+
+        import pandas as pd
+
+        from gr00t.data.embodiment_tags import EmbodimentTag
+        from gr00t.data.types import ModalityConfig
+
+        modality_configs = {
+            "video": ModalityConfig(delta_indices=[0], modality_keys=["cam"]),
+            "state": ModalityConfig(delta_indices=[0], modality_keys=["x"]),
+            "action": ModalityConfig(delta_indices=list(range(4)), modality_keys=["x"]),
+            "language": ModalityConfig(delta_indices=[0], modality_keys=["task"]),
+        }
+        meta = tmp_path / "meta"
+        meta.mkdir()
+        starts = meta / "language_h40_boundary_starts.parquet"
+        pd.DataFrame({"episode_index": [0, 0], "frame_index": [2, 5]}).to_parquet(starts)
+        sha256 = hashlib.sha256(starts.read_bytes()).hexdigest()
+        (meta / "action_chunk_filter.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "kind": "exclude_action_chunk_starts",
+                    "action_horizon": 4,
+                    "excluded_starts": "meta/language_h40_boundary_starts.parquet",
+                    "excluded_starts_sha256": sha256,
+                    "excluded_start_count": 2,
+                }
+            )
+        )
+
+        with patch(
+            "gr00t.data.dataset.sharded_single_step_dataset.LeRobotEpisodeLoader"
+        ) as MockLoader:
+            mock_loader = MagicMock()
+            mock_loader.episode_lengths = [10]
+            mock_loader.get_episode_length = lambda idx: 10
+            MockLoader.return_value = mock_loader
+
+            from gr00t.data.dataset.sharded_single_step_dataset import ShardedSingleStepDataset
+
+            dataset = ShardedSingleStepDataset(
+                dataset_path=tmp_path,
+                embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
+                modality_configs=modality_configs,
+                shard_size=64,
+                episode_sampling_rate=1.0,
+                seed=42,
+            )
+
+        observed = sorted(
+            int(step)
+            for shard in dataset.sharded_episodes
+            for _, steps in shard
+            for step in steps
+        )
+        assert observed == [0, 1, 3, 4, 6]
+
     def test_shard_creation_no_empty_shards_edge_case(self):
         """Test that all shards are non-empty even with few episodes and large shard_size.
 

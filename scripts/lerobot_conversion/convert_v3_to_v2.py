@@ -457,7 +457,27 @@ def convert_episodes_metadata(new_root: Path, episode_records: list[dict[str, An
             }
             episodes_writer.write(serializable_episode)
 
-            stats_flat = {key: record[key] for key in record if key.startswith("stats/")}
+            missing_stats = sorted(
+                key for key, value in record.items() if key.startswith("stats/") and value is None
+            )
+            if missing_stats:
+                logging.warning(
+                    "Episode %s has %d missing per-episode statistics; omitting them: %s",
+                    record["episode_index"],
+                    len(missing_stats),
+                    ", ".join(missing_stats),
+                )
+
+            # V3 parquet metadata can legitimately contain null leaves when an
+            # upstream dataset did not compute optional per-episode statistics
+            # (most commonly sampled image statistics). A null leaf cannot be
+            # serialized by LeRobot's v2.1 ``serialize_dict`` helper. Preserve
+            # every available statistic and omit only the absent leaves.
+            stats_flat = {
+                key: value
+                for key, value in record.items()
+                if key.startswith("stats/") and value is not None
+            }
             stats_nested = unflatten_dict(stats_flat).get("stats", {})
             stats_serialized = serialize_dict(stats_nested)
             stats_writer.write(
