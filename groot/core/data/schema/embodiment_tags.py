@@ -683,8 +683,7 @@ class EmbodimentTag(Enum):
     loader binds modalities by NAME, never by index or by ``meta/info.json``
     ``robot_type`` (nothing in the training path reads that field at all).
 
-    To actually TRAIN on the tactile block, take the richer entry from
-    ``seungjael/dex_tactile_aug3_p2_override_fix``: it adds a separate ``tactile``
+    Training on the tactile block needs more than this alias: a separate ``tactile``
     modality group (the ten ``*_f6`` keys, delta_indices overridden per arm because
     the frozen Tactile-VAE consumes a 20-frame window) together with the loader
     subclass and processor seam that group requires. Do not approximate it by folding
