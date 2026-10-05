@@ -15,10 +15,9 @@ jointly denoises video and action, then decodes actions via the processor.
 Also supports saving generated videos.
 """
 
-# Pre-existing baseline for this module, surfaced because the lint job only runs on files
-# changed in an MR. The per-step timing/config prints are the eval-run instrumentation;
-# the broad except keeps a video-save failure from killing a rollout; `options` and
-# `video_texts` are kept for base-class / public-signature parity.
+# Module-wide exemptions for pre-existing baseline code. The per-step timing/config prints
+# are the eval-run instrumentation; the broad except keeps a video-save failure from killing
+# a rollout; `options` and `video_texts` are kept for base-class / public-signature parity.
 # ruff: noqa: ARG002, BLE001, T201
 
 from concurrent.futures import ThreadPoolExecutor
