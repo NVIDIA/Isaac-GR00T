@@ -73,9 +73,7 @@ def _make_deltacat_client() -> Any:
     try:
         from deltacat_client import Client
     except ImportError as exc:
-        raise RuntimeError(
-            "deltacat-client is required to resolve DeltaCAT dataset sources"
-        ) from exc
+        raise RuntimeError("deltacat-client is required to resolve DeltaCAT dataset sources") from exc
 
     timeout = float(os.environ.get("DELTACAT_CLIENT_TIMEOUT", "120"))
     return Client(server_url=server_url, bearer_token=bearer_token, timeout=timeout)
@@ -184,9 +182,7 @@ def _resolve_deltacat_table(spec: Mapping[str, Any]) -> list[ResolvedDatasetSour
     for row in rows:
         uri = row.get(selected_column)
         if not uri:
-            raise ValueError(
-                f"DeltaCAT table {namespace}.{table_name} has an empty {selected_column!r} value"
-            )
+            raise ValueError(f"DeltaCAT table {namespace}.{table_name} has an empty {selected_column!r} value")
         resolved.append(
             ResolvedDatasetSource(
                 uri=str(uri),
@@ -203,7 +199,7 @@ def _resolve_deltacat_table(spec: Mapping[str, Any]) -> list[ResolvedDatasetSour
 
 
 def _resolve_packds_deltacat_locator(uri: str) -> list[ResolvedDatasetSource]:
-    """Resolve a PackDS dc:// locator using the PackDS source resolver."""
+    """Resolve a PackDS dc:// locator using the PackDS source resolver from MR !2897."""
     from groot.core.data.packds import sources as packds_sources
 
     resolved = packds_sources.resolve_source(uri, deltacat_client=_make_deltacat_client())
@@ -229,11 +225,9 @@ def resolve_dataset_source(source: Any) -> list[ResolvedDatasetSource]:
         return [
             ResolvedDatasetSource(
                 uri=path_str,
-                format=(
-                    _normalize_format(source.get("format"), path_column=None)
-                    if source.get("format") is not None
-                    else _infer_format(path=path_str)
-                ),
+                format=_normalize_format(source.get("format"), path_column=None)
+                if source.get("format") is not None
+                else _infer_format(path=path_str),
                 metadata={"source": "path"},
             )
         ]
