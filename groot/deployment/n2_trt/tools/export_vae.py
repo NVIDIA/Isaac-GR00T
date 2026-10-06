@@ -39,7 +39,6 @@ from groot.deployment.n2_trt import (
     resolve_checkpoint_vae_type,
     resolve_checkpoint_vae_weights,
 )
-from groot.deployment.n2_trt.contract import resolve_checkpoint_actor_config
 
 
 def _vae_shapes(
@@ -76,7 +75,7 @@ def _build_vae(checkpoint: Path, weights: Path):
     The class and kwargs follow ``GrootN2.build_vae`` exactly. Building the
     wrong latent-space VAE fails with state-dict size mismatches.
     """
-    config = resolve_checkpoint_actor_config(json.loads((checkpoint / "config.json").read_text()))
+    config = json.loads((checkpoint / "config.json").read_text())
     vae_cfg = dict(config.get("vae_cfg") or {})
     vae_cfg["vae_pretrained_path"] = str(weights)
     vae_type = resolve_checkpoint_vae_type(config)

@@ -14,6 +14,44 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
+VENV_SELECTOR="THOR_ENV"
+if [[ -v THOR_ENV && -n "$THOR_ENV" ]]; then
+    VENV_DIR="$THOR_ENV"
+    if [[ -v UV_PROJECT_ENVIRONMENT && "$UV_PROJECT_ENVIRONMENT" == /* ]] && \
+        [[ "$(realpath -m "$UV_PROJECT_ENVIRONMENT")" != "$(realpath -m "$THOR_ENV")" ]]; then
+        echo "ERROR: THOR_ENV and UV_PROJECT_ENVIRONMENT select different environments." >&2
+        exit 2
+    fi
+elif [[ -v UV_PROJECT_ENVIRONMENT && -n "$UV_PROJECT_ENVIRONMENT" && "$UV_PROJECT_ENVIRONMENT" != .venv ]]; then
+    VENV_DIR="$UV_PROJECT_ENVIRONMENT"
+    VENV_SELECTOR="UV_PROJECT_ENVIRONMENT"
+    if [[ "$VENV_DIR" != /* ]]; then
+        VENV_DIR="$SCRIPT_DIR/$VENV_DIR"
+    fi
+else
+    VENV_DIR="$SCRIPT_DIR/.venv"
+fi
+if [[ "$VENV_DIR" == .venv ]]; then
+    VENV_DIR="$SCRIPT_DIR/.venv"
+fi
+if [[ "$VENV_DIR" != /* ]]; then
+    echo "ERROR: $VENV_SELECTOR must be an absolute path." >&2
+    exit 2
+fi
+VENV_DIR="$(realpath -m "$VENV_DIR")"
+if [[ "$VENV_DIR" == "$(realpath -m "$REPO_ROOT/.venv")" ]]; then
+    echo "ERROR: Thor must use a separate environment from the root project's .venv." >&2
+    exit 2
+fi
+if [[ "$VENV_DIR" != "$(realpath -m "$SCRIPT_DIR/.venv")" ]]; then
+    if [[ -e "$SCRIPT_DIR/.venv" || -L "$SCRIPT_DIR/.venv" ]]; then
+        echo "ERROR: $SCRIPT_DIR/.venv already selects another environment." >&2
+        exit 2
+    fi
+    mkdir -p "$VENV_DIR"
+    ln -s "$VENV_DIR" "$SCRIPT_DIR/.venv"
+fi
+
 if [[ "$(uname -m)" != "aarch64" ]]; then
     echo "ERROR: the Thor environment requires aarch64" >&2
     exit 1
@@ -65,12 +103,7 @@ if ! ldconfig -p | grep 'libnvpl_lapack_lp64_gomp.so.0' >/dev/null || ! dpkg -s 
 fi
 
 unset UV_NO_SYNC
-VENV_DIR="${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}"
-# uv resolves relative environment paths against the selected project.
-if [[ "$VENV_DIR" != /* ]]; then
-    VENV_DIR="$SCRIPT_DIR/$VENV_DIR"
-fi
-export UV_PROJECT_ENVIRONMENT="$VENV_DIR"
+export UV_PROJECT_ENVIRONMENT=.venv
 uv sync --locked --project "$SCRIPT_DIR"
 
 VENV_PYTHON="$VENV_DIR/bin/python"
@@ -144,5 +177,4 @@ if [[ -n "${TORCHCODEC_VERSION:-}" ]]; then
 fi
 
 echo "Thor install complete. Activate it with:"
-echo "  source .venv/bin/activate"
 echo "  source scripts/deployment/thor/activate_thor.sh"

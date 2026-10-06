@@ -62,7 +62,7 @@ export TRT_CACHE_DIR=/absolute/path/outside/checkout/trt-cache
 # This must print nothing: the engine manifest records clean Git revisions.
 git status --short
 
-python -P -m groot.infra.oss build-trt \
+uv run python -P -m groot.infra.oss build-trt \
   --checkpoint "$CHECKPOINT" \
   --trt-cache-dir "$TRT_CACHE_DIR" \
   --codec mp4v
@@ -92,7 +92,7 @@ the content-addressed bundle after authenticating it against the checkpoint and
 runtime:
 
 ```bash
-python -P -m groot.infra.oss eval \
+uv run python -P -m groot.infra.oss eval \
   --checkpoint "$CHECKPOINT" \
   --dataset-path /path/to/lerobot-dataset \
   --embodiment-tag "$PROCESSOR_EMBODIMENT" \
@@ -128,7 +128,7 @@ bundle.
 Run open-loop evaluation:
 
 ```bash
-python -P -m groot.infra.oss eval \
+uv run python -P -m groot.infra.oss eval \
   --checkpoint "$CHECKPOINT" \
   --dataset-path /path/to/lerobot-dataset \
   --embodiment-tag "$PROCESSOR_EMBODIMENT" \
@@ -139,7 +139,7 @@ python -P -m groot.infra.oss eval \
 Run closed-loop evaluation with any installed OSS simulator backend:
 
 ```bash
-python -P -m groot.infra.oss closed-loop-eval \
+uv run python -P -m groot.infra.oss closed-loop-eval \
   --checkpoint "$CHECKPOINT" \
   --trt-engine-dir "$TRT_ARTIFACT_DIR" \
   --codec mp4v \
@@ -151,7 +151,7 @@ python -P -m groot.infra.oss closed-loop-eval \
 Start the policy server:
 
 ```bash
-python -P -m groot.infra.oss policy-server \
+uv run python -P -m groot.infra.oss policy-server \
   --checkpoint "$CHECKPOINT" \
   --embodiment-tag "$SERVER_EMBODIMENT" \
   --codec mp4v \
@@ -183,14 +183,14 @@ model used by `groot.infra.oss train`.
 bash scripts/deployment/thor/install_deps.sh
 
 # In each new shell
-source .venv/bin/activate
 source scripts/deployment/thor/activate_thor.sh
 ```
 
-After activation, use plain `python` rather than `uv run` for this guide. Verify the environment
-before building:
+Activation selects the Thor project with `UV_PROJECT` and its project-local `.venv`.
+Both plain `python` and `uv run` use the same environment; this guide uses `uv run`.
+Verify the environment before building:
 
 ```bash
-python -c \
+uv run python -c \
   'import torch, tensorrt; print(torch.__version__, tensorrt.__version__, torch.cuda.get_device_name())'
 ```
