@@ -18,6 +18,8 @@ mkdir -p "$UV_ENV"
 uv venv "$UV_ENV/.venv" --python 3.10
 source "$UV_ENV/.venv/bin/activate"
 uv pip install "setuptools<71"
+BUILD_CONSTRAINTS="$UV_ENV/build-constraints.txt"
+printf 'scikit-build-core<0.10\n' > "$BUILD_CONSTRAINTS"
 
 # Core deps (match cluster’s pyproject pattern)
 uv pip install \
@@ -31,13 +33,29 @@ uv pip install \
 # uv pip install -e "$SIMPLER_REPO/ManiSkill2_real2sim" --config-settings editable_mode=compat
 # uv pip install -e "$SIMPLER_REPO" --config-settings editable_mode=compat
 
-uv pip install -e "$SIMPLER_REPO/ManiSkill2_real2sim"
-uv pip install -e "$SIMPLER_REPO"
+uv pip install --build-constraint "$BUILD_CONSTRAINTS" -e "$SIMPLER_REPO/ManiSkill2_real2sim"
+uv pip install --build-constraint "$BUILD_CONSTRAINTS" -e "$SIMPLER_REPO"
 
-# Make your OSS project importable
-uv pip install --editable "$PROJECT_REPO" --no-deps
+# gr00t pins python>=3.12, so editable-installing it into this 3.10 sim island
+# fails dependency resolution. Drop a .pth instead: gr00t imports from the repo
+# root using the island's own deps (the prior install was --no-deps anyway).
+python -c "import sysconfig, pathlib; pathlib.Path(sysconfig.get_path('purelib'), 'gr00t.pth').write_text(pathlib.Path('$PROJECT_REPO').resolve().as_posix() + '\n')"
 
-uv pip install tianshou==0.5.1 pydantic av zmq torchvision==0.22.0 transformers==4.57.3 tyro setuptools==80.9.0
+uv pip install \
+  tianshou==0.5.1 \
+  pydantic \
+  av \
+  zmq \
+  torchvision==0.22.0 \
+  transformers==4.57.3 \
+  tyro \
+  setuptools==80.9.0 \
+  pandas==2.2.3 \
+  dm-tree==0.1.9 \
+  einops==0.8.1 \
+  albumentations==1.4.18 \
+  diffusers==0.35.1 \
+  scipy==1.15.3
 
 # Sanity check
 python - <<'PY'

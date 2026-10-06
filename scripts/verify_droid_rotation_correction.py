@@ -32,17 +32,13 @@ import json
 import logging
 from pathlib import Path
 
+from gr00t.data.state_action.droid_frame import DROID_EEF_ROTATION_CORRECT
 import numpy as np
 from scipy.spatial.transform import Rotation
 
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
-
-DROID_EEF_ROTATION_CORRECT = np.array(
-    [[0, 0, -1], [-1, 0, 0], [0, 1, 0]],
-    dtype=np.float64,
-)
 
 EMBODIMENT_TAG = "oxe_droid_relative_eef_relative_joint"
 

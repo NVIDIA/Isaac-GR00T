@@ -13,10 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from enum import Enum
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import yaml
 
@@ -26,6 +27,52 @@ from .data.data_config import DataConfig, SingleDatasetConfig
 from .model import create_model_union_type
 from .model.gr00t_n1d7 import Gr00tN1d7Config
 from .training.training_config import TrainingConfig
+
+
+def _build_safe_tree(obj: Any) -> Any:
+    """Convert an ``asdict()`` tree into one that ``yaml.safe_dump`` accepts.
+
+    ``yaml.safe_dump`` only knows how to write plain primitives (str / int /
+    bool / None / list / dict); it raises ``RepresenterError`` on anything
+    else. The only "anything else" we hit today is ``Enum`` values —
+    ``MODALITY_CONFIGS`` carries ``ActionConfig`` fields holding
+    ``ActionRepresentation`` / ``ActionType`` / ``ActionFormat`` enums — so we
+    walk the tree once and replace each ``Enum`` with its ``.value`` string
+    (e.g. ``ActionRepresentation.RELATIVE`` -> ``"relative"``). An explicit
+    walk is easier to audit than a custom ``SafeDumper`` and leaves no global
+    YAML state behind.
+    """
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, dict):
+        return {k: _build_safe_tree(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_build_safe_tree(v) for v in obj]
+    return obj
+
+
+def _load_safe_yaml(path: Path):
+    """Load YAML with ``yaml.safe_load`` (never the object-constructing
+    ``yaml.Loader``), turning the safe loader's rejection of legacy
+    ``!!python/object`` tags into a friendly migration error.
+
+    ``yaml.safe_load`` refuses those tags with a ``ConstructorError``; we
+    re-raise it as a ``ValueError`` that explains the old config can't load
+    and needs a one-time re-save, instead of leaking a cryptic PyYAML
+    traceback.
+    """
+    text = path.read_text()
+    try:
+        return yaml.safe_load(text)
+    except yaml.constructor.ConstructorError as e:
+        raise ValueError(
+            f"{path}: rejected unsafe legacy config YAML (contains "
+            f"{e.problem!r}). The pre-2026-05 Config.save() emitted "
+            "PyYAML !!python/object tags which the loader is no longer "
+            "willing to instantiate — that path was an arbitrary-code-"
+            "execution gadget. Re-save the config via the current "
+            "Config.save() to migrate to the plain-dict YAML format."
+        ) from e
 
 
 ModelUnionType = create_model_union_type()
@@ -41,23 +88,35 @@ class Config:
     training: TrainingConfig = field(default_factory=TrainingConfig)
 
     def save(self, path: Path):
-        """Save configuration to YAML file."""
+        """Save the config as plain key/value YAML (no Python-object tags).
+
+        Writes ``asdict(self)`` with ``yaml.safe_dump``, so the file is human
+        readable, diffable, and — crucially — builds no Python objects when
+        read back. ``_build_safe_tree`` first lowers any ``Enum`` fields to
+        plain strings, which ``yaml.safe_dump`` would otherwise refuse to
+        write. Replaces the old ``yaml.dump(self)``, which embedded
+        ``!!python/object`` tags that made loading a config able to run code.
+        """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(path, "w") as f:
-            yaml.dump(self, f)
+            yaml.safe_dump(_build_safe_tree(asdict(self)), f, sort_keys=False)
 
     def load(self, path: Path):
-        """Load configuration from YAML file."""
-        data = yaml.load(path.read_text(), Loader=yaml.Loader)
-        if isinstance(data, dict):  # for training
-            self.load_dict(data)
-        elif isinstance(data, self.__class__):
-            self = data
-        else:
-            raise ValueError(f"Invalid config file: {path}")
-        # config = cls(**config) # if yaml.dump(self.__dict__, ...) is used
+        """Load config from a plain key/value YAML file into ``self``.
+
+        Reads via the safe loader (so a malicious or legacy
+        ``!!python/object`` file is refused with a migration error, never
+        executed) and rebuilds the nested dataclasses with :meth:`load_dict`.
+        """
+        data = _load_safe_yaml(path)
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Invalid config file: {path}. Expected a YAML mapping at "
+                f"the top level (saved by Config.save()); got {type(data).__name__}."
+            )
+        self.load_dict(data)
         return self
 
     def load_dict(self, data: dict):
@@ -79,9 +138,19 @@ class Config:
 
     @classmethod
     def from_pretrained(cls, path: Path) -> "Config":
-        """Load configuration from YAML file."""
-        data = yaml.load(path.read_text(), Loader=yaml.Loader)
-        return data
+        """Build a fresh ``Config`` from a YAML file saved by :meth:`save`.
+
+        Same safe-load contract as :meth:`load` (no object construction from
+        disk), but returns a new instance via ``cls().load_dict(data)`` instead
+        of mutating an existing one.
+        """
+        data = _load_safe_yaml(Path(path))
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Invalid config file: {path}. Expected a YAML mapping at "
+                f"the top level (saved by Config.save()); got {type(data).__name__}."
+            )
+        return cls().load_dict(data)
 
     def get_deepspeed_config(self) -> dict:
         """Generate DeepSpeed configuration."""

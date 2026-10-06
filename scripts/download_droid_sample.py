@@ -44,61 +44,18 @@ import argparse
 import json
 import logging
 from pathlib import Path
-import shutil
 import subprocess
 
+from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.state_action.droid_frame import compute_eef_9d
+from gr00t.data.stats import generate_rel_stats, generate_stats
 import jsonlines
 import numpy as np
 import pyarrow.parquet as pq
-from scipy.spatial.transform import Rotation
 
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
-
-
-# Egocentric frame correction applied after euler-to-matrix conversion.
-# Matches the OXE DROID training pipeline (TFG convention).
-DROID_EEF_ROTATION_CORRECT = np.array(
-    [[0, 0, -1], [-1, 0, 0], [0, 1, 0]],
-    dtype=np.float64,
-)
-
-
-def euler_to_rot6d(euler_angles: np.ndarray) -> np.ndarray:
-    """Convert euler angles (3D) to rotation 6D representation.
-
-    Uses extrinsic XYZ Euler convention (scipy ``"XYZ"``, equivalent to
-    ``tfg.rotation_matrix_3d.from_euler``) and post-multiplies by
-    ``DROID_EEF_ROTATION_CORRECT`` to match the pretrained model.
-
-    Args:
-        euler_angles: (..., 3) array of euler angles
-
-    Returns:
-        (..., 6) array of rot6d representation
-    """
-    shape = euler_angles.shape[:-1]
-    flat = euler_angles.reshape(-1, 3)
-    rot_matrices = Rotation.from_euler("XYZ", flat).as_matrix()  # (N, 3, 3)
-    rot_matrices = rot_matrices @ DROID_EEF_ROTATION_CORRECT
-    rot6d = rot_matrices[:, :2, :].reshape(-1, 6)  # (N, 6)
-    return rot6d.reshape(*shape, 6)
-
-
-def compute_eef_9d(cartesian_position: np.ndarray) -> np.ndarray:
-    """Convert cartesian_position (XYZ + euler 3D) to eef_9d (XYZ + rot6d).
-
-    Args:
-        cartesian_position: (..., 6) array [x, y, z, euler_x, euler_y, euler_z]
-
-    Returns:
-        (..., 9) array [x, y, z, rot6d_0..5]
-    """
-    xyz = cartesian_position[..., :3]
-    euler = cartesian_position[..., 3:]
-    rot6d = euler_to_rot6d(euler)
-    return np.concatenate([xyz, rot6d], axis=-1)
 
 
 REPO_ID = "lerobot/droid_1.0.1"
@@ -119,9 +76,10 @@ def download_droid_files(cache_dir: Path) -> None:
 
     logger.info("Downloading DROID v3.0 metadata and first chunks...")
 
+    # Source stats.json is skipped; stats are regenerated from the rebuilt
+    # 17D data in extract_episodes (source layout differs).
     files_to_download = [
         "meta/info.json",
-        "meta/stats.json",
         "meta/tasks.parquet",
         "meta/episodes/chunk-000/file-000.parquet",
         "data/chunk-000/file-000.parquet",
@@ -336,17 +294,6 @@ def extract_episodes(cache_dir: Path, output_dir: Path, num_episodes: int) -> No
     for rec in episode_records:
         del rec["_src_row"]
 
-    # meta/stats.json — copy from source dataset (used for normalization)
-    src_stats = cache_dir / "meta" / "stats.json"
-    if src_stats.exists():
-        shutil.copy2(src_stats, meta_dir / "stats.json")
-        logger.info("  Copied stats.json from source dataset")
-    else:
-        logger.warning(
-            "  stats.json not found in source. Generate it with:\n"
-            f"    python gr00t/data/stats.py --dataset-path {output_dir} --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
-        )
-
     # meta/episodes.jsonl
     with jsonlines.open(meta_dir / "episodes.jsonl", mode="w") as writer:
         for rec in episode_records:
@@ -409,6 +356,11 @@ def extract_episodes(cache_dir: Path, output_dir: Path, num_episodes: int) -> No
     }
     with open(meta_dir / "modality.json", "w") as f:
         json.dump(modality, f, indent=2)
+
+    # Regenerate stats from the rebuilt columns (needs info.json + modality.json).
+    logger.info("  Generating stats.json and relative_stats.json from rebuilt data...")
+    generate_stats(output_dir)
+    generate_rel_stats(output_dir, EmbodimentTag.OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT)
 
     logger.info(f"\nDataset created at: {output_dir}")
     logger.info(f"  Episodes: {len(episode_records)}")

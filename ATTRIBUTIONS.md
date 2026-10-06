@@ -1,5 +1,5 @@
 GitPython
-3.1.46
+3.1.50
 BSD-3-Clause
 https://github.com/gitpython-developers/GitPython
 Copyright (C) 2008, 2009 Michael Trier and contributors
@@ -60,35 +60,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-av
-16.1.0
-BSD-3-Clause
-https://pyav.basswood-io.com
-Copyright retained by original committers. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-    * Neither the name of the project nor the names of its contributors may be
-      used to endorse or promote products derived from this software without
-      specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY DIRECT,
-INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
-EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
 click
 8.1.8
 BSD License
@@ -124,8 +95,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 cryptography
-42.0.8
-Apache Software License; BSD License
+48.0.0
+Apache-2.0 OR BSD-3-Clause
 https://github.com/pyca/cryptography
 This software is made available under the terms of *either* of the licenses
 found in LICENSE.APACHE or LICENSE.BSD. Contributions to cryptography are made
@@ -990,7 +961,7 @@ SOFTWARE.
 
 
 flash_attn
-2.7.4.post1
+2.8.3
 BSD License
 https://github.com/Dao-AILab/flash-attention
 BSD 3-Clause License
@@ -2731,6 +2702,33 @@ https://onnx.ai/
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+
+onnxscript
+0.7.0
+MIT License
+https://microsoft.github.io/onnxscript/
+MIT License
+
+Copyright (c) Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 opencv-python-headless
@@ -8453,6 +8451,192 @@ Copyright
 © 2021 NVIDIA Corporation. All rights reserved.
 
 
+tensorrt_cu12_libs
+10.15.1.29
+Other/Proprietary License
+https://github.com/nvidia/tensorrt
+Abstract
+This document is the Software License Agreement (SLA) for NVIDIA TensorRT. This document contains specific license terms and conditions for NVIDIA TensorRT. By accepting this agreement, you agree to comply with all the terms and conditions applicable to the specific product(s) included herein.
+
+If you are receiving TensorRT under the NVIDIA Prerelease License Agreement (also known as NPLA) or under the NVIDIA Software License Agreement (previously known as the NVIDIA Tegra Software License Agreement), your use of TensorRT is governed by such applicable terms and conditions. All other uses of TensorRT are governed by the terms and conditions of the below license agreement.
+
+NVIDIA SOFTWARE LICENSE AGREEMENT
+Important: READ BEFORE DOWNLOADING, INSTALLING, COPYING OR USING THE LICENSED SOFTWARE
+This Software License Agreement ("SLA”), made and entered into as of the time and date of click through action (“Effective Date”),is a legal agreement between you and NVIDIA Corporation ("NVIDIA") and governs the use of the NVIDIA computer software and the documentation made available for use with such NVIDIA software. By downloading, installing, copying, or otherwise using the NVIDIA software and/or documentation, you agree to be bound by the terms of this SLA. If you do not agree to the terms of this SLA, do not download, install, copy or use the NVIDIA software or documentation. IF YOU ARE ENTERING INTO THIS SLAON BEHALF OF A COMPANY OR OTHER LEGAL ENTITY, YOU REPRESENT THAT YOU HAVE THE LEGAL AUTHORITY TO BIND THE ENTITY TO THIS SLA, IN WHICH CASE “YOU” WILL MEAN THE ENTITY YOU REPRESENT. IF YOU DON’T HAVE SUCH AUTHORITY, OR IF YOU DON’T ACCEPT ALL THE TERMS AND CONDITIONS OF THIS SLA, THEN NVIDIA DOES NOT AGREETO LICENSE THE LICENSED SOFTWARETO YOU, AND YOU MAY NOT DOWNLOAD, INSTALL, COPY OR USE IT.
+
+Preface
+This document is the Software License Agreement (SLA) for NVIDIA TensorRT. This document contains specific license terms and conditions for NVIDIA TensorRT. By accepting this agreement, you agree to comply with all the terms and conditions applicable to the specific product(s) included herein.
+
+If you are receiving TensorRT under the NVIDIA Prerelease License Agreement (also known as NPLA) or under the NVIDIA Software License Agreement (previously known as the NVIDIA Tegra Software License Agreement), your use of TensorRT is governed by such applicable terms and conditions. All other uses of TensorRT are governed by the terms and conditions of the below license agreement.
+
+NVIDIA SOFTWARE LICENSE AGREEMENT
+Important: READ BEFORE DOWNLOADING, INSTALLING, COPYING OR USING THE LICENSED SOFTWARE
+This Software License Agreement ("SLA”), made and entered into as of the time and date of click through action (“Effective Date”),is a legal agreement between you and NVIDIA Corporation ("NVIDIA") and governs the use of the NVIDIA computer software and the documentation made available for use with such NVIDIA software. By downloading, installing, copying, or otherwise using the NVIDIA software and/or documentation, you agree to be bound by the terms of this SLA. If you do not agree to the terms of this SLA, do not download, install, copy or use the NVIDIA software or documentation. IF YOU ARE ENTERING INTO THIS SLAON BEHALF OF A COMPANY OR OTHER LEGAL ENTITY, YOU REPRESENT THAT YOU HAVE THE LEGAL AUTHORITY TO BIND THE ENTITY TO THIS SLA, IN WHICH CASE “YOU” WILL MEAN THE ENTITY YOU REPRESENT. IF YOU DON’T HAVE SUCH AUTHORITY, OR IF YOU DON’T ACCEPT ALL THE TERMS AND CONDITIONS OF THIS SLA, THEN NVIDIA DOES NOT AGREETO LICENSE THE LICENSED SOFTWARETO YOU, AND YOU MAY NOT DOWNLOAD, INSTALL, COPY OR USE IT.
+
+1. LICENSE.
+1.1. License Grant
+Subject to the terms of the AGREEMENT, NVIDIA hereby grants you a non-exclusive, non-transferable license, without the right to sublicense (except as expressly set forth in a Supplement), during the applicable license term unless earlier terminated as provided below, to have Authorized Users install and use the Software, including modifications (if expressly permitted in a Supplement), in accordance with the Documentation. You are only licensed to activate and use Licensed Software for which you a have a valid license, even if during the download or installation you are presented with other product options. No Orders are binding on NVIDIA until accepted by NVIDIA. Your Orders are subject to the AGREEMENT.
+
+SLA Supplements: Certain Licensed Software licensed under this SLA may be subject to additional terms and conditions that will be presented to you in a Supplement for acceptance prior to the delivery of such Licensed Software under this SLA and the applicable Supplement. Licensed Software will only be delivered to you upon your acceptance of all applicable terms.
+
+1.2. Limited Purpose Licenses
+If your license is provided for one of the purposes indicated below, then notwithstanding contrary terms in License Grant or in a Supplement, such licenses are for internal use and do not include any right or license to sub-license and distribute the Licensed Software or its output in any way in any public release, however limited, and/or in any manner that provides third parties with use of or access to the Licensed Software or its functionality or output, including (but not limited to) external alpha or beta testing or development phases. Further:
+Evaluation License. You may use evaluation licenses solely for your internal evaluation of the Licensed Software for broader adoption within your Enterprise or in connection with a NVIDIA product purchase decision, and such licenses have an expiration date as indicated by NVIDIA in its sole discretion (or ninety days from the date of download if no other duration is indicated).
+Educational/Academic License. You may use educational/academic licenses solely for educational purposes and all users must be enrolled or employed by an academic institution. If you do not meet NVIDIA’s academic program requirements for educational institutions, you have no rights under this license.
+Test/Development License. You may use test/development licenses solely for your internal development, testing and/or debugging of your software applications or for interoperability testing with the Licensed Software, and such licenses have an expiration date as indicated by NVIDIA in its sole discretion (or one year from the date of download if no other duration is indicated). NVIDIA Confidential Information under the AGREEMENT includes output from Licensed Software developer tools identified as “Pro” versions, where the output reveals functionality or performance data pertinent to NVIDIA hardware or software products.
+1.3. Pre-Release Licenses
+With respect to alpha, beta, preview, and other pre-release Software and Documentation (“Pre-Release Licensed Software”) delivered to you under the AGREEMENT you acknowledge and agree that such Pre-Release Licensed Software (i) may not be fully functional, may contain errors or design flaws, and may have reduced or different security, privacy, accessibility, availability, and reliability standards relative to commercially provided NVIDIA software and documentation, and (ii) use of such Pre-Release Licensed Software may result in unexpected results, loss of data, project delays or other unpredictable damage or loss. THEREFORE, PRE-RELEASE LICENSED SOFTWARE IS NOT INTENDED FOR USE, AND SHOULD NOT BE USED, IN PRODUCTION OR BUSINESS-CRITICAL SYSTEMS. NVIDIA has no obligation to make available a commercial version of any Pre-Release Licensed Software and NVIDIA has the right to abandon development of Pre-Release Licensed Software at any time without liability.
+
+1.4. Enterprise and Contractor Usage
+You may allow your Enterprise employees and Contractors to access and use the Licensed Software pursuant to the terms of the AGREEMENT solely to perform work on your behalf, provided further that with respect to Contractors: (i) you obtain a written agreement from each Contractor which contains terms and obligations with respect to access to and use of Licensed Software no less protective of NVIDIA than those set forth in the AGREEMENT, and (ii) such Contractor’s access and use expressly excludes any sublicensing or distribution rights for the Licensed Software. You are responsible for the compliance with the terms and conditions of the AGREEMENT by your Enterprise and Contractors. Any act or omission that, if committed by you, would constitute a breach of the AGREEMENT shall be deemed to constitute a breach of the AGREEMENT if committed by your Enterprise or Contractors.
+
+1.5. Services
+Except as expressly indicated in an Order, NVIDIA is under no obligation to provide support for the Licensed Software or to provide any patches, maintenance, updates or upgrades under the AGREEMENT. Unless patches, maintenance, updates or upgrades are provided with their separate governing terms and conditions, they constitute Licensed Software licensed to you under the AGREEMENT.
+
+2. LIMITATIONS.
+2.1. License Restrictions
+Except as expressly authorized in the AGREEMENT, you agree that you will not (nor authorize third parties to): (i) copy and use Software that was licensed to you for use in one or more NVIDIA hardware products in other unlicensed products (provided that copies solely for backup purposes are allowed); (ii) reverse engineer, decompile, disassemble (except to the extent applicable laws specifically require that such activities be permitted) or attempt to derive the source code, underlying ideas, algorithm or structure of Software provided to you in object code form; (iii) sell, transfer, assign, distribute, rent, loan, lease, sublicense or otherwise make available the Licensed Software or its functionality to third parties (a) as an application services provider or service bureau, (b) by operating hosted/virtual system environments, (c) by hosting, time sharing or providing any other type of services, or (d) otherwise by means of the internet; (iv) modify, translate or otherwise create any derivative works of any Licensed Software; (v) remove, alter, cover or obscure any proprietary notice that appears on or with the Licensed Software or any copies thereof; (vi) use the Licensed Software, or allow its use, transfer, transmission or export in violation of any applicable export control laws, rules or regulations; (vii) distribute, permit access to, or sublicense the Licensed Software as a stand-alone product; (viii) bypass, disable, circumvent or remove any form of copy protection, encryption, security or digital rights management or authentication mechanism used by NVIDIA in connection with the Licensed Software, or use the Licensed Software together with any authorization code, serial number, or other copy protection device not supplied by NVIDIA directly or through an authorized reseller; (ix) use the Licensed Software for the purpose of developing competing products or technologies or assisting a third party in such activities; (x) use the Licensed Software with any system or application where the use or failure of such system or application can reasonably be expected to threaten or result in personal injury, death, or catastrophic loss including, without limitation, use in connection with any nuclear, avionics, navigation, military, medical, life support or other life critical application (“Critical Applications”), unless the parties have entered into a Critical Applications agreement; (xi) distribute any modification or derivative work you make to the Licensed Software under or by reference to the same name as used by NVIDIA; or (xii) use the Licensed Software in any manner that would cause the Licensed Software to become subject to an Open Source License. Nothing in the AGREEMENT shall be construed to give you a right to use, or otherwise obtain access to, any source code from which the Software or any portion thereof is compiled or interpreted. You acknowledge that NVIDIA does not design, test, manufacture or certify the Licensed Software for use in the context of a Critical Application and NVIDIA shall not be liable to you or any third party, in whole or in part, for any claims or damages arising from such use. You agree to defend, indemnify and hold harmless NVIDIA and its Affiliates, and their respective employees, contractors, agents, officers and directors, from and against any and all claims, damages, obligations, losses, liabilities, costs or debt, fines, restitutions and expenses (including but not limited to attorney’s fees and costs incident to establishing the right of indemnification) arising out of or related to you and your Enterprise, and their respective employees, contractors, agents, distributors, resellers, end users, officers and directors use of Licensed Software outside of the scope of the AGREEMENT or any other breach of the terms of the AGREEMENT.
+
+2.2. Third Party License Obligations
+You acknowledge and agree that the Licensed Software may include or incorporate third party technology (collectively “Third Party Components”), which is provided for use in or with the Software and not otherwise used separately. If the Licensed Software includes or incorporates Third Party Components, then the third-party pass-through terms and conditions (“Third Party Terms”) for the particular Third Party Component will be bundled with the Software or otherwise made available online as indicated by NVIDIA and will be incorporated by reference into the AGREEMENT. In the event of any conflict between the terms in the AGREEMENT and the Third Party Terms, the Third Party Terms shall govern. Copyright to Third Party Components are held by the copyright holders indicated in the copyright notices indicated in the Third Party Terms.
+
+Audio/Video Encoders and Decoders: You acknowledge and agree that it is your sole responsibility to obtain any additional third party licenses required to make, have made, use, have used, sell, import, and offer for sale your products or services that include or incorporate any Third Party Components and content relating to audio and/or video encoders and decoders from, including but not limited to, Microsoft, Thomson, Fraunhofer IIS, Sisvel S.p.A., MPEG-LA, and Coding Technologies as NVIDIA does not grant to you under the AGREEMENT any necessary patent or other rights with respect to audio and/or video encoders and decoders.
+
+2.3. Limited Rights
+Your rights in the Licensed Software are limited to those expressly granted under the AGREEMENT and no other licenses are granted whether by implication, estoppel or otherwise. NVIDIA reserves all rights, title and interest in and to the Licensed Software not expressly granted under the AGREEMENT.
+
+3. CONFIDENTIALITY
+Neither party will use the other party’s Confidential Information, except as necessary for the performance of the AGREEMENT, nor will either party disclose such Confidential Information to any third party, except to personnel of NVIDIA and its Affiliates, you, your Enterprise, your Enterprise Contractors, and each party’s legal and financial advisors that have a need to know such Confidential Information for the performance of the AGREEMENT, provided that each such personnel, employee and Contractor is subject to a written agreement that includes confidentiality obligations consistent with those set forth herein. Each party will use all reasonable efforts to maintain the confidentiality of all of the other party’s Confidential Information in its possession or control, but in no event less than the efforts that it ordinarily uses with respect to its own Confidential Information of similar nature and importance. The foregoing obligations will not restrict either party from disclosing the other party’s Confidential Information or the terms and conditions of the AGREEMENT as required under applicable securities regulations or pursuant to the order or requirement of a court, administrative agency, or other governmental body, provided that the party required to make such disclosure (i) gives reasonable notice to the other party to enable it to contest such order or requirement prior to its disclosure (whether through protective orders or otherwise), (ii) uses reasonable effort to obtain confidential treatment or similar protection to the fullest extent possible to avoid such public disclosure, and (iii) discloses only the minimum amount of information necessary to comply with such requirements.
+
+4. OWNERSHIP
+You are not obligated to disclose to NVIDIA any modifications that you, your Enterprise or your Contractors make to the Licensed Software as permitted under the AGREEMENT. As between the parties, all modifications are owned by NVIDIA and licensed to you under the AGREEMENT unless otherwise expressly provided in a Supplement. The Licensed Software and all modifications owned by NVIDIA, and the respective Intellectual Property Rights therein, are and will remain the sole and exclusive property of NVIDIA or its licensors, whether the Licensed Software is separate from or combined with any other products or materials. You shall not engage in any act or omission that would impair NVIDIA’s and/or its licensors’ Intellectual Property Rights in the Licensed Software or any other materials, information, processes or subject matter proprietary to NVIDIA. NVIDIA’s licensors are intended third party beneficiaries with the right to enforce provisions of the AGREEMENT with respect to their Confidential Information and/or Intellectual Property Rights.
+
+5. FEEDBACK
+You have no obligation to provide Feedback to NVIDIA. However, NVIDIA and/or its Affiliates may use and include any Feedback that you provide to improve the Licensed Software or other NVIDIA products, technologies or materials. Accordingly, if you provide Feedback, you agree that NVIDIA and/or its Affiliates, at their option, may, and may permit their licensees, to make, have made, use, have used, reproduce, license, distribute and otherwise commercialize the Feedback in the Licensed Software or in other NVIDIA products, technologies or materials without the payment of any royalties or fees to you. All Feedback becomes the sole property of NVIDIA and may be used in any manner NVIDIA sees fit, and you hereby assign to NVIDIA all of your right, title and interest in and to any Feedback. NVIDIA has no obligation to respond to Feedback or to incorporate Feedback into the Licensed Software.
+
+6. NO WARRANTIES
+THE LICENSED SOFTWARE AND ANY OTHER CONFIDENTIAL INFORMATION AND/OR SERVICES ARE PROVIDED BY NVIDIA “AS IS” AND “WITH ALL FAULTS,” AND NVIDIA EXPRESSLY DISCLAIMS ALL OTHER WARRANTIES OF ANY KIND OR NATURE, WHETHER EXPRESS, IMPLIED OR STATUTORY, INCLUDING, BUT NOT LIMITED TO, ANY WARRANTIES OF OPERABILITY, CONDITION, VALUE, ACCURACY OF DATA, OR QUALITY, AS WELL AS ANY WARRANTIES OF MERCHANTABILITY, SYSTEM INTEGRATION, WORKMANSHIP, SUITABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, OR THE ABSENCE OF ANY DEFECTS THEREIN, WHETHER LATENT OR PATENT. NO WARRANTY IS MADE BY NVIDIA ON THE BASIS OF TRADE USAGE, COURSE OF DEALING OR COURSE OF TRADE. NVIDIA DOES NOT WARRANT THAT THE LICENSED SOFTWARE OR ANY OTHER CONFIDENTIAL INFORMATION AND/OR SERVICES PROVIDED BY NVIDIA UNDER THE AGREEMENT WILL MEET YOUR REQUIREMENTS OR THAT THE OPERATION THEREOF WILL BE UNINTERRUPTED OR ERROR-FREE, OR THAT ALL ERRORS WILL BE CORRECTED. YOU ACKNOWLEDGE THAT NVIDIA’S OBLIGATIONS UNDER THE AGREEMENT ARE FOR THE BENEFIT OF YOU ONLY. Nothing in this warranty section affects any statutory rights of consumers or other recipients to the extent that they cannot be waived or limited by contract under applicable law.
+
+7. LIMITATION OF LIABILITY
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, NVIDIA OR ITS LICENSORS SHALL NOT BE LIABLE FOR ANY SPECIAL, INCIDENTAL, PUNITIVE OR CONSEQUENTIAL DAMAGES, OR ANY LOST PROFITS, LOSS OF USE, LOSS OF DATA OR LOSS OF GOODWILL, OR THE COSTS OF PROCURING SUBSTITUTE PRODUCTS, ARISING OUT OF OR IN CONNECTION WITH THE AGREEMENT OR THE USE OR PERFORMANCE OF THE LICENSED SOFTWARE AND ANY OTHER CONFIDENTIAL INFORMATION AND/OR SERVICES PROVIDED BY NVIDIA UNDER THE AGREEMENT, WHETHER SUCH LIABILITY ARISES FROM ANY CLAIM BASED UPON BREACH OF CONTRACT, BREACH OF WARRANTY, TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY OR ANY OTHER CAUSE OF ACTION OR THEORY OF LIABILITY. IN NO EVENT WILL NVIDIA’S TOTAL CUMULATIVE LIABILITY UNDER OR ARISING OUT OF THE AGREEMENT EXCEED THE NET AMOUNTS RECEIVED BY NVIDIA FOR YOUR USE OF THE PARTICULAR LICENSED SOFTWARE DURING THE TWELVE (12) MONTHS BEFORE THE LIABILITY AROSE (or up to US$10.00 if you acquired the Licensed Software for no charge). THE NATURE OF THE LIABILITY, THE NUMBER OF CLAIMS OR SUITS OR THE NUMBER OF PARTIES WITHIN YOUR ENTERPRISE THAT ACCEPTED THE TERMS OF THE AGREEMENT SHALL NOT ENLARGE OR EXTEND THIS LIMIT. THE FOREGOING LIMITATIONS SHALL APPLY REGARDLESS OF WHETHER NVIDIA OR ITS LICENSORS HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES AND REGARDLESS OF WHETHER ANY REMEDY FAILS ITS ESSENTIAL PURPOSE. The disclaimers, exclusions and limitations of liability set forth in the AGREEMENT form an essential basis of the bargain between the parties, and, absent any such disclaimers, exclusions or limitations of liability, the provisions of the AGREEMENT, including, without limitation, the economic terms, would be substantially different.
+
+8. TERM AND TERMINATION.
+8.1. AGREEMENT, Licenses and Services
+This SLA shall become effective upon the Effective Date, each Supplement upon their acceptance, and both this SLA and Supplements shall continue in effect until your last access or use of the Licensed Software and/or services hereunder, unless earlier terminated as provided in this “Term and Termination” section. Each Licensed Software license ends at the earlier of (a) the expiration of the applicable license term, or (b) termination of such license or the AGREEMENT. Each service ends at the earlier of (x) the expiration of the applicable service term, (y) termination of such service or the AGREEMENT, or (z) expiration or termination of the associated license and no credit or refund will be provided upon the expiration or termination of the associated license for any service fees paid.
+
+8.2. Termination and Effect of Expiration or Termination
+NVIDIA may terminate the AGREEMENT in whole or in part: (i) if you breach any term of the AGREEMENT and fail to cure such breach within thirty (30) days following notice thereof from NVIDIA (or immediately if you violate NVIDIA’s Intellectual Property Rights); (ii) if you become the subject of a voluntary or involuntary petition in bankruptcy or any proceeding relating to insolvency, receivership, liquidation or composition for the benefit of creditors, if that petition or proceeding is not dismissed with prejudice within sixty (60) days after filing, or if you cease to do business; or (iii) if you commence or participate in any legal proceeding against NVIDIA, with respect to the Licensed Software that is the subject of the proceeding during the pendency of such legal proceeding. If you or your authorized NVIDIA reseller fail to pay license fees or service fees when due then NVIDIA may, in its sole discretion, suspend or terminate your license grants, services and any other rights provided under the AGREEMENT for the affected Licensed Software, in addition to any other remedies NVIDIA may have at law or equity. Upon any expiration or termination of the AGREEMENT, a license or a service provided hereunder, (a) any amounts owed to NVIDIA become immediately due and payable, (b) you must promptly discontinue use of the affected Licensed Software and/or service, and (c) you must promptly destroy or return to NVIDIA all copies of the affected Licensed Software and all portions thereof in your possession or control, and each party will promptly destroy or return to the other all of the other party’s Confidential Information within its possession or control. Upon written request, you will certify in writing that you have complied with your obligations under this section. Upon expiration or termination of the AGREEMENT all provisions survive except for the license grant provisions.
+
+9. CONSENT TO COLLECTION AND USE OF INFORMATION.
+You hereby agree and acknowledge that the Software may access, collect non-personally identifiable information about your Enterprise computer systems in order to properly optimize such systems for use with the Software. To the extent that you use the Software, you hereby consent to all of the foregoing, and represent and warrant that you have the right to grant such consent. In addition, you agree that you are solely responsible for maintaining appropriate data backups and system restore points for your Enterprise systems, and that NVIDIA will have no responsibility for any damage or loss to such systems (including loss of data or access) arising from or relating to (a) any changes to the configuration, application settings, environment variables, registry, drivers, BIOS, or other attributes of the systems (or any part of such systems) initiated through the Software; or (b) installation of any Software or third party software patches initiated through the Software. In certain systems you may change your system update preferences by unchecking "Automatically check for updates" in the "Preferences" tab of the control panel for the Software.
+
+In connection with the receipt of the Licensed Software or services you may receive access to links to third party websites and services and the availability of those links does not imply any endorsement by NVIDIA. NVIDIA encourages you to review the privacy statements on those sites and services that you choose to visit so that you can understand how they may collect, use and share personal information of individuals. NVIDIA is not responsible or liable for: (i) the availability or accuracy of such links; or (ii) the products, services or information available on or through such links; or (iii) the privacy statements or practices of sites and services controlled by other companies or organizations.
+
+To the extent that you or members of your Enterprise provide to NVIDIA during registration or otherwise personal information, you acknowledge that such information will be collected, used and disclosed by NVIDIA in accordance with NVIDIA's privacy policy, available at URL http://www.nvidia.com/object/privacy_policy.html.
+
+10. GENERAL.
+This SLA, any Supplements incorporated hereto, and Orders constitute the entire agreement of the parties with respect to the subject matter hereto and supersede all prior negotiations, conversations, or discussions between the parties relating to the subject matter hereto, oral or written, and all past dealings or industry custom. Any additional and/or conflicting terms and conditions on purchase order(s) or any other documents issued by you are null, void, and invalid. Any amendment or waiver under the AGREEMENT must be in writing and signed by representatives of both parties.
+
+The AGREEMENT and the rights and obligations thereunder may not be assigned by you, in whole or in part, including by merger, consolidation, dissolution, operation of law, or any other manner, without written consent of NVIDIA, and any purported assignment in violation of this provision shall be void and of no effect. NVIDIA may assign, delegate or transfer the AGREEMENT and its rights and obligations hereunder, and if to a non-Affiliate you will be notified.
+
+Each party acknowledges and agrees that the other is an independent contractor in the performance of the AGREEMENT, and each party is solely responsible for all of its employees, agents, contractors, and labor costs and expenses arising in connection therewith. The parties are not partners, joint ventures or otherwise affiliated, and neither has any authority to make any statements, representations or commitments of any kind to bind the other party without prior written consent.
+
+Neither party will be responsible for any failure or delay in its performance under the AGREEMENT (except for any payment obligations) to the extent due to causes beyond its reasonable control for so long as such force majeure event continues in effect.
+
+The AGREEMENT will be governed by and construed under the laws of the State of Delaware and the United States without regard to the conflicts of law provisions thereof and without regard to the United Nations Convention on Contracts for the International Sale of Goods. The parties consent to the personal jurisdiction of the federal and state courts located in Santa Clara County, California. You acknowledge and agree that a breach of any of your promises or agreements contained in the AGREEMENT may result in irreparable and continuing injury to NVIDIA for which monetary damages may not be an adequate remedy and therefore NVIDIA is entitled to seek injunctive relief as well as such other and further relief as may be appropriate. If any court of competent jurisdiction determines that any provision of the AGREEMENT is illegal, invalid or unenforceable, the remaining provisions will remain in full force and effect. Unless otherwise specified, remedies are cumulative.
+
+The Licensed Software has been developed entirely at private expense and is “commercial items” consisting of “commercial computer software” and “commercial computer software documentation” provided with RESTRICTED RIGHTS. Use, duplication or disclosure by the U.S. Government or a U.S. Government subcontractor is subject to the restrictions set forth in the AGREEMENT pursuant to DFARS 227.7202-3(a) or as set forth in subparagraphs (c)(1) and (2) of the Commercial Computer Software - Restricted Rights clause at FAR 52.227-19, as applicable. Contractor/manufacturer is NVIDIA, 2701 San Tomas Expressway, Santa Clara, CA 95050.
+
+You acknowledge that the Licensed Software described under the AGREEMENT is subject to export control under the U.S. Export Administration Regulations (EAR) and economic sanctions regulations administered by the U.S. Department of Treasury’s Office of Foreign Assets Control (OFAC). Therefore, you may not export, reexport or transfer in-country the Licensed Software without first obtaining any license or other approval that may be required by BIS and/or OFAC. You are responsible for any violation of the U.S. or other applicable export control or economic sanctions laws, regulations and requirements related to the Licensed Software. By accepting this SLA, you confirm that you are not a resident or citizen of any country currently embargoed by the U.S. and that you are not otherwise prohibited from receiving the Licensed Software.
+
+Any notice delivered by NVIDIA to you under the AGREEMENT will be delivered via mail, email or fax. Please direct your legal notices or other correspondence to NVIDIA Corporation, 2701 San Tomas Expressway, Santa Clara, California 95050, United States of America, Attention: Legal Department.
+
+11. GLOSSARY OF TERMS
+Certain capitalized terms, if not otherwise defined elsewhere in this SLA, shall have the meanings set forth below:
+“Affiliate”
+“Affiliate” means any legal entity that Owns, is Owned by, or is commonly Owned with a party. “Own” means having more than 50% ownership or the right to direct the management of the entity.
+“AGREEMENT”
+“AGREEMENT” means this SLA and all associated Supplements entered by the parties referencing this SLA.
+“Authorized Users”
+“Authorized Users” means your Enterprise individual employees and any of your Enterprise’s Contractors, subject to the terms of the “Enterprise and Contractors Usage” section.
+“Confidential Information”
+“Confidential Information” means the Licensed Software (unless made publicly available by NVIDIA without confidentiality obligations), and any NVIDIA business, marketing, pricing, research and development, know-how, technical, scientific, financial status, proposed new products or other information disclosed by NVIDIA to you which, at the time of disclosure, is designated in writing as confidential or proprietary (or like written designation), or orally identified as confidential or proprietary or is otherwise reasonably identifiable by parties exercising reasonable business judgment, as confidential. Confidential Information does not and will not include information that: (i) is or becomes generally known to the public through no fault of or breach of the AGREEMENT by the receiving party; (ii) is rightfully known by the receiving party at the time of disclosure without an obligation of confidentiality; (iii) is independently developed by the receiving party without use of the disclosing party’s Confidential Information; or (iv) is rightfully obtained by the receiving party from a third party without restriction on use or disclosure.
+“Contractor”
+“Contractor” means an individual who works primarily for your Enterprise on a contractor basis from your secure network. means an individual who works primarily for your Enterprise on a contractor basis from your secure network.
+“Documentation”
+“Documentation” means the NVIDIA documentation made available for use with the Software, including (without limitation) user manuals, datasheets, operations instructions, installation guides, release notes and other materials provided to you under the AGREEMENT.
+“Enterprise”
+“Enterprise” means you or any company or legal entity for which you accepted the terms of this SLA, and their subsidiaries of which your company or legal entity owns more than fifty percent (50%) of the issued and outstanding equity.
+“Feedback”
+“Feedback” means any and all suggestions, feature requests, comments or other feedback regarding the Licensed Software, including possible enhancements or modifications thereto.
+“Intellectual Property Rights”
+“Intellectual Property Rights” means all patent, copyright, trademark, trade secret, trade dress, trade names, utility models, mask work, moral rights, rights of attribution or integrity service marks, master recording and music publishing rights, performance rights, author’s rights, database rights, registered design rights and any applications for the protection or registration of these rights, or other intellectual or industrial property rights or proprietary rights, howsoever arising and in whatever media, whether now known or hereafter devised, whether or not registered, (including all claims and causes of action for infringement, misappropriation or violation and all rights in any registrations and renewals), worldwide and whether existing now or in the future.
+“Licensed Software”
+“Licensed Software” means Software, Documentation and all modifications owned by NVIDIA.
+“Open Source License”
+“Open Source License” includes, without limitation, a software license that requires as a condition of use, modification, and/or distribution of such software that the Software be (i) disclosed or distributed in source code form; (ii) be licensed for the purpose of making derivative works; or (iii) be redistributable at no charge.
+“Order”
+“Order” means a purchase order issued by you, a signed purchase agreement with you, or other ordering document issued by you to NVIDIA or a NVIDIA authorized reseller (including any on-line acceptance process) that references and incorporates the AGREEMENT and is accepted by NVIDIA.
+“Software”
+“Software” means the NVIDIA software programs licensed to you under the AGREEMENT including, without limitation, libraries, sample code, utility programs and programming code.
+“Supplement”
+“Supplement” means the additional terms and conditions beyond those stated in this SLA that apply to certain Licensed Software licensed hereunder.
+12. TensorRT SUPPLEMENT TO SOFTWARE LICENSE AGREEMENT
+TensorRT SUPPLEMENT TO SOFTWARE LICENSE AGREEMENT
+The terms set forth in this TensorRT Supplement (“Supplement”) govern your use of the NVIDIA GPU inference engine (the “TensorRT Licensed Software”) under the terms of your software license agreement (“SLA”) as modified by this Supplement. This Supplement is an exhibit to the SLA and is hereby incorporated as an integral part thereto. Capitalized terms used but not defined herein shall have the meaning assigned to them in the SLA. In the event of conflict between the terms in this Supplement and the terms in the SLA, this Supplement shall control.
+
+12.1. TensorRT DISTRIBUTION
+Subject to the terms of the SLA and this Supplement, NVIDIA hereby grants you a non-exclusive, nontransferable license during the applicable license term unless earlier terminated pursuant to the SLA, to distribute the libnvinfer and libnvinfer_plugin libraries when delivered to you as part of the TensorRT Licensed Software in source code form or binary form (but not when provided to you as part of a hardware product), subject to the following: such distribution is solely in binary form to your licensees (“Customers”) only as a component of your own software products having additional material functionality beyond the TensorRT Licensed Software (each, a “Licensee Application"). Subject to the terms and conditions of the SLA and this Supplement, you may further authorize Customers to redistribute the libnvinfer and libnvinfer_plugin libraries as incorporated into a Licensee Application, solely in binary form, provided, however, that you shall require in your agreements with your Customers that their distributions be on terms at least as restrictive as those applicable for your use of such TensorRT Licensed Software within a Licensee Application. The expiration or termination of your licenses to the above described TensorRT Licensed Software under the SLA and this Supplement will not affect rights previously granted by you to recipients that were in compliance with the SLA and this Supplement.
+
+In addition to the rights above, for parties that are developing software intended solely for use on Jetson development kits or Jetson modules and running Linux for Tegra software the following shall apply: TensorRT Licensed Software licensed hereunder may be distributed in its entirety, as provided by NVIDIA and without separation of its components, for you and/or your licensees to create software development kits for use only on the Jetson platform and running Linux for Tegra software. You shall require in your agreements with your licensees that their distributions be on terms at least as restrictive as those applicable for your distribution of TensorRT Licensed Software as described in this Section 1.
+
+In addition to the rights above, for parties that are developing software intended solely for use on Jetson development kits or Jetson modules and running Linux for Tegra software the following shall apply: TensorRT Licensed Software licensed hereunder may be distributed in its entirety, as provided by NVIDIA and without separation of its components, for you and/or your licensees to create software development kits for use only on the Jetson platform and running Linux for Tegra software. You shall require in your agreements with your licensees that their distributions be on terms at least as restrictive as those applicable for your distribution of TensorRT Licensed Software as described in this Section 1.
+
+12.2. LICENSE DURATION
+Each TensorRT Licensed Software is licensed to you for an initial duration of one year starting from the date of delivery or download. The licenses granted will automatically renew for successive one year periods, provided that NVIDIA reserves the right to terminate licenses upon ninety days (90) days written notice to you prior to the commencement of a renewal year in addition to the termination rights set forth in the SLA.
+
+12.3. EXPIRATION OF TERMINATION OF THIS SUPPLEMENT
+Your failure to comply with the terms of this Supplement is ground for termination for breach by NVIDIA under the SLA. This Supplement will automatically expire or terminate upon the expiration or termination of your rights to TensorRT Licensed Software under the SLA or this Supplement.
+
+Notices
+Notice
+This document is provided for information purposes only and shall not be regarded as a warranty of a certain functionality, condition, or quality of a product. NVIDIA Corporation (“NVIDIA”) makes no representations or warranties, expressed or implied, as to the accuracy or completeness of the information contained in this document and assumes no responsibility for any errors contained herein. NVIDIA shall have no liability for the consequences or use of such information or for any infringement of patents or other rights of third parties that may result from its use. This document is not a commitment to develop, release, or deliver any Material (defined below), code, or functionality.
+
+NVIDIA reserves the right to make corrections, modifications, enhancements, improvements, and any other changes to this document, at any time without notice.
+
+Customer should obtain the latest relevant information before placing orders and should verify that such information is current and complete.
+
+NVIDIA products are sold subject to the NVIDIA standard terms and conditions of sale supplied at the time of order acknowledgement, unless otherwise agreed in an individual sales agreement signed by authorized representatives of NVIDIA and customer (“Terms of Sale”). NVIDIA hereby expressly objects to applying any customer general terms and conditions with regards to the purchase of the NVIDIA product referenced in this document. No contractual obligations are formed either directly or indirectly by this document.
+
+NVIDIA products are not designed, authorized, or warranted to be suitable for use in medical, military, aircraft, space, or life support equipment, nor in applications where failure or malfunction of the NVIDIA product can reasonably be expected to result in personal injury, death, or property or environmental damage. NVIDIA accepts no liability for inclusion and/or use of NVIDIA products in such equipment or applications and therefore such inclusion and/or use is at customer’s own risk.
+
+NVIDIA makes no representation or warranty that products based on this document will be suitable for any specified use. Testing of all parameters of each product is not necessarily performed by NVIDIA. It is customer’s sole responsibility to evaluate and determine the applicability of any information contained in this document, ensure the product is suitable and fit for the application planned by customer, and perform the necessary testing for the application in order to avoid a default of the application or the product. Weaknesses in customer’s product designs may affect the quality and reliability of the NVIDIA product and may result in additional or different conditions and/or requirements beyond those contained in this document. NVIDIA accepts no liability related to any default, damage, costs, or problem which may be based on or attributable to: (i) the use of the NVIDIA product in any manner that is contrary to this document or (ii) customer product designs.
+
+No license, either expressed or implied, is granted under any NVIDIA patent right, copyright, or other NVIDIA intellectual property right under this document. Information published by NVIDIA regarding third-party products or services does not constitute a license from NVIDIA to use such products or services or a warranty or endorsement thereof. Use of such information may require a license from a third party under the patents or other intellectual property rights of the third party, or a license from NVIDIA under the patents or other intellectual property rights of NVIDIA.
+
+Reproduction of information in this document is permissible only if approved in advance by NVIDIA in writing, reproduced without alteration and in full compliance with all applicable export laws and regulations, and accompanied by all associated conditions, limitations, and notices.
+
+THIS DOCUMENT AND ALL NVIDIA DESIGN SPECIFICATIONS, REFERENCE BOARDS, FILES, DRAWINGS, DIAGNOSTICS, LISTS, AND OTHER DOCUMENTS (TOGETHER AND SEPARATELY, “MATERIALS”) ARE BEING PROVIDED “AS IS.” NVIDIA MAKES NO WARRANTIES, EXPRESSED, IMPLIED, STATUTORY, OR OTHERWISE WITH RESPECT TO THE MATERIALS, AND EXPRESSLY DISCLAIMS ALL IMPLIED WARRANTIES OF NONINFRINGEMENT, MERCHANTABILITY, AND FITNESS FOR A PARTICULAR PURPOSE. TO THE EXTENT NOT PROHIBITED BY LAW, IN NO EVENT WILL NVIDIA BE LIABLE FOR ANY DAMAGES, INCLUDING WITHOUT LIMITATION ANY DIRECT, INDIRECT, SPECIAL, INCIDENTAL, PUNITIVE, OR CONSEQUENTIAL DAMAGES, HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY, ARISING OUT OF ANY USE OF THIS DOCUMENT, EVEN IF NVIDIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. Notwithstanding any damages that customer might incur for any reason whatsoever, NVIDIA’s aggregate and cumulative liability towards customer for the products described herein shall be limited in accordance with the Terms of Sale for the product.
+
+VESA DisplayPort
+DisplayPort and DisplayPort Compliance Logo, DisplayPort Compliance Logo for Dual-mode Sources, and DisplayPort Compliance Logo for Active Cables are trademarks owned by the Video Electronics Standards Association in the United States and other countries.
+
+HDMI
+HDMI, the HDMI logo, and High-Definition Multimedia Interface are trademarks or registered trademarks of HDMI Licensing LLC.
+
+ARM
+ARM, AMBA and ARM Powered are registered trademarks of ARM Limited. Cortex, MPCore and Mali are trademarks of ARM Limited. All other brands or product names are the property of their respective holders. "ARM" is used to represent ARM Holdings plc; its operating company ARM Limited; and the regional subsidiaries ARM Inc.; ARM KK; ARM Korea Limited.; ARM Taiwan Limited; ARM France SAS; ARM Consulting (Shanghai) Co. Ltd.; ARM Germany GmbH; ARM Embedded Technologies Pvt. Ltd.; ARM Norway, AS and ARM Sweden AB.
+
+OpenCL
+OpenCL is a trademark of Apple Inc. used under license to the Khronos Group Inc.
+
+Trademarks
+NVIDIA, the NVIDIA logo, and cuBLAS, CUDA, CUDA Toolkit, cuDNN, DALI, DIGITS, DGX, DGX-1, DGX-2, DGX Station, DLProf, GPU, JetPack, Jetson, Kepler, Maxwell, NCCL, Nsight Compute, Nsight Systems, NVCaffe, NVIDIA Ampere GPU architecture, NVIDIA Deep Learning SDK, NVIDIA Developer Program, NVIDIA GPU Cloud, NVLink, NVSHMEM, PerfWorks, Pascal, SDK Manager, T4, Tegra, TensorRT, TensorRT Inference Server, Tesla, TF-TRT, Triton Inference Server, Turing, and Volta are trademarks and/or registered trademarks of NVIDIA Corporation in the United States and other countries. Other company and product names may be trademarks of the respective companies with which they are associated.
+
+Copyright
+© 2021 NVIDIA Corporation. All rights reserved.
+
+
 termcolor
 3.2.0
 MIT
@@ -8479,9 +8663,9 @@ THE SOFTWARE.
 
 
 torch
-2.7.1+cu128
-BSD License
-https://pytorch.org/
+2.9.0+cu128
+BSD-3-Clause
+https://pytorch.org
 From PyTorch:
 
 Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
@@ -8573,468 +8757,479 @@ compatibly licensed.  We list these here.
 
 Name: DCGM
 License: Apache-2.0
-Files: third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM
-  For details, see the files concatenated below: third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM/LICENSE
+Files: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM
+  For details, see the files concatenated below: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM/LICENSE
 
 Name: FP16
 License: MIT
-Files: third_party/FP16
-  For details, see the files concatenated below: third_party/FP16/LICENSE
+Files: /pytorch/third_party/FP16
+  For details, see the files concatenated below: /pytorch/third_party/FP16/LICENSE
 
 Name: FXdiv
 License: MIT
-Files: third_party/FXdiv
-  For details, see the files concatenated below: third_party/FXdiv/LICENSE
+Files: /pytorch/third_party/FXdiv
+  For details, see the files concatenated below: /pytorch/third_party/FXdiv/LICENSE
 
 Name: NNPACK
 License: BSD-2-Clause
-Files: third_party/NNPACK
-  For details, see the files concatenated below: third_party/NNPACK/LICENSE
+Files: /pytorch/third_party/NNPACK
+  For details, see the files concatenated below: /pytorch/third_party/NNPACK/LICENSE
 
 Name: NVTX
 License: Apache-2.0 with exception
-Files: third_party/NVTX
-  For details, see the files concatenated below: third_party/NVTX/LICENSE.txt
+Files: /pytorch/third_party/NVTX
+  For details, see the files concatenated below: /pytorch/third_party/NVTX/LICENSE.txt
 
 Name: VulkanMemoryAllocator
 License: MIT
-Files: third_party/VulkanMemoryAllocator
-  For details, see the files concatenated below: third_party/VulkanMemoryAllocator/LICENSE.txt
+Files: /pytorch/third_party/VulkanMemoryAllocator
+  For details, see the files concatenated below: /pytorch/third_party/VulkanMemoryAllocator/LICENSE.txt
 
 Name: XNNPACK
 License: BSD-3-Clause
-Files: third_party/XNNPACK
-  For details, see the files concatenated below: third_party/XNNPACK/LICENSE
+Files: /pytorch/third_party/XNNPACK
+  For details, see the files concatenated below: /pytorch/third_party/XNNPACK/LICENSE
+
+Name: aiter
+License: MIT
+Files: /pytorch/third_party/aiter
+  For details, see the files concatenated below: /pytorch/third_party/aiter/LICENSE
 
 Name: benchmark
 License: Apache-2.0
-Files: third_party/benchmark,
-     third_party/opentelemetry-cpp/third_party/benchmark,
-     third_party/protobuf/third_party/benchmark
-  For details, see the files concatenated below: third_party/benchmark/LICENSE,
-     third_party/opentelemetry-cpp/third_party/benchmark/LICENSE,
-     third_party/protobuf/third_party/benchmark/LICENSE
+Files: /pytorch/third_party/benchmark,
+     /pytorch/third_party/opentelemetry-cpp/third_party/benchmark,
+     /pytorch/third_party/protobuf/third_party/benchmark
+  For details, see the files concatenated below: /pytorch/third_party/benchmark/LICENSE,
+     /pytorch/third_party/opentelemetry-cpp/third_party/benchmark/LICENSE,
+     /pytorch/third_party/protobuf/third_party/benchmark/LICENSE
 
 Name: boost-vcpkg-helpers
 License: MIT
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/boost-vcpkg-helpers
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/boost-vcpkg-helpers/LICENSE.txt
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/boost-vcpkg-helpers
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/boost-vcpkg-helpers/LICENSE.txt
 
 Name: cJSON
 License: MIT
-Files: third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/examples/rest/cJSON
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/examples/rest/cJSON/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/examples/rest/cJSON
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/examples/rest/cJSON/LICENSE
 
 Name: catch2
 License: BSL-1.0
-Files: third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/catch2
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/catch2/LICENSE.txt
+Files: /pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/catch2
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/catch2/LICENSE.txt
 
 Name: clog
 License: BSD-2-Clause
-Files: third_party/cpuinfo/deps/clog,
-     third_party/fbgemm/third_party/cpuinfo/deps/clog
-  For details, see the files concatenated below: third_party/cpuinfo/deps/clog/LICENSE,
-     third_party/fbgemm/third_party/cpuinfo/deps/clog/LICENSE
+Files: /pytorch/third_party/cpuinfo/deps/clog,
+     /pytorch/third_party/fbgemm/external/cpuinfo/deps/clog
+  For details, see the files concatenated below: /pytorch/third_party/cpuinfo/deps/clog/LICENSE,
+     /pytorch/third_party/fbgemm/external/cpuinfo/deps/clog/LICENSE
 
 Name: colorama
 License: BSD-3-Clause
-Files: third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM/testing/python3/libs_3rdparty/colorama
-  For details, see the files concatenated below: third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM/testing/python3/libs_3rdparty/colorama/LICENSE.txt
+Files: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM/testing/python3/libs_3rdparty/colorama
+  For details, see the files concatenated below: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM/testing/python3/libs_3rdparty/colorama/LICENSE.txt
 
 Name: composable_kernel
 License: MIT
-Files: third_party/composable_kernel,
-     third_party/flash-attention/csrc/composable_kernel
-  For details, see the files concatenated below: third_party/composable_kernel/LICENSE,
-     third_party/flash-attention/csrc/composable_kernel/LICENSE
+Files: /pytorch/third_party/aiter/3rdparty/composable_kernel,
+     /pytorch/third_party/composable_kernel,
+     /pytorch/third_party/fbgemm/external/composable_kernel,
+     /pytorch/third_party/flash-attention/csrc/composable_kernel
+  For details, see the files concatenated below: /pytorch/third_party/aiter/3rdparty/composable_kernel/LICENSE,
+     /pytorch/third_party/composable_kernel/LICENSE,
+     /pytorch/third_party/fbgemm/external/composable_kernel/LICENSE,
+     /pytorch/third_party/flash-attention/csrc/composable_kernel/LICENSE
 
 Name: cpp-httplib
 License: MIT
-Files: third_party/cpp-httplib
-  For details, see the files concatenated below: third_party/cpp-httplib/LICENSE
+Files: /pytorch/third_party/cpp-httplib
+  For details, see the files concatenated below: /pytorch/third_party/cpp-httplib/LICENSE
 
 Name: cpplint
 License: BSD-3-Clause
-Files: third_party/kineto/libkineto/third_party/dynolog/third_party/json/third_party/cpplint,
-     third_party/nlohmann/tools/cpplint
-  For details, see the files concatenated below: third_party/kineto/libkineto/third_party/dynolog/third_party/json/third_party/cpplint/LICENSE,
-     third_party/nlohmann/tools/cpplint/LICENSE
+Files: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/json/third_party/cpplint
+  For details, see the files concatenated below: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/json/third_party/cpplint/LICENSE
 
 Name: cpr
 License: MIT
-Files: third_party/kineto/libkineto/third_party/dynolog/third_party/cpr
-  For details, see the files concatenated below: third_party/kineto/libkineto/third_party/dynolog/third_party/cpr/LICENSE
+Files: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/cpr
+  For details, see the files concatenated below: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/cpr/LICENSE
 
 Name: cpuinfo
 License: BSD-2-Clause
-Files: third_party/cpuinfo,
-     third_party/fbgemm/third_party/cpuinfo
-  For details, see the files concatenated below: third_party/cpuinfo/LICENSE,
-     third_party/fbgemm/third_party/cpuinfo/LICENSE
+Files: /pytorch/third_party/cpuinfo,
+     /pytorch/third_party/fbgemm/external/cpuinfo
+  For details, see the files concatenated below: /pytorch/third_party/cpuinfo/LICENSE,
+     /pytorch/third_party/fbgemm/external/cpuinfo/LICENSE
 
 Name: cudnn_frontend
 License: MIT
-Files: third_party/cudnn_frontend
-  For details, see the files concatenated below: third_party/cudnn_frontend/LICENSE.txt
+Files: /pytorch/third_party/cudnn_frontend
+  For details, see the files concatenated below: /pytorch/third_party/cudnn_frontend/LICENSE.txt
 
 Name: cutlass
 License: BSD-3-Clause
-Files: third_party/cutlass,
-     third_party/fbgemm/third_party/cutlass,
-     third_party/flash-attention/csrc/cutlass
-  For details, see the files concatenated below: third_party/cutlass/LICENSE.txt,
-     third_party/fbgemm/third_party/cutlass/LICENSE.txt,
-     third_party/flash-attention/csrc/cutlass/LICENSE.txt
+Files: /pytorch/third_party/cutlass,
+     /pytorch/third_party/fbgemm/external/cutlass,
+     /pytorch/third_party/flash-attention/csrc/cutlass
+  For details, see the files concatenated below: /pytorch/third_party/cutlass/LICENSE.txt,
+     /pytorch/third_party/fbgemm/external/cutlass/LICENSE.txt,
+     /pytorch/third_party/flash-attention/csrc/cutlass/LICENSE.txt
 
 Name: dart
 License: Apache-2.0
-Files: third_party/flatbuffers/dart
-  For details, see the files concatenated below: third_party/flatbuffers/dart/LICENSE
+Files: /pytorch/third_party/flatbuffers/dart
+  For details, see the files concatenated below: /pytorch/third_party/flatbuffers/dart/LICENSE
+
+Name: docs
+License: Apache-2.0 with exception
+Files: /pytorch/third_party/NVTX/docs
+  For details, see the files concatenated below: /pytorch/third_party/NVTX/docs/LICENSE.txt
 
 Name: doctest
 License: MIT
-Files: third_party/kineto/libkineto/third_party/dynolog/third_party/json/test/thirdparty/doctest,
-     third_party/nlohmann/tests/thirdparty/doctest
-  For details, see the files concatenated below: third_party/kineto/libkineto/third_party/dynolog/third_party/json/test/thirdparty/doctest/LICENSE.txt,
-     third_party/nlohmann/tests/thirdparty/doctest/LICENSE.txt
+Files: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/json/test/thirdparty/doctest
+  For details, see the files concatenated below: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/json/test/thirdparty/doctest/LICENSE.txt
 
 Name: duktape-1.5.2
 License: MIT
-Files: third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.5.2
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.5.2/LICENSE.txt
+Files: /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.5.2
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.5.2/LICENSE.txt
 
 Name: duktape-1.8.0
 License: MIT
-Files: third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.8.0
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.8.0/LICENSE.txt
+Files: /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.8.0
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.8.0/LICENSE.txt
 
 Name: dynolog
 License: MIT
-Files: third_party/kineto/libkineto/third_party/dynolog
-  For details, see the files concatenated below: third_party/kineto/libkineto/third_party/dynolog/LICENSE
-
-Name: eigen
-License: BSD-3-Clause
-Files: third_party/eigen
-  For details, see the files concatenated below: third_party/eigen/COPYING.BSD
+Files: /pytorch/third_party/kineto/libkineto/third_party/dynolog
+  For details, see the files concatenated below: /pytorch/third_party/kineto/libkineto/third_party/dynolog/LICENSE
 
 Name: etw
 License: MIT
-Files: third_party/opentelemetry-cpp/exporters/etw/include/opentelemetry/exporters/etw
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/exporters/etw/include/opentelemetry/exporters/etw/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/exporters/etw/include/opentelemetry/exporters/etw
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/exporters/etw/include/opentelemetry/exporters/etw/LICENSE
 
 Name: expected
 License: MIT
-Files: third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/expected
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/expected/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/expected
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/expected/LICENSE
 
 Name: fbgemm
 License: BSD-3-Clause
-Files: third_party/fbgemm
-  For details, see the files concatenated below: third_party/fbgemm/LICENSE
+Files: /pytorch/third_party/fbgemm
+  For details, see the files concatenated below: /pytorch/third_party/fbgemm/LICENSE
 
 Name: ffnvcodec
 License: MIT with exception
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/ffnvcodec
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/ffnvcodec/LICENSE.txt
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/ffnvcodec
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/ffnvcodec/LICENSE.txt
 
 Name: flash-attention
 License: BSD-3-Clause
-Files: third_party/flash-attention
-  For details, see the files concatenated below: third_party/flash-attention/LICENSE
+Files: /pytorch/third_party/flash-attention
+  For details, see the files concatenated below: /pytorch/third_party/flash-attention/LICENSE
 
 Name: flatbuffers
 License: Apache-2.0
-Files: third_party/flatbuffers
-  For details, see the files concatenated below: third_party/flatbuffers/LICENSE
+Files: /pytorch/third_party/flatbuffers
+  For details, see the files concatenated below: /pytorch/third_party/flatbuffers/LICENSE
 
 Name: fmt
 License: MIT with exception
-Files: third_party/fmt,
-     third_party/kineto/libkineto/third_party/dynolog/third_party/fmt,
-     third_party/kineto/libkineto/third_party/fmt
-  For details, see the files concatenated below: third_party/fmt/LICENSE,
-     third_party/kineto/libkineto/third_party/dynolog/third_party/fmt/LICENSE.rst,
-     third_party/kineto/libkineto/third_party/fmt/LICENSE
+Files: /pytorch/third_party/fmt,
+     /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/fmt,
+     /pytorch/third_party/kineto/libkineto/third_party/fmt
+  For details, see the files concatenated below: /pytorch/third_party/fmt/LICENSE,
+     /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/fmt/LICENSE.rst,
+     /pytorch/third_party/kineto/libkineto/third_party/fmt/LICENSE
 
 Name: gemmlowp
 License: Apache-2.0
-Files: third_party/gemmlowp/gemmlowp
-  For details, see the files concatenated below: third_party/gemmlowp/gemmlowp/LICENSE
+Files: /pytorch/third_party/gemmlowp/gemmlowp
+  For details, see the files concatenated below: /pytorch/third_party/gemmlowp/gemmlowp/LICENSE
 
 Name: generator
 License: Apache-2.0
-Files: third_party/fbgemm/third_party/googletest/googlemock/scripts/generator,
-     third_party/kineto/libkineto/third_party/googletest/googlemock/scripts/generator,
-     third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/googlemock/scripts/generator,
-     third_party/protobuf/third_party/googletest/googlemock/scripts/generator,
-     third_party/tensorpipe/third_party/googletest/googlemock/scripts/generator
-  For details, see the files concatenated below: third_party/fbgemm/third_party/googletest/googlemock/scripts/generator/LICENSE,
-     third_party/kineto/libkineto/third_party/googletest/googlemock/scripts/generator/LICENSE,
-     third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/googlemock/scripts/generator/LICENSE,
-     third_party/protobuf/third_party/googletest/googlemock/scripts/generator/LICENSE,
-     third_party/tensorpipe/third_party/googletest/googlemock/scripts/generator/LICENSE
+Files: /pytorch/third_party/kineto/libkineto/third_party/googletest/googlemock/scripts/generator,
+     /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/googlemock/scripts/generator,
+     /pytorch/third_party/protobuf/third_party/googletest/googlemock/scripts/generator,
+     /pytorch/third_party/tensorpipe/third_party/googletest/googlemock/scripts/generator
+  For details, see the files concatenated below: /pytorch/third_party/kineto/libkineto/third_party/googletest/googlemock/scripts/generator/LICENSE,
+     /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/googlemock/scripts/generator/LICENSE,
+     /pytorch/third_party/protobuf/third_party/googletest/googlemock/scripts/generator/LICENSE,
+     /pytorch/third_party/tensorpipe/third_party/googletest/googlemock/scripts/generator/LICENSE
 
 Name: gettimeofday
 License: Apache-2.0
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/gettimeofday
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/gettimeofday/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/gettimeofday
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/gettimeofday/LICENSE
 
 Name: gloo
 License: BSD-3-Clause
-Files: third_party/gloo
-  For details, see the files concatenated below: third_party/gloo/LICENSE
+Files: /pytorch/third_party/gloo
+  For details, see the files concatenated below: /pytorch/third_party/gloo/LICENSE
 
 Name: googlemock
 License: BSD-3-Clause
-Files: third_party/fbgemm/third_party/googletest/googlemock,
-     third_party/kineto/libkineto/third_party/googletest/googlemock,
-     third_party/protobuf/third_party/googletest/googlemock,
-     third_party/tensorpipe/third_party/googletest/googlemock
-  For details, see the files concatenated below: third_party/fbgemm/third_party/googletest/googlemock/LICENSE,
-     third_party/kineto/libkineto/third_party/googletest/googlemock/LICENSE,
-     third_party/protobuf/third_party/googletest/googlemock/LICENSE,
-     third_party/tensorpipe/third_party/googletest/googlemock/LICENSE
+Files: /pytorch/third_party/kineto/libkineto/third_party/googletest/googlemock,
+     /pytorch/third_party/protobuf/third_party/googletest/googlemock,
+     /pytorch/third_party/tensorpipe/third_party/googletest/googlemock
+  For details, see the files concatenated below: /pytorch/third_party/kineto/libkineto/third_party/googletest/googlemock/LICENSE,
+     /pytorch/third_party/protobuf/third_party/googletest/googlemock/LICENSE,
+     /pytorch/third_party/tensorpipe/third_party/googletest/googlemock/LICENSE
 
 Name: googletest
 License: BSD-3-Clause
-Files: third_party/fbgemm/third_party/googletest,
-     third_party/fbgemm/third_party/googletest/googletest,
-     third_party/googletest,
-     third_party/kineto/libkineto/third_party/dynolog/third_party/googletest,
-     third_party/kineto/libkineto/third_party/googletest,
-     third_party/kineto/libkineto/third_party/googletest/googletest,
-     third_party/opentelemetry-cpp/third_party/googletest,
-     third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest,
-     third_party/protobuf/third_party/googletest,
-     third_party/protobuf/third_party/googletest/googletest,
-     third_party/tensorpipe/third_party/googletest,
-     third_party/tensorpipe/third_party/googletest/googletest
-  For details, see the files concatenated below: third_party/fbgemm/third_party/googletest/LICENSE,
-     third_party/fbgemm/third_party/googletest/googletest/LICENSE,
-     third_party/googletest/LICENSE,
-     third_party/kineto/libkineto/third_party/dynolog/third_party/googletest/LICENSE,
-     third_party/kineto/libkineto/third_party/googletest/LICENSE,
-     third_party/kineto/libkineto/third_party/googletest/googletest/LICENSE,
-     third_party/opentelemetry-cpp/third_party/googletest/LICENSE,
-     third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/LICENSE,
-     third_party/protobuf/third_party/googletest/LICENSE,
-     third_party/protobuf/third_party/googletest/googletest/LICENSE,
-     third_party/tensorpipe/third_party/googletest/LICENSE,
-     third_party/tensorpipe/third_party/googletest/googletest/LICENSE
+Files: /pytorch/third_party/fbgemm/external/googletest,
+     /pytorch/third_party/googletest,
+     /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/googletest,
+     /pytorch/third_party/kineto/libkineto/third_party/googletest,
+     /pytorch/third_party/kineto/libkineto/third_party/googletest/googletest,
+     /pytorch/third_party/opentelemetry-cpp/third_party/googletest,
+     /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest,
+     /pytorch/third_party/protobuf/third_party/googletest,
+     /pytorch/third_party/protobuf/third_party/googletest/googletest,
+     /pytorch/third_party/tensorpipe/third_party/googletest,
+     /pytorch/third_party/tensorpipe/third_party/googletest/googletest
+  For details, see the files concatenated below: /pytorch/third_party/fbgemm/external/googletest/LICENSE,
+     /pytorch/third_party/googletest/LICENSE,
+     /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/googletest/LICENSE,
+     /pytorch/third_party/kineto/libkineto/third_party/googletest/LICENSE,
+     /pytorch/third_party/kineto/libkineto/third_party/googletest/googletest/LICENSE,
+     /pytorch/third_party/opentelemetry-cpp/third_party/googletest/LICENSE,
+     /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/LICENSE,
+     /pytorch/third_party/protobuf/third_party/googletest/LICENSE,
+     /pytorch/third_party/protobuf/third_party/googletest/googletest/LICENSE,
+     /pytorch/third_party/tensorpipe/third_party/googletest/LICENSE,
+     /pytorch/third_party/tensorpipe/third_party/googletest/googletest/LICENSE
 
 Name: gtest
 License: BSD-3-Clause
-Files: third_party/ideep/mkl-dnn/tests/gtests/gtest
-  For details, see the files concatenated below: third_party/ideep/mkl-dnn/tests/gtests/gtest/LICENSE
+Files: /pytorch/third_party/ideep/mkl-dnn/tests/gtests/gtest
+  For details, see the files concatenated below: /pytorch/third_party/ideep/mkl-dnn/tests/gtests/gtest/LICENSE
 
 Name: hipify_torch
 License: MIT
-Files: third_party/fbgemm/third_party/hipify_torch
-  For details, see the files concatenated below: third_party/fbgemm/third_party/hipify_torch/LICENSE.txt
+Files: /pytorch/third_party/fbgemm/external/hipify_torch
+  For details, see the files concatenated below: /pytorch/third_party/fbgemm/external/hipify_torch/LICENSE.txt
+
+Name: hstu
+License: BSD-3-Clause
+Files: /pytorch/third_party/fbgemm/fbgemm_gpu/experimental/hstu
+  For details, see the files concatenated below: /pytorch/third_party/fbgemm/fbgemm_gpu/experimental/hstu/LICENSE
 
 Name: hungarian
 License: Permissive (free to use)
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/hungarian
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/hungarian/LICENSE.txt
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/hungarian
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/hungarian/LICENSE.txt
 
 Name: ideep
 License: MIT
-Files: third_party/ideep
-  For details, see the files concatenated below: third_party/ideep/LICENSE
+Files: /pytorch/third_party/ideep
+  For details, see the files concatenated below: /pytorch/third_party/ideep/LICENSE
 
 Name: irrlicht
 License: MIT
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/irrlicht
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/irrlicht/LICENSE.txt
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/irrlicht
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/irrlicht/LICENSE.txt
 
 Name: kineto
 License: BSD-3-Clause
-Files: third_party/kineto
-  For details, see the files concatenated below: third_party/kineto/LICENSE
+Files: /pytorch/third_party/kineto
+  For details, see the files concatenated below: /pytorch/third_party/kineto/LICENSE
 
 Name: libnop
 License: Apache-2.0
-Files: third_party/tensorpipe/third_party/libnop
-  For details, see the files concatenated below: third_party/tensorpipe/third_party/libnop/LICENSE
+Files: /pytorch/third_party/tensorpipe/third_party/libnop
+  For details, see the files concatenated below: /pytorch/third_party/tensorpipe/third_party/libnop/LICENSE
 
 Name: libstemmer
 License: BSD-3-Clause
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/libstemmer
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/libstemmer/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/libstemmer
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/libstemmer/LICENSE
 
 Name: libuv
 License: MIT
-Files: third_party/tensorpipe/third_party/libuv
-  For details, see the files concatenated below: third_party/tensorpipe/third_party/libuv/LICENSE
+Files: /pytorch/third_party/tensorpipe/third_party/libuv
+  For details, see the files concatenated below: /pytorch/third_party/tensorpipe/third_party/libuv/LICENSE
 
 Name: mimalloc
 License: MIT
-Files: third_party/mimalloc
-  For details, see the files concatenated below: third_party/mimalloc/LICENSE
+Files: /pytorch/third_party/mimalloc
+  For details, see the files concatenated below: /pytorch/third_party/mimalloc/LICENSE
 
 Name: miniz-3.0.2
 License: MIT
-Files: third_party/miniz-3.0.2
-  For details, see the files concatenated below: third_party/miniz-3.0.2/LICENSE
+Files: /pytorch/third_party/miniz-3.0.2
+  For details, see the files concatenated below: /pytorch/third_party/miniz-3.0.2/LICENSE
 
 Name: mkl-dnn
 License: Apache-2.0
-Files: third_party/ideep/mkl-dnn
-  For details, see the files concatenated below: third_party/ideep/mkl-dnn/LICENSE
+Files: /pytorch/third_party/ideep/mkl-dnn
+  For details, see the files concatenated below: /pytorch/third_party/ideep/mkl-dnn/LICENSE
 
 Name: ms-gsl
 License: MIT
-Files: third_party/opentelemetry-cpp/third_party/ms-gsl
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/third_party/ms-gsl/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/third_party/ms-gsl
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/third_party/ms-gsl/LICENSE
 
-Name: nccl
-License: BSD-3-Clause
-Files: third_party/nccl
-  For details, see the files concatenated below: third_party/nccl/LICENSE.txt
+Name: mx
+License: MIT
+Files: /pytorch/third_party/fbgemm/fbgemm_gpu/src/quantize_ops/mx,
+     /pytorch/third_party/fbgemm/fbgemm_gpu/test/quantize/mx
+  For details, see the files concatenated below: /pytorch/third_party/fbgemm/fbgemm_gpu/src/quantize_ops/mx/LICENSE,
+     /pytorch/third_party/fbgemm/fbgemm_gpu/test/quantize/mx/LICENSE
 
 Name: onnx
 License: Apache-2.0
-Files: third_party/onnx
-  For details, see the files concatenated below: third_party/onnx/LICENSE
+Files: /pytorch/third_party/onnx
+  For details, see the files concatenated below: /pytorch/third_party/onnx/LICENSE
 
 Name: opentelemetry-cpp
 License: Apache-2.0
-Files: third_party/opentelemetry-cpp
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/LICENSE
 
 Name: opentelemetry-proto
 License: Apache-2.0
-Files: third_party/opentelemetry-cpp/third_party/opentelemetry-proto
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/third_party/opentelemetry-proto/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/third_party/opentelemetry-proto
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/third_party/opentelemetry-proto/LICENSE
 
 Name: opentracing-cpp
 License: Apache-2.0
-Files: third_party/opentelemetry-cpp/third_party/opentracing-cpp
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/third_party/opentracing-cpp/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/LICENSE
 
 Name: pdcurses
 License: Public Domain for core
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/pdcurses
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/pdcurses/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/pdcurses
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/pdcurses/LICENSE
 
 Name: pfs
 License: Apache-2.0
-Files: third_party/kineto/libkineto/third_party/dynolog/third_party/pfs
-  For details, see the files concatenated below: third_party/kineto/libkineto/third_party/dynolog/third_party/pfs/LICENSE
+Files: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/pfs
+  For details, see the files concatenated below: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/pfs/LICENSE
 
 Name: physac
 License: MIT
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/physac
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/physac/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/physac
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/physac/LICENSE
 
 Name: pqp
 License: Apache-2.0
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/pqp
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/pqp/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/pqp
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/pqp/LICENSE
 
 Name: prometheus-cpp
 License: MIT
-Files: third_party/opentelemetry-cpp/third_party/prometheus-cpp
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/third_party/prometheus-cpp/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/LICENSE
 
 Name: protobuf
 License: BSD-3-Clause
-Files: third_party/protobuf
-  For details, see the files concatenated below: third_party/protobuf/LICENSE
+Files: /pytorch/third_party/protobuf
+  For details, see the files concatenated below: /pytorch/third_party/protobuf/LICENSE
 
 Name: psimd
 License: MIT
-Files: third_party/psimd
-  For details, see the files concatenated below: third_party/psimd/LICENSE
+Files: /pytorch/third_party/psimd
+  For details, see the files concatenated below: /pytorch/third_party/psimd/LICENSE
 
 Name: pthreadpool
 License: BSD-2-Clause
-Files: third_party/pthreadpool
-  For details, see the files concatenated below: third_party/pthreadpool/LICENSE
+Files: /pytorch/third_party/pthreadpool
+  For details, see the files concatenated below: /pytorch/third_party/pthreadpool/LICENSE
 
 Name: pybind11
 License: BSD-3-Clause
-Files: third_party/onnx/third_party/pybind11,
-     third_party/pybind11,
-     third_party/tensorpipe/third_party/pybind11
-  For details, see the files concatenated below: third_party/onnx/third_party/pybind11/LICENSE,
-     third_party/pybind11/LICENSE,
-     third_party/tensorpipe/third_party/pybind11/LICENSE
+Files: /pytorch/third_party/onnx/third_party/pybind11,
+     /pytorch/third_party/pybind11,
+     /pytorch/third_party/tensorpipe/third_party/pybind11
+  For details, see the files concatenated below: /pytorch/third_party/onnx/third_party/pybind11/LICENSE,
+     /pytorch/third_party/pybind11/LICENSE,
+     /pytorch/third_party/tensorpipe/third_party/pybind11/LICENSE
 
 Name: python
 License: Apache-2.0 with exception
-Files: third_party/NVTX/python
-  For details, see the files concatenated below: third_party/NVTX/python/LICENSE.txt
+Files: /pytorch/third_party/NVTX/python
+  For details, see the files concatenated below: /pytorch/third_party/NVTX/python/LICENSE.txt
 
 Name: python
 License: BSD-3-Clause
-Files: third_party/cutlass/python
-  For details, see the files concatenated below: third_party/cutlass/python/LICENSE.txt
+Files: /pytorch/third_party/cutlass/python
+  For details, see the files concatenated below: /pytorch/third_party/cutlass/python/LICENSE.txt
 
 Name: python
 License: BSD-3-Clause
-Files: third_party/flash-attention/csrc/cutlass/python
-  For details, see the files concatenated below: third_party/flash-attention/csrc/cutlass/python/LICENSE.txt
+Files: /pytorch/third_party/fbgemm/external/cutlass/python
+  For details, see the files concatenated below: /pytorch/third_party/fbgemm/external/cutlass/python/LICENSE.txt
+
+Name: python
+License: BSD-3-Clause
+Files: /pytorch/third_party/flash-attention/csrc/cutlass/python
+  For details, see the files concatenated below: /pytorch/third_party/flash-attention/csrc/cutlass/python/LICENSE.txt
 
 Name: python-peachpy
 License: BSD-2-Clause
-Files: third_party/python-peachpy
-  For details, see the files concatenated below: third_party/python-peachpy/LICENSE.rst
+Files: /pytorch/third_party/python-peachpy
+  For details, see the files concatenated below: /pytorch/third_party/python-peachpy/LICENSE.rst
 
 Name: sigslot
 License: Public Domain
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/sigslot
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/sigslot/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/sigslot
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/sigslot/LICENSE
 
 Name: sleef
 License: BSL-1.0
-Files: third_party/sleef
-  For details, see the files concatenated below: third_party/sleef/LICENSE.txt
+Files: /pytorch/third_party/sleef
+  For details, see the files concatenated below: /pytorch/third_party/sleef/LICENSE.txt
 
 Name: swift
 License: Apache-2.0
-Files: third_party/flatbuffers/swift
-  For details, see the files concatenated below: third_party/flatbuffers/swift/LICENSE
+Files: /pytorch/third_party/flatbuffers/swift
+  For details, see the files concatenated below: /pytorch/third_party/flatbuffers/swift/LICENSE
 
 Name: tb_plugin
 License: BSD-3-Clause
-Files: third_party/kineto/tb_plugin
-  For details, see the files concatenated below: third_party/kineto/tb_plugin/LICENSE
+Files: /pytorch/third_party/kineto/tb_plugin
+  For details, see the files concatenated below: /pytorch/third_party/kineto/tb_plugin/LICENSE
 
 Name: tensorflow-common
 License: MIT
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/tensorflow-common
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/tensorflow-common/LICENSE.txt
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/tensorflow-common
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/tensorflow-common/LICENSE.txt
 
 Name: tensorpipe
 License: BSD-3-Clause
-Files: third_party/tensorpipe
-  For details, see the files concatenated below: third_party/tensorpipe/LICENSE.txt
+Files: /pytorch/third_party/tensorpipe
+  For details, see the files concatenated below: /pytorch/third_party/tensorpipe/LICENSE.txt
 
 Name: test
 License: MIT with exception
-Files: third_party/kineto/libkineto/third_party/dynolog/third_party/cpr/test
-  For details, see the files concatenated below: third_party/kineto/libkineto/third_party/dynolog/third_party/cpr/test/LICENSE
+Files: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/cpr/test
+  For details, see the files concatenated below: /pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/cpr/test/LICENSE
 
 Name: variant
 License: BSD-3-Clause
-Files: third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/variant
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/variant/LICENSE
+Files: /pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/variant
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/variant/LICENSE
 
 Name: vcpkg
 License: MIT
-Files: third_party/opentelemetry-cpp/tools/vcpkg
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/LICENSE.txt
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/LICENSE.txt
 
 Name: vulkan
 License: Apache-2.0 with exception
-Files: third_party/opentelemetry-cpp/tools/vcpkg/ports/vulkan
-  For details, see the files concatenated below: third_party/opentelemetry-cpp/tools/vcpkg/ports/vulkan/LICENSE.txt
+Files: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/vulkan
+  For details, see the files concatenated below: /pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/vulkan/LICENSE.txt
 
-third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM/LICENSE
--------------------------------------------------------------------------
+/pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM/LICENSE
+----------------------------------------------------------------------------------
 Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -9050,8 +9245,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 
-third_party/FP16/LICENSE
-------------------------
+/pytorch/third_party/FP16/LICENSE
+---------------------------------
 The MIT License (MIT)
 
 Copyright (c) 2017 Facebook Inc.
@@ -9065,8 +9260,8 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-third_party/FXdiv/LICENSE
--------------------------
+/pytorch/third_party/FXdiv/LICENSE
+----------------------------------
 The MIT License (MIT)
 
 Copyright (c) 2017 Facebook Inc.
@@ -9079,8 +9274,8 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-third_party/NNPACK/LICENSE
---------------------------
+/pytorch/third_party/NNPACK/LICENSE
+-----------------------------------
 Copyright (c) 2017 Facebook Inc.
 Copyright (c) 2015-2017, Georgia Institute of Technology
 All rights reserved.
@@ -9107,8 +9302,12 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/NVTX/LICENSE.txt
-----------------------------
+/pytorch/third_party/NVTX/LICENSE.txt
+-------------------------------------
+==============================================================================
+NVTX is under the Apache License v2.0 with LLVM Exceptions:
+==============================================================================
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -9312,7 +9511,7 @@ third_party/NVTX/LICENSE.txt
     limitations under the License.
 
 
---- LLVM Exceptions to the Apache 2.0 License ----
+---- LLVM Exceptions to the Apache 2.0 License ----
 
 As an exception, if, as a result of your compiling your source code, portions
 of this Software are embedded into an Object form of such source code, you
@@ -9330,9 +9529,9 @@ Software.
 
 
 
-third_party/VulkanMemoryAllocator/LICENSE.txt
----------------------------------------------
-Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
+/pytorch/third_party/VulkanMemoryAllocator/LICENSE.txt
+------------------------------------------------------
+Copyright (c) 2017-2025 Advanced Micro Devices, Inc. All rights reserved.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -9353,8 +9552,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
-third_party/XNNPACK/LICENSE
----------------------------
+/pytorch/third_party/XNNPACK/LICENSE
+------------------------------------
 BSD License
 
 For XNNPACK software
@@ -9388,8 +9587,33 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/benchmark/LICENSE
------------------------------
+/pytorch/third_party/aiter/LICENSE
+----------------------------------
+Copyright © Advanced Micro Devices, Inc. All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+/pytorch/third_party/benchmark/LICENSE
+--------------------------------------
 
                                  Apache License
                            Version 2.0, January 2004
@@ -9594,7 +9818,213 @@ third_party/benchmark/LICENSE
    limitations under the License.
 
 
-third_party/opentelemetry-cpp/third_party/benchmark/LICENSE
+/pytorch/third_party/opentelemetry-cpp/third_party/benchmark/LICENSE
+--------------------------------------------------------------------
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+
+/pytorch/third_party/protobuf/third_party/benchmark/LICENSE
 -----------------------------------------------------------
 
                                  Apache License
@@ -9800,214 +10230,8 @@ third_party/opentelemetry-cpp/third_party/benchmark/LICENSE
    limitations under the License.
 
 
-third_party/protobuf/third_party/benchmark/LICENSE
---------------------------------------------------
-
-                                 Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
-
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-
-   1. Definitions.
-
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
-
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
-
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
-
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
-
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
-
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
-
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
-
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
-
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
-
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
-
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
-
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
-
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
-
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
-
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
-
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
-
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
-
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
-
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
-
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
-
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
-
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
-
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
-
-   END OF TERMS AND CONDITIONS
-
-   APPENDIX: How to apply the Apache License to your work.
-
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
-
-   Copyright [yyyy] [name of copyright owner]
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-
-
-third_party/opentelemetry-cpp/tools/vcpkg/ports/boost-vcpkg-helpers/LICENSE.txt
--------------------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/boost-vcpkg-helpers/LICENSE.txt
+----------------------------------------------------------------------------------------
 Copyright (c) Microsoft Corporation
 
 All rights reserved. 
@@ -10033,8 +10257,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/examples/rest/cJSON/LICENSE
-------------------------------------------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/examples/rest/cJSON/LICENSE
+---------------------------------------------------------------------------------------------------------------
 Copyright (c) 2009-2017 Dave Gamble and cJSON contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -10057,8 +10281,8 @@ THE SOFTWARE.
 
 
 
-third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/catch2/LICENSE.txt
-----------------------------------------------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/catch2/LICENSE.txt
+-------------------------------------------------------------------------------------------------------------------
 Boost Software License - Version 1.0 - August 17th, 2003
 
 Permission is hereby granted, free of charge, to any person or organization
@@ -10084,8 +10308,8 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 
-third_party/cpuinfo/deps/clog/LICENSE
--------------------------------------
+/pytorch/third_party/cpuinfo/deps/clog/LICENSE
+----------------------------------------------
 Copyright (C) 2018 Marat Dukhan
 Copyright (c) 2017-2018 Facebook Inc.
 Copyright (c) 2017 Georgia Institute of Technology
@@ -10114,8 +10338,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/fbgemm/third_party/cpuinfo/deps/clog/LICENSE
---------------------------------------------------------
+/pytorch/third_party/fbgemm/external/cpuinfo/deps/clog/LICENSE
+--------------------------------------------------------------
 Copyright (C) 2018 Marat Dukhan
 Copyright (c) 2017-2018 Facebook Inc.
 Copyright (c) 2017 Georgia Institute of Technology
@@ -10144,8 +10368,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM/testing/python3/libs_3rdparty/colorama/LICENSE.txt
---------------------------------------------------------------------------------------------------------------------
+/pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/DCGM/testing/python3/libs_3rdparty/colorama/LICENSE.txt
+-----------------------------------------------------------------------------------------------------------------------------
 Copyright (c) 2010 Jonathan Hartley <tartley@tartley.com>
 
 Released under the New BSD license (reproduced below), or alternatively you may
@@ -10181,8 +10405,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 
-third_party/composable_kernel/LICENSE
--------------------------------------
+/pytorch/third_party/aiter/3rdparty/composable_kernel/LICENSE
+-------------------------------------------------------------
 Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
 Copyright (c) 2019-    , Advanced Micro Devices, Inc. (Letao Qin, Qianfeng Zhang, Liang Huang, Shaojie Wang)
 Copyright (c) 2022-    , Advanced Micro Devices, Inc. (Anthony Chang, Chunyu Lai, Illia Silin, Adam Osewski, Poyen Chen, Jehandad Khan)
@@ -10213,8 +10437,72 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-third_party/flash-attention/csrc/composable_kernel/LICENSE
-----------------------------------------------------------
+/pytorch/third_party/composable_kernel/LICENSE
+----------------------------------------------
+Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
+Copyright (c) 2019-    , Advanced Micro Devices, Inc. (Letao Qin, Qianfeng Zhang, Liang Huang, Shaojie Wang)
+Copyright (c) 2022-    , Advanced Micro Devices, Inc. (Anthony Chang, Chunyu Lai, Illia Silin, Adam Osewski, Poyen Chen, Jehandad Khan)
+Copyright (c) 2019-2021, Advanced Micro Devices, Inc. (Hanwen Chang)
+Copyright (c) 2019-2020, Advanced Micro Devices, Inc. (Tejash Shah)
+Copyright (c) 2020     , Advanced Micro Devices, Inc. (Xiaoyan Zhou)
+Copyright (c) 2021-2022, Advanced Micro Devices, Inc. (Jianfeng Yan)
+
+SPDX-License-Identifier: MIT
+Copyright (c) 2018-2025, Advanced Micro Devices, Inc. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+/pytorch/third_party/fbgemm/external/composable_kernel/LICENSE
+--------------------------------------------------------------
+Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
+Copyright (c) 2019-    , Advanced Micro Devices, Inc. (Letao Qin, Qianfeng Zhang, Liang Huang, Shaojie Wang)
+Copyright (c) 2022-    , Advanced Micro Devices, Inc. (Anthony Chang, Chunyu Lai, Illia Silin, Adam Osewski, Poyen Chen, Jehandad Khan)
+Copyright (c) 2019-2021, Advanced Micro Devices, Inc. (Hanwen Chang)
+Copyright (c) 2019-2020, Advanced Micro Devices, Inc. (Tejash Shah)
+Copyright (c) 2020     , Advanced Micro Devices, Inc. (Xiaoyan Zhou)
+Copyright (c) 2021-2022, Advanced Micro Devices, Inc. (Jianfeng Yan)
+
+SPDX-License-Identifier: MIT
+Copyright (c) 2018-2025, Advanced Micro Devices, Inc. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+/pytorch/third_party/flash-attention/csrc/composable_kernel/LICENSE
+-------------------------------------------------------------------
 Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
 Copyright (c) 2019-    , Advanced Micro Devices, Inc. (Letao Qin, Qianfeng Zhang, Liang Huang, Shaojie Wang)
 Copyright (c) 2022-    , Advanced Micro Devices, Inc. (Anthony Chang, Chunyu Lai, Illia Silin, Adam Osewski, Poyen Chen, Jehandad Khan)
@@ -10245,8 +10533,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-third_party/cpp-httplib/LICENSE
--------------------------------
+/pytorch/third_party/cpp-httplib/LICENSE
+----------------------------------------
 The MIT License (MIT)
 
 Copyright (c) 2017 yhirose
@@ -10271,8 +10559,8 @@ SOFTWARE.
 
 
 
-third_party/kineto/libkineto/third_party/dynolog/third_party/json/third_party/cpplint/LICENSE
----------------------------------------------------------------------------------------------
+/pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/json/third_party/cpplint/LICENSE
+------------------------------------------------------------------------------------------------------
 cpplint.py and its corresponding unit tests are Copyright (C) 2009 Google Inc.
 
 Redistribution and use in source and binary forms, with or without
@@ -10302,39 +10590,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/nlohmann/tools/cpplint/LICENSE
-------------------------------------------
-cpplint.py and its corresponding unit tests are Copyright (C) 2009 Google Inc.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-   * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-   * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-   * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-third_party/kineto/libkineto/third_party/dynolog/third_party/cpr/LICENSE
-------------------------------------------------------------------------
+/pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/cpr/LICENSE
+---------------------------------------------------------------------------------
 This license applies to everything except the contents of the "test"
 directory and its subdirectories.
 
@@ -10361,8 +10618,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-third_party/cpuinfo/LICENSE
----------------------------
+/pytorch/third_party/cpuinfo/LICENSE
+------------------------------------
 Copyright (c) 2019 Google LLC
 Copyright (c) 2017-2018 Facebook Inc.
 Copyright (C) 2012-2017 Georgia Institute of Technology
@@ -10392,8 +10649,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/fbgemm/third_party/cpuinfo/LICENSE
-----------------------------------------------
+/pytorch/third_party/fbgemm/external/cpuinfo/LICENSE
+----------------------------------------------------
 Copyright (c) 2019 Google LLC
 Copyright (c) 2017-2018 Facebook Inc.
 Copyright (C) 2012-2017 Georgia Institute of Technology
@@ -10423,8 +10680,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/cudnn_frontend/LICENSE.txt
---------------------------------------
+/pytorch/third_party/cudnn_frontend/LICENSE.txt
+-----------------------------------------------
 /*
  * Copyright (c) 2020, NVIDIA CORPORATION. All rights reserved.
  *
@@ -10448,8 +10705,8 @@ third_party/cudnn_frontend/LICENSE.txt
  */ 
 
 
-third_party/cutlass/LICENSE.txt
--------------------------------
+/pytorch/third_party/cutlass/LICENSE.txt
+----------------------------------------
 Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 
@@ -10478,10 +10735,17 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+Certain files within this repository are subject to separate licensing terms:
 
-third_party/fbgemm/third_party/cutlass/LICENSE.txt
---------------------------------------------------
-Copyright (c) 2017 - 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+- The files located in the `python/CuTeDSL` directory are licensed under the
+  NVIDIA End User License Agreement (EULA). Please refer to
+  https://docs.nvidia.com/cutlass/media/docs/pythonDSL/license.html
+  for the full terms.
+
+
+/pytorch/third_party/fbgemm/external/cutlass/LICENSE.txt
+--------------------------------------------------------
+Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 
 Redistribution and use in source and binary forms, with or without
@@ -10509,9 +10773,16 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+Certain files within this repository are subject to separate licensing terms:
 
-third_party/flash-attention/csrc/cutlass/LICENSE.txt
-----------------------------------------------------
+- The files located in the `python/CuTeDSL` directory are licensed under the
+  NVIDIA End User License Agreement (EULA). Please refer to
+  https://docs.nvidia.com/cutlass/media/docs/pythonDSL/license.html
+  for the full terms.
+
+
+/pytorch/third_party/flash-attention/csrc/cutlass/LICENSE.txt
+-------------------------------------------------------------
 Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 
@@ -10541,8 +10812,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/flatbuffers/dart/LICENSE
-------------------------------------
+/pytorch/third_party/flatbuffers/dart/LICENSE
+---------------------------------------------
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -10746,8 +11017,235 @@ third_party/flatbuffers/dart/LICENSE
    limitations under the License.
 
 
-third_party/kineto/libkineto/third_party/dynolog/third_party/json/test/thirdparty/doctest/LICENSE.txt
------------------------------------------------------------------------------------------------------
+/pytorch/third_party/NVTX/docs/LICENSE.txt
+------------------------------------------
+==============================================================================
+NVTX is under the Apache License v2.0 with LLVM Exceptions:
+==============================================================================
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+    TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+    1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+    2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+    3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+    4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+    5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+    6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+    7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+    8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+    9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+    END OF TERMS AND CONDITIONS
+
+    APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+    Copyright [yyyy] [name of copyright owner]
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+
+---- LLVM Exceptions to the Apache 2.0 License ----
+
+As an exception, if, as a result of your compiling your source code, portions
+of this Software are embedded into an Object form of such source code, you
+may redistribute such embedded portions in such Object form without complying
+with the conditions of Sections 4(a), 4(b) and 4(d) of the License.
+
+In addition, if you combine or link compiled forms of this Software with
+software that is licensed under the GPLv2 ("Combined Software") and if a
+court of competent jurisdiction determines that the patent provision (Section
+3), the indemnity provision (Section 9) or other Section of the License
+conflicts with the conditions of the GPLv2, you may retroactively and
+prospectively choose to deem waived or otherwise exclude such Section(s) of
+the License, but only in their entirety and only with respect to the Combined
+Software.
+
+
+
+/pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/json/test/thirdparty/doctest/LICENSE.txt
+--------------------------------------------------------------------------------------------------------------
 The MIT License (MIT)
 
 Copyright (c) 2016-2021 Viktor Kirilov
@@ -10771,33 +11269,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-third_party/nlohmann/tests/thirdparty/doctest/LICENSE.txt
----------------------------------------------------------
-The MIT License (MIT)
-
-Copyright (c) 2016-2021 Viktor Kirilov
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.5.2/LICENSE.txt
---------------------------------------------------------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.5.2/LICENSE.txt
+-----------------------------------------------------------------------------------------------------------------------------
 ===============
 Duktape license
 ===============
@@ -10825,8 +11298,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
-third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.8.0/LICENSE.txt
---------------------------------------------------------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/civetweb/src/third_party/duktape-1.8.0/LICENSE.txt
+-----------------------------------------------------------------------------------------------------------------------------
 ===============
 Duktape license
 ===============
@@ -10854,8 +11327,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
-third_party/kineto/libkineto/third_party/dynolog/LICENSE
---------------------------------------------------------
+/pytorch/third_party/kineto/libkineto/third_party/dynolog/LICENSE
+-----------------------------------------------------------------
 MIT License
 
 Copyright (c) Facebook, Inc. and its affiliates.
@@ -10879,38 +11352,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-third_party/eigen/COPYING.BSD
------------------------------
-/*
- Copyright (c) 2011, Intel Corporation. All rights reserved.
-
- Redistribution and use in source and binary forms, with or without modification,
- are permitted provided that the following conditions are met:
-
- * Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
- * Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
- * Neither the name of Intel Corporation nor the names of its contributors may
-   be used to endorse or promote products derived from this software without
-   specific prior written permission.
-
- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
- ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
- ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
-
-
-third_party/opentelemetry-cpp/exporters/etw/include/opentelemetry/exporters/etw/LICENSE
----------------------------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/exporters/etw/include/opentelemetry/exporters/etw/LICENSE
+------------------------------------------------------------------------------------------------
 TraceLogging Dynamic for Windows
 
 Copyright (c) Microsoft Corporation. All rights reserved.
@@ -10936,8 +11379,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/expected/LICENSE
---------------------------------------------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/expected/LICENSE
+-----------------------------------------------------------------------------------------------------------------
 The MIT License (MIT)
 
 Copyright (c) 2015 Martin Moene
@@ -10963,8 +11406,8 @@ SOFTWARE.
 
 
 
-third_party/fbgemm/LICENSE
---------------------------
+/pytorch/third_party/fbgemm/LICENSE
+-----------------------------------
 BSD License
 
 For FBGEMM software
@@ -10997,8 +11440,8 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/opentelemetry-cpp/tools/vcpkg/ports/ffnvcodec/LICENSE.txt
----------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/ffnvcodec/LICENSE.txt
+------------------------------------------------------------------------------
 GNU LESSER GENERAL PUBLIC LICENSE
 Version 2.1, February 1999
 
@@ -11169,8 +11612,8 @@ signature of Ty Coon, 1 April 1990
 Ty Coon, President of Vice
 That's all there is to it!
 
-third_party/flash-attention/LICENSE
------------------------------------
+/pytorch/third_party/flash-attention/LICENSE
+--------------------------------------------
 BSD 3-Clause License
 
 Copyright (c) 2022, the respective contributors, as shown by the AUTHORS file.
@@ -11202,8 +11645,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/flatbuffers/LICENSE
--------------------------------
+/pytorch/third_party/flatbuffers/LICENSE
+----------------------------------------
 
                                  Apache License
                            Version 2.0, January 2004
@@ -11408,8 +11851,8 @@ third_party/flatbuffers/LICENSE
    limitations under the License.
 
 
-third_party/fmt/LICENSE
------------------------
+/pytorch/third_party/fmt/LICENSE
+--------------------------------
 Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -11439,8 +11882,8 @@ source code, you may redistribute such embedded portions in such object form
 without including the above copyright and permission notices.
 
 
-third_party/kineto/libkineto/third_party/dynolog/third_party/fmt/LICENSE.rst
-----------------------------------------------------------------------------
+/pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/fmt/LICENSE.rst
+-------------------------------------------------------------------------------------
 Copyright (c) 2012 - present, Victor Zverovich
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -11470,8 +11913,8 @@ source code, you may redistribute such embedded portions in such object form
 without including the above copyright and permission notices.
 
 
-third_party/kineto/libkineto/third_party/fmt/LICENSE
-----------------------------------------------------
+/pytorch/third_party/kineto/libkineto/third_party/fmt/LICENSE
+-------------------------------------------------------------
 Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -11501,8 +11944,8 @@ source code, you may redistribute such embedded portions in such object form
 without including the above copyright and permission notices.
 
 
-third_party/gemmlowp/gemmlowp/LICENSE
--------------------------------------
+/pytorch/third_party/gemmlowp/gemmlowp/LICENSE
+----------------------------------------------
 
                                  Apache License
                            Version 2.0, January 2004
@@ -11707,8 +12150,8 @@ third_party/gemmlowp/gemmlowp/LICENSE
    limitations under the License.
 
 
-third_party/fbgemm/third_party/googletest/googlemock/scripts/generator/LICENSE
-------------------------------------------------------------------------------
+/pytorch/third_party/kineto/libkineto/third_party/googletest/googlemock/scripts/generator/LICENSE
+-------------------------------------------------------------------------------------------------
 
                                  Apache License
                            Version 2.0, January 2004
@@ -11914,8 +12357,8 @@ third_party/fbgemm/third_party/googletest/googlemock/scripts/generator/LICENSE
    limitations under the License.
 
 
-third_party/kineto/libkineto/third_party/googletest/googlemock/scripts/generator/LICENSE
-----------------------------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/googlemock/scripts/generator/LICENSE
+--------------------------------------------------------------------------------------------------------------------------
 
                                  Apache License
                            Version 2.0, January 2004
@@ -12121,8 +12564,8 @@ third_party/kineto/libkineto/third_party/googletest/googlemock/scripts/generator
    limitations under the License.
 
 
-third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/googlemock/scripts/generator/LICENSE
------------------------------------------------------------------------------------------------------------------
+/pytorch/third_party/protobuf/third_party/googletest/googlemock/scripts/generator/LICENSE
+-----------------------------------------------------------------------------------------
 
                                  Apache License
                            Version 2.0, January 2004
@@ -12328,8 +12771,8 @@ third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/goo
    limitations under the License.
 
 
-third_party/protobuf/third_party/googletest/googlemock/scripts/generator/LICENSE
---------------------------------------------------------------------------------
+/pytorch/third_party/tensorpipe/third_party/googletest/googlemock/scripts/generator/LICENSE
+-------------------------------------------------------------------------------------------
 
                                  Apache License
                            Version 2.0, January 2004
@@ -12535,215 +12978,8 @@ third_party/protobuf/third_party/googletest/googlemock/scripts/generator/LICENSE
    limitations under the License.
 
 
-third_party/tensorpipe/third_party/googletest/googlemock/scripts/generator/LICENSE
-----------------------------------------------------------------------------------
-
-                                 Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
-
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-
-   1. Definitions.
-
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
-
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
-
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
-
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
-
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
-
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
-
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
-
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
-
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
-
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
-
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
-
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
-
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
-
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
-
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
-
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
-
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
-
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
-
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
-
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
-
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
-
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
-
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
-
-   END OF TERMS AND CONDITIONS
-
-   APPENDIX: How to apply the Apache License to your work.
-
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
-
-   Copyright [2007] Neal Norwitz
-   Portions Copyright [2007] Google Inc.
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-
-
-third_party/opentelemetry-cpp/tools/vcpkg/ports/gettimeofday/LICENSE
---------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/gettimeofday/LICENSE
+-----------------------------------------------------------------------------
 /*
  * Copied from PostgreSQL source:
  *  http://doxygen.postgresql.org/gettimeofday_8c_source.html
@@ -12779,8 +13015,8 @@ third_party/opentelemetry-cpp/tools/vcpkg/ports/gettimeofday/LICENSE
  */
 
 
-third_party/gloo/LICENSE
-------------------------
+/pytorch/third_party/gloo/LICENSE
+---------------------------------
 BSD License
 
 For Gloo software
@@ -12813,231 +13049,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/fbgemm/third_party/googletest/googlemock/LICENSE
-------------------------------------------------------------
-Copyright 2008, Google Inc.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-    * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-    * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-third_party/kineto/libkineto/third_party/googletest/googlemock/LICENSE
-----------------------------------------------------------------------
-Copyright 2008, Google Inc.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-    * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-    * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-third_party/protobuf/third_party/googletest/googlemock/LICENSE
---------------------------------------------------------------
-Copyright 2008, Google Inc.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-    * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-    * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-third_party/tensorpipe/third_party/googletest/googlemock/LICENSE
-----------------------------------------------------------------
-Copyright 2008, Google Inc.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-    * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-    * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-third_party/fbgemm/third_party/googletest/LICENSE
--------------------------------------------------
-Copyright 2008, Google Inc.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-    * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-    * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-third_party/fbgemm/third_party/googletest/googletest/LICENSE
-------------------------------------------------------------
-Copyright 2008, Google Inc.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-    * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-    * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-third_party/googletest/LICENSE
-------------------------------
-Copyright 2008, Google Inc.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-    * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-    * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-third_party/kineto/libkineto/third_party/dynolog/third_party/googletest/LICENSE
+/pytorch/third_party/kineto/libkineto/third_party/googletest/googlemock/LICENSE
 -------------------------------------------------------------------------------
 Copyright 2008, Google Inc.
 All rights reserved.
@@ -13069,8 +13081,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/kineto/libkineto/third_party/googletest/LICENSE
------------------------------------------------------------
+/pytorch/third_party/protobuf/third_party/googletest/googlemock/LICENSE
+-----------------------------------------------------------------------
 Copyright 2008, Google Inc.
 All rights reserved.
 
@@ -13101,8 +13113,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/kineto/libkineto/third_party/googletest/googletest/LICENSE
-----------------------------------------------------------------------
+/pytorch/third_party/tensorpipe/third_party/googletest/googlemock/LICENSE
+-------------------------------------------------------------------------
 Copyright 2008, Google Inc.
 All rights reserved.
 
@@ -13133,7 +13145,231 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/opentelemetry-cpp/third_party/googletest/LICENSE
+/pytorch/third_party/fbgemm/external/googletest/LICENSE
+-------------------------------------------------------
+Copyright 2008, Google Inc.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+    * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+/pytorch/third_party/googletest/LICENSE
+---------------------------------------
+Copyright 2008, Google Inc.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+    * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+/pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/googletest/LICENSE
+----------------------------------------------------------------------------------------
+Copyright 2008, Google Inc.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+    * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+/pytorch/third_party/kineto/libkineto/third_party/googletest/LICENSE
+--------------------------------------------------------------------
+Copyright 2008, Google Inc.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+    * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+/pytorch/third_party/kineto/libkineto/third_party/googletest/googletest/LICENSE
+-------------------------------------------------------------------------------
+Copyright 2008, Google Inc.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+    * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+/pytorch/third_party/opentelemetry-cpp/third_party/googletest/LICENSE
+---------------------------------------------------------------------
+Copyright 2008, Google Inc.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+    * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+/pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/LICENSE
+---------------------------------------------------------------------------------------------
+Copyright 2008, Google Inc.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+    * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+/pytorch/third_party/protobuf/third_party/googletest/LICENSE
 ------------------------------------------------------------
 Copyright 2008, Google Inc.
 All rights reserved.
@@ -13165,8 +13401,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/opentelemetry-cpp/third_party/prometheus-cpp/3rdparty/googletest/LICENSE
-------------------------------------------------------------------------------------
+/pytorch/third_party/protobuf/third_party/googletest/googletest/LICENSE
+-----------------------------------------------------------------------
 Copyright 2008, Google Inc.
 All rights reserved.
 
@@ -13197,39 +13433,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/protobuf/third_party/googletest/LICENSE
----------------------------------------------------
-Copyright 2008, Google Inc.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-    * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-    * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-third_party/protobuf/third_party/googletest/googletest/LICENSE
+/pytorch/third_party/tensorpipe/third_party/googletest/LICENSE
 --------------------------------------------------------------
 Copyright 2008, Google Inc.
 All rights reserved.
@@ -13261,8 +13465,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/tensorpipe/third_party/googletest/LICENSE
------------------------------------------------------
+/pytorch/third_party/tensorpipe/third_party/googletest/googletest/LICENSE
+-------------------------------------------------------------------------
 Copyright 2008, Google Inc.
 All rights reserved.
 
@@ -13293,8 +13497,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/tensorpipe/third_party/googletest/googletest/LICENSE
-----------------------------------------------------------------
+/pytorch/third_party/ideep/mkl-dnn/tests/gtests/gtest/LICENSE
+-------------------------------------------------------------
 Copyright 2008, Google Inc.
 All rights reserved.
 
@@ -13325,43 +13529,11 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/ideep/mkl-dnn/tests/gtests/gtest/LICENSE
-----------------------------------------------------
-Copyright 2008, Google Inc.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-    * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-    * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-third_party/fbgemm/third_party/hipify_torch/LICENSE.txt
--------------------------------------------------------
+/pytorch/third_party/fbgemm/external/hipify_torch/LICENSE.txt
+-------------------------------------------------------------
 MIT License
 
-Copyright (c) 2017 AMD Compute Libraries
+Copyright (c) 2021-2024, Advanced Micro Devices, Inc. All rights reserved.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -13382,8 +13554,52 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-third_party/opentelemetry-cpp/tools/vcpkg/ports/hungarian/LICENSE.txt
----------------------------------------------------------------------
+/pytorch/third_party/fbgemm/fbgemm_gpu/experimental/hstu/LICENSE
+----------------------------------------------------------------
+BSD 3-Clause License
+
+Copyright (c) 2022, the respective contributors, as shown by the AUTHORS file.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+/*
+ * SPDX-FileCopyrightText: Copyright (c) <2024> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/hungarian/LICENSE.txt
+------------------------------------------------------------------------------
 /********************************************************************
  ********************************************************************
  **
@@ -13410,8 +13626,8 @@ third_party/opentelemetry-cpp/tools/vcpkg/ports/hungarian/LICENSE.txt
  ********************************************************************/
 
 
-third_party/ideep/LICENSE
--------------------------
+/pytorch/third_party/ideep/LICENSE
+----------------------------------
 Copyright (c) 2018 Intel Corporation.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -13433,8 +13649,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
-third_party/opentelemetry-cpp/tools/vcpkg/ports/irrlicht/LICENSE.txt
---------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/irrlicht/LICENSE.txt
+-----------------------------------------------------------------------------
 The Irrlicht Engine License
 ===========================
 
@@ -13456,8 +13672,8 @@ freely, subject to the following restrictions:
    misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
 
-third_party/kineto/LICENSE
---------------------------
+/pytorch/third_party/kineto/LICENSE
+-----------------------------------
 BSD License
 
 For Kineto software
@@ -13493,8 +13709,8 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/tensorpipe/third_party/libnop/LICENSE
--------------------------------------------------
+/pytorch/third_party/tensorpipe/third_party/libnop/LICENSE
+----------------------------------------------------------
 Copyright 2017 The Native Object Protocols Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -13510,8 +13726,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 
-third_party/opentelemetry-cpp/tools/vcpkg/ports/libstemmer/LICENSE
-------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/libstemmer/LICENSE
+---------------------------------------------------------------------------
 Snowball - License
 Except where explicitly noted, all the software given out on this Snowball site is covered by the 3-clause BSD License:
 
@@ -13533,11 +13749,8 @@ Essentially, all this means is that you can do what you like with the code, exce
 We have not bothered to insert the licensing arrangement into the text of the Snowball software.
 
 
-third_party/tensorpipe/third_party/libuv/LICENSE
-------------------------------------------------
-libuv is licensed for use as follows:
-
-====
+/pytorch/third_party/tensorpipe/third_party/libuv/LICENSE
+---------------------------------------------------------
 Copyright (c) 2015-present libuv project contributors.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -13557,61 +13770,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
-====
-
-This license applies to parts of libuv originating from the
-https://github.com/joyent/libuv repository:
-
-====
-
-Copyright Joyent, Inc. and other Node contributors. All rights reserved.
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to
-deal in the Software without restriction, including without limitation the
-rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-sell copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-IN THE SOFTWARE.
-
-====
-
-This license applies to all parts of libuv that are not externally
-maintained libraries.
-
-The externally maintained libraries used by libuv are:
-
-  - tree.h (from FreeBSD), copyright Niels Provos. Two clause BSD license.
-
-  - inet_pton and inet_ntop implementations, contained in src/inet.c, are
-    copyright the Internet Systems Consortium, Inc., and licensed under the ISC
-    license.
-
-  - stdint-msvc2008.h (from msinttypes), copyright Alexander Chemeris. Three
-    clause BSD license.
-
-  - pthread-fixes.c, copyright Google Inc. and Sony Mobile Communications AB.
-    Three clause BSD license.
-
-  - android-ifaddrs.h, android-ifaddrs.c, copyright Berkeley Software Design
-    Inc, Kenneth MacKay and Emergya (Cloud4all, FP7/2007-2013, grant agreement
-    n° 289016). Three clause BSD license.
 
 
-third_party/mimalloc/LICENSE
-----------------------------
+/pytorch/third_party/mimalloc/LICENSE
+-------------------------------------
 MIT License
 
-Copyright (c) 2018-2021 Microsoft Corporation, Daan Leijen
+Copyright (c) 2018-2025 Microsoft Corporation, Daan Leijen
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -13632,8 +13797,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-third_party/miniz-3.0.2/LICENSE
--------------------------------
+/pytorch/third_party/miniz-3.0.2/LICENSE
+----------------------------------------
 Copyright 2013-2014 RAD Game Tools and Valve Software
 Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
 
@@ -13658,8 +13823,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
-third_party/ideep/mkl-dnn/LICENSE
----------------------------------
+/pytorch/third_party/ideep/mkl-dnn/LICENSE
+------------------------------------------
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -13869,8 +14034,8 @@ third_party/ideep/mkl-dnn/LICENSE
    "THIRD-PARTY-PROGRAMS" file.
 
 
-third_party/opentelemetry-cpp/third_party/ms-gsl/LICENSE
---------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/ms-gsl/LICENSE
+-----------------------------------------------------------------
 Copyright (c) 2015 Microsoft Corporation. All rights reserved. 
  
 This code is licensed under the MIT License (MIT). 
@@ -13894,51 +14059,58 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE. 
 
 
-third_party/nccl/LICENSE.txt
-----------------------------
+/pytorch/third_party/fbgemm/fbgemm_gpu/src/quantize_ops/mx/LICENSE
+------------------------------------------------------------------
+    MIT License
 
- Copyright (c) 2015-2020, NVIDIA CORPORATION. All rights reserved.
+    Copyright (c) Microsoft Corporation.
 
- Redistribution and use in source and binary forms, with or without
- modification, are permitted provided that the following conditions
- are met:
-  * Redistributions of source code must retain the above copyright
-    notice, this list of conditions and the following disclaimer.
-  * Redistributions in binary form must reproduce the above copyright
-    notice, this list of conditions and the following disclaimer in the
-    documentation and/or other materials provided with the distribution.
-  * Neither the name of NVIDIA CORPORATION, Lawrence Berkeley National
-    Laboratory, the U.S. Department of Energy, nor the names of their
-    contributors may be used to endorse or promote products derived
-    from this software without specific prior written permission.
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
 
- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
- EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
- OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
 
- The U.S. Department of Energy funded the development of this software
- under subcontract 7078610 with Lawrence Berkeley National Laboratory.
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
 
 
-This code also includes files from the NVIDIA Tools Extension SDK project.
+/pytorch/third_party/fbgemm/fbgemm_gpu/test/quantize/mx/LICENSE
+---------------------------------------------------------------
+    MIT License
 
-See:
+    Copyright (c) Microsoft Corporation.
 
-   https://github.com/NVIDIA/NVTX
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
 
-for more information and license details.
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
 
 
-third_party/onnx/LICENSE
-------------------------
+/pytorch/third_party/onnx/LICENSE
+---------------------------------
 
                                  Apache License
                            Version 2.0, January 2004
@@ -14143,8 +14315,8 @@ third_party/onnx/LICENSE
    limitations under the License.
 
 
-third_party/opentelemetry-cpp/LICENSE
--------------------------------------
+/pytorch/third_party/opentelemetry-cpp/LICENSE
+----------------------------------------------
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -14348,8 +14520,8 @@ third_party/opentelemetry-cpp/LICENSE
    limitations under the License.
 
 
-third_party/opentelemetry-cpp/third_party/opentelemetry-proto/LICENSE
----------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/opentelemetry-proto/LICENSE
+------------------------------------------------------------------------------
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -14553,8 +14725,8 @@ third_party/opentelemetry-cpp/third_party/opentelemetry-proto/LICENSE
    limitations under the License.
 
 
-third_party/opentelemetry-cpp/third_party/opentracing-cpp/LICENSE
------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/LICENSE
+--------------------------------------------------------------------------
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -14757,8 +14929,8 @@ third_party/opentelemetry-cpp/third_party/opentracing-cpp/LICENSE
    See the License for the specific language governing permissions and
    limitations under the License.
 
-third_party/opentelemetry-cpp/tools/vcpkg/ports/pdcurses/LICENSE
-----------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/pdcurses/LICENSE
+-------------------------------------------------------------------------
 The core package is in the public domain, but small portions of PDCurses are subject to copyright under various licenses.
 
 The win32 files are released to the public domain.
@@ -14767,8 +14939,8 @@ If you use PDCurses in an application, an acknowledgement would be appreciated, 
 
 This software is provided AS IS with NO WARRANTY whatsoever.
 
-third_party/kineto/libkineto/third_party/dynolog/third_party/pfs/LICENSE
-------------------------------------------------------------------------
+/pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/pfs/LICENSE
+---------------------------------------------------------------------------------
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -14961,8 +15133,8 @@ third_party/kineto/libkineto/third_party/dynolog/third_party/pfs/LICENSE
    limitations under the License.
 
 
-third_party/opentelemetry-cpp/tools/vcpkg/ports/physac/LICENSE
---------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/physac/LICENSE
+-----------------------------------------------------------------------
 MIT License
 
 Copyright (c) 2022 Víctor Fisac
@@ -14985,8 +15157,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-third_party/opentelemetry-cpp/tools/vcpkg/ports/pqp/LICENSE
------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/pqp/LICENSE
+--------------------------------------------------------------------
 Copyright 1999 University of North Carolina at Chapel Hill.
 All rights reserved.
 
@@ -15020,8 +15192,8 @@ Phone:               (919) 962-1749
 
 Email:               geom@cs.unc.edu
 
-third_party/opentelemetry-cpp/third_party/prometheus-cpp/LICENSE
-----------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/prometheus-cpp/LICENSE
+-------------------------------------------------------------------------
 MIT License
 
 Copyright (c) 2016-2021 Jupp Mueller
@@ -15049,8 +15221,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-third_party/protobuf/LICENSE
-----------------------------
+/pytorch/third_party/protobuf/LICENSE
+-------------------------------------
 Copyright 2008 Google Inc.  All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -15085,8 +15257,8 @@ standalone and requires a support library to be linked with it.  This
 support library is itself covered by the above license.
 
 
-third_party/psimd/LICENSE
--------------------------
+/pytorch/third_party/psimd/LICENSE
+----------------------------------
 The MIT License (MIT)
 
 Copyright (c) 2017 Facebook Inc.
@@ -15100,8 +15272,8 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-third_party/pthreadpool/LICENSE
--------------------------------
+/pytorch/third_party/pthreadpool/LICENSE
+----------------------------------------
 Copyright 2019 Google LLC
 Copyright (c) 2017 Facebook Inc.
 Copyright (c) 2015-2017 Georgia Institute of Technology
@@ -15130,8 +15302,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 
-third_party/onnx/third_party/pybind11/LICENSE
----------------------------------------------
+/pytorch/third_party/onnx/third_party/pybind11/LICENSE
+------------------------------------------------------
 Copyright (c) 2016 Wenzel Jakob <wenzel.jakob@epfl.ch>, All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -15163,8 +15335,8 @@ Please also refer to the file .github/CONTRIBUTING.md, which clarifies licensing
 external contributions to this project including patches, pull requests, etc.
 
 
-third_party/pybind11/LICENSE
-----------------------------
+/pytorch/third_party/pybind11/LICENSE
+-------------------------------------
 Copyright (c) 2016 Wenzel Jakob <wenzel.jakob@epfl.ch>, All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -15196,8 +15368,8 @@ Please also refer to the file .github/CONTRIBUTING.md, which clarifies licensing
 external contributions to this project including patches, pull requests, etc.
 
 
-third_party/tensorpipe/third_party/pybind11/LICENSE
----------------------------------------------------
+/pytorch/third_party/tensorpipe/third_party/pybind11/LICENSE
+------------------------------------------------------------
 Copyright (c) 2016 Wenzel Jakob <wenzel.jakob@epfl.ch>, All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -15229,8 +15401,12 @@ Please also refer to the file CONTRIBUTING.md, which clarifies licensing of
 external contributions to this project including patches, pull requests, etc.
 
 
-third_party/NVTX/python/LICENSE.txt
------------------------------------
+/pytorch/third_party/NVTX/python/LICENSE.txt
+--------------------------------------------
+==============================================================================
+NVTX is under the Apache License v2.0 with LLVM Exceptions:
+==============================================================================
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -15434,7 +15610,7 @@ third_party/NVTX/python/LICENSE.txt
     limitations under the License.
 
 
---- LLVM Exceptions to the Apache 2.0 License ----
+---- LLVM Exceptions to the Apache 2.0 License ----
 
 As an exception, if, as a result of your compiling your source code, portions
 of this Software are embedded into an Object form of such source code, you
@@ -15452,8 +15628,8 @@ Software.
 
 
 
-third_party/cutlass/python/LICENSE.txt
---------------------------------------
+/pytorch/third_party/cutlass/python/LICENSE.txt
+-----------------------------------------------
 Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 
@@ -15483,8 +15659,39 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/flash-attention/csrc/cutlass/python/LICENSE.txt
------------------------------------------------------------
+/pytorch/third_party/fbgemm/external/cutlass/python/LICENSE.txt
+---------------------------------------------------------------
+Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: BSD-3-Clause
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation
+and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+/pytorch/third_party/flash-attention/csrc/cutlass/python/LICENSE.txt
+--------------------------------------------------------------------
 Copyright (c) 2017 - 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 
@@ -15514,8 +15721,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/python-peachpy/LICENSE.rst
---------------------------------------
+/pytorch/third_party/python-peachpy/LICENSE.rst
+-----------------------------------------------
 ==============================
 PeachPy license (2-clause BSD)
 ==============================
@@ -15533,8 +15740,8 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/opentelemetry-cpp/tools/vcpkg/ports/sigslot/LICENSE
----------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/sigslot/LICENSE
+------------------------------------------------------------------------
 License
 The sigslot library has been placed in the public domain. This means that you are free to use it however you like.
 
@@ -15544,8 +15751,8 @@ If you screw up, it's your fault.
 
 If the library screws up, you got it for free, so you should have tested it better - it's still your responsibility.
 
-third_party/sleef/LICENSE.txt
------------------------------
+/pytorch/third_party/sleef/LICENSE.txt
+--------------------------------------
 Boost Software License - Version 1.0 - August 17th, 2003
 
 Permission is hereby granted, free of charge, to any person or organization
@@ -15571,8 +15778,8 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 
-third_party/flatbuffers/swift/LICENSE
--------------------------------------
+/pytorch/third_party/flatbuffers/swift/LICENSE
+----------------------------------------------
 
                                  Apache License
                            Version 2.0, January 2004
@@ -15777,8 +15984,8 @@ third_party/flatbuffers/swift/LICENSE
    limitations under the License.
 
 
-third_party/kineto/tb_plugin/LICENSE
-------------------------------------
+/pytorch/third_party/kineto/tb_plugin/LICENSE
+---------------------------------------------
 BSD License
 
 For Kineto software
@@ -15814,8 +16021,8 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/opentelemetry-cpp/tools/vcpkg/ports/tensorflow-common/LICENSE.txt
------------------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/tensorflow-common/LICENSE.txt
+--------------------------------------------------------------------------------------
 Copyright (c) Microsoft Corporation
 
 All rights reserved. 
@@ -15841,8 +16048,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-third_party/tensorpipe/LICENSE.txt
-----------------------------------
+/pytorch/third_party/tensorpipe/LICENSE.txt
+-------------------------------------------
 BSD License
 
 For TensorPipe software
@@ -15875,8 +16082,8 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-third_party/kineto/libkineto/third_party/dynolog/third_party/cpr/test/LICENSE
------------------------------------------------------------------------------
+/pytorch/third_party/kineto/libkineto/third_party/dynolog/third_party/cpr/test/LICENSE
+--------------------------------------------------------------------------------------
 This license applies to everything inside this directory and all
 subdirectories.
 
@@ -16555,8 +16762,8 @@ the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
 
-third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/variant/LICENSE
--------------------------------------------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/third_party/opentracing-cpp/3rd_party/include/opentracing/variant/LICENSE
+----------------------------------------------------------------------------------------------------------------
 Copyright (c) MapBox
 All rights reserved.
 
@@ -16583,8 +16790,8 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-third_party/opentelemetry-cpp/tools/vcpkg/LICENSE.txt
------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/LICENSE.txt
+--------------------------------------------------------------
 MIT License
 
 Copyright (c) Microsoft Corporation
@@ -16607,8 +16814,8 @@ CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFT
 OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-third_party/opentelemetry-cpp/tools/vcpkg/ports/vulkan/LICENSE.txt
-------------------------------------------------------------------
+/pytorch/third_party/opentelemetry-cpp/tools/vcpkg/ports/vulkan/LICENSE.txt
+---------------------------------------------------------------------------
 /*
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17338,36 +17545,8 @@ If the Library as you received it specifies that a proxy can decide whether futu
 
 
 torchcodec
-0.4.0
-BSD 3-Clause License
-
-Copyright 2024 Meta
-
-Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice,this list
-of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice, this
-list of conditions and the following disclaimer in the documentation
-and/or other materials provided with the distribution.
-
-3. Neither the name of the copyright holder nor the names of its contributors may
-be used to endorse or promote products derived from this software without specific
-prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” AND ANY
-EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
-OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
-SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
-TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
-DAMAGE.
-
+0.8.0
+UNKNOWN
 https://pytorch.org/torchcodec/stable/index.html
 BSD 3-Clause License
 
@@ -17400,7 +17579,7 @@ DAMAGE.
 
 
 torchvision
-0.22.1+cu128
+0.24.0+cu128
 BSD
 https://github.com/pytorch/vision
 BSD 3-Clause License
@@ -17644,10 +17823,33 @@ Copyright 2018- The Hugging Face team. All rights reserved.
 
 
 triton
-3.3.1
+3.5.0
 MIT License
 https://github.com/triton-lang/triton/
-UNKNOWN
+/*
+* Copyright 2018-2020 Philippe Tillet
+* Copyright 2020-2022 OpenAI
+*
+* Permission is hereby granted, free of charge, to any person obtaining
+* a copy of this software and associated documentation files
+* (the "Software"), to deal in the Software without restriction,
+* including without limitation the rights to use, copy, modify, merge,
+* publish, distribute, sublicense, and/or sell copies of the Software,
+* and to permit persons to whom the Software is furnished to do so,
+* subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 
 tyro
 0.9.17

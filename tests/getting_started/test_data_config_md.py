@@ -16,7 +16,9 @@
 from __future__ import annotations
 
 import os
+import sys
 
+import pytest
 from test_support.readme import extract_code_blocks, find_block
 from test_support.runtime import get_root, run_subprocess_step
 
@@ -33,14 +35,16 @@ _IMPORTS = (
 _REGISTER = "register_modality_config(so100_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)\n"
 
 
+@pytest.mark.serial
 def test_complete_so100_config() -> None:
     """The complete SO-100 config example in data_config.md executes without error."""
     blocks = extract_code_blocks(DATA_CONFIG_README)
     so100 = find_block(blocks, "so100_config = {", language="python", occurrence=2)
     code = _IMPORTS + "\n" + so100.code + "\n" + _REGISTER
     env = {**os.environ}
+    # Inherit the parent venv; `uv run` here would rebuild gr00t every call.
     run_subprocess_step(
-        ["uv", "run", "python", "-c", code],
+        [sys.executable, "-c", code],
         step="so100_config",
         cwd=REPO_ROOT,
         env=env,

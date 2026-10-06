@@ -3,7 +3,12 @@
 ## Setup
 
 ### 1. Create and Activate Virtual Environment
+
+Run these from the `scripts/lerobot_conversion` directory (it has its own
+`pyproject.toml`; installing from the repo root would install the `gr00t`
+package instead):
 ```bash
+cd scripts/lerobot_conversion
 uv venv
 source .venv/bin/activate
 uv pip install -e . --verbose

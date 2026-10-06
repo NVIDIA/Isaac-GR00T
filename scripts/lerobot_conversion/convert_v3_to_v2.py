@@ -46,22 +46,31 @@ import tqdm
 
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[3]))
-from lerobot.datasets.utils import (
-    DEFAULT_CHUNK_SIZE,
-    DEFAULT_DATA_PATH,
-    DEFAULT_VIDEO_PATH,
-    EPISODES_DIR,
-    LEGACY_EPISODES_PATH,
-    LEGACY_EPISODES_STATS_PATH,
-    LEGACY_TASKS_PATH,
-    load_info,
-    load_tasks,
-    serialize_dict,
-    unflatten_dict,
-    write_info,
-)
-from lerobot.utils.constants import HF_LEROBOT_HOME
-from lerobot.utils.utils import init_logging
+try:
+    from lerobot.datasets.utils import (
+        DEFAULT_CHUNK_SIZE,
+        DEFAULT_DATA_PATH,
+        DEFAULT_VIDEO_PATH,
+        EPISODES_DIR,
+        LEGACY_EPISODES_PATH,
+        LEGACY_EPISODES_STATS_PATH,
+        LEGACY_TASKS_PATH,
+        load_info,
+        load_tasks,
+        serialize_dict,
+        unflatten_dict,
+        write_info,
+    )
+    from lerobot.utils.constants import HF_LEROBOT_HOME
+    from lerobot.utils.utils import init_logging
+except ModuleNotFoundError as exc:
+    if exc.name is not None and (exc.name == "lerobot" or exc.name.startswith("lerobot.")):
+        raise ModuleNotFoundError(
+            "LeRobot conversion uses its own subproject environment. Run "
+            "`cd scripts/lerobot_conversion && uv venv && source .venv/bin/activate && "
+            "uv pip install -e . --verbose`, then execute `python convert_v3_to_v2.py ...`."
+        ) from None
+    raise
 
 
 V21 = "v2.1"

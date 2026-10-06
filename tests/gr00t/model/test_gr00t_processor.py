@@ -59,6 +59,52 @@ def proc_config():
         return json.load(f)["processor_kwargs"]
 
 
+def test_from_pretrained_passes_hub_kwargs_to_cached_file(tmp_path):
+    """Repo-id processor loads must honor the HF local/cache kwargs from conftest."""
+    from gr00t.model.gr00t_n1d7 import processing_gr00t_n1d7 as processor_module
+
+    mock_vlm = MagicMock()
+    mock_vlm.apply_chat_template.return_value = "mock text"
+    mock_vlm.tokenizer.padding_side = "left"
+    calls = []
+
+    def fake_cached_file(path_or_repo_id, filename, **kwargs):
+        calls.append(
+            {
+                "path_or_repo_id": path_or_repo_id,
+                "filename": filename,
+                "kwargs": kwargs,
+            }
+        )
+        return str(FIXTURE_DIR / filename)
+
+    with (
+        patch.object(processor_module, "cached_file", side_effect=fake_cached_file),
+        patch.object(processor_module, "build_processor", return_value=mock_vlm),
+    ):
+        processor_module.Gr00tN1d7Processor.from_pretrained(
+            "nvidia/GR00T-N1.7-3B",
+            cache_dir=tmp_path,
+            local_files_only=True,
+            revision="abc123",
+            token="hf_fake",
+        )
+
+    assert [call["filename"] for call in calls] == [
+        "processor_config.json",
+        "statistics.json",
+        "embodiment_id.json",
+    ]
+    for call in calls:
+        assert call["path_or_repo_id"] == Path("nvidia/GR00T-N1.7-3B")
+        assert call["kwargs"] == {
+            "cache_dir": tmp_path,
+            "local_files_only": True,
+            "revision": "abc123",
+            "token": "hf_fake",
+        }
+
+
 def _make_step_data(proc_config) -> VLAStepData:
     """Create synthetic VLAStepData matching the fixture config."""
     import json as _json

@@ -240,26 +240,37 @@ class TestStatistics:
         proc.set_statistics(statistics)
         assert EMBODIMENT in proc.norm_params
 
-    def test_set_statistics_no_override(self):
+    def test_set_statistics_no_override(self, caplog):
         modality_configs, statistics = _load_fixture_configs()
         proc = StateActionProcessor(modality_configs=modality_configs, statistics=statistics)
         original_min = proc.norm_params[EMBODIMENT]["state"]["x"]["min"].copy()
         # Modify statistics
         modified = json.loads(json.dumps(statistics))
         modified[EMBODIMENT]["state"]["x"]["min"] = [999.0]
-        proc.set_statistics(modified, override=False)
+        with caplog.at_level("WARNING"):
+            proc.set_statistics(modified, override=False)
         # Should NOT have changed
         np.testing.assert_array_equal(
             proc.norm_params[EMBODIMENT]["state"]["x"]["min"], original_min
         )
+        # Discarded merge must surface as a WARNING (not a print) so callers
+        # running with override_pretraining_statistics=False on a mixture
+        # dataset see it in their training logs instead of in stdout.
+        assert any(
+            r.levelname == "WARNING" and "DISCARDED" in r.message and EMBODIMENT in r.message
+            for r in caplog.records
+        ), f"expected a WARNING about discarded statistics; got: {caplog.records}"
 
-    def test_set_statistics_override(self):
+    def test_set_statistics_override(self, caplog):
         modality_configs, statistics = _load_fixture_configs()
         proc = StateActionProcessor(modality_configs=modality_configs, statistics=statistics)
         modified = json.loads(json.dumps(statistics))
         modified[EMBODIMENT]["state"]["x"]["min"] = [999.0]
-        proc.set_statistics(modified, override=True)
+        with caplog.at_level("WARNING"):
+            proc.set_statistics(modified, override=True)
         assert proc.norm_params[EMBODIMENT]["state"]["x"]["min"][0] == pytest.approx(999.0)
+        # No DISCARDED warning when the caller explicitly asked for override.
+        assert not any("DISCARDED" in r.message for r in caplog.records)
 
 
 class TestTrainEvalMode:

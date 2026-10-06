@@ -24,6 +24,7 @@ Usage:
 """
 
 import argparse
+import inspect
 import json
 import math
 from pathlib import Path
@@ -104,6 +105,20 @@ def load_projector_index():
     return EMBODIMENT_TAG_TO_PROJECTOR_INDEX
 
 
+def load_processor_default_max_action_horizon():
+    """Default ``max_action_horizon`` of a directly-constructed Gr00tN1d7Processor."""
+    sys.path.insert(0, str(REPO_ROOT))
+    from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor
+
+    processor_max = (
+        inspect.signature(Gr00tN1d7Processor.__init__).parameters["max_action_horizon"].default
+    )
+    assert processor_max is not inspect.Parameter.empty, (
+        "Gr00tN1d7Processor.__init__ max_action_horizon has no default"
+    )
+    return processor_max
+
+
 # ──────────────────────── HF Model Definitions ────────────────────────
 
 HF_MODELS = {
@@ -160,17 +175,28 @@ def check_dim_f_internal_consistency():
 
     modality_configs = load_modality_configs()
     model_cfg = load_model_config_defaults()
-    EmbodimentTag, PRETRAIN_TAGS, POSTTRAIN_TAGS = load_embodiment_tags()
+    EmbodimentTag, PRETRAIN_TAGS, _ = load_embodiment_tags()
     projector_index = load_projector_index()
 
     # F3: action horizon ≤ model max
     print("\n[F3] Action horizon ≤ model max capacity")
+    # Two distinct bounds: the processor default must fit every in-tree embodiment (it is
+    # what validate_action_horizons enforces), while model_cfg.action_horizon is the base
+    # checkpoint's horizon and so only bounds pretrain tags — posttrain / finetune-only
+    # tags are trained under their own model config.
+    processor_max = load_processor_default_max_action_horizon()
+    pretrain_tag_values = {t.value for t in PRETRAIN_TAGS}
     for tag, cfg in modality_configs.items():
         actual_horizon = len(cfg["action"]["delta_indices"])
         check(
-            actual_horizon <= model_cfg.action_horizon,
-            f"  {tag}: actual={actual_horizon} ≤ max={model_cfg.action_horizon}",
+            actual_horizon <= processor_max,
+            f"  {tag}: actual={actual_horizon} ≤ processor default={processor_max}",
         )
+        if tag in pretrain_tag_values:
+            check(
+                actual_horizon <= model_cfg.action_horizon,
+                f"  {tag}: actual={actual_horizon} ≤ base model action_horizon={model_cfg.action_horizon}",
+            )
 
     # F5: EMBODIMENT_TAG_TO_PROJECTOR_INDEX ↔ EmbodimentTag
     print("\n[F5] EMBODIMENT_TAG_TO_PROJECTOR_INDEX ↔ EmbodimentTag enum")

@@ -293,6 +293,32 @@ def to_json_serializable(obj: Any) -> Any:
         return str(obj)
 
 
+def parse_observation_gr00t(
+    obs: dict[str, Any], modality_configs: dict[str, Any]
+) -> dict[str, Any]:
+    """Reshape a flat ``{modality.key: value}`` observation into the nested,
+    batched ``{modality: {key: value}}`` form a GR00T policy expects.
+
+    Adds a leading batch dimension (``arr[None, :]``; strings become ``[[s]]``).
+    Shared by the eval, standalone-inference, and ONNX-export paths so they
+    cannot drift on modality set / key naming / batching.
+    """
+    new_obs = {}
+    for modality in ["video", "state", "language"]:
+        new_obs[modality] = {}
+        for key in modality_configs[modality].modality_keys:
+            if modality == "language":
+                parsed_key = key
+            else:
+                parsed_key = f"{modality}.{key}"
+            arr = obs[parsed_key]
+            if isinstance(arr, str):
+                new_obs[modality][key] = [[arr]]
+            else:
+                new_obs[modality][key] = arr[None, :]
+    return new_obs
+
+
 def parse_modality_configs(
     modality_configs: dict[str, dict[str, ModalityConfig]],
 ) -> dict[str, dict[str, ModalityConfig]]:

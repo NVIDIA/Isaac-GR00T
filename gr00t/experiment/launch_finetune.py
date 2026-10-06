@@ -56,13 +56,15 @@ if __name__ == "__main__":
     if ft_config.modality_config_path is not None:
         load_modality_config(ft_config.modality_config_path)
 
+    dataset_paths = [path for path in ft_config.dataset_path.split(os.pathsep) if path]
+
     config = get_default_config().load_dict(
         {
             "data": {
                 "download_cache": False,
                 "datasets": [
                     {
-                        "dataset_paths": [ft_config.dataset_path],
+                        "dataset_paths": dataset_paths,
                         "mix_ratio": 1.0,
                         "embodiment_tag": embodiment_tag,
                     }
@@ -80,6 +82,14 @@ if __name__ == "__main__":
     config.model.state_dropout_prob = ft_config.state_dropout_prob
     config.model.random_rotation_angle = ft_config.random_rotation_angle
     config.model.color_jitter_params = ft_config.color_jitter_params
+    config.model.use_percentiles = ft_config.use_percentiles
+    if (ft_config.shortest_image_edge is None) != (ft_config.crop_fraction is None):
+        raise ValueError("shortest_image_edge and crop_fraction must be set together")
+    if ft_config.shortest_image_edge is not None:
+        config.model.shortest_image_edge = ft_config.shortest_image_edge
+        config.model.crop_fraction = ft_config.crop_fraction
+        config.model.image_crop_size = None
+        config.model.image_target_size = None
     if ft_config.extra_augmentation_config:
         config.model.extra_augmentation_config = json.loads(ft_config.extra_augmentation_config)
     else:
@@ -111,8 +121,10 @@ if __name__ == "__main__":
     config.data.shard_size = ft_config.shard_size
     config.data.episode_sampling_rate = ft_config.episode_sampling_rate
     config.data.num_shards_per_epoch = ft_config.num_shards_per_epoch
+    config.data.ds_weights_alpha = ft_config.ds_weights_alpha
 
     config.training.save_only_model = ft_config.save_only_model
+    config.training.resume_from_checkpoint = ft_config.resume_from_checkpoint
     config.training.skip_weight_loading = ft_config.skip_weight_loading
 
     run(config)

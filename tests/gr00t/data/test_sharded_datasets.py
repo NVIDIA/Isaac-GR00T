@@ -23,9 +23,15 @@ ShardedMixtureDataset tests use lightweight mock ShardedDataset instances.
 
 from unittest.mock import MagicMock, patch
 
-from gr00t.data.dataset.sharded_mixture_dataset import ShardedMixtureDataset, merge_statistics
+from gr00t.data.dataset.sharded_mixture_dataset import (
+    ShardedMixtureDataset,
+    _get_default_pg_tensor_device,
+    merge_statistics,
+)
 from gr00t.data.interfaces import ShardedDataset
 import numpy as np
+import pytest
+import torch
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +165,50 @@ class TestMergeStatistics:
         # weighted mean = (0*0.75 + 2*0.25) = 0.5
         np.testing.assert_allclose(merged["x"]["mean"], [0.5])
 
+    def test_sidecar_metadata_is_skipped(self):
+        """merge_statistics treats only entries that look like stats dicts (i.e.
+        carry a 'mean' field) as action keys. Any sibling metadata producers
+        co-locate at the top level — regardless of naming convention — must be
+        ignored, not merged."""
+        action_entry = {
+            "min": [0.0],
+            "max": [1.0],
+            "mean": [0.5],
+            "std": [0.2],
+            "q01": [0.05],
+            "q99": [0.95],
+        }
+        stats = [
+            {
+                "x": action_entry,
+                # Real-world example: cache fingerprints written by generate_rel_stats (!313).
+                "__fingerprints__": {"x": "sha256:deadbeef"},
+                # Hypothetical future sidecars without dunder convention — the
+                # structural duck-typing in merge_statistics doesn't care.
+                "_provenance": {"source": "manual"},
+                "schema_version": "1.0",
+                "row_count": 1234,
+            }
+        ]
+        merged = merge_statistics(stats, [1.0])
+        assert set(merged.keys()) == {"x"}
+        np.testing.assert_allclose(merged["x"]["mean"], [0.5])
+
+    def test_skips_fingerprints_only_input_does_not_raise(self):
+        """A relative_stats.json with only a ``__fingerprints__`` key (no real
+        entries) must merge to an empty dict instead of ``KeyError``.
+
+        Reproduces the failure shape captured in jobs/311959243:
+        ``per_dataset_stats = [{'__fingerprints__': {}}]`` — building
+        ShardedMixtureDataset on a LIBERO_PANDA embodiment (no relative-action
+        keys) wrote ``{"__fingerprints__": {}}`` to ``relative_stats.json``, the
+        loader exposed it as the ``relative_action`` stats dict, and
+        ``merge_statistics`` crashed before any training step could run.
+        """
+        stats = [{"__fingerprints__": {}}]
+        merged = merge_statistics(stats, [1.0], is_relative_stats=True)
+        assert merged == {}
+
 
 # ---------------------------------------------------------------------------
 # ShardedMixtureDataset tests
@@ -214,6 +264,142 @@ class TestShardedMixtureDataset:
                 seed=42,
             )
         processor.set_statistics.assert_called_once()
+
+    # -----------------------------------------------------------------------
+    # Distributed seeding invariant: rank-symmetric seed enforcement
+    # -----------------------------------------------------------------------
+    #
+    # ShardedMixtureDataset's shard partitioning works only when every rank
+    # generates the same shard_sampling_schedule and slices into it
+    # disjointly. A rank-asymmetric seed silently breaks this (see the class
+    # docstring's "Distributed seeding invariant" section). The
+    # _assert_seed_rank_symmetric guard turns that silent failure into a
+    # fail-fast at __init__ / reset_seed time.
+    #
+    # These tests use unittest.mock to stand in for the torch.distributed
+    # collective so we can simulate a multi-rank environment without spawning
+    # real processes.
+
+    @staticmethod
+    def _make_fake_all_gather(per_rank_seeds):
+        """Build a fake ``dist.all_gather`` that fills the output list with
+        ``per_rank_seeds`` cast to ``int64`` tensors."""
+
+        def _fake(out_list, _in_tensor, group=None):
+            assert len(out_list) == len(per_rank_seeds), "world_size mismatch in test setup"
+            for slot, seed in zip(out_list, per_rank_seeds):
+                slot.copy_(torch.tensor([seed], dtype=torch.long))
+
+        return _fake
+
+    def _make_mixture_dist(self, world_size, this_rank_seed, per_rank_seeds):
+        """Construct a ShardedMixtureDataset under a faked distributed env
+        where ``dist.all_gather`` returns ``per_rank_seeds``."""
+        datasets = [MockShardedDataset("/fake/path_0")]
+        processor = MagicMock()
+        processor.set_statistics = MagicMock()
+        with (
+            patch("torch.distributed.is_initialized", return_value=True),
+            patch("torch.distributed.get_world_size", return_value=world_size),
+            patch("torch.distributed.get_rank", return_value=0),
+            patch(
+                "torch.distributed.all_gather",
+                side_effect=self._make_fake_all_gather(per_rank_seeds),
+            ),
+        ):
+            return ShardedMixtureDataset(
+                datasets=datasets,
+                weights=[1.0],
+                processor=processor,
+                seed=this_rank_seed,
+            )
+
+    def test_seed_collective_uses_cpu_for_cpu_backend(self):
+        with patch("torch.distributed.get_backend", return_value="gloo"):
+            assert _get_default_pg_tensor_device() == torch.device("cpu")
+
+    def test_seed_collective_uses_current_cuda_device_for_nccl_backend(self):
+        with (
+            patch("torch.distributed.get_backend", return_value="nccl"),
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.current_device", return_value=3),
+        ):
+            assert _get_default_pg_tensor_device() == torch.device("cuda", 3)
+
+    def test_seed_collective_raises_for_nccl_without_cuda(self):
+        with (
+            patch("torch.distributed.get_backend", return_value="nccl"),
+            patch("torch.cuda.is_available", return_value=False),
+        ):
+            with pytest.raises(RuntimeError, match="requires CUDA tensors"):
+                _get_default_pg_tensor_device()
+
+    def test_init_passes_when_seeds_match_across_ranks(self):
+        # All ranks pass the same seed: __init__ must succeed.
+        mixture = self._make_mixture_dist(world_size=2, this_rank_seed=42, per_rank_seeds=[42, 42])
+        assert mixture.seed == 42
+
+    def test_init_raises_on_seed_mismatch_across_ranks(self):
+        # rank 0 has seed=42, rank 1 has seed=43 → must fail loudly with a
+        # message pointing at the docstring section.
+        with pytest.raises(ValueError, match="seed must be identical on every rank"):
+            self._make_mixture_dist(world_size=2, this_rank_seed=42, per_rank_seeds=[42, 43])
+
+    def test_init_raises_on_plus_rank_pattern(self):
+        # The classic "drive-by fix" pattern: caller did `seed = base + rank`
+        # so each rank passes a different value. The error message should
+        # surface all observed seeds.
+        with pytest.raises(ValueError, match=r"\[42, 43, 44, 45\]"):
+            self._make_mixture_dist(
+                world_size=4,
+                this_rank_seed=42,
+                per_rank_seeds=[42, 43, 44, 45],
+            )
+
+    def test_reset_seed_raises_on_mismatch_across_ranks(self):
+        # Resume path: reset_seed must enforce the same invariant. We first
+        # construct a single-rank mixture (fast, no collective), then flip
+        # world_size and patch dist for the reset_seed call.
+        mixture = self._make_mixture()
+        mixture.world_size = 2
+        with (
+            patch("torch.distributed.is_initialized", return_value=True),
+            patch(
+                "torch.distributed.all_gather",
+                side_effect=self._make_fake_all_gather([100, 101]),
+            ),
+        ):
+            with pytest.raises(ValueError, match="seed must be identical on every rank"):
+                mixture.reset_seed(100)
+
+    def test_assert_is_noop_in_single_rank(self):
+        # The hot path: not distributed at all. Must not call all_gather.
+        with (
+            patch("torch.distributed.is_initialized", return_value=False),
+            patch("torch.distributed.all_gather") as mock_all_gather,
+        ):
+            self._make_mixture()  # no exception
+            mock_all_gather.assert_not_called()
+
+    def test_assert_is_noop_when_world_size_one(self):
+        # Distributed but world_size == 1 (degenerate single-process dist
+        # init). Still no collective.
+        datasets = [MockShardedDataset("/fake/path_0")]
+        processor = MagicMock()
+        processor.set_statistics = MagicMock()
+        with (
+            patch("torch.distributed.is_initialized", return_value=True),
+            patch("torch.distributed.get_world_size", return_value=1),
+            patch("torch.distributed.get_rank", return_value=0),
+            patch("torch.distributed.all_gather") as mock_all_gather,
+        ):
+            ShardedMixtureDataset(
+                datasets=datasets,
+                weights=[1.0],
+                processor=processor,
+                seed=42,
+            )
+            mock_all_gather.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -289,3 +475,99 @@ class TestShardedSingleStepDataset:
 
         # effective = 50 - 8 + 1 = 43
         assert dataset.get_effective_episode_length(0) == 43
+
+    def test_shard_creation_no_empty_shards_edge_case(self):
+        """Test that all shards are non-empty even with few episodes and large shard_size.
+
+        This test verifies the fix for GitHub #654 where the assertion
+        "All shards must have length greater than 0" could fail when:
+        - Small number of episodes
+        - Large shard_size relative to total steps
+        - High action_horizon reducing effective episode lengths
+        """
+        from gr00t.data.embodiment_tags import EmbodimentTag
+        from gr00t.data.types import ModalityConfig
+
+        modality_configs = {
+            "video": ModalityConfig(delta_indices=[0], modality_keys=["cam"]),
+            "state": ModalityConfig(delta_indices=[0], modality_keys=["x"]),
+            "action": ModalityConfig(delta_indices=list(range(4)), modality_keys=["x"]),
+            "language": ModalityConfig(delta_indices=[0], modality_keys=["task"]),
+        }
+
+        # Test case 1: Very few episodes (2) with large shard_size
+        with patch(
+            "gr00t.data.dataset.sharded_single_step_dataset.LeRobotEpisodeLoader"
+        ) as MockLoader:
+            mock_loader = MagicMock()
+            # 2 episodes, 50 steps each = 100 total steps
+            # With shard_size=1024, ceil(100/1024) = 1, so num_shards = min(1, 2) = 1
+            mock_loader.episode_lengths = [50, 50]
+            mock_loader.get_episode_length = lambda idx: 50
+            MockLoader.return_value = mock_loader
+
+            from gr00t.data.dataset.sharded_single_step_dataset import ShardedSingleStepDataset
+
+            dataset = ShardedSingleStepDataset(
+                dataset_path="/fake/dataset",
+                embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
+                modality_configs=modality_configs,
+                shard_size=1024,
+                episode_sampling_rate=0.5,  # Creates 2 splits per episode = 4 splits total
+                seed=42,
+            )
+
+        assert len(dataset) > 0
+        assert all(length > 0 for length in dataset.shard_lengths), (
+            "All shards must have length > 0"
+        )
+
+        # Test case 2: Single episode with action_horizon reducing effective length
+        with patch(
+            "gr00t.data.dataset.sharded_single_step_dataset.LeRobotEpisodeLoader"
+        ) as MockLoader:
+            mock_loader = MagicMock()
+            # 1 episode, 20 steps, action_horizon=8 -> effective = 20 - 8 + 1 = 13 steps
+            mock_loader.episode_lengths = [20]
+            mock_loader.get_episode_length = lambda idx: 20
+            MockLoader.return_value = mock_loader
+
+            dataset = ShardedSingleStepDataset(
+                dataset_path="/fake/dataset",
+                embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
+                modality_configs=modality_configs,
+                shard_size=10,  # Small shard_size
+                episode_sampling_rate=1.0,  # 1 split per episode
+                seed=42,
+            )
+
+        assert len(dataset) > 0
+        assert all(length > 0 for length in dataset.shard_lengths), (
+            "All shards must have length > 0"
+        )
+
+        # Test case 3: Many episodes but small shard_size creating more shards than episodes
+        with patch(
+            "gr00t.data.dataset.sharded_single_step_dataset.LeRobotEpisodeLoader"
+        ) as MockLoader:
+            mock_loader = MagicMock()
+            # 5 episodes, 100 steps each = 500 total steps
+            # With shard_size=50, ceil(500/50) = 10, but only 5 episodes
+            # num_shards = min(10, num_splits) should handle this
+            mock_loader.episode_lengths = [100, 100, 100, 100, 100]
+            mock_loader.get_episode_length = lambda idx: 100
+            MockLoader.return_value = mock_loader
+
+            dataset = ShardedSingleStepDataset(
+                dataset_path="/fake/dataset",
+                embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
+                modality_configs=modality_configs,
+                shard_size=50,
+                episode_sampling_rate=0.5,  # 2 splits per episode = 10 splits
+                seed=42,
+            )
+
+        assert len(dataset) > 0
+        assert all(length > 0 for length in dataset.shard_lengths), (
+            "All shards must have length > 0"
+        )

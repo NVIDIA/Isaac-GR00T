@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import numpy as np
-import torch
 from tqdm import tqdm
 
 from gr00t.configs.base_config import Config
@@ -23,7 +22,7 @@ from gr00t.data.dataset.sharded_single_step_dataset import ShardedSingleStepData
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.interfaces import BaseProcessor
 from gr00t.data.stats import generate_rel_stats, generate_stats
-from gr00t.experiment.dist_utils import barrier
+from gr00t.utils.dist_utils import run_or_wait_on_rank0
 
 
 class DatasetFactory:
@@ -54,19 +53,15 @@ class DatasetFactory:
                 embodiment_tag = dataset_spec.embodiment_tag
                 assert embodiment_tag is not None, "Embodiment tag is required"
                 assert self.config.data.mode == "single_turn", "Only single turn mode is supported"
-                if torch.distributed.is_initialized():
-                    if torch.distributed.get_rank() == 0:
+                # rank-0 writes stats; helper barriers before peers read them.
+                with run_or_wait_on_rank0(label=f"generate_stats({dataset_path})") as is_rank0:
+                    if is_rank0:
                         generate_stats(dataset_path)
                         generate_rel_stats(dataset_path, EmbodimentTag(embodiment_tag))
-                else:
-                    generate_stats(dataset_path)
-                    generate_rel_stats(dataset_path, EmbodimentTag(embodiment_tag))
-                barrier()
                 dataset = ShardedSingleStepDataset(
                     dataset_path=dataset_path,
                     embodiment_tag=EmbodimentTag(embodiment_tag),
                     modality_configs=self.config.data.modality_configs[embodiment_tag],
-                    video_backend=self.config.data.video_backend,
                     shard_size=self.config.data.shard_size,
                     episode_sampling_rate=self.config.data.episode_sampling_rate,
                     seed=self.config.data.seed,
@@ -79,6 +74,15 @@ class DatasetFactory:
                 weight = relative_length * dataset_spec.mix_ratio
                 all_datasets.append(dataset)
                 all_weights.append(weight)
+
+        alpha = self.config.data.ds_weights_alpha
+        if alpha is not None and len(all_datasets) > 1:
+            ds_lengths = np.array([len(dataset) for dataset in all_datasets], dtype=np.float64)
+            all_weights = (np.power(ds_lengths, alpha) / np.power(ds_lengths[0], alpha)).tolist()
+            print(
+                f"Applied ds_weights_alpha={alpha} across {len(all_datasets)} datasets; "
+                "this overrides per-dataset mix_ratio sampling weights."
+            )
 
         return (
             ShardedMixtureDataset(

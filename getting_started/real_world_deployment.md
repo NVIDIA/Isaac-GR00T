@@ -27,6 +27,8 @@ Ensure your robot hardware, sensor pipeline, and control interfaces are stable a
   - High-frequency action execution (30 FPS recommended).
   - Stable control interface.
 
+> **30 FPS vs inference rate:** The 30 FPS here (and for the cameras below) is the robot's **action-execution** and **camera-capture** rate — not the model **inference** rate. The policy returns a multi-step action *chunk* per inference, so a ~10 Hz inference rate can drive 30 FPS execution via action chunking + asynchronous inference. See the [inference-frequency guidance](hardware_recommendation.md#key-insights) for what each platform sustains.
+
 ### Multimodal Sensors
 
 | Sensor Type | Specification | Purpose |
@@ -151,7 +153,8 @@ For single-task `finetune`:
 **Compute resources**
 
 - Fine-tuning requires significantly less compute than pretraining.
-- A single compute node (8 x H100 or 8 x H20) is usually sufficient.
+- You can start on a **single GPU** (40 GB+ VRAM). See the [hardware recommendation guide](hardware_recommendation.md#fine-tuning-hardware) for the minimum and quick-start configurations.
+- A single compute node (8 x H100 or 8 x H20) is a **production-scale** setup for faster convergence on larger datasets — not a minimum requirement.
 
 ### Validation
 
@@ -406,6 +409,8 @@ When direct optimization is insufficient, use one or more of the following:
 - **Real-Time Chunking (RTC)**: Overlap the start of the current prediction with unexecuted steps from the previous one.
 
 **Recommended strategy**: `Asynchronous Inference + RTC` is usually the most effective.
+
+> **RTC status (experimental):** Asynchronous inference is supported today. RTC is currently only a low-level model primitive: `action_head.get_action(..., options={"rtc_overlap_steps": ..., "rtc_frozen_steps": ..., "rtc_ramp_rate": ...})` with the previous action fed back in (`gr00t/model/gr00t_n1d7/gr00t_n1d7.py`). It is **not wired into `Gr00tPolicy` or the server-client path** (there `options` is currently unused), and it has no tests or ready-made example — so the RTC steps below require manual integration.
 
 #### Real-Time Chunking (RTC) Details
 

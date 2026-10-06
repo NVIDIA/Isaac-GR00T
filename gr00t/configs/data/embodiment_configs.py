@@ -64,6 +64,54 @@ MODALITY_CONFIGS = {
         ),
     },
     ##### Pre-registered posttrain configurations #####
+    "unitree_g1_sonic": {
+        "video": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["ego_view"],
+        ),
+        "state": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=[
+                "left_leg",
+                "right_leg",
+                "waist",
+                "left_arm",
+                "right_arm",
+                "left_hand",
+                "right_hand",
+                "projected_gravity",
+            ],
+        ),
+        "action": ModalityConfig(
+            delta_indices=list(range(40)),
+            modality_keys=[
+                "motion_token",
+                "left_hand_joints",
+                "right_hand_joints",
+            ],
+            action_configs=[
+                ActionConfig(
+                    rep=ActionRepresentation.ABSOLUTE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.ABSOLUTE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.ABSOLUTE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                ),
+            ],
+        ),
+        "language": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["annotation.human.task_description"],
+        ),
+    },
     "unitree_g1_full_body_with_waist_height_nav_cmd": {
         "video": ModalityConfig(
             delta_indices=[0],
@@ -194,6 +242,111 @@ MODALITY_CONFIGS = {
         "language": ModalityConfig(
             delta_indices=[0],
             modality_keys=["annotation.human.action.task_description"],
+        ),
+    },
+    "robocasa_panda_omron": {
+        "video": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=[
+                "res256_image_side_0",
+                "res256_image_side_1",
+                "res256_image_wrist_0",
+            ],
+        ),
+        "state": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=[
+                "gripper_qpos",
+                "base_position",
+                "base_rotation",
+                "end_effector_position_relative",
+                "end_effector_rotation_relative",
+                "gripper_qvel",
+                "end_effector_position_absolute",
+                "end_effector_rotation_absolute",
+                "joint_position",
+                "joint_position_cos",
+                "joint_position_sin",
+                "joint_velocity",
+            ],
+        ),
+        "action": ModalityConfig(
+            delta_indices=list(range(8)),
+            modality_keys=[
+                "gripper_close",
+                "end_effector_position",
+                "end_effector_rotation",
+                "base_motion",
+                "control_mode",
+            ],
+        ),
+        "language": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["annotation.human.action.task_description"],
+        ),
+    },
+    "robocasa_gr1_tabletop": {
+        "video": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["ego_view_bg_crop_pad_res256_freq20"],
+        ),
+        "state": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=[
+                "left_arm",
+                "right_arm",
+                "left_hand",
+                "right_hand",
+                "waist",
+            ],
+            sin_cos_embedding_keys=[
+                "left_arm",
+                "right_arm",
+                "left_hand",
+                "right_hand",
+                "waist",
+            ],
+        ),
+        "action": ModalityConfig(
+            delta_indices=list(range(8)),
+            modality_keys=[
+                "left_arm",
+                "right_arm",
+                "left_hand",
+                "right_hand",
+                "waist",
+            ],
+            action_configs=[
+                ActionConfig(
+                    rep=ActionRepresentation.RELATIVE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.RELATIVE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.RELATIVE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.RELATIVE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                ),
+                ActionConfig(
+                    rep=ActionRepresentation.ABSOLUTE,
+                    type=ActionType.NON_EEF,
+                    format=ActionFormat.DEFAULT,
+                ),
+            ],
+        ),
+        "language": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["task"],
         ),
     },
 }

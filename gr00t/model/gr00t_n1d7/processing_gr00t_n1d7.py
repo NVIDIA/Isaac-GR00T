@@ -15,6 +15,7 @@
 
 from copy import deepcopy
 import json
+import logging
 import os
 from pathlib import Path
 import random
@@ -52,24 +53,71 @@ except ImportError:
 # Suppress protobuf deprecation warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.protobuf")
 
-### Mapping from embodiment tag to projector index.
-EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
-    ##### Pretrain embodiment ids (in base model) #####
-    "oxe_droid_relative_eef_relative_joint": 24,
-    "xdof_relative_eef_relative_joint": 27,
-    "xdof_relative_eef_relative_joint_subtask": 27,
-    "real_g1_relative_eef_relative_joints": 25,
-    "real_r1_pro_sharpa_relative_eef": 26,
-    "real_r1_pro_sharpa_relative_eef_human": 26,
-    "real_r1_pro_sharpa_relative_eef_maxinsights": 26,
-    "real_r1_pro_sharpa_relative_eef_mecka": 26,
-    ##### Posttrain embodiment ids #####
-    "unitree_g1_full_body_with_waist_height_nav_cmd": 25,
-    "simpler_env_google": 0,
-    "simpler_env_widowx": 1,
-    "libero_sim": 2,
-    "new_embodiment": 10,
+logger = logging.getLogger(__name__)
+
+### Projector-index assignments, declared as ``{projector_index: {tags}}``.
+#
+# This grouped form is the source of truth: a tag only shares a projector with
+# another tag if it is deliberately placed inside that index's set, so an
+# accidental collision can't slip in unnoticed. Multiple tags share an index
+# only when they describe the *same physical embodiment*. To add a brand-new
+# embodiment, give it an unused index; to add a data-source/subtask variant of
+# an existing one, add its tag to that group.
+#
+# ``EMBODIMENT_TAG_TO_PROJECTOR_INDEX`` below is derived from this and is the
+# public, tag-keyed lookup used everywhere else.
+_PROJECTOR_INDEX_GROUPS: dict[int, set[str]] = {
+    0: {"simpler_env_google"},
+    1: {"simpler_env_widowx"},
+    2: {"libero_sim"},
+    # Finetune placeholder projector; sim-eval robocasa tags piggyback on
+    # `new_embodiment`.
+    10: {"new_embodiment", "robocasa_panda_omron", "robocasa_gr1_tabletop"},
+    11: {"unitree_g1_sonic"},
+    24: {"oxe_droid_relative_eef_relative_joint"},
+    # Same G1 embodiment either side of the pretrain/posttrain boundary
+    # (`real_g1_*` is pretrain, `unitree_g1_full_body_*` is posttrain).
+    25: {
+        "real_g1_relative_eef_relative_joints",
+        "unitree_g1_full_body_with_waist_height_nav_cmd",
+    },
+    # One R1 Pro Sharpa robot, four data-source variants.
+    26: {
+        "real_r1_pro_sharpa_relative_eef",
+        "real_r1_pro_sharpa_relative_eef_human",
+        "real_r1_pro_sharpa_relative_eef_maxinsights",
+        "real_r1_pro_sharpa_relative_eef_mecka",
+    },
+    # xdof base + subtask refinement.
+    27: {
+        "xdof_relative_eef_relative_joint",
+        "xdof_relative_eef_relative_joint_subtask",
+    },
 }
+
+
+def _build_tag_to_projector_index(groups: dict[int, set[str]]) -> dict[str, int]:
+    """Flatten ``{index: {tags}}`` into ``{tag: index}``.
+
+    Guards against a tag accidentally appearing in two groups, which would
+    otherwise be silently resolved by insertion order into a single mapping.
+    """
+    mapping: dict[str, int] = {}
+    for index, tags in groups.items():
+        for tag in tags:
+            if tag in mapping:
+                raise ValueError(
+                    f"Embodiment tag {tag!r} is assigned to multiple projector "
+                    f"indices ({mapping[tag]} and {index}) in "
+                    "_PROJECTOR_INDEX_GROUPS; each tag must map to exactly one index."
+                )
+            mapping[tag] = index
+    return mapping
+
+
+EMBODIMENT_TAG_TO_PROJECTOR_INDEX: dict[str, int] = _build_tag_to_projector_index(
+    _PROJECTOR_INDEX_GROUPS
+)
 
 
 def build_processor(model_name: str, transformers_loading_kwargs: dict) -> Qwen3VLProcessor:
@@ -79,6 +127,33 @@ def build_processor(model_name: str, transformers_loading_kwargs: dict) -> Qwen3
             "Please upgrade transformers: pip install transformers>=4.52.0"
         )
     return Qwen3VLProcessor.from_pretrained(model_name, **transformers_loading_kwargs)
+
+
+def validate_action_horizons(modality_configs, max_action_horizon: int) -> None:
+    """Fail at processor construction if any configured embodiment's action horizon
+    (the number of action ``delta_indices``) exceeds ``max_action_horizon``.
+
+    ``max_action_horizon`` is set from the model's ``action_horizon``; without this
+    check a horizon/model mismatch (e.g. a 50-step embodiment on a 40-step model)
+    surfaces only deep in the first forward, after the model and dataset are built.
+    """
+    offenders: dict[str, int] = {}
+    for tag, config in modality_configs.items():
+        action = config.get("action") if isinstance(config, dict) else None
+        delta_indices = getattr(action, "delta_indices", None)
+        if delta_indices is None:
+            continue
+        horizon = len(delta_indices)
+        if horizon > max_action_horizon:
+            offenders[tag] = horizon
+    if offenders:
+        required = max(offenders.values())
+        details = ", ".join(f"{tag}={horizon}" for tag, horizon in sorted(offenders.items()))
+        raise ValueError(
+            f"Embodiment action horizon exceeds max_action_horizon ({max_action_horizon}): "
+            f"{details}. Increase model config action_horizon to >= {required} (or reduce the "
+            "embodiment action delta_indices)."
+        )
 
 
 class Gr00tN1d7DataCollator:
@@ -156,7 +231,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         model_type: str = "qwen",
         max_state_dim: int = 29,
         max_action_dim: int = 29,
-        max_action_horizon: int = 40,
+        max_action_horizon: int = 50,
         apply_sincos_state_encoding: bool = False,
         use_albumentations: bool = False,
         extra_augmentation_config: dict | None = None,
@@ -168,7 +243,6 @@ class Gr00tN1d7Processor(BaseProcessor):
         state_dropout_prob: float = 0.0,
         # Normalization
         use_mean_std: bool = False,
-        # Backward-compat params (stored but not actively used)
         letter_box_transform: bool = False,
     ):
         self.modality_configs = parse_modality_configs(modality_configs)
@@ -205,6 +279,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         self.max_state_dim = max_state_dim
         self.max_action_dim = max_action_dim
         self.max_action_horizon = max_action_horizon
+        validate_action_horizons(self.modality_configs, self.max_action_horizon)
 
         # Save image processing settings
         self.image_crop_size = image_crop_size
@@ -237,6 +312,7 @@ class Gr00tN1d7Processor(BaseProcessor):
                     shortest_image_edge,
                     crop_fraction,
                     extra_augmentation_config=self.extra_augmentation_config,
+                    letter_box_transform=self.letter_box_transform,
                 )
             )
         else:
@@ -245,6 +321,7 @@ class Gr00tN1d7Processor(BaseProcessor):
                 image_crop_size,
                 random_rotation_angle,
                 color_jitter_params,
+                letter_box_transform=self.letter_box_transform,
             )
         self._collator = self.data_collator_class(
             model_name=model_name,
@@ -274,10 +351,24 @@ class Gr00tN1d7Processor(BaseProcessor):
         for key in statistics:
             if key not in self.statistics or override:
                 if override:
-                    print(f"Overriding statistics for {key}")
+                    logger.info("Overriding statistics for embodiment %r", key)
                 self.statistics[key] = deepcopy(statistics[key])
             else:
-                print(f"Embodiment tag {key} already in statistics, skipping updating")
+                # Surfaced as a warning (not print) because callers running with
+                # override_pretraining_statistics=False on a mixture dataset will
+                # otherwise silently keep the pre-existing pretraining stats and
+                # discard newly-merged per-dataset stats — training proceeds with
+                # the wrong mean/std and only an easy-to-miss stdout line records
+                # the drop.
+                logger.warning(
+                    "Statistics for embodiment %r already present; new stats "
+                    "DISCARDED (override=False). If the new data differs from "
+                    "the existing distribution this will cause silent "
+                    "normalization mismatch — pass override=True (or "
+                    "override_pretraining_statistics=True at the dataset level) "
+                    "to use the merged stats instead.",
+                    key,
+                )
 
         self.state_action_processor.set_statistics(statistics, override=override)
 
@@ -440,6 +531,11 @@ class Gr00tN1d7Processor(BaseProcessor):
         # Action mask: shape (B, max_action_horizon), 1 in the valid horizon window
         action_config = modality_config["action"]
         action_horizon = len(action_config.delta_indices)
+        assert action_horizon <= self.max_action_horizon, (
+            f"Action horizon {action_horizon} (from delta_indices) exceeds"
+            f" max_action_horizon {self.max_action_horizon}. Increase model config"
+            f" action_horizon to >= {action_horizon}."
+        )
         action_mask = torch.zeros((B, self.max_action_horizon), dtype=torch.float32)
         if action_horizon > 0:
             action_mask[:, :action_horizon] = 1.0
@@ -454,15 +550,14 @@ class Gr00tN1d7Processor(BaseProcessor):
                 video: [T, C, H, W]
         Returns: vlm_content format for collation
         """
-        # Convert images to PIL format
-        pil_images = [Image.fromarray(np.transpose(v, (1, 2, 0))) for v in images]
+        frames = [torch.as_tensor(v) for v in images]
 
         # Create conversation with images and text
         conversation = [
             {
                 "role": "user",
                 "content": [
-                    *[{"type": "image", "image": img} for img in pil_images],
+                    *[{"type": "image", "image": img} for img in frames],
                     {"type": "text", "text": language},
                 ],
             }
@@ -477,7 +572,7 @@ class Gr00tN1d7Processor(BaseProcessor):
         return {
             "vlm_content": {
                 "text": text,
-                "images": pil_images,
+                "images": frames,
                 "conversation": conversation,
             }
         }
@@ -520,6 +615,11 @@ class Gr00tN1d7Processor(BaseProcessor):
             )  # (t, max_action_dim)
             # Pad action to max_action_horizon
             action_horizon = normalized_actions.shape[0]
+            assert action_horizon <= self.max_action_horizon, (
+                f"Action sequence length {action_horizon} exceeds max_action_horizon"
+                f" {self.max_action_horizon}. Increase model config action_horizon to"
+                f" >= {action_horizon}."
+            )
             normalized_actions = torch.cat(
                 [
                     normalized_actions,
@@ -644,11 +744,9 @@ class Gr00tN1d7Processor(BaseProcessor):
             assert v.dtype == torch.uint8, f"{v} is not a uint8 tensor"
             assert v.shape[1] == 3, f"{v} is not a 3 channel tensor"
 
-        stacked_images = (
-            torch.stack([temporal_stacked_images[view] for view in image_keys], dim=1)
-            .flatten(0, 1)
-            .numpy()
-        )  # (T*V, C, H, W), processor expects numpy array
+        stacked_images = torch.stack(
+            [temporal_stacked_images[view] for view in image_keys], dim=1
+        ).flatten(0, 1)  # (T*V, C, H, W)
 
         vlm_inputs = self._apply_vlm_processing(stacked_images, language)
         return vlm_inputs
@@ -711,16 +809,34 @@ class Gr00tN1d7Processor(BaseProcessor):
         transformers_loading_kwargs = kwargs.pop(
             "transformers_loading_kwargs", {"trust_remote_code": True}
         )
+        hub_keys = (
+            "_commit_hash",
+            "cache_dir",
+            "force_download",
+            "local_files_only",
+            "proxies",
+            "revision",
+            "subfolder",
+            "token",
+        )
+        hub_kwargs = {key: kwargs.pop(key) for key in hub_keys if key in kwargs}
+        use_auth_token = kwargs.pop("use_auth_token", None)
+        if "token" not in hub_kwargs and use_auth_token is not None:
+            hub_kwargs["token"] = use_auth_token
         pretrained_model_name_or_path = Path(pretrained_model_name_or_path)
         config_file = pretrained_model_name_or_path / "processor_config.json"
         statistics_file = pretrained_model_name_or_path / "statistics.json"
         embodiment_id_file = pretrained_model_name_or_path / "embodiment_id.json"
         is_local = os.path.isdir(pretrained_model_name_or_path)
         if not is_local:
-            config_file = Path(cached_file(pretrained_model_name_or_path, "processor_config.json"))
-            statistics_file = Path(cached_file(pretrained_model_name_or_path, "statistics.json"))
+            config_file = Path(
+                cached_file(pretrained_model_name_or_path, "processor_config.json", **hub_kwargs)
+            )
+            statistics_file = Path(
+                cached_file(pretrained_model_name_or_path, "statistics.json", **hub_kwargs)
+            )
             embodiment_id_file = Path(
-                cached_file(pretrained_model_name_or_path, "embodiment_id.json")
+                cached_file(pretrained_model_name_or_path, "embodiment_id.json", **hub_kwargs)
             )
 
         with open(config_file, "r") as f:
@@ -758,6 +874,9 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "use_mean_std",
                 "model_name",
                 "model_type",
+                "max_action_horizon",
+                "max_state_dim",
+                "max_action_dim",
             ]
             for key in override_keys:
                 if key in kwargs:

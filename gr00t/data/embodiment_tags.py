@@ -41,12 +41,15 @@ class EmbodimentTag(Enum):
 
     Pre-registered posttrain tags (require finetuned checkpoint):
     - UNITREE_G1           -> "unitree_g1_full_body_with_waist_height_nav_cmd"
+    - UNITREE_G1_SONIC     -> "unitree_g1_sonic"
     - SIMPLER_ENV_GOOGLE   -> "simpler_env_google"
     - SIMPLER_ENV_WIDOWX   -> "simpler_env_widowx"
     - LIBERO_PANDA         -> "libero_sim"
 
     Finetuning tag (for custom robots):
-    - NEW_EMBODIMENT       -> "new_embodiment"
+    - NEW_EMBODIMENT        -> "new_embodiment"
+    - ROBOCASA_PANDA_OMRON  -> "robocasa_panda_omron"
+    - ROBOCASA_GR1_TABLETOP -> "robocasa_gr1_tabletop"
 
     Use ``EmbodimentTag.resolve(s)`` to look up a tag by name or value,
     case-insensitively.
@@ -101,6 +104,11 @@ class EmbodimentTag(Enum):
     The Unitree G1 robot (sim, full-body with waist height and nav commands).
     """
 
+    UNITREE_G1_SONIC = "unitree_g1_sonic"
+    """
+    The Unitree G1 robot with SONIC whole-body controller. VLA action space is SONIC latents.
+    """
+
     SIMPLER_ENV_GOOGLE = "simpler_env_google"
     """
     The SimplerEnv Google robot.
@@ -120,6 +128,18 @@ class EmbodimentTag(Enum):
     NEW_EMBODIMENT = "new_embodiment"
     """
     Any new embodiment.
+    """
+
+    ROBOCASA_GR1_TABLETOP = "robocasa_gr1_tabletop"
+    """
+    RoboCasa GR1 tabletop tasks with arms, waist, and Fourier hands.
+    Uses the custom-embodiment finetuning projector slot.
+    """
+
+    ROBOCASA_PANDA_OMRON = "robocasa_panda_omron"
+    """
+    RoboCasa Panda arm tasks with an Omron gripper.
+    Uses the custom-embodiment finetuning projector slot.
     """
 
     @classmethod
@@ -186,6 +206,7 @@ PRETRAIN_TAGS: frozenset[EmbodimentTag] = frozenset(
 POSTTRAIN_TAGS: frozenset[EmbodimentTag] = frozenset(
     {
         EmbodimentTag.UNITREE_G1,
+        EmbodimentTag.UNITREE_G1_SONIC,
         EmbodimentTag.SIMPLER_ENV_GOOGLE,
         EmbodimentTag.SIMPLER_ENV_WIDOWX,
         EmbodimentTag.LIBERO_PANDA,
@@ -196,6 +217,8 @@ POSTTRAIN_TAGS: frozenset[EmbodimentTag] = frozenset(
 FINETUNE_ONLY_TAGS: frozenset[EmbodimentTag] = frozenset(
     {
         EmbodimentTag.NEW_EMBODIMENT,
+        EmbodimentTag.ROBOCASA_PANDA_OMRON,
+        EmbodimentTag.ROBOCASA_GR1_TABLETOP,
     }
 )
 """Tags for custom robots (finetuning only, not in any shipped checkpoint)."""

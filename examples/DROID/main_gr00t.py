@@ -29,17 +29,12 @@ import time
 from collections import deque
 
 import cv2
-import imageio
 import numpy as np
 import pandas as pd
 import tqdm
 import tyro
-from moviepy.editor import ImageSequenceClip
 from PIL import Image
 
-from droid.robot_env import RobotEnv
-from server_client import PolicyClient
-from utils import resize_with_pad
 from scipy.spatial.transform import Rotation
 
 faulthandler.enable()
@@ -50,6 +45,9 @@ RESOLUTION = (180, 320)  # resize images to this resolution before sending to th
 
 # Egocentric frame correction: R_euler is post-multiplied by this matrix
 # to match the OXE DROID training pipeline (TFG convention).
+# audit: mirror of gr00t/data/state_action/droid_frame.py — this example runs on
+# a slim DROID install without the gr00t package, so it cannot import the
+# canonical source. Keep this matrix and compute_eef_9d in sync with it.
 DROID_EEF_ROTATION_CORRECT = np.array(
     [[0, 0, -1], [-1, 0, 0], [0, 1, 0]],
     dtype=np.float64,
@@ -104,6 +102,23 @@ class Args:
     delay_seconds: int = 5
 
 
+def _load_runtime_deps():
+    """Load robot-only dependencies after CLI parsing so --help stays usable."""
+    try:
+        import imageio
+        from droid.robot_env import RobotEnv
+        from server_client import PolicyClient
+        from utils import resize_with_pad
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "examples/DROID/main_gr00t.py requires the DROID robot-control environment. "
+            "Follow examples/DROID/README.md and install the DROID package plus "
+            "`pip install tyro pydantic numpy==1.26.4` before running."
+        ) from exc
+
+    return RobotEnv, PolicyClient, imageio, resize_with_pad
+
+
 # We are using Ctrl+C to optionally terminate rollouts early -- however, if we press Ctrl+C while the policy server is
 # waiting for a new action chunk, it will raise an exception and the server connection dies.
 # This context manager temporarily prevents Ctrl+C and delays it after the server call is complete.
@@ -127,6 +142,8 @@ def prevent_keyboard_interrupt():
 
 
 def main(args: Args):
+    RobotEnv, PolicyClient, imageio, resize_with_pad = _load_runtime_deps()
+
     assert args.external_camera in ["left", "right"], (
         f"Invalid exterior camera: {args.exterior_camera}"
     )
@@ -153,9 +170,26 @@ def main(args: Args):
     video_keys = modality_config["video"].modality_keys
     state_keys = modality_config["state"].modality_keys
     state_T = len(modality_config["state"].delta_indices)
+    # Action chunk size is dictated by the policy (server) side. open_loop_horizon
+    # is the only locally-authored horizon; it is a deliberate receding-horizon
+    # choice and MAY be < the chunk, but it must never exceed it, otherwise
+    # `pred_action_chunk[actions_from_chunk_completed]` indexes past the
+    # predicted chunk and IndexErrors mid-rollout. Source the chunk size from
+    # the policy and validate the contract up-front instead of crashing deep in
+    # the loop.
+    action_chunk_size = len(modality_config["action"].delta_indices)
+    if not (1 <= args.open_loop_horizon <= action_chunk_size):
+        raise ValueError(
+            f"open_loop_horizon={args.open_loop_horizon} must satisfy "
+            f"1 <= open_loop_horizon <= action_chunk_size={action_chunk_size} "
+            "(= len(policy.action.delta_indices)). A larger value would index "
+            "past the predicted action chunk and IndexError mid-rollout."
+        )
     print(
         f"Model config — video T={video_T} (delta={video_delta}), "
-        f"state T={state_T}, keys: video={video_keys}, state={state_keys}"
+        f"state T={state_T}, action chunk={action_chunk_size}, "
+        f"open_loop_horizon={args.open_loop_horizon}, "
+        f"keys: video={video_keys}, state={state_keys}"
     )
 
     df = pd.DataFrame(columns=["success", "duration", "video_filename"])
@@ -365,9 +399,9 @@ def main(args: Args):
         save_filename = os.path.join(
             results_dir, "videos", f"{sanitized_instruction}_video_" + timestamp
         )
-        ImageSequenceClip(list(video), fps=args.render_fps).write_videofile(
-            save_filename + ".mp4", codec="libx264"
-        )
+        with imageio.get_writer(save_filename + ".mp4", fps=args.render_fps) as writer:
+            for frame in video:
+                writer.append_data(frame)
 
         if args.debug:
             model_wrist_image_writer.close()

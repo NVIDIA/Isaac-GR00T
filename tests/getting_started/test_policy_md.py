@@ -25,6 +25,9 @@ import torch
 from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 
 
+pytestmark = pytest.mark.serial
+
+
 REPO_ROOT = get_root()
 POLICY_README = REPO_ROOT / "getting_started" / "policy.md"
 

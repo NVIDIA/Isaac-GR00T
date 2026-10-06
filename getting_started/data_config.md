@@ -18,6 +18,7 @@ Here's the [SO-100 example](../examples/SO100/so100_config.py):
 
 ```python
 from gr00t.configs.data.embodiment_configs import register_modality_config
+from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.types import ModalityConfig, ActionConfig, ActionRepresentation, ActionType, ActionFormat
 
 so100_config = {
@@ -54,7 +55,7 @@ delta_indices=[0]
 delta_indices=list(range(0, 16))
 ```
 
-> **Note:** If you modify `delta_indices` for the action modality (e.g., changing the action horizon from 16 to 8), you **must** regenerate the dataset statistics by re-running `python gr00t/data/stats.py --dataset-path <dataset_path> --embodiment-tag <embodiment_tag>`. The normalization statistics (especially `meta/relative_stats.json`) are computed based on the original `delta_indices` length, and a mismatch will cause errors during training.
+> **Note:** If you modify `delta_indices` for the action modality (e.g., changing the action horizon from 16 to 8), you **must** regenerate the dataset statistics by re-running `python gr00t/data/stats.py --dataset-path <dataset_path> --embodiment-tag <embodiment_tag>`. For a custom embodiment (e.g. `NEW_EMBODIMENT`), also pass `--modality-config-path <your_config.py>` (e.g. `examples/SO100/so100_config.py`), which registers the tag's modality config. The normalization statistics (especially `meta/relative_stats.json`) are computed based on the original `delta_indices` length, and a mismatch will cause errors during training.
 
 <details>
 <summary>Example: What happens if you change <code>delta_indices</code> without regenerating stats?</summary>
@@ -86,7 +87,7 @@ IndexError: boolean index did not match indexed array along dimension 0;
 dimension is 8 but corresponding boolean dimension is 16
 ```
 
-**Fix:** Re-run `python gr00t/data/stats.py --dataset-path <dataset_path> --embodiment-tag <embodiment_tag>` after changing `delta_indices` to regenerate matching statistics.
+**Fix:** Re-run `python gr00t/data/stats.py --dataset-path <dataset_path> --embodiment-tag <embodiment_tag>` (add `--modality-config-path <your_config.py>` for custom embodiments) after changing `delta_indices` to regenerate matching statistics.
 
 </details>
 
@@ -99,7 +100,7 @@ For the SO-100 example:
 - **Video keys**: Must match keys in `meta/modality.json` under `"video"` (e.g., `"front"`, `"wrist"`)
 - **State keys**: Must match keys in `meta/modality.json` under `"state"` (e.g., `"single_arm"`, `"gripper"`)
 - **Action keys**: Must match keys in `meta/modality.json` under `"action"` (e.g., `"single_arm"`, `"gripper"`)
-- **Language keys**: Must match keys in `meta/modality.json` under `"annotation"` (e.g., `"annotation.human.task_description"` for SO-100)
+- **Language keys**: Must match keys in `meta/modality.json` under `"annotation"` (e.g., `"annotation.human.task_description"` for SO-100). The key is dataset-specific — see [Annotation Column Naming](data_preparation.md#annotation-column-naming).
 
 ### Optional Fields
 

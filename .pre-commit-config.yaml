@@ -1,0 +1,25 @@
+exclude: ^(external_dependencies/)
+repos:
+  # Ruff: lint + autofix
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.7
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Catch cross-platform pyproject pin drift (dGPU/Orin/Spark/Thor) at commit
+  # time; a missed mirror otherwise only surfaces at install on the unsynced
+  # platform. tomli is the 3.10 backport of stdlib tomllib (3.11+).
+  - repo: local
+    hooks:
+      - id: check-manifest-alignment
+        name: cross-platform pyproject manifest alignment
+        entry: python tools/check_manifest_alignment.py
+        language: python
+        additional_dependencies: ["tomli; python_version < '3.11'"]
+        # Mirrors MANIFESTS in tools/check_manifest_alignment.py; keep in sync when
+        # adding a platform. A miss only drops the local trigger — the unit-test
+        # live gate reads MANIFESTS directly and still fails CI on drift.
+        files: ^(pyproject\.toml|scripts/deployment/(orin|spark|thor)/pyproject\.toml|tools/(check_manifest_alignment\.py|manifest_alignment\.toml))$
+        pass_filenames: false

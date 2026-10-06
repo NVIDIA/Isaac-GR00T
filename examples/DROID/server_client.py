@@ -282,6 +282,7 @@ class PolicyClient(BasePolicy):
         strict: bool = False,
     ):
         super().__init__(strict=strict)
+        self._closed = False
         self.context = zmq.Context()
         self.host = host
         self.port = port
@@ -335,10 +336,39 @@ class PolicyClient(BasePolicy):
             raise RuntimeError(f"Server error: {response['error']}")
         return response
 
+    def close(self) -> None:
+        """Release the REQ socket and ZMQ context. Idempotent.
+
+        Mirrors ``gr00t.policy.server_client.PolicyClient.close()`` so the
+        DROID example demonstrates the explicit-lifecycle pattern.
+        """
+        if getattr(self, "_closed", True):
+            return
+        self._closed = True
+        socket = getattr(self, "socket", None)
+        if socket is not None:
+            try:
+                socket.close(linger=0)
+            except Exception:
+                pass
+        context = getattr(self, "context", None)
+        if context is not None:
+            try:
+                context.term()
+            except Exception:
+                pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+
     def __del__(self):
-        """Cleanup resources on destruction"""
-        self.socket.close()
-        self.context.term()
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def _get_action(
         self, observation: dict[str, Any], options: dict[str, Any] | None = None

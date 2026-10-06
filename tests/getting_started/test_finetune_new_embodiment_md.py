@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 import pytest
 from test_support.readme import extract_code_blocks, find_block, replace_once, run_bash_blocks
@@ -34,13 +35,15 @@ _CHECKPOINT = f"/tmp/so100/checkpoint-{_TRAINING_STEPS}"
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.serial
 def test_modality_config_block() -> None:
     """The SO-100 modality config block in finetune_new_embodiment.md executes without error."""
     blocks = extract_code_blocks(FINETUNE_README)
     config_block = find_block(blocks, "register_modality_config", language="python")
     env = {**os.environ}
+    # Inherit the parent venv; `uv run` here would rebuild gr00t every call.
     run_subprocess_step(
-        ["uv", "run", "python", "-c", config_block.code],
+        [sys.executable, "-c", config_block.code],
         step="modality_config_block",
         cwd=REPO_ROOT,
         env=env,

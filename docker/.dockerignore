@@ -10,7 +10,7 @@ src/gr00t/.ruff_cache/
 src/gr00t/logs/
 src/gr00t/dist/
 src/gr00t/docker/src/
-src/gr00t/gr00t_n1d7_onnx/
+src/gr00t/gr00t_trt_deployment/
 src/gr00t/gr00tmetricbenchmarks/
 **/__pycache__/
 **/*.pyc

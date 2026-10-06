@@ -47,6 +47,10 @@ class TestEmbodimentTagResolve:
             ("XDOF", EmbodimentTag.XDOF),
             ("new_embodiment", EmbodimentTag.NEW_EMBODIMENT),
             ("NEW_EMBODIMENT", EmbodimentTag.NEW_EMBODIMENT),
+            ("robocasa_panda_omron", EmbodimentTag.ROBOCASA_PANDA_OMRON),
+            ("ROBOCASA_PANDA_OMRON", EmbodimentTag.ROBOCASA_PANDA_OMRON),
+            ("robocasa_gr1_tabletop", EmbodimentTag.ROBOCASA_GR1_TABLETOP),
+            ("ROBOCASA_GR1_TABLETOP", EmbodimentTag.ROBOCASA_GR1_TABLETOP),
             ("unitree_g1", EmbodimentTag.UNITREE_G1),
             ("real_g1", EmbodimentTag.REAL_G1),
             # By enum value (various cases)
@@ -130,6 +134,8 @@ class TestTagCategories:
 
     def test_new_embodiment_is_finetune_only(self):
         assert EmbodimentTag.NEW_EMBODIMENT in FINETUNE_ONLY_TAGS
+        assert EmbodimentTag.ROBOCASA_PANDA_OMRON in FINETUNE_ONLY_TAGS
+        assert EmbodimentTag.ROBOCASA_GR1_TABLETOP in FINETUNE_ONLY_TAGS
 
     def test_pretrain_tags_match_base_model(self):
         """Pretrain tags should match what's in the base model checkpoint."""
@@ -217,3 +223,40 @@ class TestEmbodimentTagConsistency:
                 f"EmbodimentTag.{tag.name} ('{tag.value}') is a posttrain tag "
                 f"but missing from MODALITY_CONFIGS"
             )
+
+    def test_robocasa_gr1_tabletop_modality_config(self):
+        config = MODALITY_CONFIGS[EmbodimentTag.ROBOCASA_GR1_TABLETOP.value]
+        assert config["video"].modality_keys == ["ego_view_bg_crop_pad_res256_freq20"]
+        assert config["state"].modality_keys == [
+            "left_arm",
+            "right_arm",
+            "left_hand",
+            "right_hand",
+            "waist",
+        ]
+        assert config["action"].delta_indices == list(range(8))
+        assert config["language"].modality_keys == ["task"]
+
+    def test_robocasa_panda_omron_modality_config(self):
+        config = MODALITY_CONFIGS[EmbodimentTag.ROBOCASA_PANDA_OMRON.value]
+        assert config["video"].modality_keys == [
+            "res256_image_side_0",
+            "res256_image_side_1",
+            "res256_image_wrist_0",
+        ]
+        assert config["state"].modality_keys == [
+            "gripper_qpos",
+            "base_position",
+            "base_rotation",
+            "end_effector_position_relative",
+            "end_effector_rotation_relative",
+            "gripper_qvel",
+            "end_effector_position_absolute",
+            "end_effector_rotation_absolute",
+            "joint_position",
+            "joint_position_cos",
+            "joint_position_sin",
+            "joint_velocity",
+        ]
+        assert config["action"].delta_indices == list(range(8))
+        assert config["language"].modality_keys == ["annotation.human.action.task_description"]

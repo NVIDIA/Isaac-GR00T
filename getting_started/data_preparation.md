@@ -54,21 +54,32 @@ Each parquet file will contain:
 - Annotations: stored as annotation.<annotation_source>.<annotation_type>(.<annotation_name>) (see the annotation field in the example configuration for example naming.).  No other columns should have the annotation prefix, see the (multiple-annotation-support) if interested in adding multiple annotations.
 
 #### Example Parquet File
-Here is a sample of the `cube_to_bowl` dataset that is present in the [demo_data](../demo_data/cube_to_bowl_5/) directory.
+Here is an illustrative parquet row. The language annotation column uses the same key as the [`cube_to_bowl`](../demo_data/cube_to_bowl_5/) demo dataset (`annotation.human.task_description`).
 ```
 {
     "observation.state":[-0.01,...,0],       // 1D array: all state modalities concatenated per modality.json order
     "action":[-0.010,...,0],                 // 1D array: all action modalities concatenated per modality.json order
     "timestamp":0.049,                       // float: wall-clock time of this observation (seconds)
-    "annotation.human.action.task_description":0,  // int: index into meta/tasks.jsonl for the language instruction
+    "annotation.human.task_description":0,   // int: index into meta/tasks.jsonl for the language instruction
     "task_index":0,                          // int: task identifier (same as annotation index for single-task)
-    "annotation.human.validity":1,           // int: index into meta/tasks.jsonl for validity label
     "episode_index":0,                       // int: which episode this frame belongs to
     "index":0,                               // int: global frame index across all episodes in the dataset
     "next.reward":0,                         // float: reward at the next timestep (0 if unused)
     "next.done":false                        // bool: true if this is the last frame of the episode
 }
 ```
+
+#### Annotation Column Naming
+
+A language annotation appears in three places that must all agree. The segments after `annotation.` are chosen by the dataset author following `annotation.<source>.<type>(.<name>)`, so different datasets use different keys — always match the exact key your dataset uses:
+
+| Layer | Where it lives | `cube_to_bowl` / SO-100 | LIBERO / SimplerEnv |
+|-------|----------------|-------------------------|---------------------|
+| Parquet column | `data/chunk-*/*.parquet` | `annotation.human.task_description` | `annotation.human.action.task_description` |
+| `modality.json` key | under `"annotation"` (no `annotation.` prefix) | `human.task_description` | `human.action.task_description` |
+| `modality_keys` in the data config | `ModalityConfig(...)`, see [data_config.md](data_config.md#language-modality) | `annotation.human.task_description` | `annotation.human.action.task_description` |
+
+Both forms above are valid; these docs use the SO-100 form (`annotation.human.task_description`) in examples. See [Multiple Annotation Support](#multiple-annotation-support) for adding more than one annotation channel.
 
 ### Meta
 
@@ -79,11 +90,11 @@ Here is a sample of the `cube_to_bowl` dataset that is present in the [demo_data
 #### meta/tasks.jsonl
 Here is a sample of the `meta/tasks.jsonl` file that contains the task descriptions.
 ```
-{"task_index": 0, "task": "pick the squash from the counter and place it in the plate"}
-{"task_index": 1, "task": "valid"}
+{"task_index": 0, "task": "cube into yellow bowl"}
+{"task_index": 1, "task": "cube into green bowl"}
 ```
 
-You can refer the task index in the parquet file to get the task description. So in this case, the `annotation.human.action.task_description` for the first observation is "pick the squash from the counter and place it in the plate" and `annotation.human.validity` is "valid".
+You can refer the task index in the parquet file to get the task description. So in this case, the `annotation.human.task_description` for the first observation is "cube into yellow bowl".
 
 `tasks.jsonl` contains a list of all the tasks in the entire dataset.
 

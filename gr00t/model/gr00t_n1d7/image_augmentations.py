@@ -338,34 +338,22 @@ class LetterBoxPad(A.DualTransform):
     def __init__(self, p: float = 1.0, always_apply: bool | None = None):
         super().__init__(p=p, always_apply=always_apply)
 
-    def apply(
-        self,
-        img: np.ndarray,
-        pad_top: int = 0,
-        pad_bottom: int = 0,
-        pad_left: int = 0,
-        pad_right: int = 0,
-        **params,
-    ) -> np.ndarray:
-        if pad_top == 0 and pad_bottom == 0 and pad_left == 0 and pad_right == 0:
-            return img
-        return cv2.copyMakeBorder(
-            img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0
-        )
-
-    def get_params_dependent_on_data(self, params, data) -> dict[str, int]:
-        h, w = params["shape"][:2]
+    def apply(self, img: np.ndarray, **params) -> np.ndarray:
+        # Padding is derived from the input image itself rather than from saved params so the
+        # transform stays correct under A.ReplayCompose, where views may differ in size.
+        h, w = img.shape[:2]
         if h == w:
-            return {"pad_top": 0, "pad_bottom": 0, "pad_left": 0, "pad_right": 0}
+            return img
         max_dim = max(h, w)
         pad_h = max_dim - h
         pad_w = max_dim - w
-        return {
-            "pad_top": pad_h // 2,
-            "pad_bottom": pad_h - pad_h // 2,
-            "pad_left": pad_w // 2,
-            "pad_right": pad_w - pad_w // 2,
-        }
+        pad_top = pad_h // 2
+        pad_bottom = pad_h - pad_top
+        pad_left = pad_w // 2
+        pad_right = pad_w - pad_left
+        return cv2.copyMakeBorder(
+            img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0
+        )
 
     def get_transform_init_args_names(self) -> tuple[str, ...]:
         return ()
@@ -379,17 +367,21 @@ def build_image_transformations_albumentations(
     shortest_image_edge,
     crop_fraction,
     extra_augmentation_config: dict | None = None,
+    letter_box_transform: bool = False,
 ):
     """
-    Build albumentations-based image transformations equivalent to the torchvision version.
+    Build albumentations-based image transformations for the N1.7 fine-tuning recipe.
 
     Args:
-        image_target_size: Target size for resizing (list of [height, width])
-        image_crop_size: Size for cropping (list of [height, width])
+        image_target_size: Target size fallback when shortest_image_edge is unset
+            (list of [height, width])
+        image_crop_size: Crop size fallback when crop_fraction is unset (list of [height, width])
         random_rotation_angle: Maximum rotation angle in degrees (0 for no rotation)
         color_jitter_params: Dictionary with color jitter parameters (brightness, contrast, saturation, hue)
         shortest_image_edge: Shortest edge size for resizing
         crop_fraction: Fraction of image to crop
+        letter_box_transform: When True, prepend a LetterBoxPad so mixed-aspect views are padded
+            to square before resizing, keeping per-sample views torch.stack-able (cf. #541).
         extra_augmentation_config: Optional dict for additional augmentations. Supported keys:
             - "background_noise_transforms": list of dicts, each with:
                 - "target_mask_values": list of int (e.g., [0])
@@ -404,25 +396,34 @@ def build_image_transformations_albumentations(
     """
 
     if crop_fraction is None:
+        if image_crop_size is None or image_target_size is None:
+            raise ValueError(
+                "image_crop_size and image_target_size are required when crop_fraction is None"
+            )
         fraction_to_use = image_crop_size[0] / image_target_size[0]
     else:
         fraction_to_use = crop_fraction
 
     if shortest_image_edge is None:
+        if image_target_size is None:
+            raise ValueError("image_target_size is required when shortest_image_edge is None")
         max_size = image_target_size[0]
     else:
         max_size = shortest_image_edge
 
     extra_augmentation_config = extra_augmentation_config or {}
 
-    # Training transforms (using ReplayCompose for consistent augmentation across views)
-    # Use SmallestMaxSize to preserve aspect ratios, with INTER_AREA for antialiasing
-    train_transform_list = [
-        LetterBoxPad(),
-        A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
-        FractionalRandomCrop(crop_fraction=fraction_to_use),
-        A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
-    ]
+    # Training transforms (using ReplayCompose for consistent augmentation across views).
+    train_transform_list = []
+    if letter_box_transform:
+        train_transform_list.append(LetterBoxPad())
+    train_transform_list.extend(
+        [
+            A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
+            FractionalRandomCrop(crop_fraction=fraction_to_use),
+            A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
+        ]
+    )
 
     if random_rotation_angle is not None and random_rotation_angle != 0:
         train_transform_list.append(A.Rotate(limit=random_rotation_angle, p=1.0))
@@ -475,16 +476,18 @@ def build_image_transformations_albumentations(
     # Attach mask transforms to the main transform for use in apply_with_replay
     train_transform.mask_transforms = mask_transforms if mask_transforms else None
 
-    # Evaluation transforms (deterministic, no extra augmentations)
-    # Use SmallestMaxSize to preserve aspect ratios, with INTER_AREA for antialiasing
-    eval_transform = A.Compose(
+    # Evaluation transforms (deterministic, no extra augmentations).
+    eval_transform_list = []
+    if letter_box_transform:
+        eval_transform_list.append(LetterBoxPad())
+    eval_transform_list.extend(
         [
-            LetterBoxPad(),
             A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
             FractionalCenterCrop(crop_fraction=fraction_to_use),
             A.SmallestMaxSize(max_size=max_size, interpolation=cv2.INTER_AREA),
         ]
     )
+    eval_transform = A.Compose(eval_transform_list)
 
     return train_transform, eval_transform
 
@@ -549,7 +552,11 @@ class LetterBoxTransform:
 
 
 def build_image_transformations(
-    image_target_size, image_crop_size, random_rotation_angle, color_jitter_params
+    image_target_size,
+    image_crop_size,
+    random_rotation_angle,
+    color_jitter_params,
+    letter_box_transform: bool = False,
 ):
     """
     Build torchvision-based image transformations.
@@ -563,14 +570,16 @@ def build_image_transformations(
     Returns:
         tuple: (train_transform, eval_transform) - torchvision transforms
     """
-    transform_list = [
-        transforms.ToImage(),
-        LetterBoxTransform(),
-        # transforms.ToDtype(torch.get_default_dtype(), scale=True),
-        transforms.Resize(size=image_target_size),
-        transforms.RandomCrop(size=image_crop_size),
-        transforms.Resize(size=image_target_size),
-    ]
+    transform_list = [transforms.ToImage()]
+    if letter_box_transform:
+        transform_list.append(LetterBoxTransform())
+    transform_list.extend(
+        [
+            transforms.Resize(size=image_target_size),
+            transforms.RandomCrop(size=image_crop_size),
+            transforms.Resize(size=image_target_size),
+        ]
+    )
     if random_rotation_angle is not None and random_rotation_angle != 0:
         transform_list.append(
             transforms.RandomRotation(degrees=[-random_rotation_angle, random_rotation_angle])
@@ -578,14 +587,15 @@ def build_image_transformations(
     if color_jitter_params is not None:
         transform_list.append(transforms.ColorJitter(**color_jitter_params))
     train_image_transform = transforms.Compose(transform_list)
-    eval_image_transform = transforms.Compose(
+    eval_transform_list = [transforms.ToImage()]
+    if letter_box_transform:
+        eval_transform_list.append(LetterBoxTransform())
+    eval_transform_list.extend(
         [
-            transforms.ToImage(),
-            # transforms.ToDtype(torch.get_default_dtype(), scale=True),
-            LetterBoxTransform(),
             transforms.Resize(size=image_target_size),
             transforms.CenterCrop(size=image_crop_size),
             transforms.Resize(size=image_target_size),
         ]
     )
+    eval_image_transform = transforms.Compose(eval_transform_list)
     return train_image_transform, eval_image_transform

@@ -15,6 +15,7 @@
 
 # Finetune config used for single node post-training.
 from dataclasses import dataclass
+import warnings
 
 
 @dataclass
@@ -33,7 +34,7 @@ class FinetuneConfig:
     """Path to the pretrained base model checkpoint (e.g., Hugging Face model hub or local directory)."""
 
     dataset_path: str
-    """Path to the dataset root directory containing trajectory data for fine-tuning."""
+    """Path to one dataset root, or an os.pathsep-separated list of dataset roots."""
 
     embodiment_tag: str
     """Embodiment tag (name or value, case-insensitive). See EmbodimentTag for known tags."""
@@ -79,6 +80,27 @@ class FinetuneConfig:
 
     If None, applying the default color jitter augmentation from the pretrained model.
     """
+
+    use_percentiles: bool = True
+    """
+    If True, use q01/q99 percentile statistics for state/action min-max normalization.
+    If False, use full min/max statistics.
+    """
+
+    shortest_image_edge: int | None = None
+    """
+    Resize images so the shortest edge has this size before fractional cropping.
+    If set, crop_fraction must also be set and legacy image_crop_size/image_target_size
+    preprocessing is disabled.
+    """
+
+    crop_fraction: float | None = None
+    """
+    Fraction of the resized image retained by the random/center crop.
+    If set, shortest_image_edge must also be set and legacy image_crop_size/image_target_size
+    preprocessing is disabled.
+    """
+
     extra_augmentation_config: str | None = None
     """
     JSON string for extra image augmentations (mask-based and others).
@@ -100,7 +122,8 @@ class FinetuneConfig:
 
     # --- Training Configuration ---
     global_batch_size: int = 64
-    """Total effective batch size across all GPUs and accumulation steps."""
+    """Total batch summed across all GPUs in one forward/backward, BEFORE
+    gradient accumulation."""
 
     dataloader_num_workers: int = 2
     """Number of parallel worker processes used for data loading."""
@@ -109,7 +132,8 @@ class FinetuneConfig:
     """Initial learning rate for optimizer."""
 
     gradient_accumulation_steps: int = 1
-    """Number of forward passes to accumulate before performing a backward/update step."""
+    """Forward passes per optimizer step. Multiplies ``global_batch_size`` to
+    produce the post-accumulation per-optimizer-step batch."""
 
     output_dir: str = "./outputs"
     """Directory where model checkpoints, logs, and outputs are saved."""
@@ -145,6 +169,10 @@ class FinetuneConfig:
     warmup_ratio: float = 0.05
     """Proportion of total training steps used for learning rate warm-up."""
 
+    ds_weights_alpha: float | None = None
+    """Power-law exponent for dataset soup weighting. When set, each dataset's
+    sampling weight is len(dataset)^alpha and per-dataset mix_ratio values are ignored."""
+
     shard_size: int = 2**10
     """Size of the shard to use for the dataset during preloading."""
 
@@ -157,7 +185,27 @@ class FinetuneConfig:
     save_only_model: bool = False
     """If True, save only model weights (skip optimizer/scheduler/RNG states). Cannot resume training from these checkpoints."""
 
+    resume_from_checkpoint: bool = False
+    """If True, resume from the latest ``checkpoint-*`` in ``output_dir``. Default
+    False so a rerun against an existing ``output_dir`` starts fresh instead of
+    silently merging with a previous experiment. Incompatible with
+    ``save_only_model=True`` (enforced by ``experiment.run``)."""
+
     skip_weight_loading: bool = False
     """If True, skip loading model weights from base_model_path (architecture only).
     The processor (tokenizer/config) is still loaded from base_model_path.
     Useful for CI/testing to skip the slow checkpoint shard loading."""
+
+    def __post_init__(self) -> None:
+        if self.gradient_accumulation_steps < 1:
+            raise ValueError(
+                f"gradient_accumulation_steps must be >= 1, got {self.gradient_accumulation_steps}"
+            )
+        if self.gradient_accumulation_steps > 1:
+            accumulated_batch_size = self.global_batch_size * self.gradient_accumulation_steps
+            warnings.warn(
+                f"global_batch_size={self.global_batch_size} is pre-accumulation; "
+                f"accumulated_batch_size={accumulated_batch_size} "
+                f"(× gradient_accumulation_steps={self.gradient_accumulation_steps}).",
+                stacklevel=2,
+            )

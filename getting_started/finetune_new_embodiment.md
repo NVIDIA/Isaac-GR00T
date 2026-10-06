@@ -60,7 +60,8 @@ so100_config = {
             ),
         ],
     ),
-    # Language: task instruction from annotation field in the dataset
+    # Language: task-instruction annotation. The key is dataset-specific and must
+    # match meta/modality.json (see data_preparation.md#annotation-column-naming).
     "language": ModalityConfig(
         delta_indices=[0],
         modality_keys=["annotation.human.task_description"],
@@ -72,6 +73,14 @@ register_modality_config(so100_config, embodiment_tag=EmbodimentTag.NEW_EMBODIME
 ```
 
 ## Step 3: Run Fine-tuning
+
+
+> ⚠️ **aarch64 users (Spark / Thor / Orin):** After running `install_deps.sh`, always
+> activate the venv with `source .venv/bin/activate && source scripts/activate_<platform>.sh`
+> (e.g. `activate_spark.sh`, `activate_thor.sh`, or `activate_orin.sh`)
+> and run the example commands in this guide with **plain `python`** / `torchrun`, not `uv run python` / `uv run torchrun`. The latter will
+> re-sync against the root `pyproject.toml` (which targets x86_64 Python 3.12) and
+> destroy the platform-specific environment.
 
 We'll use `gr00t/experiment/launch_finetune.py` as the entry point. Ensure that the uv environment is enabled before launching. You can do this by running the command `uv run bash <example_script_name>`.
 
@@ -126,7 +135,7 @@ uv run python gr00t/eval/open_loop_eval.py \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path /tmp/so100/checkpoint-2000 \
     --traj-ids 0 \
-    --action-horizon 16 \
+    --execution-horizon 16 \
     --steps 400 \
     --modality-keys single_arm gripper
 ```
@@ -139,7 +148,7 @@ uv run python gr00t/eval/open_loop_eval.py \
 | `--embodiment-tag` | `new_embodiment` | Robot embodiment tag (case-insensitive) |
 | `--model-path` | `None` | Path to checkpoint. If omitted, connects to a running server via `--host`/`--port` |
 | `--traj-ids` | `[0]` | Episode indices to evaluate (space-separated, e.g., `0 1 2`) |
-| `--action-horizon` | `16` | Action steps predicted per inference call |
+| `--execution-horizon` | `16` | Steps of each predicted chunk to execute per inference (old `--action-horizon` deprecated) |
 | `--steps` | `200` | Max steps per trajectory (capped by actual trajectory length) |
 | `--denoising-steps` | `4` | Diffusion denoising iterations |
 | `--save-plot-path` | `None` | Directory to save GT-vs-predicted comparison plots |
@@ -151,3 +160,33 @@ uv run python gr00t/eval/open_loop_eval.py \
 The evaluation generates visualizations comparing predicted actions against ground truth trajectories:
 
 <img src="../media/open_loop_eval_so100.jpg" width="800" alt="Open loop evaluation results showing predicted vs ground truth trajectories" />
+
+## Interpreting the Result: Is My Fine-tune Working?
+
+`open_loop_eval.py` logs `Average MSE across all trajs` and `Average MAE across all trajs` (unnormalized action error; referred to below as `Average MSE`/`MAE`) and saves a ground-truth-vs-predicted plot. Unlike the simulation benchmarks (LIBERO, SimplerEnv, DROID), this tutorial intentionally does **not** publish a single target MSE: the demo set is only 5 episodes and your own dataset and task will differ, so a fixed number would not transfer and could mislead. Use these checks instead, in order:
+
+1. **Plot overlap on a training trajectory (primary).** `--traj-ids 0` is part of the training set, so a model that has fit the data should track the ground-truth curves closely. Flat or constant predictions, or curves that ignore the GT shape, point to a setup problem rather than merely an under-trained model.
+2. **Error decreases with training (reproducible trend).** Save intermediate checkpoints (e.g. add `--save-steps 500`) and run the eval on each. `Average MSE`/`MAE` on `traj 0` should fall steadily as steps increase. A flat or rising curve means training is not learning from your data.
+3. **Record your own baseline.** Note the `Average MSE`/`MAE` from your first clean run on the unmodified `cube_to_bowl_5` command above, and treat it as your reference point. After you change dataset size, modality config, or hyper-parameters, re-run and compare against it.
+
+For reference, one run of the command above — with `--save-steps` lowered to `500` so intermediate checkpoints are kept (1× H100, `--max-steps 2000`, eval on `--traj-ids 0`) — produced the trend below. The **shape** — error falling steadily as steps increase — is the signal; the absolute values are not a target and will differ with GPU, seed, and data.
+
+| Checkpoint | `Average MSE` (traj 0) | `Average MAE` (traj 0) |
+|-----------:|-----------------------:|-----------------------:|
+| 500        | 87.5                   | 5.63                   |
+| 1000       | 25.4                   | 3.30                   |
+| 1500       | 13.2                   | 2.18                   |
+| 2000       | 10.0                   | 1.76                   |
+
+Averaged over all 5 training episodes, the final checkpoint scored `Average MSE` ≈ 7.5 / `Average MAE` ≈ 1.5.
+
+When a run looks off, this table maps the common symptoms to causes that are operational (your setup) rather than a model bug:
+
+| Symptom | Likely cause (operational, not a model bug) |
+|---------|---------------------------------------------|
+| MSE flat or rising across checkpoints | Learning rate too low, or data not loading — check `--dataset-path` and dataloader workers |
+| Prediction curve is flat/constant | `modality.json` keys or `--modality-config-path` mismatch — action keys are not mapped |
+| MSE extremely large or `NaN` (or `NaN` loss during training) | Action/state normalization — verify `meta/stats` and that action ranges are sane |
+| Good on `traj 0` but poor on held-out episodes | Expected with only 5 demo episodes — this is data scarcity, not a bug |
+
+> Establish this baseline on the **as-shipped** command before changing anything. Reproducing a known-good run first is the fastest way to separate setup mistakes from genuine issues when you scale to a larger dataset.

@@ -1,6 +1,9 @@
 [submodule "external_dependencies/LIBERO"]
 	path = external_dependencies/LIBERO
 	url = https://github.com/Lifelong-Robot-Learning/LIBERO.git
+[submodule "external_dependencies/robocasa-gr1-tabletop-tasks"]
+	path = external_dependencies/robocasa-gr1-tabletop-tasks
+	url = https://github.com/robocasa/robocasa-gr1-tabletop-tasks
 [submodule "external_dependencies/SimplerEnv"]
 	path = external_dependencies/SimplerEnv
 	url = https://github.com/squarefk/SimplerEnv.git

@@ -20,6 +20,8 @@ These tests instantiate the action head directly (no backbone required)
 and feed it synthetic backbone output tensors.
 """
 
+import math
+
 from gr00t.configs.model.gr00t_n1d7 import Gr00tN1d7Config
 from gr00t.model.gr00t_n1d7.gr00t_n1d7 import Gr00tN1d7ActionHead
 import pytest
@@ -162,6 +164,78 @@ class TestActionHeadEncodeFeatures:
         )
         assert result["backbone_features"].shape == (2, 8, config.backbone_embedding_dim)
         assert result["state_features"].shape == (2, 1, config.input_embedding_dim)
+
+
+def _beta_time_moments(alpha: float, beta: float, noise_s: float) -> tuple[float, float]:
+    """Closed-form mean/variance of sample_time's output, derived from config.
+
+    sample_time draws ``b ~ Beta(alpha, beta)`` and returns ``s = (1 - b) * noise_s``.
+    The moments are re-derived here from the config values (not hand-picked
+    constants and not a fingerprint of whatever the code currently emits), so
+    the assertions are an independent oracle for the sampler rather than an
+    author-vs-author restatement.
+    """
+    mean_b = alpha / (alpha + beta)
+    var_b = (alpha * beta) / ((alpha + beta) ** 2 * (alpha + beta + 1.0))
+    mean_s = (1.0 - mean_b) * noise_s
+    var_s = (noise_s**2) * var_b
+    return mean_s, var_s
+
+
+class TestActionHeadTimeSamplingMetaSafe:
+    """Oracle tests for sample_time under meta / no_init_weights construction.
+
+    Regression guard: when the action head is built while the default device is
+    meta (as happens inside a nested from_pretrained), sample_time must still
+    produce a valid, correctly-distributed noise schedule on the requested
+    device — not a crash or uninitialized values from a meta-backed Beta.
+    """
+
+    @pytest.mark.parametrize(
+        "alpha,beta,noise_s",
+        [(1.5, 1.0, 0.999), (2.0, 3.0, 0.95)],
+    )
+    def test_sample_time_under_meta_construction(self, alpha, beta, noise_s):
+        config = _small_config(noise_beta_alpha=alpha, noise_beta_beta=beta, noise_s=noise_s)
+        # Reproduce the production failure condition: the whole action head is
+        # instantiated while the default device is meta.
+        with torch.device("meta"):
+            head = Gr00tN1d7ActionHead(config)
+
+        torch.manual_seed(0)
+        n = 200_000
+        sample = head.sample_time(n, device="cpu", dtype=torch.float32)
+
+        # Requested device/dtype honored even though the module was built on meta.
+        assert sample.device.type == "cpu"
+        assert sample.dtype == torch.float32
+        # No uninitialized / nan / inf leakage from a meta-backed distribution.
+        assert torch.isfinite(sample).all()
+        # Transformed-Beta support: s = (1 - b) * noise_s with b in [0, 1].
+        assert (sample >= 0).all()
+        assert (sample <= noise_s + 1e-6).all()
+
+        # Distribution matches Beta(alpha, beta) transformed; RHS from config.
+        mean_s, var_s = _beta_time_moments(alpha, beta, noise_s)
+        assert math.isclose(sample.mean().item(), mean_s, abs_tol=5e-3)
+        assert math.isclose(sample.var(unbiased=False).item(), var_s, rel_tol=0.1)
+
+    def test_sample_time_construction_device_invariant(self):
+        """Construction device must not change the sampled noise stream."""
+        config = _small_config()
+        head_real = Gr00tN1d7ActionHead(config)
+        with torch.device("meta"):
+            head_meta = Gr00tN1d7ActionHead(config)
+
+        n = 200_000
+        torch.manual_seed(1234)
+        s_real = head_real.sample_time(n, device="cpu", dtype=torch.float32)
+        torch.manual_seed(1234)
+        s_meta = head_meta.sample_time(n, device="cpu", dtype=torch.float32)
+
+        # Same seed + config-derived sampler ⇒ byte-identical stream regardless
+        # of whether the head was constructed on a real device or on meta.
+        assert torch.equal(s_real, s_meta)
 
 
 class TestActionHeadTrainableParams:

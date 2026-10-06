@@ -40,7 +40,7 @@ The tag is **case-insensitive** and accepts either the enum name or the string v
 For example, `--embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` and `--embodiment-tag LIBERO_PANDA` all resolve correctly. An unknown tag will produce an error listing all known options.
 
 - **Pretrain tags** (e.g., `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT`, `XDOF`, `REAL_G1`) — use for zero-shot inference on datasets that match the pretrained embodiment. The modality config is loaded from the base model checkpoint.
-- **Posttrain tags** (`OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT`, `LIBERO_PANDA`, `SIMPLER_ENV_GOOGLE`, `SIMPLER_ENV_WIDOWX`) — require a finetuned checkpoint. Passing these to the base model will produce an error.
+- **Posttrain tags** (`OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT`, `UNITREE_G1_SONIC`, `LIBERO_PANDA`, `SIMPLER_ENV_GOOGLE`, `SIMPLER_ENV_WIDOWX`) — require a finetuned checkpoint. Passing these to the base model will produce an error.
 - **`NEW_EMBODIMENT`** — use for custom robots. Requires a `--modality-config-path` during finetuning. After finetuning, the config is saved in the checkpoint and loaded automatically during inference.
     - Only one `NEW_EMBODIMENT` modality config may be registered per Python process. Examples like [`examples/SO100/so100_config.py`](../examples/SO100/so100_config.py) and [`examples/mask-guided-background-suppression/so101_config.py`](../examples/mask-guided-background-suppression/so101_config.py) each register under this tag; importing both in the same process will fail. In normal CLI use the selected `--modality-config-path` is the only one imported, so this is not an issue — just don't wire both configs into the same script.
 
@@ -64,6 +64,7 @@ For example, `--embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` and `--emb
 | Tag | Robot | Value | Checkpoint |
 |-----|-------|-------|------------|
 | `OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` | DROID (relative EEF + joint) | `oxe_droid_relative_eef_relative_joint` | `nvidia/GR00T-N1.7-DROID` |
+| `UNITREE_G1_SONIC` | Unitree G1 with [GEAR-SONIC](https://github.com/NVlabs/GR00T-WholeBodyControl) WBC (latent actions) | `unitree_g1_sonic` | [See GEAR-SONIC VLA Workflow](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/vla_workflow.html) |
 | `LIBERO_PANDA` | LIBERO Panda | `libero_sim` | `nvidia/GR00T-N1.7-LIBERO` |
 | `SIMPLER_ENV_GOOGLE` | SimplerEnv Google Robot | `simpler_env_google` | `nvidia/GR00T-N1.7-SimplerEnv-Fractal` |
 | `SIMPLER_ENV_WIDOWX` | SimplerEnv WidowX | `simpler_env_widowx` | `nvidia/GR00T-N1.7-SimplerEnv-Bridge` |
@@ -78,11 +79,15 @@ For example, `--embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT` and `--emb
 
 Which episode indices to evaluate. Check your dataset's `meta/episodes.jsonl` to see available episodes. For example, `--traj-ids 0 1 2` runs on the first 3 episodes.
 
-### `--action-horizon`
+### `--execution-horizon`
 
-Number of future action steps predicted per inference call. The model's maximum is 16 (from model config). Common values:
-- `16` — full horizon, used for open-loop evaluation
+How many steps of each predicted action chunk are **executed** before the script re-plans (calls the model again) — i.e. the receding/execution horizon, *not* how many the model predicts. It must be `≤` the model's configured `action_horizon` (the predicted chunk length); the base `nvidia/GR00T-N1.7-3B` checkpoint uses `action_horizon: 40`, so `≤ 40` for that checkpoint — finetuned checkpoints may differ. Common values:
+- `16` — default execution horizon for open-loop evaluation
 - `8` — shorter horizon, common for real-time deployment where actions are re-planned frequently
+
+Because the base checkpoint already predicts 40 steps, it satisfies Real-Time Chunking (RTC), which recommends a chunk size of `≥ 32` (see the [real-world deployment guide](real_world_deployment.md#real-time-chunking-rtc-details)).
+
+> The former name `--action-horizon` is deprecated (it collided with the model-config `action_horizon`, the predicted chunk length) but still accepted with a warning.
 
 This parameter is robot-agnostic — the same value works across different datasets and embodiments.
 
@@ -415,7 +420,7 @@ uv run python gr00t/eval/run_gr00t_server.py \
 - `--dataset-path`: Path to a LeRobot-compatible dataset directory
 - `--embodiment-tag`: The embodiment tag for modality configuration
 - `--execution-horizon`: Number of steps to advance the dataset per `get_action()` call. Should match the number of executed action steps in the environment.
-- `--modality-config-path`: (Optional) Path to custom modality config JSON file. If not provided, uses the config from `embodiment-tag`
+- `--modality-config-path`: (Optional) Path to a custom modality config — either a Python module (`.py`, e.g. `examples/SO100/so100_config.py`) or a ModalityConfig JSON (`.json`). If not provided, uses the config from `embodiment-tag`
 - `--use-sim-policy-wrapper`: Apply `Gr00tSimPolicyWrapper` for GR00T simulation environments
 
 ##### Using ReplayPolicy from the Client
@@ -458,7 +463,7 @@ Here's a complete example of using ReplayPolicy to validate a simulation setup:
 uv run python gr00t/eval/run_gr00t_server.py \
     --dataset-path <your_dataset_path> \
     --embodiment-tag <YOUR_EMBODIMENT_TAG> \
-    --action-horizon 8 \
+    --execution-horizon 8 \
     --use-sim-policy-wrapper
 
 # Terminal 2: Run evaluation with the replay policy

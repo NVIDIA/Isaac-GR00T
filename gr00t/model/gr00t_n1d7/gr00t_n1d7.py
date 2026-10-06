@@ -98,7 +98,21 @@ class Gr00tN1d7ActionHead(nn.Module):
         # State dropout parameters
         self.state_dropout_prob = config.state_dropout_prob
 
-        self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
+        # Pin the time-sampling Beta to CPU/fp32 explicitly. The action head can
+        # be instantiated under a meta / no_init_weights default-device context
+        # (e.g. nested from_pretrained). A Beta built from bare Python floats
+        # would then place its concentration tensors on the meta device (or in
+        # the active default dtype, e.g. bf16). With validate_args enabled that
+        # already fails here in __init__ (Beta's internal .item() check cannot
+        # run on meta); even with validation off, sample_time would later raise
+        # or return garbage. Explicit device/dtype here makes the sampler depend
+        # only on the config, not on the construction-time device/dtype context,
+        # so the noise schedule is identical across SDPA/FA2/FA4 and meta vs.
+        # real-device loads. config is the canonical source for these values.
+        self.beta_dist = Beta(
+            torch.tensor(float(config.noise_beta_alpha), dtype=torch.float32, device="cpu"),
+            torch.tensor(float(config.noise_beta_beta), dtype=torch.float32, device="cpu"),
+        )
         self.num_timestep_buckets = config.num_timestep_buckets
         self.set_trainable_parameters(
             config.tune_projector, config.tune_diffusion_model, config.tune_vlln

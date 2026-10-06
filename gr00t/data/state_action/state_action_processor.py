@@ -24,6 +24,7 @@ Handles:
 """
 
 from copy import deepcopy
+import logging
 
 from gr00t.configs.data.embodiment_configs import (
     ActionFormat,
@@ -43,6 +44,9 @@ from gr00t.data.utils import (
     unnormalize_values_minmax,
 )
 import numpy as np
+
+
+logger = logging.getLogger(__name__)
 
 
 class StateActionProcessor:
@@ -121,7 +125,21 @@ class StateActionProcessor:
             if key not in self.statistics or override:
                 self.statistics[key] = deepcopy(statistics[key])
             else:
-                print(f"Embodiment tag {key} already in statistics, skipping updating")
+                # Surfaced as a warning (not print) because callers running with
+                # override_pretraining_statistics=False on a mixture dataset will
+                # otherwise silently keep the pre-existing pretraining stats and
+                # discard newly-merged per-dataset stats — training proceeds with
+                # the wrong mean/std and only an easy-to-miss stdout line records
+                # the drop.
+                logger.warning(
+                    "Statistics for embodiment %r already present; new stats "
+                    "DISCARDED (override=False). If the new data differs from "
+                    "the existing distribution this will cause silent "
+                    "normalization mismatch — pass override=True (or "
+                    "override_pretraining_statistics=True at the dataset level) "
+                    "to use the merged stats instead.",
+                    key,
+                )
         self._compute_normalization_parameters()
 
     def _compute_normalization_parameters(self) -> None:

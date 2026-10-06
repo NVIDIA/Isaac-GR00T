@@ -78,7 +78,7 @@ class GoogleFractalEnv(gym.Env):
         self.sticky_action_is_on = False
         self.sticky_gripper_action = 0.0
         self.gripper_action_repeat = 0
-        observation, info = self.env.reset()
+        observation, info = self.env.reset(seed=int(seed) if seed is not None else None)
         observation = self._process_observation(observation)
         info["success"] = False
         return observation, info
@@ -98,7 +98,7 @@ class GoogleFractalEnv(gym.Env):
         )
         observation, reward, done, truncated, info = self.env.step(action_vector)
         observation = self._process_observation(observation)
-        info["success"] = done
+        info["success"] = bool(info.get("success", False))
         return observation, reward, done, truncated, info
 
     def _process_observation(self, obs):
@@ -181,7 +181,7 @@ class WidowXBridgeEnv(gym.Env):
         self.default_rot = np.array([[0, 0, 1.0], [0, 1.0, 0], [-1.0, 0, 0]])
 
     def reset(self, seed=None, options=None):
-        observation, info = self.env.reset()
+        observation, info = self.env.reset(seed=int(seed) if seed is not None else None)
         observation = self._process_observation(observation)
         info["success"] = False
         return observation, info
@@ -201,7 +201,7 @@ class WidowXBridgeEnv(gym.Env):
         )
         observation, reward, done, truncated, info = self.env.step(action_vector)
         observation = self._process_observation(observation)
-        info["success"] = done
+        info["success"] = bool(info.get("success", False))
         return observation, reward, done, truncated, info
 
     def _process_observation(self, obs):

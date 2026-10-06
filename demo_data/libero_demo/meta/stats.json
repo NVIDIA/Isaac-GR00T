@@ -136,5 +136,10 @@
         "q99": [
             18.950000762939453
         ]
+    },
+    "__fingerprints__": {
+        "observation.state": "sha256:cdd88a979a931bb5fa6173e45c09227ad312fdce23b82d46bc5b8804625e20f2",
+        "action": "sha256:d2f8f5abe287ccf4b95d35ca2e77bbd90271614529d6a07400cf6e1744952d42",
+        "timestamp": "sha256:f1ad41afdf47f1d901e4135b7d796d673d4aab32fba5472e282251bdaa1df87a"
     }
 }

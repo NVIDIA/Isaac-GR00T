@@ -96,8 +96,7 @@ class LeRobotEpisodeLoader:
         dataset_path: Path to dataset root directory containing meta/ and data files
         modality_configs: Dictionary mapping modality names to ModalityConfig objects
                          that specify temporal sampling and data keys to load
-        video_backend: Video decoding backend ('torchcodec', 'decord', etc.)
-        video_backend_kwargs: Additional arguments for the video backend
+        decoder_kwargs: Additional arguments for the video decoder
 
     Example:
         >>> loader = LeRobotEpisodeLoader(
@@ -117,8 +116,7 @@ class LeRobotEpisodeLoader:
         self,
         dataset_path: str | Path,
         modality_configs: dict[str, ModalityConfig],
-        video_backend: str = "torchcodec",
-        video_backend_kwargs: dict[str, Any] | None = None,
+        decoder_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """
         Initialize LeRobot episode loader with dataset path and modality configurations.
@@ -129,8 +127,7 @@ class LeRobotEpisodeLoader:
         3. Computing effective episode lengths based on action horizon
         """
         self.dataset_path = Path(dataset_path)
-        self.video_backend = video_backend
-        self.video_backend_kwargs = video_backend_kwargs
+        self.decoder_kwargs = decoder_kwargs
 
         if not self.dataset_path.is_dir():
             raise FileNotFoundError(f"Dataset path does not exist: {self.dataset_path}")
@@ -189,7 +186,12 @@ class LeRobotEpisodeLoader:
         relative_stats_path = meta_dir / LEROBOT_RELATIVE_STATS_FILE_NAME
         if relative_stats_path.exists():
             with open(relative_stats_path, "r") as f:
-                self.stats["relative_action"] = json.load(f)
+                relative_stats = json.load(f)
+            # Drop the cache-invalidation sidecar written by gr00t.data.stats
+            # (mirrors STATS_FINGERPRINTS_KEY there). Consumers index by
+            # feature name and would otherwise treat it as a stats group.
+            relative_stats.pop("__fingerprints__", None)
+            self.stats["relative_action"] = relative_stats
 
         # Extract key configuration parameters
         self.feature_config = self.info_meta.get("features", {})
@@ -440,8 +442,7 @@ class LeRobotEpisodeLoader:
             video_data[image_key] = get_frames_by_indices(
                 str(video_path),
                 indices,
-                video_backend=self.video_backend,
-                video_backend_kwargs=self.video_backend_kwargs or {},
+                decoder_kwargs=self.decoder_kwargs or {},
             )
 
         return video_data

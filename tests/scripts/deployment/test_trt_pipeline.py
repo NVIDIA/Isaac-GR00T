@@ -35,6 +35,7 @@ Environment variables (all optional):
 from __future__ import annotations
 
 import contextlib
+import gc
 import logging
 import os
 import subprocess
@@ -64,6 +65,7 @@ from test_support.runtime import (  # noqa: E402
     resolve_libero_demo_dataset_path,
     resolve_libero_n17_libero10_checkpoint_path,
 )
+import torch  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
@@ -97,10 +99,22 @@ def _truncated_policy():
         yield
 
 
+@pytest.fixture
+def _release_cuda_memory():
+    yield
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+
+
 @pytest.mark.gpu
-@pytest.mark.timeout(600)
+@pytest.mark.edge_device
+@pytest.mark.timeout(1200)
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_trt_full_pipeline(batch_size: int, tmp_path) -> None:
+def test_trt_full_pipeline(
+    batch_size: int, tmp_path, load_hf_model_weights, _release_cuda_memory
+) -> None:
     """Export ONNX, build TRT engines, and verify cosine similarity >= threshold."""
 
     model_path = str(
@@ -124,7 +138,11 @@ def test_trt_full_pipeline(batch_size: int, tmp_path) -> None:
     engine_dir = str(tmp_path / "engines")
     embodiment_tag = _resolve_embodiment(cfg.model_path, cfg.embodiment_tag)
 
-    with open(tmp_path / "pipeline.log", "w") as log_fp, _truncated_policy():
+    with (
+        load_hf_model_weights(),
+        open(tmp_path / "pipeline.log", "w") as log_fp,
+        _truncated_policy(),
+    ):
         _run_export(cfg, onnx_dir, embodiment_tag, log_fp)
         _run_build(cfg, onnx_dir, engine_dir, log_fp, trt_severity=trt.Logger.WARNING)
         cosine = _run_verify(cfg, engine_dir, embodiment_tag, log_fp)
@@ -149,6 +167,7 @@ def test_trt_full_pipeline(batch_size: int, tmp_path) -> None:
 _PIPELINE_SCRIPT = os.path.join(_DEPLOY_DIR, "build_trt_pipeline.py")
 
 
+@pytest.mark.serial
 def test_build_trt_pipeline_help() -> None:
     """--help exits 0 and surfaces the expected CLI options."""
     result = subprocess.run(
@@ -161,6 +180,7 @@ def test_build_trt_pipeline_help() -> None:
         assert flag in result.stdout, f"Expected '{flag}' in --help output:\n{result.stdout}"
 
 
+@pytest.mark.serial
 def test_build_trt_pipeline_missing_model_path() -> None:
     """Invoking the script without --model-path exits non-zero with a clear error."""
     result = subprocess.run(
