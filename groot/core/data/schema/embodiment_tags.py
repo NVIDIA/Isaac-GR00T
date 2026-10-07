@@ -311,7 +311,20 @@ class EmbodimentTag(Enum):
     UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER = "unitree_g1_whole_body_teleop_latent_gripper"
     """
     G1 latent actions with YAM gripper width actions and wrist cameras.
+    Legacy compatibility only for N2; deprecated for new N2 runs. Use NEW_EMB
+    by default or WRIST for pretrained G1 continuation. Keep this exact value
+    for historical configs/checkpoints; it is not an alias for either new tag.
     """
+
+    UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_NEW_EMB = (
+        "unitree_g1_whole_body_teleop_latent_gripper_new_emb"
+    )
+    """G1 SONIC gripper posttraining with a dedicated N2 projector row (15)."""
+
+    UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_WRIST = (
+        "unitree_g1_whole_body_teleop_latent_gripper_wrist"
+    )
+    """G1 SONIC gripper continuation using the pretrained checkpoint's projector row."""
 
     UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_NO_HAND_STATE = (
         "unitree_g1_whole_body_teleop_latent_gripper_no_hand_state"
