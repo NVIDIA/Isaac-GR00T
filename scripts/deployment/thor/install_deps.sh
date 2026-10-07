@@ -13,6 +13,41 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+# The internal wrapper overrides these policies to preserve its more permissive
+# bootstrap behavior; the exported public installer keeps strict defaults.
+PYTHON_VERSION_POLICY="${GROOT_THOR_PYTHON_VERSION_POLICY:-error}"
+NVPL_POLICY="${GROOT_THOR_NVPL_POLICY:-error}"
+NVPL_DETECTION="${GROOT_THOR_NVPL_DETECTION:-ldconfig}"
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            echo "Usage: $0"
+            echo "Install the public Thor project into its project-local .venv."
+            echo "Set THOR_ENV to an absolute external path to store it elsewhere."
+            echo "UV_PROJECT_ENVIRONMENT also accepts paths relative to the Thor project."
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown argument: $1" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+case "$PYTHON_VERSION_POLICY" in
+    error|warn) ;;
+    *) echo "ERROR: Invalid GROOT_THOR_PYTHON_VERSION_POLICY: $PYTHON_VERSION_POLICY" >&2; exit 2 ;;
+esac
+case "$NVPL_POLICY" in
+    error|warn) ;;
+    *) echo "ERROR: Invalid GROOT_THOR_NVPL_POLICY: $NVPL_POLICY" >&2; exit 2 ;;
+esac
+case "$NVPL_DETECTION" in
+    filesystem|ldconfig) ;;
+    *) echo "ERROR: Invalid GROOT_THOR_NVPL_DETECTION: $NVPL_DETECTION" >&2; exit 2 ;;
+esac
 
 VENV_SELECTOR="THOR_ENV"
 if [[ -v THOR_ENV && -n "$THOR_ENV" ]]; then
@@ -56,10 +91,17 @@ if [[ "$(uname -m)" != "aarch64" ]]; then
     echo "ERROR: the Thor environment requires aarch64" >&2
     exit 1
 fi
-if [[ "$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" != "3.12" ]]; then
-    echo "ERROR: the Thor environment requires Python 3.12" >&2
-    exit 1
+
+PYTHON_VERSION="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+if [[ "$PYTHON_VERSION" != "3.12" ]]; then
+    if [[ "$PYTHON_VERSION_POLICY" == warn ]]; then
+        echo "WARNING: Expected Python 3.12 on Thor, detected Python $PYTHON_VERSION"
+    else
+        echo "ERROR: the Thor environment requires Python 3.12" >&2
+        exit 1
+    fi
 fi
+
 if ! command -v uv >/dev/null 2>&1; then
     echo "Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -83,28 +125,62 @@ has_cuda_sbsa_repo() {
     grep -Rqs "$pattern" /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null
 }
 
-if ! ldconfig -p | grep 'libnvpl_lapack_lp64_gomp.so.0' >/dev/null || ! dpkg -s libnuma1 >/dev/null 2>&1; then
-    if ! can_sudo; then
-        echo "ERROR: installing the Thor Torch runtime dependencies NVPL/NUMA requires sudo" >&2
-        exit 1
+has_nvpl() {
+    if [[ "$NVPL_DETECTION" == filesystem ]]; then
+        find /lib /usr/lib -name 'libnvpl_lapack_lp64_gomp.so*' 2>/dev/null | grep -q .
+    else
+        ldconfig -p | grep 'libnvpl_lapack_lp64_gomp.so.0' >/dev/null
     fi
-    if ! apt-cache show libnvpl-lapack0 >/dev/null 2>&1; then
-        if ! has_cuda_sbsa_repo; then
-            keyring="$(mktemp /tmp/groot-nvpl-keyring.XXXXXX.deb)"
-            trap 'rm -f "$keyring"' EXIT
-            curl -fsSL \
-                https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb \
-                -o "$keyring"
-            $SUDO dpkg -i "$keyring"
+}
+
+if ! has_nvpl || ! dpkg -s libnuma1 >/dev/null 2>&1; then
+    if [[ "$NVPL_POLICY" == warn ]]; then
+        echo "Ensuring NVPL packages"
+        if ! apt-cache show libnvpl-lapack0 >/dev/null 2>&1; then
+            if ! can_sudo; then
+                echo "WARNING: NVPL apt repo is not configured and sudo is unavailable."
+                echo "Skipping NVPL installation; use the Docker flow or run as root if torch fails."
+            elif ! has_cuda_sbsa_repo; then
+                curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb \
+                    -o /tmp/cuda-keyring.deb
+                $SUDO dpkg -i /tmp/cuda-keyring.deb
+                rm /tmp/cuda-keyring.deb
+                $SUDO apt-get update
+            else
+                $SUDO apt-get update
+            fi
         fi
-        $SUDO apt-get update
+        if can_sudo; then
+            $SUDO apt-get install -y libnvpl-blas0 libnvpl-lapack0 libnuma1
+        else
+            echo "WARNING: sudo is unavailable; skipping NVPL package installation."
+        fi
+    else
+        if ! can_sudo; then
+            echo "ERROR: installing the Thor Torch runtime dependencies NVPL/NUMA requires sudo" >&2
+            exit 1
+        fi
+        if ! apt-cache show libnvpl-lapack0 >/dev/null 2>&1; then
+            if ! has_cuda_sbsa_repo; then
+                keyring="$(mktemp /tmp/groot-nvpl-keyring.XXXXXX.deb)"
+                trap 'rm -f "$keyring"' EXIT
+                curl -fsSL \
+                    https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb \
+                    -o "$keyring"
+                $SUDO dpkg -i "$keyring"
+            fi
+            $SUDO apt-get update
+        fi
+        $SUDO apt-get install -y --no-install-recommends libnvpl-blas0 libnvpl-lapack0 libnuma1
     fi
-    $SUDO apt-get install -y --no-install-recommends libnvpl-blas0 libnvpl-lapack0 libnuma1
 fi
 
 unset UV_NO_SYNC
 export UV_PROJECT_ENVIRONMENT=.venv
-uv sync --locked --project "$SCRIPT_DIR"
+uv sync \
+    --project "$SCRIPT_DIR" \
+    --locked \
+    --verbose
 
 VENV_PYTHON="$VENV_DIR/bin/python"
 SITE_PKGS="$("$VENV_PYTHON" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
@@ -176,5 +252,7 @@ if [[ -n "${TORCHCODEC_VERSION:-}" ]]; then
     touch "$VENV_DIR/.groot-torchcodec-rebuilt"
 fi
 
-echo "Thor install complete. Activate it with:"
-echo "  source scripts/deployment/thor/activate_thor.sh"
+if [[ "${GROOT_THOR_DEFER_COMPLETION:-false}" != true ]]; then
+    echo "Thor install complete. Activate it with:"
+    echo "  source scripts/deployment/thor/activate_thor.sh"
+fi
