@@ -301,34 +301,39 @@ class MultiStepWrapper(gym.Wrapper):
         states = []
         rewards = []
         dones = []
+        terminated = False
+        truncated = False
         n_env_steps = 0
         for step in range(self.n_action_steps):
             act = {}
             for key, value in action.items():
                 act[key] = value[step, :]
             if len(self.done) > 0 and self.done[-1]:
-                # termination
+                # An episode boundary has already occurred.
                 break
-            observation, reward, done, truncated, info = super().step(act)
+            observation, reward, step_terminated, step_truncated, info = super().step(act)
             n_env_steps += 1
             # TODO: assign meaningful values
             env_state = {"states": [], "model": []}
             states.append(env_state["states"])
             rewards.append(reward)
-            dones.append(done)
             self.obs.append(observation)
             self.reward.append(reward)
             if (self.max_episode_steps is not None) and (
                 len(self.reward) >= self.max_episode_steps
             ):
                 # truncation
-                done = True
+                step_truncated = True
+
+            terminated = bool(terminated or step_terminated)
+            truncated = bool(truncated or step_truncated)
+            done = terminated or truncated
+            dones.append(done)
             self.done.append(done)
             self._add_info(info)
 
         observation = self._get_obs(self.video_delta_indices, self.state_delta_indices)
         reward = aggregate(self.reward, self.reward_agg_method)
-        done = aggregate(self.done, AggregateMethod.MAX)
         info = dict_take_last_n(self.info, self.n_action_steps)
         states = np.array(states)
         rewards = np.array(rewards)
@@ -357,10 +362,15 @@ class MultiStepWrapper(gym.Wrapper):
             info["intermediate_signals"] = compress_dict_list(list(info["intermediate_signals"]))
 
         if self.terminate_on_success and any(info["success"]):
-            # Terminate after this step.
-            done = True
+            # Preserve the existing success contract: finish the issued macro-step,
+            # then report task success as an episode boundary owned by this wrapper.
+            terminated = True
+            if len(self.done) > 0:
+                self.done[-1] = True
+            if len(info["dones"]) > 0:
+                info["dones"][-1] = True
 
-        return observation, reward, done, truncated, info
+        return observation, reward, terminated, truncated, info
 
     def _get_obs(self, video_delta_indices, state_delta_indices):
         """
