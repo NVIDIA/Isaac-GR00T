@@ -13,7 +13,7 @@ set -euo pipefail
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source_dir=${ROBODOJO_ROOT:-"$project_dir/.robodojo"}
-revision=83adf588d435497334a0919e10b4a32ff181034e
+revision=726e9aabfaa642203722eb126f5eaf0f37f3e1ad
 
 uv sync --project "$project_dir"
 test -d "$source_dir/.git" || git clone https://github.com/RoboDojo-Benchmark/RoboDojo.git "$source_dir"

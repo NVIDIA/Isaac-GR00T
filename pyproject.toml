@@ -83,7 +83,7 @@ tensorrt = [
     "onnxscript",
     "tensorrt-cu12==10.16.1.11",
 ]
-# Runtime, export, and policy-server dependencies. N2 model registration currently
+# Runtime, export, evaluation, and policy-server dependencies. N2 model registration currently
 # imports data modules, so their import-time dependencies are also required here.
 deployment = [
     "albumentations==1.4.18",
@@ -95,6 +95,7 @@ deployment = [
     "lancedb",
     "lmdb",
     "loguru",
+    "matplotlib",
     "msgpack",
     "multi-storage-client[boto3]==0.46.0",
     "ninja",
@@ -110,6 +111,7 @@ deployment = [
     "scipy",
     "structlog",
     "torch==2.7.1",
+    "torchcodec>=0.5,<0.6",
     "torchvision==0.22.1",
     "tqdm",
     "transformers==4.57.6",

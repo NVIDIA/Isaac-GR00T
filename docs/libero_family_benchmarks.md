@@ -1,7 +1,7 @@
 # LIBERO family benchmarks
 
-This guide reproduces GR00T N2 training and closed-loop evaluation for
-LIBERO-10, LIBERO-Spatial, LIBERO-Object, and LIBERO-Goal. Each checked-in
+This guide reproduces GR00T N2 training and compares N2 and N1.7 closed-loop
+evaluation for LIBERO-10, LIBERO-Spatial, LIBERO-Object, and LIBERO-Goal. Each checked-in
 benchmark recipe pins its dataset, base checkpoint, training configuration, and
 standard ten-task evaluation suite.
 
@@ -59,91 +59,91 @@ training, or evaluating. Each completed run writes its final checkpoint and
 
 ## Closed-loop results
 
-These closed-loop results use checkpoints at 10,000 cumulative post-training
-steps. Each standard-suite row contains 50 episodes.
+N2 results use checkpoints at 10,000 cumulative post-training steps; N1.7
+results use the original 20,000-step CI checkpoints. Both models use the same
+task sets and rollout settings: 50 episodes per task, seed 0, a 400-action-step
+limit, eight executed actions per chunk, and four denoising steps. Each
+standard-suite task row contains 50 episodes; each perturbation family
+contains 500 episodes.
 
 ### LIBERO-10
 
-| Standard suite | Episodes | Successes | Success rate |
-| --- | ---: | ---: | ---: |
-| **Overall** | **500** | **470** | **94.0%** |
-
-| LIBERO-PRO perturbation | Episodes | Successes | Success rate |
-| --- | ---: | ---: | ---: |
-| Object | 500 | 341 | 68.2% |
-| Position swap | 500 | 71 | 14.2% |
-| Language | 500 | 476 | 95.2% |
-| Task | 500 | 107 | 21.4% |
-| **Overall** | **2,000** | **995** | **49.8%** |
+| Task / perturbation | N2 success rate | N1.7 success rate |
+| --- | ---: | ---: |
+| **Standard** | | |
+| **Overall (500 episodes)** | **94.0%** | **85.2%** |
+| **Pro** | | |
+| Object (500 episodes) | 68.2% | 47.2% |
+| Position swap (500 episodes) | 14.2% | 0.0% |
+| Language (500 episodes) | 95.2% | 83.0% |
+| Task (500 episodes) | 21.4% | 3.2% |
+| **Overall (2,000 episodes)** | **49.8%** | **33.4%** |
 
 ### LIBERO-Spatial
 
-| Original task | Successes | Success rate |
+| Task / perturbation | N2 success rate | N1.7 success rate |
 | --- | ---: | ---: |
-| Bowl between plate and ramekin → plate | 47/50 | 94% |
-| Bowl next to ramekin → plate | 50/50 | 100% |
-| Bowl at table center → plate | 50/50 | 100% |
-| Bowl on cookie box → plate | 50/50 | 100% |
-| Bowl in cabinet top drawer → plate | 50/50 | 100% |
-| Bowl on ramekin → plate | 20/50 | 40% |
-| Bowl next to cookie box → plate | 50/50 | 100% |
-| Bowl on stove → plate | 50/50 | 100% |
-| Bowl next to plate → plate | 46/50 | 92% |
-| Bowl on wooden cabinet → plate | 50/50 | 100% |
-| **Overall** | **463/500** | **92.6%** |
-
-| LIBERO-PRO perturbation | Successes | Success rate |
-| --- | ---: | ---: |
-| Language | 460/500 | 92.0% |
-| Object | 483/500 | 96.6% |
-| Position swap | 205/500 | 41.0% |
-| Task | 152/500 | 30.4% |
-| **Overall** | **1,300/2,000** | **65.0%** |
+| **Standard** | | |
+| Bowl between plate and ramekin → plate (50 episodes) | 94% | 92.0% |
+| Bowl next to ramekin → plate (50 episodes) | 100% | 98.0% |
+| Bowl at table center → plate (50 episodes) | 100% | 100.0% |
+| Bowl on cookie box → plate (50 episodes) | 100% | 100.0% |
+| Bowl in cabinet top drawer → plate (50 episodes) | 100% | 100.0% |
+| Bowl on ramekin → plate (50 episodes) | 40% | 76.0% |
+| Bowl next to cookie box → plate (50 episodes) | 100% | 100.0% |
+| Bowl on stove → plate (50 episodes) | 100% | 98.0% |
+| Bowl next to plate → plate (50 episodes) | 92% | 90.0% |
+| Bowl on wooden cabinet → plate (50 episodes) | 100% | 96.0% |
+| **Overall (500 episodes)** | **92.6%** | **95.0%** |
+| **Pro** | | |
+| Language (500 episodes) | 92.0% | 91.6% |
+| Object (500 episodes) | 96.6% | 94.8% |
+| Position swap (500 episodes) | 41.0% | 3.0% |
+| Task (500 episodes) | 30.4% | 53.8% |
+| **Overall (2,000 episodes)** | **65.0%** | **60.8%** |
 
 ### LIBERO-Object
 
-| Original task | Successes | Success rate |
+| Task / perturbation | N2 success rate | N1.7 success rate |
 | --- | ---: | ---: |
-| Alphabet soup → basket | 50/50 | 100% |
-| BBQ sauce → basket | 50/50 | 100% |
-| Butter → basket | 50/50 | 100% |
-| Chocolate pudding → basket | 50/50 | 100% |
-| Cream cheese → basket | 50/50 | 100% |
-| Ketchup → basket | 50/50 | 100% |
-| Milk → basket | 50/50 | 100% |
-| Orange juice → basket | 46/50 | 92% |
-| Salad dressing → basket | 50/50 | 100% |
-| Tomato sauce → basket | 50/50 | 100% |
-| **Overall** | **496/500** | **99.2%** |
-
-| LIBERO-PRO perturbation | Successes | Success rate |
-| --- | ---: | ---: |
-| Language | 493/500 | 98.6% |
-| Object | 428/500 | 85.6% |
-| Position swap | 50/500 | 10.0% |
-| Task | 0/500 | 0.0% |
-| **Overall** | **971/2,000** | **48.5%** |
+| **Standard** | | |
+| Alphabet soup → basket (50 episodes) | 100% | 98.0% |
+| BBQ sauce → basket (50 episodes) | 100% | 98.0% |
+| Butter → basket (50 episodes) | 100% | 98.0% |
+| Chocolate pudding → basket (50 episodes) | 100% | 100.0% |
+| Cream cheese → basket (50 episodes) | 100% | 100.0% |
+| Ketchup → basket (50 episodes) | 100% | 100.0% |
+| Milk → basket (50 episodes) | 100% | 100.0% |
+| Orange juice → basket (50 episodes) | 92% | 98.0% |
+| Salad dressing → basket (50 episodes) | 100% | 98.0% |
+| Tomato sauce → basket (50 episodes) | 100% | 100.0% |
+| **Overall (500 episodes)** | **99.2%** | **99.0%** |
+| **Pro** | | |
+| Language (500 episodes) | 98.6% | 98.2% |
+| Object (500 episodes) | 85.6% | 90.4% |
+| Position swap (500 episodes) | 10.0% | 0.0% |
+| Task (500 episodes) | 0.0% | 9.8% |
+| **Overall (2,000 episodes)** | **48.5%** | **49.6%** |
 
 ### LIBERO-Goal
 
-| Original task | Successes | Success rate |
+| Task / perturbation | N2 success rate | N1.7 success rate |
 | --- | ---: | ---: |
-| Open the middle drawer of the cabinet | 46/50 | 92% |
-| Put the bowl on the stove | 50/50 | 100% |
-| Put the wine bottle on top of the cabinet | 44/50 | 88% |
-| Open the top drawer and put the bowl inside | 49/50 | 98% |
-| Put the bowl on top of the cabinet | 49/50 | 98% |
-| Push the plate to the front of the stove | 50/50 | 100% |
-| Put the cream cheese in the bowl | 50/50 | 100% |
-| Turn on the stove | 50/50 | 100% |
-| Put the bowl on the plate | 49/50 | 98% |
-| Put the wine bottle on the rack | 50/50 | 100% |
-| **Overall** | **487/500** | **97.4%** |
-
-| LIBERO-PRO perturbation | Successes | Success rate |
-| --- | ---: | ---: |
-| Language | 489/500 | 97.8% |
-| Object | 435/500 | 87.0% |
-| Position swap | 118/500 | 23.6% |
-| Task | 44/500 | 8.8% |
-| **Overall** | **1,086/2,000** | **54.3%** |
+| **Standard** | | |
+| Open the middle drawer of the cabinet (50 episodes) | 92% | 100.0% |
+| Put the bowl on the stove (50 episodes) | 100% | 100.0% |
+| Put the wine bottle on top of the cabinet (50 episodes) | 88% | 88.0% |
+| Open the top drawer and put the bowl inside (50 episodes) | 98% | 98.0% |
+| Put the bowl on top of the cabinet (50 episodes) | 98% | 100.0% |
+| Push the plate to the front of the stove (50 episodes) | 100% | 98.0% |
+| Put the cream cheese in the bowl (50 episodes) | 100% | 100.0% |
+| Turn on the stove (50 episodes) | 100% | 100.0% |
+| Put the bowl on the plate (50 episodes) | 98% | 100.0% |
+| Put the wine bottle on the rack (50 episodes) | 100% | 96.0% |
+| **Overall (500 episodes)** | **97.4%** | **98.0%** |
+| **Pro** | | |
+| Language (500 episodes) | 97.8% | 95.6% |
+| Object (500 episodes) | 87.0% | 82.8% |
+| Position swap (500 episodes) | 23.6% | 1.0% |
+| Task (500 episodes) | 8.8% | 10.4% |
+| **Overall (2,000 episodes)** | **54.3%** | **47.4%** |

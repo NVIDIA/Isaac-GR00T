@@ -20,6 +20,7 @@ import shutil
 import tempfile
 
 from groot.core.utils.storage import msc as msc_utils
+from groot.deployment.n2_trt.contract import resolve_checkpoint_actor_config
 
 
 def resolve_checkpoint_vae_weights(
@@ -32,7 +33,7 @@ def resolve_checkpoint_vae_weights(
         configured = str(explicit)
     else:
         config_path = checkpoint_path / "config.json"
-        model_config = _read_json(config_path)
+        model_config = resolve_checkpoint_actor_config(_read_json(config_path))
         vae_config = model_config.get("vae_cfg", {})
         configured = vae_config.get("vae_pretrained_path") if isinstance(vae_config, dict) else None
         if not isinstance(configured, str) or not configured:

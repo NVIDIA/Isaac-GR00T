@@ -145,6 +145,9 @@ class GrootN2Config(PretrainedConfig):
 
     # Multiview (n_cameras derived from data at runtime — supports cross-embodiment)
     max_n_cameras: int = 3
+    # Posttraining initialization only: one source row per target camera; -1 keeps
+    # that camera's fresh constructor embedding. None retains legacy prefix loading.
+    pretrained_view_indices: tuple[int, ...] | None = None
     view_embed_dim: int = (
         0  # per-view embedding dim concatenated to input channels (7 for official AV multiview)
     )
@@ -214,6 +217,21 @@ class GrootN2Config(PretrainedConfig):
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
+        if self.pretrained_view_indices is not None:
+            indices = self.pretrained_view_indices
+            if (
+                not isinstance(indices, list | tuple)
+                or not indices
+                or len(indices) != self.max_n_cameras
+                or any(type(i) is not int or i < -1 for i in indices)
+                or len({i for i in indices if i >= 0}) != sum(i >= 0 for i in indices)
+                or self.view_embed_dim <= 0
+            ):
+                raise ValueError(
+                    "pretrained_view_indices requires one source row (or -1 for fresh) "
+                    "per camera, distinct reused rows, and view_embed_dim > 0"
+                )
+            self.pretrained_view_indices = tuple(indices)
         if self.vae_type not in VAE_LATENT_CHANNELS:
             raise ValueError(
                 f"vae_type must be one of {sorted(VAE_LATENT_CHANNELS)}, got {self.vae_type!r}"

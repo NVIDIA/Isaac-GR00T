@@ -21,7 +21,10 @@ from groot.core.training.configs.model.n2 import GrootN2Config
 from groot.core.training.experiment.dist_utils import get_rank
 from groot.core.training.models.base.model_pipeline import ModelPipeline
 from groot.core.training.models.n2.model import GrootN2
-from groot.core.training.models.n2.processor import GrootN2Processor
+from groot.core.training.models.n2.processor import (
+    EMBODIMENT_TAG_TO_PROJECTOR_INDEX,
+    GrootN2Processor,
+)
 from groot.core.training.models.registry import register_model
 from groot.core.utils.storage.msc import resolve_model_path
 
@@ -80,7 +83,9 @@ class GrootN2Pipeline(ModelPipeline):
             # posttrain config (view_embed.weight is [max_n_cameras, view_embed_dim]; it
             # is the only weight whose shape depends on max_n_cameras).
             vkey = "video_tokenizer.view_embed.weight"
-            if vkey in state_dict:
+            if mc.pretrained_view_indices is not None and self.resume_checkpoint is None:
+                self._initialize_camera_embeddings(model, state_dict, start_ckpt)
+            elif vkey in state_dict:
                 old_embed = state_dict[vkey]
                 if old_embed.shape[0] < mc.max_n_cameras:
                     # Grow (e.g. 3 -> 4): keep learned views, init new ones as their mean.
@@ -150,6 +155,41 @@ class GrootN2Pipeline(ModelPipeline):
         )
         return model
 
+    def _initialize_camera_embeddings(self, model, state_dict, start_ckpt):
+        """Apply the requested view mapping once, before the initial weight load."""
+        vkey = "video_tokenizer.view_embed.weight"
+        indices = self.model_config.pretrained_view_indices
+        target = model.video_tokenizer.view_embed.weight.detach().clone()
+        config_path = Path(start_ckpt) / "config.json"
+        saved = {}
+        if config_path.exists():
+            with config_path.open() as f:
+                saved = json.load(f)
+        old_embed = state_dict.get(vkey)
+        if saved.get("pretrained_view_indices") is not None:
+            # This checkpoint already learned the target camera slots. Never gather
+            # or randomize them again when it is used as a weights-only warm start.
+            if (
+                tuple(saved["pretrained_view_indices"]) != indices
+                or old_embed is None
+                or old_embed.shape != target.shape
+            ):
+                raise ValueError("Camera initialization differs from the saved checkpoint")
+            logging.info("[GrootN2] Keeping checkpoint's already initialized camera embeddings")
+            return
+        for slot, source in enumerate(indices):
+            if source == -1:
+                continue
+            if old_embed is None:
+                raise ValueError(f"pretrained_view_indices row {source} is absent from the source")
+            if old_embed.ndim != 2 or old_embed.shape[1] != target.shape[1]:
+                raise ValueError("Pretrained camera embedding width does not match the model")
+            if source >= old_embed.shape[0]:
+                raise ValueError(f"pretrained_view_indices row {source} is absent from the source")
+            target[slot] = old_embed[source]
+        state_dict[vkey] = target
+        logging.info("[GrootN2] Camera initialization source rows (-1=fresh): %s", indices)
+
     def _create_processor(self):
         """Construct the selected processor with the canonical N2 configuration."""
         mc = self.model_config
@@ -167,7 +207,62 @@ class GrootN2Pipeline(ModelPipeline):
             # CFG: training dropout to null_prompt + matching inference text_negative.
             language_dropout_prob=getattr(mc, "language_dropout_prob", 0.0),
             null_prompt=getattr(mc, "null_prompt", "low quality, blurry, static"),
+            embodiment_id_mapping=self._checkpoint_embodiment_id_mapping(),
         )
+
+    def _checkpoint_embodiment_id_mapping(self) -> dict[str, int] | None:
+        """Keep every embodiment on the projector row its loaded weights were trained on.
+
+        EMBODIMENT_TAG_TO_PROJECTOR_INDEX differs across branches (e.g. G1 is row 6 on
+        the pretrain branch but 5 on main, where 5 is the pretrained fingertip row), so
+        rows come from the processor_config.json of the checkpoint whose weights training
+        continues from: the resume checkpoint when resuming, else start_from_checkpoint.
+        Tags that checkpoint never saw fall back to the code table, then to row 0.
+        Returns None (processor default) for a fresh pretrain, a single-row action head,
+        or a legacy checkpoint saved without a mapping.
+        """
+        action_cfg = getattr(self.model_config, "action_cfg", None)
+        if action_cfg is None or action_cfg.get("num_embodiments", 1) == 1:
+            return None
+        if self.resume_checkpoint is not None:
+            ckpt, source = self.resume_checkpoint, "resume checkpoint"
+        elif self.config.training.start_from_checkpoint is not None:
+            ckpt = resolve_model_path(
+                self.config.training.start_from_checkpoint, "training.start_from_checkpoint"
+            )
+            source = "start checkpoint"
+        else:
+            return None
+        # Weights-only checkpoints (no processor_config.json) and ones saved before
+        # 242fe4ff (no embodiment_id_mapping) keep the processor's code-table default.
+        config_path = Path(ckpt) / "processor_config.json"
+        ckpt_mapping = None
+        if config_path.exists():
+            with open(config_path) as f:
+                ckpt_mapping = json.load(f)["processor_kwargs"].get("embodiment_id_mapping")
+        if ckpt_mapping is None:
+            logging.warning(
+                f"[GrootN2] {source} {ckpt} has no saved embodiment_id_mapping; "
+                f"using the code table"
+            )
+            return None
+        for tag in self.config.data.modality_configs:
+            code_row = EMBODIMENT_TAG_TO_PROJECTOR_INDEX.get(tag)
+            if tag in ckpt_mapping:
+                if code_row is not None and code_row != ckpt_mapping[tag]:
+                    logging.warning(
+                        f"[GrootN2] {tag}: projector row {ckpt_mapping[tag]} from {source} "
+                        f"(code table says {code_row})"
+                    )
+            else:
+                row = 0 if code_row is None else code_row
+                pretrained_on = sorted(t for t, r in ckpt_mapping.items() if r == row)
+                row_source = "default" if code_row is None else "code-table"
+                logging.info(
+                    f"[GrootN2] {tag}: not in {source}; {row_source} projector row "
+                    f"{row}, pretrained on {pretrained_on or 'no embodiment'}"
+                )
+        return {**EMBODIMENT_TAG_TO_PROJECTOR_INDEX, **ckpt_mapping}
 
     def _create_dataset(self):
         self.processor = self._create_processor()

@@ -13,9 +13,10 @@
 The OSS CLI is intentionally the public launch surface for package users and CI
 smoke tests. Training resolves a one-launcher experiment config, applies
 OSS-safe overrides, and executes the underlying
-``groot.core.training.experiment.experiment_ray`` command. Evaluation runs the
-OSS open-loop evaluator against either a local checkpoint path or an HF model
-URI.
+``groot.core.training.experiment.experiment_ray`` command. TensorRT preparation
+builds and validates a checkpoint-specific engine bundle without requiring an
+evaluation run. Evaluation runs the OSS open-loop evaluator against either a
+local checkpoint path or an HF model URI.
 
 Train-eval optionally records a benchmark report under an approved recipe.
 """
@@ -107,6 +108,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _dispatch(args: argparse.Namespace) -> int:
+    if args.command == "build-trt":
+        return _run_build_trt(args)
     if args.command == "train":
         _prepare_train_dataset(args, dry_run=args.dry_run)
         resolved = resolve_train(args)
@@ -123,6 +126,53 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "closed-loop-eval":
         return _run_closed_loop_eval(args)
     raise AssertionError(f"unhandled command {args.command!r}")
+
+
+def _run_build_trt(args: argparse.Namespace) -> int:
+    """Resolve a checkpoint and create its validated TensorRT bundle."""
+    from groot.core.utils.storage.msc import resolve_model_path
+
+    checkpoint = Path(
+        resolve_model_path(
+            args.checkpoint,
+            "checkpoint",
+            cache_root=args.cache_root or None,
+        )
+    ).expanduser()
+    embodiment = args.embodiment_tag or _single_checkpoint_embodiment(checkpoint)
+    bundle = _resolve_or_build_trt(
+        checkpoint=checkpoint,
+        embodiment=embodiment,
+        denoising_steps=4,
+        cache_dir=args.trt_cache_dir or None,
+        rebuild=args.rebuild_trt,
+        device=args.device,
+        codec=args.codec,
+    )
+    _emit(f"TRT_ENGINE_DIR={bundle}")
+    return 0
+
+
+def _single_checkpoint_embodiment(checkpoint: Path) -> str:
+    """Infer the only processor workload or require an explicit selection."""
+    processor_path = checkpoint / "processor_config.json"
+    try:
+        processor = json.loads(processor_path.read_text(encoding="utf-8"))
+        modality_configs = processor["processor_kwargs"]["modality_configs"]
+        if not isinstance(modality_configs, dict):
+            raise TypeError("modality_configs must be an object")
+    except FileNotFoundError as exc:
+        raise ValueError(f"checkpoint is missing {processor_path.name}: {checkpoint}") from exc
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"checkpoint has an invalid {processor_path.name}: {checkpoint}") from exc
+
+    embodiments = sorted(modality_configs)
+    if len(embodiments) != 1:
+        rendered = ", ".join(embodiments) or "none"
+        raise ValueError(
+            f"cannot infer one TensorRT workload from checkpoint embodiments ({rendered}); pass --embodiment-tag"
+        )
+    return embodiments[0]
 
 
 def _run_train_eval(args: argparse.Namespace, *, benchmark: BenchmarkRun | None = None) -> int:
@@ -529,6 +579,12 @@ def _policy_server_config(args: argparse.Namespace) -> OssPolicyServerConfig:
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m groot.infra.oss")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    _add_build_trt_parser(
+        subparsers.add_parser(
+            "build-trt",
+            help="Build and validate a TensorRT engine bundle from an N2 checkpoint.",
+        )
+    )
     _add_train_parser(subparsers.add_parser("train", help="Run OSS post-training locally."))
     _add_eval_parser(subparsers.add_parser("eval", help="Run OSS open-loop evaluation."))
     _add_policy_server_parser(
@@ -569,6 +625,32 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         elif not args.embodiment_tag:
             parser.error("--embodiment-tag is required for train-eval without --benchmark-recipe")
     return args
+
+
+def _add_build_trt_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument(
+        "--embodiment-tag",
+        default="",
+        help="Checkpoint workload to build. Inferred when the checkpoint contains only one.",
+    )
+    parser.add_argument("--device", default="cuda")
+    _add_oss_codec_option(parser)
+    parser.add_argument(
+        "--trt-cache-dir",
+        default="",
+        help="Root for content-addressed TensorRT bundles.",
+    )
+    parser.add_argument(
+        "--cache-root",
+        default="",
+        help="Cache root used when resolving a remote checkpoint.",
+    )
+    parser.add_argument(
+        "--rebuild-trt",
+        action="store_true",
+        help="Replace an existing matching bundle after a successful rebuild.",
+    )
 
 
 def _add_train_parser(parser: argparse.ArgumentParser, *, embodiment_required: bool = True) -> None:
@@ -682,6 +764,8 @@ def _add_oss_codec_option(parser: argparse.ArgumentParser) -> None:
 
 
 def _validate_acceleration_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    if args.command == "build-trt":
+        return
     if getattr(args, "rebuild_trt", False) and not getattr(args, "enable_trt", False):
         parser.error("--rebuild-trt requires --enable-trt")
     if getattr(args, "trt_cache_dir", "") and not getattr(args, "enable_trt", False):
