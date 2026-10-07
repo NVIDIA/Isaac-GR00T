@@ -1,18 +1,5 @@
 #!/bin/bash
-# Source this in each new shell to select the thor project and environment.
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-    echo "Source this script: source scripts/deployment/thor/activate_thor.sh" >&2
-    exit 2
-fi
-_thor_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck disable=SC1091
-source "$_thor_script_dir/../activate_project.sh" thor || return
-
-# The installer may rebuild TorchCodec for the host FFmpeg and add internal
-# packages. Keep uv run from replacing those installer-managed dependencies.
-if [[ -d "$_thor_script_dir/../../../groot/internal" || -f "$VIRTUAL_ENV/.groot-torchcodec-rebuilt" ]]; then
-    export UV_NO_SYNC=true
-fi
+# Source this in each new shell after activating the Thor environment.
 
 if [ -f /usr/local/cuda-13.0/bin/ptxas ]; then
     export TRITON_PTXAS_PATH=/usr/local/cuda-13.0/bin/ptxas
@@ -92,6 +79,7 @@ if [ -d "${VIRTUAL_ENV:-}/cyclonedds" ]; then
 fi
 
 # Share the activation/tmux contract, including ROS variables sourced by the caller.
+_thor_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 while IFS= read -r _thor_env_name; do
     if [[ -v "$_thor_env_name" ]]; then
         export "$_thor_env_name"

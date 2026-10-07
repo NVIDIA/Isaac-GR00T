@@ -124,27 +124,13 @@ AttentionRule = Callable[[Tensor, Tensor, Tensor, Tensor], Tensor]
 
 @dataclass(frozen=True)
 class AdditionalTokenGroup:
-    """Project-owned non-video tokens appended by the canonical packer.
-
-    ``kv_cacheable`` marks static conditioning that cached action-only steps keep
-    attending to. By default a group's K/V is dropped from the conditioning cache
-    (right for per-step queries such as completion tokens). Setting it asserts, via
-    the caller's attention_rule, that action attends to the group and that the group
-    never attends to action or to a non-cacheable group.
-
-    Cached inference also requires batch-uniform validity at retained positions.
-    The caller's rule must preserve the ordinary attention table, let action read
-    exactly the cacheable extra groups, and keep all static tokens independent of
-    action/non-cacheable groups. Rules must be pure; sample dropout outside them.
-    Whole-predict CUDA graph replay and GrootN2TTT do not support these groups.
-    """
+    """Project-owned non-video tokens appended by the canonical packer."""
 
     tokens: Tensor
     timesteps: Tensor
     rope_freqs: tuple[Tensor, Tensor]
     modality_id: int
     token_valid_mask: Tensor | None = None
-    kv_cacheable: bool = False
 
 
 @dataclass
@@ -165,12 +151,6 @@ class PackedSequence:
     action_token_indices: Tensor | None = None
     non_video_token_indices: Tensor | None = None
     has_video_cond_tokens: bool = False
-    # Validity the BlockMask was built from, covering appended groups (the caller's
-    # own mask object when there are none), and the ids of kv_cacheable groups.
-    token_valid_mask: Tensor | None = None
-    kv_cacheable_modalities: tuple[int, ...] = ()
-    # Reuse the extension's semantics when building a reduced token-merge mask.
-    attention_rule: AttentionRule | None = None
 
     def unpack(self, packed_output: Tensor, modality: int | tuple[int, ...]) -> Tensor:
         """Extract contiguous modality tokens without building a boolean index mask."""
@@ -415,19 +395,11 @@ class ConcatPacker:
                 )
             )
 
-        kv_cacheable_modalities: tuple[int, ...] = ()
         if additional_token_groups:
             if attention_rule is None:
                 raise ValueError("Additional modalities require an explicit attention_rule")
-            # This host check may graph-break under compilation, but must run on
-            # every batch: the attention mask uses the first row's modality ids.
             if not torch.equal(video_ids, video_ids[0:1].expand_as(video_ids)):
                 raise ValueError("Additional tokens require a batch-uniform packed layout")
-            # Generator expressions, not list comprehensions: Python 3.12 inlines the latter,
-            # and Dynamo then fails to resume this frame after the mask builder's graph break.
-            group_ids = tuple(g.modality_id for g in additional_token_groups)
-            if len(set(group_ids)) != len(group_ids):
-                raise ValueError(f"Additional groups need distinct modality ids, got {group_ids}")
             original_length = L_video + L_state + L_action
             if token_valid_mask is None:
                 token_valid_mask = torch.ones(B, original_length, dtype=torch.bool, device=device)
@@ -463,9 +435,6 @@ class ConcatPacker:
                 all_valid.append(valid.to(device=device, dtype=torch.bool))
             token_valid_mask = torch.cat(all_valid, dim=1)
             has_multimodal = True
-            kv_cacheable_modalities = tuple(
-                g.modality_id for g in additional_token_groups if g.kv_cacheable
-            )
 
         tokens = torch.cat(all_tokens, dim=1)
         timesteps = torch.cat(all_timesteps, dim=1)
@@ -522,7 +491,4 @@ class ConcatPacker:
                 else None
             ),
             has_video_cond_tokens=video_cond_token_mask is not None,
-            token_valid_mask=token_valid_mask,
-            kv_cacheable_modalities=kv_cacheable_modalities,
-            attention_rule=attention_rule,
         )

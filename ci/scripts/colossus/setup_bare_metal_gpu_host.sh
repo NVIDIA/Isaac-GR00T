@@ -34,7 +34,6 @@ set -euo pipefail
 
 NVIDIA_DRIVER_BRANCH="${NVIDIA_DRIVER_BRANCH:-595}"
 NVIDIA_DRIVER_FLAVOR="${NVIDIA_DRIVER_FLAVOR:-open}"
-NVIDIA_DRIVER_VERSION="${NVIDIA_DRIVER_VERSION:-}"
 NVIDIA_NUMA_WORKAROUND="${NVIDIA_NUMA_WORKAROUND:-1}"
 NVIDIA_TEST_IMAGE="${NVIDIA_TEST_IMAGE:-}"
 NVIDIA_TEST_IMAGE_PULL_TIMEOUT="${NVIDIA_TEST_IMAGE_PULL_TIMEOUT:-3600}"
@@ -97,7 +96,6 @@ Environment overrides:
   NVIDIA_DRIVER_BRANCH         Driver branch to install, default: ${NVIDIA_DRIVER_BRANCH}
   NVIDIA_DRIVER_FLAVOR         open, server-open, proprietary, or server; default: ${NVIDIA_DRIVER_FLAVOR}
   NVIDIA_DRIVER_PACKAGE        Exact NVIDIA driver package name, overrides branch/flavor.
-  NVIDIA_DRIVER_VERSION        Exact loaded driver version required before GPU validation.
   GROOT_CI_TRAIN_IMAGE         GR00T validation image, default: ${GROOT_CI_TRAIN_IMAGE}
   NVIDIA_TEST_IMAGE            Custom Docker GPU validation image.
   NVIDIA_TEST_IMAGE_PULL_TIMEOUT
@@ -612,10 +610,6 @@ validate_installation() {
   live_driver_branch="${live_driver%%.*}"
   if [[ -n "${live_driver_branch}" && "${live_driver_branch}" != "${NVIDIA_DRIVER_BRANCH}" ]]; then
     log "Loaded NVIDIA branch ${live_driver_branch} differs from installed branch ${NVIDIA_DRIVER_BRANCH}; reboot before running GPU validation"
-    return
-  fi
-  if [[ -n "${NVIDIA_DRIVER_VERSION}" && "${live_driver}" != "${NVIDIA_DRIVER_VERSION}" ]]; then
-    log "Loaded NVIDIA version ${live_driver:-unknown} differs from installed version ${NVIDIA_DRIVER_VERSION}; reboot before running GPU validation"
     return
   fi
 
