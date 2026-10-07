@@ -83,9 +83,7 @@ class GrootN2Pipeline(ModelPipeline):
             # posttrain config (view_embed.weight is [max_n_cameras, view_embed_dim]; it
             # is the only weight whose shape depends on max_n_cameras).
             vkey = "video_tokenizer.view_embed.weight"
-            if mc.pretrained_view_indices is not None and self.resume_checkpoint is None:
-                self._initialize_camera_embeddings(model, state_dict, start_ckpt)
-            elif vkey in state_dict:
+            if vkey in state_dict:
                 old_embed = state_dict[vkey]
                 if old_embed.shape[0] < mc.max_n_cameras:
                     # Grow (e.g. 3 -> 4): keep learned views, init new ones as their mean.
@@ -154,41 +152,6 @@ class GrootN2Pipeline(ModelPipeline):
             f"[GrootN2] Total: {total:,}, Trainable: {trainable:,} ({100 * trainable / total:.1f}%)"
         )
         return model
-
-    def _initialize_camera_embeddings(self, model, state_dict, start_ckpt):
-        """Apply the requested view mapping once, before the initial weight load."""
-        vkey = "video_tokenizer.view_embed.weight"
-        indices = self.model_config.pretrained_view_indices
-        target = model.video_tokenizer.view_embed.weight.detach().clone()
-        config_path = Path(start_ckpt) / "config.json"
-        saved = {}
-        if config_path.exists():
-            with config_path.open() as f:
-                saved = json.load(f)
-        old_embed = state_dict.get(vkey)
-        if saved.get("pretrained_view_indices") is not None:
-            # This checkpoint already learned the target camera slots. Never gather
-            # or randomize them again when it is used as a weights-only warm start.
-            if (
-                tuple(saved["pretrained_view_indices"]) != indices
-                or old_embed is None
-                or old_embed.shape != target.shape
-            ):
-                raise ValueError("Camera initialization differs from the saved checkpoint")
-            logging.info("[GrootN2] Keeping checkpoint's already initialized camera embeddings")
-            return
-        for slot, source in enumerate(indices):
-            if source == -1:
-                continue
-            if old_embed is None:
-                raise ValueError(f"pretrained_view_indices row {source} is absent from the source")
-            if old_embed.ndim != 2 or old_embed.shape[1] != target.shape[1]:
-                raise ValueError("Pretrained camera embedding width does not match the model")
-            if source >= old_embed.shape[0]:
-                raise ValueError(f"pretrained_view_indices row {source} is absent from the source")
-            target[slot] = old_embed[source]
-        state_dict[vkey] = target
-        logging.info("[GrootN2] Camera initialization source rows (-1=fresh): %s", indices)
 
     def _create_processor(self):
         """Construct the selected processor with the canonical N2 configuration."""

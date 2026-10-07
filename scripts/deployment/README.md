@@ -30,8 +30,9 @@ unvalidated engine bundle stops policy construction.
 
 This runtime is unquantized BF16, batch size 1, 224 x 320 images, five history
 frames per camera, joint denoising, conditional KV cache, two video denoising steps, and four
-action denoising steps. Engines are built from the selected checkpoint, but this release admits
-only the checkpoint layouts that have been validated end to end:
+action denoising steps. Engines are built from the selected checkpoint. The following
+layouts have been validated end to end; other layouts must satisfy the exporters'
+constraints and pass validation before serving:
 
 | Cameras | Action horizon |
 | ---: | ---: |
@@ -75,9 +76,17 @@ the bundle; a mismatch is rejected. The CLI default is `none`.
 The command prints `TRT_ENGINE_DIR=<path>`. Save that path as `TRT_ARTIFACT_DIR` when using
 an explicitly managed bundle. The later inference commands also require the selected workload:
 
+To find the checkpoint's embodiment tags:
+
+```bash
+uv run python -c \
+  'import json, sys; print("\n".join(json.load(open(sys.argv[1]))["processor_kwargs"]["modality_configs"]))' \
+  "$CHECKPOINT/processor_config.json"
+```
+
 ```bash
 export TRT_ARTIFACT_DIR=/path/printed/by/build-trt
-export PROCESSOR_EMBODIMENT=<checkpoint-embodiment-tag>
+export PROCESSOR_EMBODIMENT="<checkpoint-embodiment-tag>"
 export SERVER_EMBODIMENT="$(printf '%s' "$PROCESSOR_EMBODIMENT" | tr '[:lower:]' '[:upper:]')"
 ```
 
@@ -161,7 +170,7 @@ uv run python -P -m groot.infra.oss policy-server \
 ```
 
 To enable graph replay, add `--use-cuda-graph` to any of these commands. On the
-policy server it fixes the prompt for the life of the process, disables video
+policy server it supports prompt changes with fixed input shapes, disables video
 prediction, and requires one real-shaped client warmup with
 `PolicyClient.warmup_and_require_ready(observation)`. Benchmark both modes on
 the target hardware.
@@ -176,6 +185,9 @@ model used by `groot.infra.oss train`.
 ### Jetson Thor Setup
 
 #### Bare Metal
+
+Requires Ubuntu 24.04 on AArch64, Python 3.12, and the CUDA 13 toolkit and driver.
+Run `sudo -v` first if sudo requires a password.
 
 ```bash
 # One-time install (validates aarch64/Python 3.12 and creates the locked
