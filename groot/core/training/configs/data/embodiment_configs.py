@@ -8,8 +8,6 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from copy import deepcopy
-
 from groot.core.data.types import (
     ActionConfig,
     ActionFormat,
@@ -5817,17 +5815,6 @@ MODALITY_CONFIGS = {
 MODALITY_CONFIGS["real_tianji_sharpa_relative_eef_with_tactile"] = dict(
     MODALITY_CONFIGS["real_tianji_sharpa_relative_eef"]
 )
-
-
-# Projector selection does not change G1 SONIC's state/action layout or camera keys.
-# Keep independent copies so per-tag modality overrides cannot affect another tag.
-for _tag in (
-    "unitree_g1_whole_body_teleop_latent_gripper_new_emb",
-    "unitree_g1_whole_body_teleop_latent_gripper_wrist",
-):
-    MODALITY_CONFIGS[_tag] = deepcopy(
-        MODALITY_CONFIGS["unitree_g1_whole_body_teleop_latent_gripper"]
-    )
 
 
 def register_modality_config(embodiment_tag: str, config: dict):

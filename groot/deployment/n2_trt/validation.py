@@ -149,13 +149,19 @@ def _require_oracle(sample: dict[str, Any], expected: str) -> None:
         raise RuntimeError(f"validation sample oracle {actual!r} != {expected!r}")
 
 
-def _runner_inputs(runner: N2TensorTrtRunner, sample: dict[str, Any]) -> dict[str, torch.Tensor]:
+def _runner_inputs(
+    runner: N2TensorTrtRunner,
+    sample: dict[str, Any],
+    *,
+    skip: tuple[str, ...] = (),
+) -> dict[str, torch.Tensor]:
     missing = set(runner.inputs) - set(sample)
     if missing:
         raise KeyError(f"validation sample is missing engine inputs: {sorted(missing)}")
     return {
         name: sample[name].to(device="cuda", dtype=metadata["dtype"]).contiguous()
         for name, metadata in runner.inputs.items()
+        if name not in skip
     }
 
 
@@ -272,7 +278,6 @@ def _composed_action_gate(
     action_runner: N2TensorTrtRunner,
     action_sample: dict[str, Any],
 ) -> dict[str, Any]:
-    inputs = _runner_inputs(action_runner, action_sample)
     if "kv_cache_key" in action_runner.inputs:
         mappings = (
             ("kv_cache_key", "output2", False),
@@ -288,6 +293,10 @@ def _composed_action_gate(
                 "kv_cache_value_coarse",
             )
         )
+    # These reference caches are replaced by joint-engine outputs below.
+    inputs = _runner_inputs(
+        action_runner, action_sample, skip=tuple(name for name, _, _ in mappings)
+    )
     for action_name, joint_name, coarse in mappings:
         indices = _static_indices(joint_sample, coarse=coarse)
         joint_sample_name = joint_name if joint_name in joint_sample else action_name
@@ -337,20 +346,15 @@ def _artifact_records(
             member["relative_path"]: (member["sha256"], member["size_bytes"])
             for member in onnx_files
         }
-        for relative_path, (expected_sha256, expected_size) in expected_members.items():
+        resolved_members = {}
+        for relative_path, expected in expected_members.items():
             path = (root / relative_path).resolve(strict=True)
             try:
-                path.relative_to(root)
+                relative = path.relative_to(root)
             except ValueError as error:
                 raise ValueError(f"build receipt path escapes artifact root: {path}") from error
-            if path.stat().st_size != expected_size or sha256_file(path) != expected_sha256:
-                raise RuntimeError(f"ONNX changed after TensorRT build: {relative_path}")
+            resolved_members[str(relative)] = expected
         engine_path = (root / record["engine"]).resolve(strict=True)
-        if (
-            engine_path.stat().st_size != record["engine_size_bytes"]
-            or sha256_file(engine_path) != record["engine_sha256"]
-        ):
-            raise RuntimeError(f"engine changed after TensorRT build: {record['engine']}")
 
         onnx_inputs = _tensor_specs(record["onnx_inputs"])
         onnx_outputs = _tensor_specs(record["onnx_outputs"])
@@ -374,6 +378,13 @@ def _artifact_records(
                 outputs=onnx_outputs,
             )
         )
+        actual_members = {
+            member.relative_path: (member.sha256, member.size_bytes)
+            for member in sources[-1].members
+        }
+        for relative_path, expected in resolved_members.items():
+            if actual_members[relative_path] != expected:
+                raise RuntimeError(f"ONNX changed after TensorRT build: {relative_path}")
         engines.append(
             ArtifactRecord.from_file(
                 engine_path,
@@ -385,6 +396,11 @@ def _artifact_records(
                 outputs=engine_outputs,
             )
         )
+        if (
+            engines[-1].size_bytes != record["engine_size_bytes"]
+            or engines[-1].sha256 != record["engine_sha256"]
+        ):
+            raise RuntimeError(f"engine changed after TensorRT build: {record['engine']}")
     return tuple(sources), tuple(engines)
 
 
