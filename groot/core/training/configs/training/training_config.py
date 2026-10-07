@@ -105,6 +105,10 @@ class TrainingConfig:
     # Model initialization only; does not restore optimizer state or the training step.
     # If resume_from_checkpoint is also set, its weights/state are loaded afterward.
     start_from_checkpoint: str | None = None
+    # N2 multi-row posttraining only: explicitly reuse rows reserved by different
+    # checkpoint tags (e.g. historical human/Sharpa-row G1 reproduction).
+    # Does not override saved mappings or allow unknown tags / invalid row indices.
+    allow_pretrained_projector_row_reuse: bool = False
     # Explicit async ZeRO-2 continuation; None preserves existing resume behavior.
     resume_from_checkpoint: str | None = None
 
