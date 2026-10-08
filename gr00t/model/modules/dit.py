@@ -44,6 +44,113 @@ def _should_force_math_sdpa() -> bool:
     return _is_spark_sm121()
 
 
+class CrossAttnKVCache(dict):
+    """Per-layer cross-attention K/V projections, valid for one denoising loop.
+
+    In the flow-matching loop the action tokens change every timestep but
+    ``encoder_hidden_states`` (the backbone's vision-language embedding) does not,
+    so ``to_k``/``to_v`` recompute identical tensors on every step. Caching them
+    removes those projections for all steps after the first.
+
+    **Lifetime is one inference call.** ``encoder_hidden_states`` changes on every
+    control step, so an instance must never be stored on a module or reused across
+    ``get_action`` calls -- that would feed stale vision to the action head. Build
+    it as a local inside the denoising loop and let it die with the call.
+    """
+
+
+class CachedCrossAttnProcessor:
+    """``AttnProcessor2_0`` that can reuse cross-attention K/V from a cache.
+
+    Mirrors diffusers' reference processor; the only change is that the ``to_k`` /
+    ``to_v`` projections (and the ``norm_k`` that follows them) are looked up in
+    ``kv_cache`` when one is supplied. With ``kv_cache=None`` -- the default
+    everywhere -- this is the stock path, which
+    ``test_processor_matches_diffusers_reference`` pins bitwise.
+    """
+
+    def __call__(
+        self,
+        attn,
+        hidden_states: torch.Tensor,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        temb: Optional[torch.Tensor] = None,
+        kv_cache: Optional[dict] = None,
+        cache_key: Optional[int] = None,
+        **kwargs,
+    ) -> torch.Tensor:
+        residual = hidden_states
+        if attn.spatial_norm is not None:
+            hidden_states = attn.spatial_norm(hidden_states, temb)
+
+        input_ndim = hidden_states.ndim
+        if input_ndim == 4:
+            batch_size, channel, height, width = hidden_states.shape
+            hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
+
+        batch_size, sequence_length, _ = (
+            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        )
+        if attention_mask is not None:
+            attention_mask = attn.prepare_attention_mask(
+                attention_mask, sequence_length, batch_size
+            )
+            attention_mask = attention_mask.view(
+                batch_size, attn.heads, -1, attention_mask.shape[-1]
+            )
+
+        if attn.group_norm is not None:
+            hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
+
+        query = attn.to_q(hidden_states)
+
+        # Only cross-attention is cacheable: for self-attention the source is
+        # hidden_states, which changes on every denoising step.
+        cacheable = (
+            kv_cache is not None and encoder_hidden_states is not None and cache_key is not None
+        )
+        cached = kv_cache.get(cache_key) if cacheable else None
+
+        if cached is None:
+            source = hidden_states if encoder_hidden_states is None else encoder_hidden_states
+            if encoder_hidden_states is not None and attn.norm_cross:
+                source = attn.norm_encoder_hidden_states(source)
+            key = attn.to_k(source)
+            value = attn.to_v(source)
+            head_dim = key.shape[-1] // attn.heads
+            key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+            value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+            if attn.norm_k is not None:
+                key = attn.norm_k(key)
+            if cacheable:
+                kv_cache[cache_key] = (key, value)
+        else:
+            key, value = cached
+            head_dim = key.shape[-1]
+
+        query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+        if attn.norm_q is not None:
+            query = attn.norm_q(query)
+
+        hidden_states = F.scaled_dot_product_attention(
+            query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
+        )
+        hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
+        hidden_states = hidden_states.to(query.dtype)
+
+        hidden_states = attn.to_out[0](hidden_states)
+        hidden_states = attn.to_out[1](hidden_states)
+
+        if input_ndim == 4:
+            hidden_states = hidden_states.transpose(-1, -2).reshape(
+                batch_size, channel, height, width
+            )
+        if attn.residual_connection:
+            hidden_states = hidden_states + residual
+        return hidden_states / attn.rescale_output_factor
+
+
 def _sdpa_context():
     # Spark (sm121) currently hits noisy/broken PyTorch mem-efficient SDPA kernel dispatch.
     # Force the safe math backend there; on every other platform this returns a no-op context.
@@ -177,6 +284,10 @@ class BasicTransformerBlock(nn.Module):
         else:
             self.final_dropout = None
 
+        # Accepts an optional kv_cache; with none supplied it is the stock
+        # AttnProcessor2_0 path, bitwise.
+        self.attn1.set_processor(CachedCrossAttnProcessor())
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -184,6 +295,8 @@ class BasicTransformerBlock(nn.Module):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
         temb: Optional[torch.LongTensor] = None,
+        kv_cache: Optional[dict] = None,
+        cache_key: Optional[int] = None,
     ) -> torch.Tensor:
         # 0. Self-Attention
         if self.norm_type == "ada_norm":
@@ -201,6 +314,7 @@ class BasicTransformerBlock(nn.Module):
                 attention_mask=(
                     encoder_attention_mask if encoder_hidden_states is not None else attention_mask
                 ),
+                **({"kv_cache": kv_cache, "cache_key": cache_key} if kv_cache is not None else {}),
             )
         if self.final_dropout:
             attn_output = self.final_dropout(attn_output)
@@ -355,6 +469,7 @@ class AlternateVLDiT(DiT):
         return_all_hidden_states: bool = False,
         image_mask: Optional[torch.Tensor] = None,
         backbone_attention_mask: Optional[torch.Tensor] = None,
+        kv_cache: Optional[dict] = None,
     ):
         assert image_mask is not None, "Image mask is required"
 
@@ -401,6 +516,8 @@ class AlternateVLDiT(DiT):
                     encoder_hidden_states=encoder_hidden_states,
                     encoder_attention_mask=curr_encoder_attention_mask,
                     temb=temb,
+                    kv_cache=kv_cache,
+                    cache_key=idx,
                 )
             all_hidden_states.append(hidden_states)
 
