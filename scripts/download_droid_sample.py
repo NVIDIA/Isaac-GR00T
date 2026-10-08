@@ -172,7 +172,7 @@ def extract_episodes(cache_dir: Path, output_dir: Path, num_episodes: int) -> No
         ep_df["episode_index"] = new_ep_idx
         ep_df["index"] = range(len(ep_df))
 
-        # Compute eef_9d (XYZ + rot6d) from cartesian_position (XYZ + euler)
+        # Compute eef_9d (xyz + rot6d) from cartesian_position (xyz + euler)
         # for both state and action, as the model expects 17D = eef_9d(9) + gripper(1) + joints(7)
         for prefix in ["observation.state", "action"]:
             cart_col = f"{prefix}.cartesian_position"
