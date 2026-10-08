@@ -22,6 +22,13 @@ import numpy as np
 from gr00t.configs.data.embodiment_configs import ModalityConfig
 
 
+def _promote_integer(values):
+    values = np.asarray(values)
+    if np.issubdtype(values.dtype, np.integer):
+        values = values.astype(np.float64)
+    return values
+
+
 def apply_sin_cos_encoding(values: np.ndarray) -> np.ndarray:
     """Apply sin/cos encoding to values.
 
@@ -90,6 +97,7 @@ def normalize_values_minmax(values, params):
         Normalized values in [-1, 1] range
             - Same shape as input values: (T, D) or (B, T, D)
             - Values are linearly mapped from [min, max] to [-1, 1]
+            - Integer inputs are promoted to float so a fraction is kept
             - For features where min == max, normalized value is 0
 
     Examples:
@@ -99,6 +107,7 @@ def normalize_values_minmax(values, params):
         # 2D bounds - per-step normalization
         values: (8, 4), params["min"]: (8, 4), params["max"]: (8, 4)
     """
+    values = _promote_integer(values)
     min_vals = params["min"]
     max_vals = params["max"]
     normalized = np.zeros_like(values)
@@ -172,6 +181,7 @@ def normalize_values_meanstd(values, params):
         Normalized values using z-score normalization
             - Same shape as input values: (T, D) or (B, T, D)
             - Values are transformed as: (x - mean) / std
+            - Integer inputs are promoted to float so a fraction is kept
             - For features where std == 0, normalized value equals original value
 
     Examples:
@@ -181,6 +191,7 @@ def normalize_values_meanstd(values, params):
         # 2D params - per-step normalization
         values: (8, 4), params["mean"]: (8, 4), params["std"]: (8, 4)
     """
+    values = _promote_integer(values)
     mean_vals = params["mean"]
     std_vals = params["std"]
 
@@ -219,6 +230,7 @@ def unnormalize_values_meanstd(normalized_values, params):
         Unnormalized values in original scale
             - Same shape as input normalized_values: (T, D) or (B, T, D)
             - Values are transformed as: x * std + mean
+            - Integer inputs are promoted to float so a fraction is kept
             - For features where std == 0, unnormalized value equals normalized value
 
     Examples:
@@ -228,6 +240,7 @@ def unnormalize_values_meanstd(normalized_values, params):
         # 2D params - per-step unnormalization
         normalized_values: (8, 4), params["mean"]: (8, 4), params["std"]: (8, 4)
     """
+    normalized_values = _promote_integer(normalized_values)
     mean_vals = params["mean"]
     std_vals = params["std"]
 
