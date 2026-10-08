@@ -134,6 +134,45 @@ class TestActionHeadGetAction:
         out = head.get_action(_make_backbone_output(config), action_input)
         assert "action_pred" in out
         assert out["action_pred"].shape == (2, config.action_horizon, config.max_action_dim)
+        assert "speed_rl_action_features" not in out
+
+    def test_get_action_exports_action_aligned_speed_rl_features(self, action_head):
+        head, config = action_head
+        action_input = _make_action_input(config)
+        del action_input["action"]
+
+        out = head.get_action(
+            _make_backbone_output(config),
+            action_input,
+            options={"return_speed_rl_features": True},
+        )
+
+        features = out["speed_rl_action_features"]
+        assert features.shape == (2, config.action_horizon, head.model.inner_dim)
+        assert features.dtype == torch.float32
+        assert not features.requires_grad
+
+    def test_alternate_dit_exports_action_aligned_speed_rl_features(self):
+        config = _small_config(use_alternate_vl_dit=True)
+        head = Gr00tN1d7ActionHead(config).eval()
+        action_input = _make_action_input(config, batch_size=1)
+        del action_input["action"]
+        backbone_output = _make_backbone_output(config, batch_size=1)
+        backbone_output["backbone_attention_mask"] = backbone_output[
+            "backbone_attention_mask"
+        ].bool()
+
+        out = head.get_action(
+            backbone_output,
+            action_input,
+            options={"return_speed_rl_features": True},
+        )
+
+        assert out["speed_rl_action_features"].shape == (
+            1,
+            config.action_horizon,
+            head.model.inner_dim,
+        )
 
     def test_get_action_no_grad(self, action_head):
         head, config = action_head

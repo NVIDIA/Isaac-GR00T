@@ -726,6 +726,7 @@ dependencies = [
     { name = "tensorrt-cu13", marker = "platform_machine == 'aarch64'" },
     { name = "tensorrt-cu13-libs", marker = "platform_machine == 'aarch64'" },
     { name = "termcolor" },
+    { name = "toppra" },
     { name = "torch", version = "2.9.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
     { name = "torch", version = "2.9.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
     { name = "torchcodec", version = "0.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64'" },
@@ -798,6 +799,7 @@ requires-dist = [
     { name = "tensorrt-cu13-libs", marker = "platform_machine == 'aarch64'", specifier = ">=10.15.1.29", index = "https://pypi.nvidia.com/" },
     { name = "termcolor", specifier = "==3.2.0" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'dev'" },
+    { name = "toppra", specifier = "==0.6.3" },
     { name = "torch", marker = "sys_platform != 'linux'", specifier = "==2.9.0" },
     { name = "torch", marker = "sys_platform == 'linux'", specifier = "==2.9.0", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchcodec", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'", path = "scripts/deployment/dgpu/wheels/torchcodec-0.8.0-cp312-cp312-linux_aarch64.whl" },
@@ -2317,6 +2319,17 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/65/71/0670843133a43d43070abeb1949abfdef12a86d490bea9cd9e18e37c5ff7/tokenizers-0.22.2-cp39-abi3-win_amd64.whl", hash = "sha256:c9ea31edff2968b44a88f97d784c2f16dc0729b8b143ed004699ebca91f05c48", size = 2747786, upload-time = "2026-01-05T10:45:18.411Z" },
     { url = "https://files.pythonhosted.org/packages/72/f4/0de46cfa12cdcbcd464cc59fde36912af405696f687e53a091fb432f694c/tokenizers-0.22.2-cp39-abi3-win_arm64.whl", hash = "sha256:9ce725d22864a1e965217204946f830c37876eee3b2ba6fc6255e8e903d5fcbc", size = 2612133, upload-time = "2026-01-05T10:45:17.232Z" },
 ]
+
+[[package]]
+name = "toppra"
+version = "0.6.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/82/46/03751ca33b7cdbb4cb47f24c3c6217e1bd6faf637d6ba0235e9a35c94f40/toppra-0.6.3.tar.gz", hash = "sha256:5a8926128a9decce85d11bac3e9a2aa2fbf2882653053b10f5cb42e0e21a401e", size = 256133, upload-time = "2025-03-16T22:33:19.512Z" }
 
 [[package]]
 name = "torch"

@@ -168,6 +168,45 @@ class TestGr00tPolicyGetAction:
         action, info = policy.get_action(obs)
         assert isinstance(action, dict)
         assert isinstance(info, dict)
+        assert info == {}
+
+    def test_get_action_returns_speed_rl_features_and_contract(self, policy):
+        policy.speed_rl_features = True
+        policy.speed_rl_model_id = "test-n1.7"
+        policy.model.action_head.model.inner_dim = 64
+        policy.model.get_action.return_value = BatchFeature(
+            data={
+                "action_pred": torch.randn(1, 16, 7),
+                "speed_rl_action_features": torch.randn(1, 16, 64),
+            }
+        )
+
+        _, info = policy.get_action(_make_observation())
+
+        features = info["speed_rl"]["action_features"]
+        contract = info["speed_rl"]["contract"]
+        assert features.shape == (1, 16, 64)
+        assert features.dtype == np.float32
+        assert contract == policy.get_speed_rl_contract()
+        assert contract["model_id"] == "test-n1.7"
+        assert contract["feature_dim"] == 64
+        assert (
+            policy.model.get_action.call_args.kwargs["options"]["return_speed_rl_features"] is True
+        )
+
+    def test_speed_rl_feature_horizon_must_match_actions(self, policy):
+        policy.speed_rl_features = True
+        policy.speed_rl_model_id = "test-n1.7"
+        policy.model.action_head.model.inner_dim = 64
+        policy.model.get_action.return_value = BatchFeature(
+            data={
+                "action_pred": torch.randn(1, 16, 7),
+                "speed_rl_action_features": torch.randn(1, 15, 64),
+            }
+        )
+
+        with pytest.raises(RuntimeError, match="feature/action alignment"):
+            policy.get_action(_make_observation())
 
 
 class _NumpyLanguageSimPolicy:
