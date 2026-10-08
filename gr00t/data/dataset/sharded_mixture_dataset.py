@@ -398,7 +398,14 @@ class ShardedMixtureDataset(IterableDataset):
             )
 
         # Distribute shards across all workers in all processes
-        for i, shard in enumerate(self.shard_sampling_schedule):
+        schedule = list(self.shard_sampling_schedule)
+        if not self.training and schedule:
+            stride = self.world_size * num_workers
+            remainder = len(schedule) % stride
+            if stride > 1 and remainder:
+                schedule.extend([schedule[-1]] * (stride - remainder))
+
+        for i, shard in enumerate(schedule):
             if i % (self.world_size * num_workers) == self.rank * num_workers + worker_id:
                 filtered_schedule.append(shard)
         return filtered_schedule
@@ -419,15 +426,19 @@ class ShardedMixtureDataset(IterableDataset):
 
         # Initialize worker-specific shard schedule
         self.worker_shard_sampling_schedule = self.filter_shard_sample_schedule()
+        if not self.worker_shard_sampling_schedule:
+            return
         self.curr_shard_index = -1
-        self.cache_next_shard()
+        self.cache_next_shard(allow_wrap=self.training)
         rng = np.random.default_rng(self.seed + self.epoch)
 
-        # Continuous iteration with epoch management
         while True:
             self.curr_shard_index += 1
+            if not self.training and self.curr_shard_index >= len(
+                self.worker_shard_sampling_schedule
+            ):
+                return
 
-            # Wait for background caching to complete
             wait_start = time.time()
             self.finish_cache_shard()
             wait_end = time.time()
@@ -437,20 +448,22 @@ class ShardedMixtureDataset(IterableDataset):
                 f"Rank {self.rank}, Worker {self.worker_id}: Wait for shard {shard_index} in dataset {dataset_index} in {wait_end - wait_start:.2f} seconds"
             )
 
-            # Start caching next shard immediately
-            self.cache_next_shard()
+            self.cache_next_shard(allow_wrap=self.training)
 
-            # Yield shuffled timesteps from current shard
             assert self.curr_shard is not None
             indices_in_shard = np.arange(len(self.curr_shard))
             rng.shuffle(indices_in_shard)
             for index in indices_in_shard:
                 yield self.curr_shard[index]
 
-            # Clean up cached shard to free memory
             self.delete_cached_shard()
 
-    def cache_next_shard(self):
+            if not self.training and self.curr_shard_index + 1 >= len(
+                self.worker_shard_sampling_schedule
+            ):
+                return
+
+    def cache_next_shard(self, allow_wrap: bool = True):
         """
         Start background caching of the next shard using ThreadPoolExecutor.
 
@@ -458,8 +471,10 @@ class ShardedMixtureDataset(IterableDataset):
         the current schedule is exhausted.
         """
         assert self._executor is not None
-        # Check if epoch is complete and regenerate schedule if needed
         if self.curr_shard_index + 1 >= len(self.worker_shard_sampling_schedule):
+            if not allow_wrap:
+                self._cache_job = None
+                return
             self.epoch += 1
             self.shard_sampling_schedule = self.generate_shard_sampling_schedule()
             self.worker_shard_sampling_schedule = self.filter_shard_sample_schedule()
@@ -469,7 +484,6 @@ class ShardedMixtureDataset(IterableDataset):
         next_dataset_idx, next_shard_idx = self.worker_shard_sampling_schedule[
             self.curr_shard_index + 1
         ]
-        # Submit background loading job
         self._cache_job = self._executor.submit(
             self.datasets[next_dataset_idx].get_shard, next_shard_idx
         )
