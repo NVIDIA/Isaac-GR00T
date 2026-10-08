@@ -9,6 +9,11 @@ MAX_STEPS="${MAX_STEPS:-10000}"
 USE_WANDB="${USE_WANDB:-1}"
 DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"
+# Micro-batches accumulated per optimizer step. The effective batch size is
+# GLOBAL_BATCH_SIZE x GRADIENT_ACCUMULATION_STEPS, so lowering GLOBAL_BATCH_SIZE
+# while raising this keeps optimization identical at a lower peak VRAM
+# (activation memory scales with GLOBAL_BATCH_SIZE / NUM_GPUS).
+GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-1}"
 SHARD_SIZE="${SHARD_SIZE:-1024}"
 NUM_SHARDS_PER_EPOCH="${NUM_SHARDS_PER_EPOCH:-100000}"
 EPISODE_SAMPLING_RATE="${EPISODE_SAMPLING_RATE:-0.1}"
@@ -45,6 +50,14 @@ Usage: bash examples/finetune.sh \
   [--save-only-model] \
   [--resume-from-checkpoint] \
   [-- <extra launch_finetune.py args>...]
+
+Environment variables:
+  NUM_GPUS, MASTER_PORT, SAVE_STEPS, MAX_STEPS, USE_WANDB,
+  DATALOADER_NUM_WORKERS, GLOBAL_BATCH_SIZE, GRADIENT_ACCUMULATION_STEPS,
+  SHARD_SIZE, NUM_SHARDS_PER_EPOCH, EPISODE_SAMPLING_RATE, DS_WEIGHTS_ALPHA
+
+Low-VRAM example (same effective batch as the defaults, lower peak memory):
+  GLOBAL_BATCH_SIZE=8 GRADIENT_ACCUMULATION_STEPS=4 bash examples/finetune.sh ...
 EOF
 }
 
@@ -155,6 +168,7 @@ LAUNCH_CMD=(
     --learning_rate 1e-4
     "${WANDB_FLAG[@]}"
     --global_batch_size "$GLOBAL_BATCH_SIZE"
+    --gradient_accumulation_steps "$GRADIENT_ACCUMULATION_STEPS"
     --dataloader_num_workers "$DATALOADER_NUM_WORKERS"
     --shard_size "$SHARD_SIZE"
     --num_shards_per_epoch "$NUM_SHARDS_PER_EPOCH"
