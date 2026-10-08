@@ -123,6 +123,7 @@ class Gr00tPolicy(BasePolicy):
         )
         self.processor: BaseProcessor = AutoProcessor.from_pretrained(processor_dir)
         self.processor.eval()
+        self.processor.validate_strict_action_padding_mask(model.config)
 
         # Store embodiment-specific configurations
         self.embodiment_tag = embodiment_tag

@@ -20,6 +20,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+import torch
+
 
 ROOT = Path(__file__).resolve().parents[3]
 EXPORT_SCRIPT = ROOT / "scripts" / "deployment" / "export_onnx_n1d7.py"
@@ -88,3 +91,61 @@ def test_verify_mode_accepts_dit_only_mode() -> None:
                 verify_modes.add(stmt.targets[0].id)
 
     assert "dit_only" in verify_modes
+
+
+def test_dit_export_wrapper_routes_hidden_mask_without_other_optional_masks(tmp_path) -> None:
+    """A regular DiT capture may contain only the action-token mask."""
+
+    try:
+        from scripts.deployment.export_onnx_n1d7 import _DiTExportWrapper
+    except (ImportError, OSError) as exc:
+        pytest.skip(f"export_onnx_n1d7 not importable in this env: {exc}")
+
+    class DummyDiT(torch.nn.Module):
+        def forward(
+            self,
+            hidden_states,
+            encoder_hidden_states,
+            timestep,
+            image_mask=None,
+            backbone_attention_mask=None,
+            hidden_attention_mask=None,
+        ):
+            assert image_mask is None
+            assert backbone_attention_mask is None
+            assert hidden_attention_mask is not None
+            return hidden_states * hidden_attention_mask.unsqueeze(-1)
+
+    wrapper = _DiTExportWrapper(DummyDiT(), ["hidden_attention_mask"])
+    hidden_states = torch.ones(1, 3, 2)
+    hidden_attention_mask = torch.tensor([[True, False, True]])
+    output = wrapper(
+        hidden_states,
+        torch.ones(1, 2, 2),
+        torch.ones(1, dtype=torch.long),
+        hidden_attention_mask,
+    )
+
+    torch.testing.assert_close(
+        output,
+        torch.tensor([[[1.0, 1.0], [0.0, 0.0], [1.0, 1.0]]]),
+    )
+
+    onnx = pytest.importorskip("onnx")
+    output_path = tmp_path / "dit_hidden_mask.onnx"
+    torch.onnx.export(
+        wrapper,
+        (
+            hidden_states,
+            torch.ones(1, 2, 2),
+            torch.ones(1, dtype=torch.long),
+            hidden_attention_mask,
+        ),
+        output_path,
+        input_names=["sa_embs", "vl_embs", "timestep", "hidden_attention_mask"],
+        output_names=["output"],
+        opset_version=19,
+        dynamo=False,
+    )
+    graph_inputs = [value.name for value in onnx.load(output_path).graph.input]
+    assert graph_inputs == ["sa_embs", "hidden_attention_mask"]

@@ -137,6 +137,12 @@ class TestGr00tPolicyInit:
     def test_policy_embodiment_tag(self, policy):
         assert policy.embodiment_tag is not None
 
+    def test_policy_checks_strict_mask_agreement(self, policy):
+        """Serving must run the check training does; the disagreeing case is otherwise silent."""
+        policy.processor.validate_strict_action_padding_mask.assert_called_once_with(
+            policy.model.config
+        )
+
 
 class TestGr00tPolicyCheckObservation:
     def test_valid_observation_passes(self, policy):

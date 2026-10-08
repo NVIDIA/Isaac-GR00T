@@ -484,6 +484,7 @@ Replace `demo_data/cube_to_bowl_5` and `examples/SO100/so100_config.py` with you
 - Maximize batch size for your hardware and train for a few thousand steps.
 - Users may observe 5-6% variance between runs due to non-deterministic image augmentations. Keep this in mind when comparing to reported benchmarks.
 - **`--state_dropout_prob`** (model config default: 0.8; finetune CLI default: 0.2; see `gr00t/configs/finetune_config.py`): Randomly drops state inputs during training to improve generalization and reduce state-dependency. The shipped benchmark scripts override the CLI default per suite: LIBERO 10-Long uses 0.2 (the CLI default), SimplerEnv Bridge uses 0.8, SimplerEnv Fractal uses 0.5. If your task relies heavily on proprioceptive state, lower this value.
+- **`--strict_action_padding_mask`** (default: `False`; see `gr00t/configs/finetune_config.py`): Keeps padded action dimensions and horizon tokens out of the action encoder and the DiT self-attention. A real embodiment fills only part of the fixed `action_horizon` x `max_action_dim` canvas, and released checkpoints were both trained and served with the remaining padding visible, so this stays off by default to preserve their behavior. New training runs may opt in when the same strict masking behavior will be used at inference. The setting is persisted in the checkpoint's `config.json` and `processor_config.json`.
 
 ---
 

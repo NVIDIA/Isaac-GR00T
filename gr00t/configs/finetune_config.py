@@ -63,6 +63,13 @@ class FinetuneConfig:
     Dropout probability applied to state inputs for regularization during training.
     """
 
+    strict_action_padding_mask: bool = False
+    """
+    If True, keep padded action dimensions and horizon tokens out of the action encoder and
+    the DiT self-attention. Released checkpoints were trained with that padding visible, so
+    this defaults to off; enable it for runs whose checkpoints will also be served with it on.
+    """
+
     # --- Data Augmentation ---
     random_rotation_angle: int | None = None
     """Maximum rotation angle (in degrees) for random rotation augmentation of input images."""

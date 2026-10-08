@@ -74,6 +74,9 @@ class Gr00tN1d7Config(PretrainedConfig):
     max_state_dim: int = 132  # Default from state_shape
     max_action_dim: int = 132  # Default from action_shape
     action_horizon: int = 40
+    # Keep released checkpoints backward-compatible. Enable this for newly trained
+    # models to exclude padded action dimensions and horizon tokens end to end.
+    strict_action_padding_mask: bool = False
     hidden_size: int = 1024
     input_embedding_dim: int = 1536
 

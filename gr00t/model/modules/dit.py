@@ -58,6 +58,29 @@ def _sdpa_context():
     )
 
 
+def _canonical_hidden_attention_mask(
+    hidden_attention_mask: Optional[torch.Tensor], hidden_states: torch.Tensor
+) -> Optional[torch.Tensor]:
+    if hidden_attention_mask is None:
+        return None
+    if hidden_attention_mask.ndim == 3 and hidden_attention_mask.shape[-1] == 1:
+        hidden_attention_mask = hidden_attention_mask.squeeze(-1)
+    if hidden_attention_mask.shape != hidden_states.shape[:2]:
+        raise ValueError(
+            "hidden_attention_mask must have shape "
+            f"{tuple(hidden_states.shape[:2])}, got {tuple(hidden_attention_mask.shape)}"
+        )
+    return hidden_attention_mask.to(device=hidden_states.device, dtype=torch.bool)
+
+
+def _mask_hidden_states(
+    hidden_states: torch.Tensor, hidden_attention_mask: Optional[torch.Tensor]
+) -> torch.Tensor:
+    if hidden_attention_mask is None:
+        return hidden_states
+    return hidden_states * hidden_attention_mask.unsqueeze(-1).to(dtype=hidden_states.dtype)
+
+
 class TimestepEncoder(nn.Module):
     def __init__(self, embedding_dim, compute_dtype=torch.float32):
         super().__init__()
@@ -296,6 +319,7 @@ class DiT(ModelMixin, ConfigMixin):
         timestep: Optional[torch.LongTensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
         return_all_hidden_states: bool = False,
+        hidden_attention_mask: Optional[torch.Tensor] = None,
     ):
         # Encode timesteps
         temb = self.timestep_encoder(timestep)
@@ -303,6 +327,10 @@ class DiT(ModelMixin, ConfigMixin):
         # Process through transformer blocks - single pass through the blocks
         hidden_states = hidden_states.contiguous()
         encoder_hidden_states = encoder_hidden_states.contiguous()
+        hidden_attention_mask = _canonical_hidden_attention_mask(
+            hidden_attention_mask, hidden_states
+        )
+        hidden_states = _mask_hidden_states(hidden_states, hidden_attention_mask)
 
         all_hidden_states = [hidden_states]
 
@@ -311,7 +339,7 @@ class DiT(ModelMixin, ConfigMixin):
             if idx % 2 == 1 and self.config.interleave_self_attention:
                 hidden_states = block(
                     hidden_states,
-                    attention_mask=None,
+                    attention_mask=hidden_attention_mask,
                     encoder_hidden_states=None,
                     encoder_attention_mask=None,
                     temb=temb,
@@ -324,16 +352,22 @@ class DiT(ModelMixin, ConfigMixin):
                     encoder_attention_mask=None,
                     temb=temb,
                 )
+            # Cross-attention, AdaNorm, and FFN biases can reactivate padded
+            # queries. Keep them zero so they cannot become K/V tokens later.
+            hidden_states = _mask_hidden_states(hidden_states, hidden_attention_mask)
             all_hidden_states.append(hidden_states)
 
         # Output processing
         conditioning = temb
         shift, scale = self.proj_out_1(F.silu(conditioning)).chunk(2, dim=1)
         hidden_states = self.norm_out(hidden_states) * (1 + scale[:, None]) + shift[:, None]
+        hidden_states = _mask_hidden_states(hidden_states, hidden_attention_mask)
+        output = self.proj_out_2(hidden_states)
+        output = _mask_hidden_states(output, hidden_attention_mask)
         if return_all_hidden_states:
-            return self.proj_out_2(hidden_states), all_hidden_states
+            return output, all_hidden_states
         else:
-            return self.proj_out_2(hidden_states)
+            return output
 
 
 class AlternateVLDiT(DiT):
@@ -355,6 +389,7 @@ class AlternateVLDiT(DiT):
         return_all_hidden_states: bool = False,
         image_mask: Optional[torch.Tensor] = None,
         backbone_attention_mask: Optional[torch.Tensor] = None,
+        hidden_attention_mask: Optional[torch.Tensor] = None,
     ):
         assert image_mask is not None, "Image mask is required"
 
@@ -364,6 +399,10 @@ class AlternateVLDiT(DiT):
         # Process through transformer blocks - single pass through the blocks
         hidden_states = hidden_states.contiguous()
         encoder_hidden_states = encoder_hidden_states.contiguous()
+        hidden_attention_mask = _canonical_hidden_attention_mask(
+            hidden_attention_mask, hidden_states
+        )
+        hidden_states = _mask_hidden_states(hidden_states, hidden_attention_mask)
 
         # Create attention masks for image and non-image tokens
         # image_mask shape: (B, S) where True indicates image tokens
@@ -381,7 +420,7 @@ class AlternateVLDiT(DiT):
                 # Self-attention blocks
                 hidden_states = block(
                     hidden_states,
-                    attention_mask=None,
+                    attention_mask=hidden_attention_mask,
                     encoder_hidden_states=None,
                     encoder_attention_mask=None,
                     temb=temb,
@@ -402,16 +441,20 @@ class AlternateVLDiT(DiT):
                     encoder_attention_mask=curr_encoder_attention_mask,
                     temb=temb,
                 )
+            hidden_states = _mask_hidden_states(hidden_states, hidden_attention_mask)
             all_hidden_states.append(hidden_states)
 
         # Output processing
         conditioning = temb
         shift, scale = self.proj_out_1(F.silu(conditioning)).chunk(2, dim=1)
         hidden_states = self.norm_out(hidden_states) * (1 + scale[:, None]) + shift[:, None]
+        hidden_states = _mask_hidden_states(hidden_states, hidden_attention_mask)
+        output = self.proj_out_2(hidden_states)
+        output = _mask_hidden_states(output, hidden_attention_mask)
         if return_all_hidden_states:
-            return self.proj_out_2(hidden_states), all_hidden_states
+            return output, all_hidden_states
         else:
-            return self.proj_out_2(hidden_states)
+            return output
 
 
 class SelfAttentionTransformer(ModelMixin, ConfigMixin):
