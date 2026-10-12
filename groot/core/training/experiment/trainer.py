@@ -1452,69 +1452,6 @@ class GR00TTrainer(Trainer):
         except Exception:
             return -1
 
-    def _init_dcp_async(self):
-        """Lazy-initialize DCP async checkpointing with a dedicated Gloo process group."""
-        if hasattr(self, "_dcp_initialized") and self._dcp_initialized:
-            return True
-        try:
-            import torch.distributed.checkpoint as dcp
-            from torch.distributed.checkpoint.state_dict_saver import async_save
-
-            self._dcp = dcp
-            self._dcp_async_save = async_save
-            self._pending_dcp_future = None
-
-            # Use process-based async to avoid GIL contention with training thread
-            try:
-                from torch.distributed.checkpoint.state_dict_saver import (
-                    AsyncCheckpointerType,
-                )
-
-                self._async_checkpointer_type = AsyncCheckpointerType.PROCESS
-                print("[CP-SAVE] Using AsyncCheckpointerType.PROCESS (no GIL contention)")
-            except (ImportError, AttributeError):
-                self._async_checkpointer_type = None
-                print(
-                    "[CP-SAVE] AsyncCheckpointerType.PROCESS not available, using default (thread)"
-                )
-
-            # Create a dedicated Gloo process group for DCP async save.
-            # This isolates DCP's CPU-side coordination from the default process group,
-            # preventing conflicts with straggler detection or other Gloo users.
-            if dist.is_initialized():
-                self._dcp_process_group = dist.new_group(backend="gloo")
-                print(
-                    "[CP-SAVE] DCP async checkpoint initialized with dedicated Gloo process group"
-                )
-            else:
-                self._dcp_process_group = None
-                print("[CP-SAVE] DCP async checkpoint initialized (no dist, no dedicated PG)")
-
-            self._dcp_initialized = True
-            return True
-        except ImportError as e:
-            print(
-                f"[CP-SAVE] WARNING: DCP not available ({e}), falling back to synchronous DeepSpeed save"
-            )
-            self._dcp_initialized = False
-            return False
-
-    def _wait_for_pending_dcp_save(self, *, raise_on_error: bool = False):
-        """Wait for any in-flight DCP async save to complete."""
-        if not hasattr(self, "_pending_dcp_future") or self._pending_dcp_future is None:
-            return
-        try:
-            t_start = time.time()
-            self._pending_dcp_future.result()
-            duration = time.time() - t_start
-            print(f"[CP-SAVE] Waited {duration:.2f}s for previous DCP async save to complete")
-        except Exception as e:
-            print(f"[CP-SAVE] WARNING: Previous DCP async save failed: {e}")
-            if raise_on_error:
-                raise
-        finally:
-            self._pending_dcp_future = None
-
     def _wait_for_pending_safetensors_worker(self, *, raise_on_timeout: bool = False):
         """Wait for any in-flight background safetensors worker to complete."""
         worker = getattr(self, "_safetensors_worker", None)
@@ -1566,9 +1503,8 @@ class GR00TTrainer(Trainer):
         """Collectively finish all files required for exact Trainer resume.
 
         MSC upload runs on world rank 0, while ZeRO optimizer shards and RNG
-        files are produced by every rank. All ranks must enter this method so a
-        DCP future that requires collectives can finish before rank 0 publishes
-        the checkpoint and its SUCCESS sentinel.
+        files are produced by every rank. All ranks must enter this method before
+        rank 0 publishes the checkpoint and its SUCCESS sentinel.
         """
         failures: list[str] = []
         try:
@@ -1590,11 +1526,6 @@ class GR00TTrainer(Trainer):
         self._pending_opt_pt_error = None
         if optimizer_error is not None:
             failures.append(f"optimizer shard: {optimizer_error}")
-
-        try:
-            self._wait_for_pending_dcp_save(raise_on_error=True)
-        except Exception as exc:
-            failures.append(f"DCP state: {exc}")
 
         local_failure = "; ".join(failures) or None
         if dist.is_initialized():
@@ -1709,11 +1640,15 @@ class GR00TTrainer(Trainer):
         if use_async and _internal_call and self.is_deepspeed_enabled:
             print(f"[CP-SAVE][rank={rank}] save_model ASYNC BEGIN at step {step}")
             t_start = time.time()
+            failure = None
+            try:
+                self._wait_for_pending_safetensors_worker(raise_on_timeout=True)
+            except Exception as exc:
+                failure = f"previous model writer: {exc}"
+            # Peers may next enter accelerator.get_state_dict() collectives.
+            self._check_async_checkpoint_stage(failure)
 
             try:
-                # Wait for any previous background safetensors worker
-                self._wait_for_pending_safetensors_worker()
-
                 use_local_state_dict = (
                     bool(getattr(self.args, "use_local_state_dict_for_zero2", True))
                     and self._get_zero_stage() == 2
@@ -1778,12 +1713,11 @@ class GR00TTrainer(Trainer):
                     f"time={duration:.2f}s (safetensors writing in background process)"
                 )
 
-            except Exception as e:
-                print(
-                    f"[CP-SAVE][rank={rank}] WARNING: Async save_model failed ({e}), "
-                    f"falling back to synchronous"
-                )
-                super().save_model(output_dir=output_dir, _internal_call=_internal_call, **kwargs)
+            except Exception as exc:
+                failure = f"model writer dispatch: {exc}"
+            # A saving rank cannot call the collective parent fallback while
+            # non-writing ranks continue to the next checkpoint stage.
+            self._check_async_checkpoint_stage(failure)
         else:
             # Synchronous path: async disabled, or final trainer.save_model() call
             if use_async:
@@ -1806,16 +1740,32 @@ class GR00TTrainer(Trainer):
             except Exception:
                 pass
 
+    @staticmethod
+    def _check_async_checkpoint_stage(failure: str | None) -> None:
+        """Do not send only one failed rank into a collective DeepSpeed fallback."""
+        failures = [failure]
+        if dist.is_initialized():
+            failures = [None] * dist.get_world_size()
+            dist.all_gather_object(failures, failure)
+        if any(failures):
+            raise RuntimeError(
+                "Async checkpoint failed: "
+                + "; ".join(f"rank {rank}: {error}" for rank, error in enumerate(failures) if error)
+            )
+
     def _save_checkpoint(self, model, trial, **kwargs):
-        """Override to replace DeepSpeed synchronous checkpoint with DCP async.
+        """Replace DeepSpeed synchronous saves with independent rank snapshots.
 
         When use_async_checkpoint_save is enabled:
           1. Extract optimizer state dict from DeepSpeed (per-rank partition)
           2. Monkey-patch deepspeed.save_checkpoint → no-op (skip 105s sync I/O)
           3. Call super()._save_checkpoint() — handles safetensors, metadata, callbacks
           4. Restore deepspeed.save_checkpoint
-          5. Launch DCP async_save for optimizer state (writes in background)
+          5. Save each optimizer partition once in its own background writer
 
+        Snapshot/dispatch failures stop every rank before publication; a rank-local
+        DeepSpeed fallback could enter collectives that successful peers never call.
+        Existing per-rank and DCP resume loaders are unchanged.
         When disabled: standard synchronous behavior with timing instrumentation.
         """
         rank = self.args.local_rank if self.args.local_rank != -1 else 0
@@ -1825,61 +1775,16 @@ class GR00TTrainer(Trainer):
         print(f"[CP-SAVE][rank={rank}] >>> _save_checkpoint BEGIN at step {step}")
         t_start = time.time()
 
-        if use_async and self.is_deepspeed_enabled and self._init_dcp_async():
-            original_ds_save = None
+        if use_async and self.is_deepspeed_enabled:
+            self._wait_for_pending_trainer_checkpoint_writes()
+            failure = None
+            opt_state_to_save = None
             try:
-                # Wait for any previous async save to complete
-                self._wait_for_pending_dcp_save()
-                # Wait for any previous per-rank .pt write to complete
-                if (
-                    hasattr(self, "_pending_opt_pt_thread")
-                    and self._pending_opt_pt_thread is not None
-                ):
-                    self._pending_opt_pt_thread.join()
-                    self._pending_opt_pt_thread = None
-
-                # Step 1: Extract optimizer state BEFORE we skip the DeepSpeed save
-                # Each rank gets its own ZeRO-2 partition
+                # Snapshot before the parent save's collectives. A failure on
+                # one rank must stop its peers before they enter that save.
                 t_extract = time.time()
                 optimizer_state = self.deepspeed.optimizer.state_dict()
                 lr_scheduler_state = self.lr_scheduler.state_dict() if self.lr_scheduler else {}
-                print(
-                    f"[CP-SAVE][rank={rank}] Extracted optimizer state in "
-                    f"{time.time() - t_extract:.2f}s"
-                )
-
-                # Step 2: Monkey-patch DeepSpeed save_checkpoint to no-op
-                # This skips the 105s synchronous I/O (optimizer shards + model_states.pt)
-                original_ds_save = self.model_wrapped.save_checkpoint
-                self.model_wrapped.save_checkpoint = lambda *args, **_kw: None
-                print(f"[CP-SAVE][rank={rank}] DeepSpeed save_checkpoint patched to no-op")
-
-                # Step 3: Call parent _save_checkpoint
-                # This still does: safetensors (save_model), trainer_state, rng, scheduler,
-                # callbacks — everything EXCEPT the DeepSpeed I/O
-                t_super = time.time()
-                super()._save_checkpoint(model, trial, **kwargs)
-                print(
-                    f"[CP-SAVE][rank={rank}] super()._save_checkpoint (sans DeepSpeed) took "
-                    f"{time.time() - t_super:.2f}s"
-                )
-
-                # Step 4: Restore original DeepSpeed save_checkpoint
-                self.model_wrapped.save_checkpoint = original_ds_save
-
-                # Step 5: Save optimizer state as per-rank .pt file + DCP async_save
-                checkpoint_dir = os.path.join(self.args.output_dir, f"checkpoint-{step}")
-                dcp_dir = os.path.join(checkpoint_dir, "dcp_state")
-                os.makedirs(dcp_dir, exist_ok=True)
-
-                # Save per-rank .pt file for fast resume without distributed coordination.
-                # Each rank writes its own ZeRO-2 optimizer partition independently.
-                # This avoids the second NCCL communicator that dcp.load() creates,
-                # which crashes at 32+ GPUs on clusters.
-                # Written in a background thread to avoid blocking training at large scale.
-                dp_rank = dist.get_rank() if dist.is_initialized() else 0
-                opt_pt_file = os.path.join(checkpoint_dir, f"optimizer_rank{dp_rank}.pt")
-                # Both writers need a CPU snapshot without autograd history.
                 opt_state_to_save = tree_map(
                     lambda value: (
                         value.detach().to(device="cpu", copy=True)
@@ -1888,6 +1793,31 @@ class GR00TTrainer(Trainer):
                     ),
                     {"optimizer": optimizer_state, "lr_scheduler": lr_scheduler_state},
                 )
+                print(
+                    f"[CP-SAVE][rank={rank}] Extracted optimizer state in {time.time() - t_extract:.2f}s"
+                )
+            except Exception as exc:
+                failure = f"snapshot preparation: {exc}"
+            self._check_async_checkpoint_stage(failure)
+
+            original_ds_save = self.model_wrapped.save_checkpoint
+            self.model_wrapped.save_checkpoint = lambda *args, **_kw: None
+            try:
+                t_super = time.time()
+                super()._save_checkpoint(model, trial, **kwargs)
+                print(
+                    f"[CP-SAVE][rank={rank}] super()._save_checkpoint (sans DeepSpeed) took "
+                    f"{time.time() - t_super:.2f}s"
+                )
+            finally:
+                self.model_wrapped.save_checkpoint = original_ds_save
+
+            failure = None
+            try:
+                checkpoint_dir = os.path.join(self.args.output_dir, f"checkpoint-{step}")
+                os.makedirs(checkpoint_dir, exist_ok=True)
+                dp_rank = dist.get_rank() if dist.is_initialized() else 0
+                opt_pt_file = os.path.join(checkpoint_dir, f"optimizer_rank{dp_rank}.pt")
                 # Background-thread exceptions do not propagate to the Trainer
                 # thread. Retain one so complete publication can fail before a
                 # misleading SUCCESS sentinel is written remotely.
@@ -1898,8 +1828,7 @@ class GR00TTrainer(Trainer):
                     try:
                         torch.save(state_dict, path)
                         print(
-                            f"[CP-SAVE][rank={_rank}] Saved {path} in "
-                            f"{time.time() - t:.2f}s (background)"
+                            f"[CP-SAVE][rank={_rank}] Saved {path} in {time.time() - t:.2f}s (background)"
                         )
                     except Exception as exc:
                         self._pending_opt_pt_error = exc
@@ -1917,46 +1846,9 @@ class GR00TTrainer(Trainer):
                     f"[CP-SAVE][rank={rank}] optimizer_rank{dp_rank}.pt write dispatched to background"
                 )
 
-                # Also launch DCP async_save for backward compatibility with older resume code.
-                t_async = time.time()
-                save_kwargs = {
-                    "state_dict": opt_state_to_save,
-                    "checkpoint_id": dcp_dir,
-                }
-                # Use dedicated process group to avoid conflicts with straggler detector
-                if self._dcp_process_group is not None:
-                    save_kwargs["process_group"] = self._dcp_process_group
-                # Use process-based async to avoid GIL contention with training
-                if self._async_checkpointer_type is not None:
-                    save_kwargs["async_checkpointer_type"] = self._async_checkpointer_type
-                self._pending_dcp_future = self._dcp_async_save(**save_kwargs)
-                print(
-                    f"[CP-SAVE][rank={rank}] DCP async_save staging done in "
-                    f"{time.time() - t_async:.2f}s (writing optimizer state in background)"
-                )
-
-            except Exception as e:
-                print(
-                    f"[CP-SAVE][rank={rank}] WARNING: DCP async save failed ({e}), "
-                    f"falling back to synchronous DeepSpeed optimizer save"
-                )
-                # Restore original save in case of failure (original_ds_save is
-                # initialised to None before the try block, so it is always defined).
-                if original_ds_save is not None:
-                    self.model_wrapped.save_checkpoint = original_ds_save
-                # Only save optimizer state via DeepSpeed — safetensors + metadata
-                # were already saved in Step 3 (super()._save_checkpoint above).
-                # Calling super()._save_checkpoint again would duplicate safetensors
-                # writes and block ~55s waiting for the first subprocess to finish.
-                try:
-                    checkpoint_dir = os.path.join(self.args.output_dir, f"checkpoint-{step}")
-                    self.model_wrapped.save_checkpoint(checkpoint_dir)
-                    print(f"[CP-SAVE][rank={rank}] DeepSpeed optimizer save (fallback) done")
-                except Exception as e2:
-                    print(
-                        f"[CP-SAVE][rank={rank}] WARNING: DeepSpeed fallback also failed ({e2}). "
-                        f"Checkpoint has model weights but no optimizer state."
-                    )
+            except Exception as exc:
+                failure = f"writer dispatch: {exc}"
+            self._check_async_checkpoint_stage(failure)
         else:
             # Standard synchronous path (default)
             super()._save_checkpoint(model, trial, **kwargs)
@@ -1966,8 +1858,7 @@ class GR00TTrainer(Trainer):
         try:
             duration = time.time() - t_start
             print(
-                f"[CP-SAVE][rank={rank}] <<< _save_checkpoint END at step {step}, "
-                f"total_time={duration:.2f}s"
+                f"[CP-SAVE][rank={rank}] <<< _save_checkpoint END at step {step}, total_time={duration:.2f}s"
             )
         except Exception:
             pass
@@ -2390,10 +2281,17 @@ class GR00TTrainer(Trainer):
             #
             # The monkey-patch is scoped to this train() call and restored in finally.
             with self._patch_deepspeed_load_for_dcp(self._dcp_resume_checkpoint):
-                return super().train(resume_from_checkpoint=resume_from_checkpoint, **kwargs)
+                result = super().train(resume_from_checkpoint=resume_from_checkpoint, **kwargs)
         else:
             # Standard DeepSpeed resume path
-            return super().train(resume_from_checkpoint=resume_from_checkpoint, **kwargs)
+            result = super().train(resume_from_checkpoint=resume_from_checkpoint, **kwargs)
+
+        # The final async optimizer writer may outlive HF's training loop when no
+        # upload or eval callback needs the checkpoint. A successful train()
+        # return must mean every rank finished its last checkpoint payload.
+        if use_async and self.is_deepspeed_enabled:
+            self._wait_for_pending_trainer_checkpoint_writes()
+        return result
 
     # ------------------------------------------------------------------------------------------
     # Training step override for timing metrics and truncated BPTT (same pattern as BaseTrainer)

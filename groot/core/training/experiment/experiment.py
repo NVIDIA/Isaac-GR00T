@@ -57,6 +57,7 @@ from groot.core.data.dataset.build_artifacts import DatasetBuildArtifacts
 from groot.core.data.dataset.factory import DatasetFactory as _ValDatasetFactory
 from groot.core.training.configs.base_config import Config
 from groot.core.training.experiment.callbacks.msc_checkpoint import MSCCheckpointCallback
+from groot.core.training.experiment.callbacks.save_steps import OverrideSaveStepsCallback
 from groot.core.training.experiment.callbacks.validation_loss import ValidationLossCallback
 from groot.core.training.experiment.gear_registration import (
     append_training_run_status_event,
@@ -909,8 +910,8 @@ def run(
         #                    collectives for symmetry with real training.
         #   num_gpus == 0 -> CPU dry-run (Ray TorchTrainer with no GPU
         #                    bundles); fall through to Gloo.
-        # DCP async checkpoint uses a dedicated Gloo process group (created
-        # in GR00TTrainer), so the default backend can stay NCCL-only.
+        # Async checkpoints write independent per-rank optimizer files;
+        # the default GPU process group can stay NCCL-only.
         backend = _resolve_torchrun_backend(config)
         if config.training.num_gpus > 0:
             if torch.cuda.is_available():
@@ -1426,17 +1427,7 @@ def run(
         # Override save_steps after resume: HuggingFace Trainer restores save_steps from
         # trainer_state.json during resume, overriding CLI args. This callback re-applies
         # the config value so CLI args always take precedence over checkpoint state.
-        class _OverrideSaveStepsCallback(TrainerCallback):
-            def on_train_begin(self, args, state, _control, **_kwargs):
-                if args.save_steps != config.training.save_steps:
-                    logging.info(
-                        f"Overriding save_steps from checkpoint state ({args.save_steps}) "
-                        f"with config value ({config.training.save_steps})"
-                    )
-                    args.save_steps = config.training.save_steps
-                    state.save_steps = config.training.save_steps
-
-        trainer.add_callback(_OverrideSaveStepsCallback())
+        trainer.add_callback(OverrideSaveStepsCallback(config.training.save_steps))
         trainer.add_callback(OLTrainingProgressCallback(global_rank=global_rank))
         for callback in pipeline.create_trainer_callbacks(trainer):
             trainer.add_callback(callback)
@@ -1503,7 +1494,49 @@ def run(
             )
         )
 
-        # Add checkpoint upload callback
+        if config.training.save_best_eval_metric_name != "":
+            trainer.add_callback(
+                BestMetricCheckpointCallback(
+                    metric_name=config.training.save_best_eval_metric_name,
+                    greater_is_better=config.training.save_best_eval_metric_greater_is_better,
+                    exp_cfg_dir=save_cfg_dir,
+                )
+            )
+
+        # In-process open-loop evaluation (groot.core only — no checkpoint reload).
+        # action_horizon lives at different paths per model family:
+        #   N1.x: config.model.action_horizon (direct attr)
+        #   N2:   config.model.action_cfg["action_horizon"] (TypedDict on action_cfg)
+        _model_action_horizon = getattr(config.model, "action_horizon", None) or (
+            getattr(config.model, "action_cfg", {}) or {}
+        ).get("action_horizon")
+        in_proc_cb = _build_in_process_open_loop_callback(
+            in_process_cfg=config.training.open_loop_eval_in_process,
+            data_cfg=config.data,
+            processor=processor,
+            action_horizon=(
+                config.training.open_loop_eval_in_process.action_horizon or _model_action_horizon
+            ),
+            video_backend=config.data.video_backend,
+            trainer=trainer,
+        )
+        if in_proc_cb is not None:
+            trainer.add_callback(in_proc_cb)
+
+        # Open-loop evaluation (requires groot.control at runtime — lazy imports)
+        legacy_cb = _build_open_loop_eval_callback(
+            legacy_cfg=config.training.open_loop_eval,
+            data_cfg=config.data,
+            action_horizon=_model_action_horizon,
+            video_backend=config.data.video_backend,
+            trainer=trainer,
+        )
+        if legacy_cb is not None:
+            trainer.add_callback(legacy_cb)
+
+        # Upload callbacks must follow all local checkpoint consumers. Legacy
+        # open-loop eval waits for model writes and finishes on all ranks before
+        # upload can delete staging, even with async uploads.
         if msc_checkpoint_url:
             # Use MSC for direct remote storage upload
             # Note: MSCCheckpointCallback uploads every checkpoint (controlled by save_steps),
@@ -1545,46 +1578,6 @@ def run(
             )
             upload_callback.trainer = trainer
             trainer.add_callback(upload_callback)
-        if config.training.save_best_eval_metric_name != "":
-            trainer.add_callback(
-                BestMetricCheckpointCallback(
-                    metric_name=config.training.save_best_eval_metric_name,
-                    greater_is_better=config.training.save_best_eval_metric_greater_is_better,
-                    exp_cfg_dir=save_cfg_dir,
-                )
-            )
-
-        # In-process open-loop evaluation (groot.core only — no checkpoint reload).
-        # action_horizon lives at different paths per model family:
-        #   N1.x: config.model.action_horizon (direct attr)
-        #   N2:   config.model.action_cfg["action_horizon"] (TypedDict on action_cfg)
-        _model_action_horizon = getattr(config.model, "action_horizon", None) or (
-            getattr(config.model, "action_cfg", {}) or {}
-        ).get("action_horizon")
-        in_proc_cb = _build_in_process_open_loop_callback(
-            in_process_cfg=config.training.open_loop_eval_in_process,
-            data_cfg=config.data,
-            processor=processor,
-            action_horizon=(
-                config.training.open_loop_eval_in_process.action_horizon or _model_action_horizon
-            ),
-            video_backend=config.data.video_backend,
-            trainer=trainer,
-        )
-        if in_proc_cb is not None:
-            trainer.add_callback(in_proc_cb)
-
-        # Open-loop evaluation (requires groot.control at runtime — lazy imports)
-        legacy_cb = _build_open_loop_eval_callback(
-            legacy_cfg=config.training.open_loop_eval,
-            data_cfg=config.data,
-            action_horizon=_model_action_horizon,
-            video_backend=config.data.video_backend,
-            trainer=trainer,
-        )
-        if legacy_cb is not None:
-            trainer.add_callback(legacy_cb)
-
         _save_initial_actions_artifact(train_dataset, save_cfg_dir, global_rank)
 
         # Shared outputs retain local discovery unless explicit recovery is set.

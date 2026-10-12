@@ -249,15 +249,15 @@ def _checkpoint_lock(checkpoint: Path) -> Iterator[None]:
 
 def _prepare_checkpoint_for_identity(checkpoint: Path) -> Path:
     """Materialize dependencies before hashing the exact VAE export input."""
-    _ensure_checkpoint_dependencies(checkpoint)
-    return resolve_checkpoint_vae_weights(checkpoint)
+    localized = _ensure_checkpoint_dependencies(checkpoint)
+    return resolve_checkpoint_vae_weights(localized)
 
 
-def _ensure_checkpoint_dependencies(checkpoint: Path) -> None:
+def _ensure_checkpoint_dependencies(checkpoint: Path) -> Path:
     """Load the training dependency helper only when an automatic build starts."""
     from groot.core.training.models.n2.utils.cosmos_model_deps import ensure_cosmos_model_deps
 
-    ensure_cosmos_model_deps(checkpoint)
+    return Path(ensure_cosmos_model_deps(checkpoint))
 
 
 def _validate_cached_bundle(

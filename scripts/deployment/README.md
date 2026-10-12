@@ -8,16 +8,15 @@ Run TensorRT-accelerated inference for the GR00T N2 policy.
 
 - A compatible N2 model checkpoint
 - A CUDA-capable target platform
-- The environment for the target platform from the [installation guide](../../docs/installation.md)
+- The environment for the target platform, using the setup below
 
 TensorRT engines are specific to the GPU and software stack on which they are built. Follow
-the installation path for the target platform, then use the common export, build, validation, and
+the setup section for the target platform, then use the common export, build, validation, and
 serving workflow below.
 
 | Platform | Setup | Supported workflow |
 | --- | --- | --- |
-| x86_64 dGPU | [Optional TensorRT setup](../../docs/installation.md#optional-tensorrt-on-x86) | Export, build, validate, and serve for compatible checkpoints |
-| Jetson Thor | [Thor setup](../../docs/installation.md#jetson-thor) (bare metal) | Export, build, validate, and serve |
+| Jetson Thor | [Jetson Thor Setup](#jetson-thor-setup) (bare metal) | Export, build, validate, and serve |
 
 
 ## TensorRT Acceleration
@@ -50,7 +49,7 @@ bundle path printed by the command.
 
 Start from a clean Git checkout. The checkpoint can be in any local directory; it must contain
 `config.json`, `processor_config.json`, `statistics.json`, and the model safetensors. All model
-dependencies referenced by `config.json` must also resolve on the target host.
+dependencies referenced by `config.json` must also resolve on the Thor.
 
 Set the checkpoint and cache paths. `build-trt` resolves the checkpoint contract, exports the
 ONNX graphs, builds the GPU-specific engines, validates them against PyTorch, and prints the
@@ -185,10 +184,25 @@ model used by `groot.infra.oss train`.
 
 ### Jetson Thor Setup
 
-Follow the [Thor installation and activation instructions](../../docs/installation.md#jetson-thor),
-then return to this guide to build, validate, and serve your checkpoint.
+#### Bare Metal
 
-### x86 Setup
+Requires Ubuntu 24.04 on AArch64, Python 3.12, and the CUDA 13 toolkit and driver.
+Run `sudo -v` first if sudo requires a password.
 
-Follow the [x86 TensorRT installation instructions](../../docs/installation.md#optional-tensorrt-on-x86),
-then return to this guide to build, validate, and use your checkpoint's engines.
+```bash
+# One-time install (validates aarch64/Python 3.12 and creates the locked
+# CUDA 13 environment)
+bash scripts/deployment/thor/install_deps.sh
+
+# In each new shell
+source scripts/deployment/thor/activate_thor.sh
+```
+
+Activation selects the Thor project with `UV_PROJECT` and its project-local `.venv`.
+Both plain `python` and `uv run` use the same environment; this guide uses `uv run`.
+Verify the environment before building:
+
+```bash
+uv run python -c \
+  'import torch, tensorrt; print(torch.__version__, tensorrt.__version__, torch.cuda.get_device_name())'
+```

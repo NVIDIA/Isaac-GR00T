@@ -362,7 +362,7 @@ def _export(args: argparse.Namespace) -> int:
         raise RuntimeError("CUDA is required to export the GR00T2 VAE encoder")
 
     checkpoint = Path(args.checkpoint).expanduser().resolve()
-    ensure_cosmos_model_deps(checkpoint)
+    checkpoint = Path(ensure_cosmos_model_deps(checkpoint))
     contract = _checkpoint_contract(checkpoint, args.embodiment)
     input_shape, output_shape = _vae_shapes(
         contract.camera_count,

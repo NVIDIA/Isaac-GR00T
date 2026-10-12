@@ -18,6 +18,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from groot.core.utils.storage.checkpoint import checkpoint_source_path
+
 
 class N2ModelVariant(str, Enum):
     """Promoted checkpoint execution family."""
@@ -209,7 +211,7 @@ class N2TensorRTContract:
         conditional_kv_cache: bool,
     ) -> N2TensorRTContract:
         """Resolve the promoted fixed-shape contract without Torch/TensorRT."""
-        checkpoint_path = Path(checkpoint).expanduser().resolve(strict=True)
+        checkpoint_path = checkpoint_source_path(Path(checkpoint).expanduser()).resolve(strict=True)
         model = resolve_checkpoint_actor_config(_read_json(checkpoint_path / "config.json"))
         processor = _read_json(checkpoint_path / "processor_config.json")
         model_type = _require_string(model, "model_type")

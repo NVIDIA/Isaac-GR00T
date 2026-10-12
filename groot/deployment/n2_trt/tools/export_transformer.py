@@ -33,8 +33,7 @@ DEFAULT_CODEC_ROUNDTRIP = "mp4v"
 
 def _prepare_checkpoint(checkpoint: str) -> Path:
     checkpoint_path = Path(checkpoint).expanduser().resolve()
-    ensure_cosmos_model_deps(checkpoint_path)
-    return checkpoint_path
+    return Path(ensure_cosmos_model_deps(checkpoint_path))
 
 
 def _parse_args() -> argparse.Namespace:

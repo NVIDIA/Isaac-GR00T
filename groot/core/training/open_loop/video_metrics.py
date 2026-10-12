@@ -16,7 +16,8 @@ world model only ever sees and predicts a ``crop_fraction`` (typically 0.95)
 model input is crop→resize to ``image_target_size``). So comparing the model's
 output against the *full-frame* GT penalizes a field-of-view the model was never
 asked to reproduce — historically this has deflated ego PSNR by ~10 dB and
-saturated the ego comparison.
+saturated the ego comparison (see the ego-wam wiki EVAL_GUIDE.md
+§"PSNR/SSIM/LPIPS scoring convention").
 
 :func:`video_frame_metrics` therefore reports a **single** config-appropriate
 ``psnr`` / ``ssim`` / ``lpips`` triple:
@@ -47,17 +48,15 @@ __all__ = [
 
 
 def decode_video_latents(policy) -> list:
-    """Decode a policy's buffered video latents into per-view ``(T, H, W, C)`` uint8 frames.
-
-    Uses the policy's EXISTING ``model.decode_latents`` — so the open-loop video metrics
-    need no extra method on ``Gr00tN2Policy``.
+    """Decode a policy's buffered video latents into per-view ``(T, H, W, C)`` uint8 frame
+    arrays, using the policy's EXISTING ``model.decode_latents`` — so the open-loop video
+    metrics need no extra method on ``Gr00tN2Policy``.
 
     Duck-typed on ``policy.video_latents_buffer`` (list of per-chunk latents) and
     ``policy.model`` (with ``max_n_cameras`` + ``decode_latents``); both a raw
     ``Gr00tN2Policy`` and the :class:`~groot.core.training.open_loop.live_policy.LivePolicyAdapter`
     (which exposes them via properties) satisfy it. Returns ``[]`` when nothing was buffered
-    (video prediction off).
-    """
+    (video prediction off)."""
     buf = getattr(policy, "video_latents_buffer", None)
     model = getattr(policy, "model", None)
     if not buf or model is None:
@@ -157,9 +156,7 @@ def center_crop_resize(
     h, w = frame.shape[:2]
     ch, cw = max(1, int(h * crop_fraction)), max(1, int(w * crop_fraction))
     y, x = (h - ch) // 2, (w - cw) // 2
-    return cv2.resize(
-        frame[y : y + ch, x : x + cw], (target_w, target_h), interpolation=cv2.INTER_LINEAR
-    )
+    return cv2.resize(frame[y : y + ch, x : x + cw], (target_w, target_h), interpolation=cv2.INTER_LINEAR)
 
 
 def video_frame_metrics(
@@ -206,7 +203,7 @@ def video_frame_metrics(
     lpipss: list[float] = []
     torch = None
     if lpips_net is not None:
-        import torch
+        import torch  # noqa: PLC0415
 
         lp_device = next(lpips_net.parameters()).device
 
@@ -231,14 +228,8 @@ def video_frame_metrics(
         ssims.append(float(structural_similarity(g, p, channel_axis=2, data_range=255)))
         if lpips_net is not None:
             with torch.no_grad():
-                pt = (
-                    torch.from_numpy(p).permute(2, 0, 1).unsqueeze(0).float().to(lp_device) / 127.5
-                    - 1
-                )
-                gt_t = (
-                    torch.from_numpy(g).permute(2, 0, 1).unsqueeze(0).float().to(lp_device) / 127.5
-                    - 1
-                )
+                pt = torch.from_numpy(p).permute(2, 0, 1).unsqueeze(0).float().to(lp_device) / 127.5 - 1
+                gt_t = torch.from_numpy(g).permute(2, 0, 1).unsqueeze(0).float().to(lp_device) / 127.5 - 1
                 lpipss.append(float(lpips_net(pt, gt_t).item()))
 
     out: dict[str, float] = {"psnr": float(np.mean(psnrs)), "ssim": float(np.mean(ssims))}

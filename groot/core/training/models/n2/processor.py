@@ -33,7 +33,11 @@ from groot.core.data.state_action.state_action_processor import StateActionProce
 from groot.core.data.types import BaseProcessor, VLAStepDataId
 from groot.core.data.utils import parse_modality_configs, to_json_serializable
 from groot.core.training.configs.data.embodiment_configs import ModalityConfig
-from groot.core.training.configs.model.n2 import ActionConfig, GrootN2Config
+from groot.core.training.configs.model.n2 import (
+    ActionConfig,
+    GrootN2Config,
+    portable_model_dependency_path,
+)
 from groot.core.training.models.n2.components.image_transforms import (
     FractionalCenterCrop,
     apply_with_replay,
@@ -218,6 +222,7 @@ class GrootN2Processor(BaseProcessor):
         action_cfg: ActionConfig | None = None,
         statistics: dict | None = None,
         embodiment_id_mapping: dict[str, int] | None = None,
+        model_dependency_identities: dict[str, str] | None = None,
         **_kwargs,
     ):
         self.modality_configs = parse_modality_configs(modality_configs)
@@ -233,6 +238,7 @@ class GrootN2Processor(BaseProcessor):
         self.codec_aug_params = codec_aug_params
         self.max_language_length = max_language_length
         self.tokenizer_path = tokenizer_path
+        self.model_dependency_identities = model_dependency_identities
         self.formalize_language = formalize_language
         self.max_n_cameras = max_n_cameras
         self.action_cfg = action_cfg
@@ -672,7 +678,9 @@ class GrootN2Processor(BaseProcessor):
                 "max_n_cameras": self.max_n_cameras,
                 "formalize_language": self.formalize_language,
                 "max_language_length": self.max_language_length,
-                "tokenizer_path": self.tokenizer_path,
+                "tokenizer_path": portable_model_dependency_path(
+                    self.tokenizer_path, self.model_dependency_identities
+                ),
                 "language_dropout_prob": self.language_dropout_prob,
                 "null_prompt": self.null_prompt,
                 "action_cfg": dict(self.action_cfg) if self.action_cfg else None,
