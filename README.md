@@ -12,6 +12,10 @@ the same supported training, evaluation, and serving implementation.
 
 Start your agent or terminal in the repository root—the directory containing
 this README and `pyproject.toml`—then choose the row matching your goal.
+Use the [installation guide](docs/installation.md) to select the environment
+for your platform. The CLI commands below use PyTorch inference; optional
+[TensorRT setup](docs/installation.md#optional-tensorrt-on-x86) adds acceleration
+for compatible checkpoints.
 
 <table>
   <thead>
@@ -31,19 +35,13 @@ up the uv environment, prepare the example dataset, and verify
 training, open-loop evaluation, and the policy server.</code></pre>
       </td>
       <td>
-        <p>The setup below targets dGPU (x86_64). For Jetson AGX Thor, use the
-        <a href="scripts/deployment/README.md#jetson-thor-setup">Thor-specific setup</a>.</p>
-        <pre><code class="language-bash">apt-get update
-apt-get install -y build-essential ca-certificates curl git python3-dev \
-  python3-venv ffmpeg yasm cmake libtool pkg-config libass-dev \
-  libfreetype6-dev libvorbis-dev autoconf automake texinfo
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --frozen --extra training --extra tensorrt
-
-uv run --no-sync python examples/prepare_minimal_dataset.py \
-  --output-dir "$HOME/gr00t2/data/gr00t_red_test"</code></pre>
-        <p>Continue with the exact smoke-test commands in the
-        <a href="docs/minimal_example.md">minimal end-to-end example</a>.</p>
+        <p>Follow the <a href="docs/installation.md#x86-training">x86 training
+        setup</a>, then run the <a href="docs/minimal_example.md">minimal
+        end-to-end example</a> to prepare the dataset and verify training,
+        evaluation, and serving.</p>
+        <p>For Jetson AGX Thor inference, use the
+        <a href="docs/installation.md#jetson-thor">Thor setup</a> and
+        <a href="scripts/deployment/README.md">deployment guide</a>.</p>
       </td>
     </tr>
     <tr>
@@ -56,7 +54,8 @@ on /path/to/lerobot_dataset with embodiment tag
 &lt;dataset-embodiment-tag&gt;.</code></pre>
       </td>
       <td>
-        <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss train \
+        <p>Requires the <a href="docs/installation.md#x86-training">training environment</a>.</p>
+        <pre><code class="language-bash">uv run python -m groot.infra.oss train \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag &lt;dataset-embodiment-tag&gt;</code></pre>
         <p>Add <code>--dry-run</code> to inspect the resolved command without starting
@@ -73,12 +72,12 @@ on /path/to/lerobot_dataset with embodiment tag
 tag &lt;dataset-embodiment-tag&gt;.</code></pre>
       </td>
       <td>
-        <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss eval \
+        <p>Requires the <a href="docs/installation.md#x86-inference">inference or training environment</a>.</p>
+        <pre><code class="language-bash">uv run python -m groot.infra.oss eval \
   --checkpoint &lt;hf-uri-or-local-path&gt; \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag &lt;dataset-embodiment-tag&gt; \
-  --codec none \
-  --enable-trt</code></pre>
+  --codec none</code></pre>
       </td>
     </tr>
     <tr>
@@ -91,11 +90,11 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
 &lt;dataset-embodiment-tag&gt;.</code></pre>
       </td>
       <td>
-        <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss train-eval \
+        <p>Requires the <a href="docs/installation.md#x86-training">training environment</a>.</p>
+        <pre><code class="language-bash">uv run python -m groot.infra.oss train-eval \
   --dataset-path /path/to/lerobot_dataset \
   --embodiment-tag &lt;dataset-embodiment-tag&gt; \
-  --codec none \
-  --enable-trt</code></pre>
+  --codec none</code></pre>
       </td>
     </tr>
     <tr>
@@ -108,11 +107,11 @@ tag &lt;dataset-embodiment-tag&gt;.</code></pre>
 &lt;dataset-embodiment-tag&gt; on port 5555.</code></pre>
       </td>
       <td>
-        <pre><code class="language-bash">uv run --no-sync python -m groot.infra.oss policy-server \
+        <p>Requires the <a href="docs/installation.md#x86-inference">inference or training environment</a>.</p>
+        <pre><code class="language-bash">uv run python -m groot.infra.oss policy-server \
   --checkpoint &lt;hf-uri-or-local-path&gt; \
   --embodiment-tag &lt;dataset-embodiment-tag&gt; \
   --codec none \
-  --enable-trt \
   --host 0.0.0.0 \
   --port 5555</code></pre>
         <p>Add <code>--dry-run</code> to inspect the resolved server command without
@@ -127,11 +126,18 @@ workflows, see the [agentic workflows and skills guide](skills/README.md).
 
 ## TensorRT Deployment
 
+Install the [optional x86 TensorRT environment](docs/installation.md#optional-tensorrt-on-x86)
+or the [Thor environment](docs/installation.md#jetson-thor) first. For compatible
+checkpoints, add `--enable-trt` to the evaluation, train-eval, or policy-server
+commands above to build and reuse a validated bundle automatically. Automatic
+bundles require four denoising steps; see the deployment guide for checkpoint
+constraints.
+
 Build and validate a checkpoint-specific TensorRT engine bundle on the GPU that
 will run it:
 
 ```bash
-uv run --no-sync python -P -m groot.infra.oss build-trt \
+uv run python -P -m groot.infra.oss build-trt \
   --checkpoint <hf-uri-or-local-path> \
   --codec mp4v
 ```
@@ -241,10 +247,9 @@ metadata. Keep source data unchanged while a run is in progress.
 Run the N2 policy against any simulator plugin that implements the shared backend contract:
 
 ```bash
-uv run --no-sync python -m groot.infra.oss closed-loop-eval \
+uv run python -m groot.infra.oss closed-loop-eval \
   --checkpoint <hf-uri-or-local-path> \
   --codec none \
-  --enable-trt \
   --backend <python-module:BackendClass> \
   --suite <suite-name> \
   --embodiment-tag <checkpoint-embodiment-tag> \
@@ -256,7 +261,8 @@ Without `--ray-address`, the command starts local Ray. Pass a Ray client or GCS
 address to use an existing cluster. A run writes its resolved request,
 success-rate report, comparison history, and optional videos below the output
 directory. Simulator-specific setup and supported suites are documented by
-each backend. `--enable-trt` reuses a matching validated bundle from the local
+each backend. After [TensorRT setup](docs/installation.md#optional-tensorrt-on-x86),
+add `--enable-trt` to reuse a matching validated bundle from the local
 cache or builds and validates one inside the target Ray policy worker. With
 `--rebuild-trt`, each distinct runtime/cache identity rebuilds once; workers
 sharing that identity reuse the newly published bundle. Automatic bundles
@@ -343,7 +349,7 @@ Install the pinned simulator checkout, then run an approved shared suite:
 ```bash
 groot/infra/closed_loop/backends/robocasa365/setup.sh
 
-uv run --no-sync python -m groot.infra.oss closed-loop-eval \
+uv run python -m groot.infra.oss closed-loop-eval \
   --checkpoint <hf-uri-or-local-path> \
   --backend groot.infra.closed_loop.backends.robocasa365.backend:RoboCasa365Backend \
   --suite robocasa365_target50 \
@@ -363,7 +369,7 @@ Install its pinned runtime, then select one of the approved ARX X5 suites:
 ```bash
 groot/infra/closed_loop/backends/robodojo/setup.sh
 
-uv run --no-sync python -m groot.infra.oss closed-loop-eval \
+uv run python -m groot.infra.oss closed-loop-eval \
   --checkpoint <hf-uri-or-local-path> \
   --backend groot.infra.closed_loop.backends.robodojo.backend:RoboDojoBackend \
   --suite robodojo_arx_x5_generalization \
