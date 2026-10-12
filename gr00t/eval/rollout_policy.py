@@ -522,7 +522,7 @@ def create_gr00t_sim_policy(
             deploy_dir = str(Path(__file__).resolve().parents[2] / "scripts" / "deployment")
             if deploy_dir not in sys.path:
                 sys.path.insert(0, deploy_dir)
-            from trt_model_forward import close_tensorrt_engines, setup_tensorrt_engines
+            from trt.trt_model_forward import close_tensorrt_engines, setup_tensorrt_engines
 
             try:
                 setup_tensorrt_engines(gr00t_policy, trt_engine_path, mode=trt_mode)
@@ -580,7 +580,7 @@ def run_gr00t_sim_policy(
         deploy_dir = str(Path(__file__).resolve().parents[2] / "scripts" / "deployment")
         if deploy_dir not in sys.path:
             sys.path.insert(0, deploy_dir)
-        from trt_model_forward import closing_tensorrt_engines
+        from trt.trt_model_forward import closing_tensorrt_engines
 
         engine_cleanup = closing_tensorrt_engines(policy)
     else:

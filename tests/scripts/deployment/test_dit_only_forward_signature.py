@@ -52,7 +52,7 @@ GET_ACTION_WITH_FEATURES_KWARGS = (
 @pytest.fixture(scope="module")
 def trt_model_forward():
     try:
-        import trt_model_forward as mod  # noqa: E402
+        import trt.trt_model_forward as mod  # noqa: E402
     except (ImportError, OSError) as e:  # torch/tensorrt or native CUDA libs absent on CPU CI
         pytest.skip(f"trt_model_forward not importable in this env: {e}")
     return mod

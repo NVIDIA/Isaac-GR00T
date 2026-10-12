@@ -59,7 +59,7 @@ getting_started/    # User-facing guides and notebooks
 
 - **Fine-tune:** `bash examples/finetune.sh --base-model-path <path> --dataset-path <path> --embodiment-tag <tag> --output-dir <dir>`
 - **Inference server:** `python gr00t/eval/run_gr00t_server.py --model-path <path> --embodiment-tag <tag>`
-- **ONNX export:** `python scripts/deployment/export_onnx_n1d7.py`
+- **ONNX export:** `python -m scripts.deployment.trt.export_onnx_n1d7`
 - **TensorRT build:** `python scripts/deployment/build_trt_pipeline.py`
 - **Benchmark:** `python scripts/deployment/benchmark_inference.py`
 

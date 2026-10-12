@@ -479,12 +479,19 @@ If you later run `uv sync`, rerun the Orin installer to restore the locally buil
 
 ## Files
 
+TensorRT helpers live under `trt/`. Run their commands from the repository root
+with `python -m scripts.deployment.trt.<module>`.
+
 | File | Description |
 |------|-------------|
 | `build_trt_pipeline.py` | Unified pipeline: export ONNX, build engines, verify, benchmark |
 | `standalone_inference_script.py` | Main inference script (PyTorch + DiT-only or full-pipeline TensorRT) |
-| `trt_torch.py` | TRT Engine wrapper class (load, bind, execute) |
-| `trt_model_forward.py` | TRT forward functions and setup (backbone + action head) |
+| `trt/export_onnx_n1d7.py` | N1.7 component ONNX export |
+| `trt/build_tensorrt_engine.py` | TensorRT engine construction |
+| `trt/verify_n1d7_trt.py` | PyTorch/TensorRT action equivalence checks |
+| `trt/_trt_contract.py` | Shared engine metadata and workload validation |
+| `trt/trt_torch.py` | TRT Engine wrapper class (load, bind, execute) |
+| `trt/trt_model_forward.py` | TRT forward functions and setup (backbone + action head) |
 
 ---
 

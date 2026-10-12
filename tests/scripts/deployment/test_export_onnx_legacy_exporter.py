@@ -22,7 +22,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[3]
-EXPORT_SCRIPT = ROOT / "scripts" / "deployment" / "export_onnx_n1d7.py"
+EXPORT_SCRIPT = ROOT / "scripts" / "deployment" / "trt" / "export_onnx_n1d7.py"
 BUILD_PIPELINE_SCRIPT = ROOT / "scripts" / "deployment" / "build_trt_pipeline.py"
 MODES_SCRIPT = ROOT / "gr00t" / "deployment" / "modes.py"
 

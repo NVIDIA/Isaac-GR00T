@@ -271,7 +271,7 @@ class PipelineConfig:
 
 
 def _run_export(cfg: PipelineConfig, onnx_dir: str, embodiment_tag, log_fp) -> None:
-    from export_onnx_n1d7 import ExportConfig, main as export_main
+    from trt.export_onnx_n1d7 import ExportConfig, main as export_main
 
     export_cfg = ExportConfig(
         model_path=cfg.model_path,
@@ -289,8 +289,8 @@ def _run_export(cfg: PipelineConfig, onnx_dir: str, embodiment_tag, log_fp) -> N
 def _run_build(
     cfg: PipelineConfig, onnx_dir: str, engine_dir: str, log_fp, trt_severity=None
 ) -> None:
-    from build_tensorrt_engine import BuildConfig, build_full_pipeline, main as build_main
     from gr00t.deployment.modes import EXPORT_MODE_COMPONENTS
+    from trt.build_tensorrt_engine import BuildConfig, build_full_pipeline, main as build_main
 
     build_mode, _, _ = _MODE_MAP[cfg.export_mode]
 
@@ -338,7 +338,7 @@ def _copy_export_metadata(onnx_dir: str, engine_dir: str) -> None:
 
 
 def _run_verify(cfg: PipelineConfig, engine_dir: str, embodiment_tag, log_fp) -> float:
-    from verify_n1d7_trt import VerifyConfig, main as verify_main
+    from trt.verify_n1d7_trt import VerifyConfig, main as verify_main
 
     _, verify_mode, _ = _MODE_MAP[cfg.export_mode]
     verify_cfg = VerifyConfig(

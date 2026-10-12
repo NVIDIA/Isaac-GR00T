@@ -72,7 +72,7 @@ def build_full_pipeline(monkeypatch):
     )
     monkeypatch.syspath_prepend(deploy_dir)
 
-    from build_tensorrt_engine import build_full_pipeline as fn
+    from trt.build_tensorrt_engine import build_full_pipeline as fn
 
     yield fn
 
@@ -107,8 +107,8 @@ def test_build_full_pipeline_raises_when_any_engine_fails(tmp_path, build_full_p
         _fake_build_engine_success(onnx_path, engine_path)
 
     with (
-        patch("build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
-        patch("build_tensorrt_engine.build_engine", side_effect=fake_build_engine),
+        patch("trt.build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
+        patch("trt.build_tensorrt_engine.build_engine", side_effect=fake_build_engine),
         pytest.raises(RuntimeError, match=r"1/\d+ engine\(s\) failed"),
     ):
         build_full_pipeline(
@@ -126,8 +126,8 @@ def test_build_full_pipeline_returns_normally_when_all_engines_build(tmp_path, b
     _seed_dummy_onnx_dir(onnx_dir)
 
     with (
-        patch("build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
-        patch("build_tensorrt_engine.build_engine", side_effect=_fake_build_engine_success),
+        patch("trt.build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
+        patch("trt.build_tensorrt_engine.build_engine", side_effect=_fake_build_engine_success),
     ):
         build_full_pipeline(
             onnx_dir=str(onnx_dir),
@@ -144,8 +144,8 @@ def test_build_full_pipeline_raises_when_all_onnx_inputs_missing(tmp_path, build
     engine_dir = tmp_path / "engines"
 
     with (
-        patch("build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
-        patch("build_tensorrt_engine.build_engine", side_effect=_fake_build_engine_success),
+        patch("trt.build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
+        patch("trt.build_tensorrt_engine.build_engine", side_effect=_fake_build_engine_success),
         pytest.raises(
             RuntimeError,
             match=rf"{len(_PIPELINE_ONNX_FILES)}/{len(_PIPELINE_ONNX_FILES)} component\(s\) had no ONNX input",
@@ -172,8 +172,8 @@ def test_build_full_pipeline_raises_when_some_onnx_inputs_missing(tmp_path, buil
     engine_dir = tmp_path / "engines"
 
     with (
-        patch("build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
-        patch("build_tensorrt_engine.build_engine", side_effect=_fake_build_engine_success),
+        patch("trt.build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
+        patch("trt.build_tensorrt_engine.build_engine", side_effect=_fake_build_engine_success),
         pytest.raises(
             RuntimeError,
             match=rf"{len(missing)}/{len(_PIPELINE_ONNX_FILES)} component\(s\) had no ONNX input",
@@ -205,8 +205,8 @@ def test_build_full_pipeline_error_mentions_both_skips_and_failures(tmp_path, bu
         _fake_build_engine_success(onnx_path, engine_path)
 
     with (
-        patch("build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
-        patch("build_tensorrt_engine.build_engine", side_effect=fake_build),
+        patch("trt.build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
+        patch("trt.build_tensorrt_engine.build_engine", side_effect=fake_build),
     ):
         with pytest.raises(RuntimeError) as exc_info:
             build_full_pipeline(
@@ -234,7 +234,7 @@ def test_build_full_pipeline_error_mentions_both_skips_and_failures(tmp_path, bu
 @pytest.fixture
 def check_precision_match(build_full_pipeline):  # noqa: ARG001 — share stub setup
     """Return the _check_strongly_typed_precision_match helper from the module."""
-    from build_tensorrt_engine import _check_strongly_typed_precision_match
+    from trt.build_tensorrt_engine import _check_strongly_typed_precision_match
 
     return _check_strongly_typed_precision_match
 
@@ -294,7 +294,7 @@ def test_strongly_typed_precision_match_rejects_unknown_token(check_precision_ma
 @pytest.fixture
 def precision_from_onnx_path(build_full_pipeline):  # noqa: ARG001 — share stub setup
     """Return the _precision_from_onnx_path helper from the module."""
-    from build_tensorrt_engine import _precision_from_onnx_path
+    from trt.build_tensorrt_engine import _precision_from_onnx_path
 
     return _precision_from_onnx_path
 
@@ -349,8 +349,8 @@ def test_build_full_pipeline_passes_per_component_precision(tmp_path, build_full
         _fake_build_engine_success(onnx_path, engine_path)
 
     with (
-        patch("build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
-        patch("build_tensorrt_engine.build_engine", side_effect=fake_build_engine),
+        patch("trt.build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
+        patch("trt.build_tensorrt_engine.build_engine", side_effect=fake_build_engine),
     ):
         build_full_pipeline(
             onnx_dir=str(onnx_dir),
@@ -404,8 +404,8 @@ def test_build_full_pipeline_falls_back_to_vit_bf16_when_fp32_missing(
         _fake_build_engine_success(onnx_path, engine_path)
 
     with (
-        patch("build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
-        patch("build_tensorrt_engine.build_engine", side_effect=fake_build_engine),
+        patch("trt.build_tensorrt_engine.derive_shapes_with_hint", return_value=({}, {}, {})),
+        patch("trt.build_tensorrt_engine.build_engine", side_effect=fake_build_engine),
     ):
         build_full_pipeline(
             onnx_dir=str(onnx_dir),
