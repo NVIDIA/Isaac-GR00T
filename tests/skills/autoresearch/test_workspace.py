@@ -95,6 +95,7 @@ def test_workspace_commits_editable_change(repository: Path, tmp_path: Path) -> 
         changed,
         editable_paths=("groot/core/training/models/",),
         frozen_paths=("groot/infra/",),
+        commit=workspace.base_commit,
     )
 
     assert changed == ["groot/core/training/models/model.py"]
@@ -145,9 +146,96 @@ def test_workspace_rejects_frozen_and_out_of_scope_changes(
         manager.changed_files(workspace),
         editable_paths=("groot/core/training/models/",),
         frozen_paths=("groot/infra/",),
+        commit=workspace.base_commit,
     )
 
     assert violations == ["README.md: outside editable paths", "groot/infra/eval.py: frozen"]
+    manager.remove(workspace)
+
+
+@pytest.mark.parametrize(
+    ("link_name", "link_target", "committed", "edited", "expected"),
+    [
+        (
+            "training_config.py",
+            "../../../../../../groot/core/training/configs/training/training_config.py",
+            True,
+            "groot/core/training/configs/training/training_config.py",
+            [],
+        ),
+        # A directory symlink makes everything below its target editable.
+        (
+            "presets",
+            "../../../../../../groot/core/training/configs/presets",
+            True,
+            "groot/core/training/configs/presets/fast.py",
+            [],
+        ),
+        (
+            "open_loop_eval_config.py",
+            "../../../../../../groot/core/training/configs/training/open_loop_eval_config.py",
+            True,
+            "groot/core/training/configs/training/open_loop_eval_config.py",
+            ["groot/core/training/configs/training/open_loop_eval_config.py: frozen"],
+        ),
+        # Absolute targets leave the repository even when their text resembles a repo path.
+        (
+            "registry.py",
+            "/groot/core/training/registry.py",
+            True,
+            "groot/core/training/registry.py",
+            ["groot/core/training/registry.py: outside editable paths"],
+        ),
+        # A symlink added by the candidate must not make its target editable.
+        (
+            "registry.py",
+            "../../../../../../groot/core/training/registry.py",
+            False,
+            "groot/core/training/registry.py",
+            ["groot/core/training/registry.py: outside editable paths"],
+        ),
+    ],
+)
+def test_workspace_resolves_committed_symlinks_in_configured_paths(
+    repository: Path,
+    tmp_path: Path,
+    link_name: str,
+    link_target: str,
+    committed: bool,
+    edited: str,
+    expected: list[str],
+) -> None:
+    configs = repository / "groot/core/training/configs"
+    (configs / "training").mkdir(parents=True)
+    (configs / "presets").mkdir()
+    (configs / "training/training_config.py").write_text("LR = 1\n")
+    (configs / "training/open_loop_eval_config.py").write_text("HORIZON = 1\n")
+    (configs / "presets/fast.py").write_text("STEPS = 1\n")
+    (repository / "groot/core/training/registry.py").write_text("REGISTRY = {}\n")
+    mirror = Path("oss/groot/core/training/configs/training")
+    (repository / mirror).mkdir(parents=True)
+    if committed:
+        (repository / mirror / link_name).symlink_to(link_target)
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "mirror configs")
+    manager = GitWorkspaceManager(repository, tmp_path / "runs")
+    workspace = manager.create(
+        trial_id="trial-symlink",
+        base_commit=_git(repository, "rev-parse", "HEAD"),
+    )
+    if not committed:
+        (workspace.path / mirror).mkdir(parents=True)
+        (workspace.path / mirror / link_name).symlink_to(link_target)
+    (workspace.path / edited).write_text("EDITED = True\n")
+
+    violations = manager.validate_changed_files(
+        manager.changed_files(workspace),
+        editable_paths=(f"{mirror}/",),
+        frozen_paths=(f"{mirror}/open_loop_eval_config.py",),
+        commit=workspace.base_commit,
+    )
+
+    assert violations == expected
     manager.remove(workspace)
 
 

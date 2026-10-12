@@ -205,6 +205,7 @@ class TrialController:
                 changed,
                 editable_paths=self.config.editable_paths,
                 frozen_paths=self.config.frozen_paths,
+                commit=self.config.base_commit,
             )
             self._save_diff(artifact_dir, self.workspace_manager.diff(workspace))
             # Empty diffs and frozen-path edits are terminal skips, not runner failures.
