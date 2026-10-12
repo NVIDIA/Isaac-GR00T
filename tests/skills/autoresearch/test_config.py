@@ -149,6 +149,54 @@ def test_load_study_config_rejects_placeholder_environment_values(tmp_path: Path
         StudyConfig.from_yaml(_write_config(tmp_path, data))
 
 
+@pytest.mark.parametrize(
+    ("package_dir", "editable_paths", "frozen_paths", "logs"),
+    [
+        (
+            "oss/skills/autoresearch",
+            ("oss/groot/core/training/models/", "groot/core/training/models/", "oss/vendor/"),
+            ("oss/groot/infra/",),
+            [],
+        ),
+        # An exported checkout is the oss/ package itself: mirrored entries fold together,
+        # while an oss/ path that exists in the checkout is kept as written.
+        (
+            "skills/autoresearch",
+            ("groot/core/training/models/", "oss/vendor/"),
+            ("groot/infra/",),
+            [
+                "[AutoResearch] exported layout detected; dropped oss/ prefix from 1 editable_paths",
+                "[AutoResearch] exported layout detected; dropped oss/ prefix from 1 frozen_paths",
+            ],
+        ),
+    ],
+)
+def test_config_maps_oss_paths_to_workspace_layout(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    package_dir: str,
+    editable_paths: tuple[str, ...],
+    frozen_paths: tuple[str, ...],
+    logs: list[str],
+) -> None:
+    (tmp_path / "repo" / package_dir).mkdir(parents=True)
+    (tmp_path / "repo/oss/vendor").mkdir(parents=True)
+    data = _config_data()
+    data["editable_paths"] = [
+        "oss/groot/core/training/models/",
+        "groot/core/training/models/",
+        "oss/vendor/",
+    ]
+    data["frozen_paths"] = ["oss/groot/infra/"]
+
+    with caplog.at_level("INFO", logger="skills.autoresearch.config"):
+        config = StudyConfig.from_yaml(_write_config(tmp_path, data))
+
+    assert config.editable_paths == editable_paths
+    assert config.frozen_paths == frozen_paths
+    assert caplog.messages == logs
+
+
 def test_config_resolves_missing_base_commit_from_branch_head(tmp_path: Path) -> None:
     workspace = tmp_path / "repo"
     workspace.mkdir()

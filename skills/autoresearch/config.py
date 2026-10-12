@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+import logging
 import math
 import os
 from pathlib import Path
@@ -25,6 +26,8 @@ import yaml
 
 from skills.autoresearch.study_state import Objective
 from skills.autoresearch.train_config_lock import TrainConfigLock
+
+logger = logging.getLogger(__name__)
 
 # Schema guards keep study IDs and commits deterministic.
 _STUDY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -235,8 +238,16 @@ class StudyConfig:
             eval_dataset=_resolved_optional_path(raw, "eval_dataset", config_path),
             objective=Objective.from_baseline(baseline),
             max_trials=_required_int(raw, "max_trials", config_path),
-            editable_paths=_required_string_tuple(raw, "editable_paths", config_path),
-            frozen_paths=_required_string_tuple(raw, "frozen_paths", config_path),
+            editable_paths=_workspace_layout_paths(
+                _required_string_tuple(raw, "editable_paths", config_path),
+                workspace,
+                "editable_paths",
+            ),
+            frozen_paths=_workspace_layout_paths(
+                _required_string_tuple(raw, "frozen_paths", config_path),
+                workspace,
+                "frozen_paths",
+            ),
             idea_types=_required_string_tuple(raw, "idea_types", config_path),
             agent=agent,
             eval_result=eval_result,
@@ -381,6 +392,37 @@ def _required_string_tuple(data: Mapping[str, Any], key: str, path: Path) -> tup
     result = tuple(value)
     _validate_string_tuple(result, f"{path}: {key}")
     return result
+
+
+def _workspace_layout_paths(paths: tuple[str, ...], workspace: Path, label: str) -> tuple[str, ...]:
+    """Map ``oss/``-prefixed repository paths onto the workspace layout.
+
+    The internal repository nests the OSS package under ``oss/``, while the
+    exported repository is that package at its root. Shared study configs use
+    the internal layout, so an exported workspace drops the prefix from entries
+    that do not exist as written.
+    """
+    exported = (workspace / "skills/autoresearch").is_dir() and not (
+        workspace / "oss/skills/autoresearch"
+    ).is_dir()
+    if not exported:
+        return paths
+    mapped = tuple(
+        (
+            path.removeprefix("oss/")
+            if path.startswith("oss/") and not (workspace / path).exists()
+            else path
+        )
+        for path in paths
+    )
+    dropped = sum(original != new for original, new in zip(paths, mapped, strict=True))
+    if dropped:
+        logger.info(
+            "[AutoResearch] exported layout detected; dropped oss/ prefix from %d %s",
+            dropped,
+            label,
+        )
+    return tuple(dict.fromkeys(mapped))
 
 
 def _resolved_path(value: str, base_dir: Path) -> Path:

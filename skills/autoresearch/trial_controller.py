@@ -213,6 +213,7 @@ class TrialController:
                 changed,
                 editable_paths=self.config.editable_paths,
                 frozen_paths=self.config.frozen_paths,
+                commit=self.config.base_commit,
             )
             violations = [*violations, *self._train_config_violations(workspace)]
             self._save_diff(artifact_dir, self.workspace_manager.diff(workspace))

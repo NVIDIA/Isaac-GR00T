@@ -23,7 +23,7 @@ _OSS_ROOT = Path(__file__).resolve().parents[3]
 if str(_OSS_ROOT) not in sys.path:
     sys.path.insert(0, str(_OSS_ROOT))
 
-from skills.autoresearch.cli import _controller, _validate
+from skills.autoresearch.cli import _controller, _validate, configure_logging
 from skills.autoresearch.config import StudyConfig
 
 
@@ -37,6 +37,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Validate one config and print its normalized execution contract."""
     args = _parser().parse_args(argv)
+    configure_logging()
     try:
         config = StudyConfig.from_yaml(args.config)
         _validate(config)
