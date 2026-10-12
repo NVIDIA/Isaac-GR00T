@@ -226,8 +226,6 @@ else
   cat /tmp/docker_buildx_content_hash.err >&2 || true
 fi
 
-docker buildx create --use --driver docker-container --name ci-builder
-
 # shellcheck disable=SC2086
 docker buildx build \
   --cache-from "type=registry,ref=${CACHE_REF}:cache-${CACHE_SLUG}" \

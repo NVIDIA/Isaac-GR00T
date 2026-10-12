@@ -28,44 +28,31 @@ include:
 .image:
   extends: .image_build_retry
   image: docker:27
-  services:
-    - name: docker:27-dind
-      alias: docker
-      command: ["--tls=false", "--host=tcp://0.0.0.0:2375"]
   tags:
-    - ipp-group-gear
+    - cpu/amd64
+    - os/linux
+    - type/docker
   variables:
-    IPP_RUNNER_QUEUE_NAME: user-queue-cpu
-    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: unix:///var/run/docker.sock
     DOCKER_DRIVER: overlay2
     GIT_DEPTH: 1
     GIT_STRATEGY: fetch
     GIT_SUBMODULE_STRATEGY: none
     GIT_LFS_SKIP_SMUDGE: "1"
   before_script:
-    - apk add --no-cache git-lfs
-    - git config --global --add safe.directory "$CI_PROJECT_DIR"
-    - git lfs install --local --force
-    - git lfs pull --include="uv.lock" --exclude=""
     - mkdir -p $HOME/.docker
     - echo "$DOCKER_AUTH_CONFIG" > $HOME/.docker/config.json
     - docker info
-
-.image_arm64:
-  extends: .image
-  services: []
-  variables:
-    DOCKER_HOST: unix:///var/run/docker.sock
-    DOCKER_TLS_CERTDIR: ""
+    - docker buildx create --use --driver docker-container --name ci-builder
 
 .minimal:
   image:
     name: nvcr.io/nvidian/groot-ci-minimal:${CI_COMMIT_SHORT_SHA}
     entrypoint: [""]
   tags:
-    - ipp-group-gear
-  variables:
-    IPP_RUNNER_QUEUE_NAME: user-queue-cpu
+    - cpu/amd64
+    - os/linux
+    - type/docker
   before_script:
     - cd "$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
     - uv pip install .[dev]
@@ -78,9 +65,9 @@ include:
     name: nvcr.io/nvidian/groot-ci-base-minimal:${CI_COMMIT_SHORT_SHA}
     entrypoint: [""]
   tags:
-    - ipp-group-gear
-  variables:
-    IPP_RUNNER_QUEUE_NAME: user-queue-cpu
+    - cpu/amd64
+    - os/linux
+    - type/docker
   before_script:
     - export AWS_ACCESS_KEY_ID=$BUCKET_ACCESS_KEY_ID
     - export AWS_SECRET_ACCESS_KEY=$BUCKET_SECRET_ACCESS_KEY
