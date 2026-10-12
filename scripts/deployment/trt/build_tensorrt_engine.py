@@ -27,7 +27,7 @@ Shape profiles are automatically derived from the ONNX models.
 
 Usage:
     # Full pipeline:
-    python scripts/deployment/build_tensorrt_engine.py \
+    python -m scripts.deployment.trt.build_tensorrt_engine \
         --mode full_pipeline \
         --onnx-dir ./gr00t_trt_deployment/onnx \
         --engine-dir ./gr00t_trt_deployment/engines \
@@ -40,11 +40,12 @@ import os
 import time
 from typing import Literal
 
-from _trt_contract import load_export_metadata, validate_export_metadata
 from gr00t.deployment.modes import FULL_PIPELINE_COMPONENTS, BuildEngineMode
 import onnx
 import tensorrt as trt
 import tyro
+
+from ._trt_contract import load_export_metadata, validate_export_metadata
 
 
 # Set up logging

@@ -27,14 +27,15 @@ import tyro
 
 
 # Make sibling imports work
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from _trt_contract import resolve_batch_size
-from export_onnx_n1d7 import prepare_observation
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.deployment.modes import VerifyMode
 from gr00t.policy.gr00t_policy import Gr00tPolicy
+
+from ._trt_contract import resolve_batch_size
+from .export_onnx_n1d7 import prepare_observation
 
 
 @dataclass
@@ -157,7 +158,7 @@ def main(args: VerifyConfig | None = None):
 
     # Step 2: Setup TRT engines and run
     print("\n[4] Loading TRT engines...")
-    from trt_model_forward import setup_tensorrt_engines
+    from .trt_model_forward import setup_tensorrt_engines
 
     setup_tensorrt_engines(policy, args.engine_dir, mode=args.mode)
 

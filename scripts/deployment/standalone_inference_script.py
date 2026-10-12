@@ -26,7 +26,6 @@ import time
 from typing import Any, Literal
 import warnings
 
-from _trt_contract import assert_exec_horizon_within_model, resolve_batch_size
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
@@ -39,6 +38,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+from trt._trt_contract import assert_exec_horizon_within_model, resolve_batch_size
 import tyro
 
 
@@ -673,7 +673,7 @@ def main(args: ArgsConfig):
     # Apply inference mode
     if args.inference_mode == "trt_full_pipeline":
         logging.info(f"Loading full-pipeline TRT engines from: {args.trt_engine_path}")
-        from trt_model_forward import setup_tensorrt_engines
+        from trt.trt_model_forward import setup_tensorrt_engines
 
         # This script runs one observation at a time (batch=1); fail fast if the
         # engine was baked for a different static batch instead of hitting a cryptic

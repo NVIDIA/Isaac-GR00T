@@ -70,7 +70,7 @@ import tyro
 _DEPLOY_DIR = os.path.dirname(os.path.abspath(__file__))
 if _DEPLOY_DIR not in sys.path:
     sys.path.insert(0, _DEPLOY_DIR)
-from _trt_contract import resolve_batch_size  # noqa: E402
+from trt._trt_contract import resolve_batch_size  # noqa: E402
 
 
 def set_seed(seed: int = 42):
@@ -472,7 +472,7 @@ def main(args: BenchmarkConfig | None = None):
 
     # Tile observations to match the batch size baked into TRT engines
     if args.batch_size > 1:
-        from verify_n1d7_trt import _tile_observation
+        from trt.verify_n1d7_trt import _tile_observation
 
         print(f"Tiling observations to batch_size={args.batch_size}")
         if isinstance(observation, list):
@@ -602,7 +602,7 @@ def main(args: BenchmarkConfig | None = None):
         )
 
         if args.trt_mode in ("n17_full_pipeline", "vit_llm_only"):
-            from trt_model_forward import setup_tensorrt_engines
+            from trt.trt_model_forward import setup_tensorrt_engines
 
             setup_tensorrt_engines(policy_trt, args.trt_engine_path, mode=args.trt_mode)
         else:
@@ -637,11 +637,11 @@ def main(args: BenchmarkConfig | None = None):
         print(f"\nTensorRT engine not found: {args.trt_engine_path}")
         print("To build engines for full pipeline, run:")
         print(
-            "  python scripts/deployment/export_onnx_n1d7.py --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10"
+            "  python -m scripts.deployment.trt.export_onnx_n1d7 --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10"
             " --dataset-path demo_data/libero_demo --output-dir ./gr00t_trt_deployment/onnx --export-mode full_pipeline"
         )
         print(
-            "  python scripts/deployment/build_tensorrt_engine.py --mode full_pipeline"
+            "  python -m scripts.deployment.trt.build_tensorrt_engine --mode full_pipeline"
             " --onnx-dir ./gr00t_trt_deployment/onnx --engine-dir ./gr00t_trt_deployment/engines --precision bf16"
         )
 

@@ -33,7 +33,7 @@ DEPLOY_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../s
 if DEPLOY_DIR not in sys.path:
     sys.path.insert(0, DEPLOY_DIR)
 
-import _trt_contract as tc  # noqa: E402
+import trt._trt_contract as tc  # noqa: E402
 
 
 def _write_metadata(d, **kwargs):

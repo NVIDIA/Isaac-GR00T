@@ -35,13 +35,13 @@ Usage:
 
     # DiT only (default). N1.7 TRT export uses the legacy ONNX exporter
     # explicitly (`dynamo=False`) so dynamic axes remain TensorRT-friendly.
-    python export_onnx_n1d7.py \\
+    python -m scripts.deployment.trt.export_onnx_n1d7 \\
         --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \\
         --dataset-path demo_data/libero_demo \\
         --output-dir ./gr00t_trt_deployment/onnx
 
     # Action head (4 components)
-    python export_onnx_n1d7.py \\
+    python -m scripts.deployment.trt.export_onnx_n1d7 \\
         --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \\
         --dataset-path demo_data/libero_demo \\
         --output-dir ./gr00t_trt_deployment/onnx \\
@@ -56,7 +56,6 @@ import os
 from pathlib import Path
 from typing import Literal, Optional
 
-from _trt_contract import EXPORT_METADATA_SCHEMA_VERSION
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
@@ -70,6 +69,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.onnx
 import tyro
+
+from ._trt_contract import EXPORT_METADATA_SCHEMA_VERSION
 
 
 # Set up logging

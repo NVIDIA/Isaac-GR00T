@@ -64,15 +64,15 @@ logger = logging.getLogger(__name__)
 
 
 # Ensure sibling modules are importable (scripts/deployment is not a package)
-_deploy_dir = os.path.dirname(os.path.abspath(__file__))
+_deploy_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _deploy_dir not in sys.path:
     sys.path.insert(0, _deploy_dir)
-from _trt_contract import (  # noqa: E402
+from ._trt_contract import (  # noqa: E402
     assert_engine_bundle_present,
     assert_engine_matches_policy,
     assert_grid_thw_matches,
 )
-from trt_torch import Engine  # noqa: E402
+from .trt_torch import Engine  # noqa: E402
 
 
 def _assert_supports_trt_padding_strip(attention_mask: torch.Tensor) -> None:
@@ -95,7 +95,7 @@ def _assert_supports_trt_padding_strip(attention_mask: torch.Tensor) -> None:
     modeling sign-off, so we hard-fail here for now.
 
     Note on the build-time batch coupling: the ONNX export pipeline
-    (``scripts/deployment/export_onnx_n1d7.py``) bakes the batch dim as a
+    (``scripts/deployment/trt/export_onnx_n1d7.py``) bakes the batch dim as a
     static shape — only ``seq_len`` is registered in ``dynamic_axes`` —
     so a TRT engine built at ``--batch-size N`` only accepts B=N at
     runtime. Lifting heterogeneous B>1 inference therefore requires both
