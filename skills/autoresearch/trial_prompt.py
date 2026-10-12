@@ -120,7 +120,9 @@ Rules:
   training-side implementation as long as the fixed surfaces above remain unchanged.
 - Preserve the configured execution contract ({protocol}).
 - Do not change or bypass the pinned pretrained/base model, dataset/script inputs, or source
-  revision checks.
+  revision checks. When the runner context lists `locked_train_config`, the controller rejects
+  any candidate whose rendered locked fields or effective global batch differ from the baseline,
+  or whose training datasets overlap an evaluation dataset.
 - Use prior results below to avoid repeating failed changes and to build on useful evidence.
 - Do not commit, push, create branches, or submit training/evaluation jobs. The controller owns
   those operations.
@@ -216,6 +218,15 @@ def _safe_runner_context(config: StudyConfig) -> dict[str, Any]:
         context["eval_dataset"] = config.eval_dataset
     if config.checkpoint_path is not None:
         context["train_checkpoint"] = config.checkpoint_path
+    if config.train_config_lock is not None:
+        lock = config.train_config_lock
+        context["locked_train_config"] = {
+            "path": lock.path,
+            "fields": list(lock.fields),
+            "effective_global_batch": "per_device_batch_size * num_gpus * "
+            "gradient_accumulation_steps must match the baseline",
+            "eval_dataset_paths": list(lock.eval_dataset_paths),
+        }
     return context
 
 
