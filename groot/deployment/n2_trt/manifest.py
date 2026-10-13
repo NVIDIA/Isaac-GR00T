@@ -22,7 +22,6 @@ import platform
 import subprocess
 from typing import Any
 
-from groot.core.utils.storage.checkpoint import checkpoint_source_path
 from groot.deployment.n2_trt.artifacts import resolve_checkpoint_vae_weights
 from groot.deployment.n2_trt.contract import N2TensorRTContract
 
@@ -84,7 +83,6 @@ VALIDATION_GATE_PROFILES = {
 RUNTIME_COMPATIBILITY_FIELDS = (
     "machine",
     "gpu_name",
-    "gpu_uuid",
     "compute_capability",
     "driver",
     "cuda",
@@ -133,7 +131,7 @@ VALIDATION_POLICY_SHA256 = canonical_sha256(VALIDATION_POLICY)
 
 def checkpoint_file_hashes(checkpoint: str | Path) -> dict[str, str]:
     """Hash required metadata and every index-referenced inference weight shard."""
-    root = checkpoint_source_path(Path(checkpoint).expanduser()).resolve(strict=True)
+    root = Path(checkpoint).expanduser().resolve(strict=True)
     paths: set[Path] = set()
     for name in CHECKPOINT_METADATA:
         candidate = root / name

@@ -1,25 +1,78 @@
 # Minimal End-to-End Example
 
-This guide prepares a small public SO100 LeRobot dataset and verifies
-post-training, open-loop evaluation, and policy serving in the installed
-Isaac GR00T 2 training environment. It uses only local data, cache, and output
-paths. The model artifacts are large, so treat this as an integration smoke test rather than a
+This guide installs Isaac GR00T 2 directly with `uv`, prepares a small public
+SO100 LeRobot dataset, and verifies post-training, open-loop evaluation, and
+policy serving. It uses only local data, cache, and output paths. The model
+artifacts are large, so treat this as an integration smoke test rather than a
 meaningful training run.
 
 Run every command below from the package root, the directory containing
 `pyproject.toml`.
 
-## 1. Install the training environment
+## Requirements
 
-Follow the [x86 training installation](installation.md#x86-training), including
-its prerequisites and dependency checks. This walkthrough requires one
-H100-class GPU with at least 80 GB of memory, at least 200 GB of free local
-disk, and a Hugging Face token with access to the selected experiment's model
-repositories.
+- x86_64 Linux with an NVIDIA GPU and a current NVIDIA driver
+- One H100-class CUDA GPU with at least 80 GB of memory
+- CUDA 12.8 development tools
+- FFmpeg 4, 5, 6, or 7 with shared libraries
+- Python 3.10, 3.11, or 3.12
+- A Hugging Face token with access to the model repositories used by the
+  selected experiment
+- At least 200 GB of free local disk for model caches and outputs
 
-The walkthrough uses PyTorch inference with two denoising steps. TensorRT is
-optional for other inference workflows; its setup and checkpoint requirements
-are described in the [installation guide](installation.md#optional-tensorrt-on-x86).
+For a new container, a known-good public starting point is
+`nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04`. An equivalent x86_64
+Linux environment with CUDA 12.8 development tools also works. This repository
+does not export a training Dockerfile; the frozen `uv` environment below is the
+software contract.
+
+Apple Silicon Docker containers run as ARM64 Linux by default. The locked CUDA
+environment includes x86_64-only packages such as Triton, TorchCodec, and Flash
+Attention, so it cannot be installed or used for this GPU walkthrough in an
+ARM64 container. Use an x86_64 NVIDIA Linux host for the end-to-end example.
+
+## 1. Install uv and the locked environment
+
+**Inputs:** a local repository checkout, network access to the Python and
+PyTorch package indexes, and the system requirements listed above.
+
+On Ubuntu or Debian, install the build tools and shared libraries needed by the
+locked packages. Some dependencies, including FlashAttention and DeepSpeed, are
+built from source during installation.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential ca-certificates curl git python3-dev python3-venv \
+  ffmpeg yasm cmake libtool pkg-config libass-dev libfreetype6-dev \
+  libvorbis-dev autoconf automake texinfo
+ffmpeg -version
+```
+
+When running as `root`, omit `sudo`. Install `uv` if it is not already
+available:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+From the package root, install the locked training environment. Do not create a
+`--system-site-packages` environment or manually replace its training packages;
+the lock file is authoritative. The project
+configures uv to build FlashAttention against the matching PyTorch version and
+installs the CUDA-enabled TorchCodec wheel through the `training` extra.
+
+```bash
+uv sync --frozen --extra training
+```
+
+Verify the key compiled and data-loading dependencies as well as GPU access:
+
+```bash
+uv run --no-sync python -c 'import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name())'
+uv run --no-sync python -c 'import torchcodec; import torchcodec.decoders; print(torchcodec.__version__)'
+uv run --no-sync python -c 'import deepspeed, lance; print(deepspeed.__version__, lance.__version__)'
+```
 
 The OSS launcher uses synchronous checkpoint saving by default. This avoids
 requiring a very large `/dev/shm` allocation in ordinary containers. Runtimes
@@ -49,7 +102,7 @@ mkdir -p \
 Confirm that the token is active:
 
 ```bash
-uv run hf auth whoami
+uv run --no-sync hf auth whoami
 ```
 
 No shared filesystem mount is required.
@@ -64,7 +117,7 @@ Download the pinned dataset revision and generate its GR00T modality and
 statistics metadata:
 
 ```bash
-uv run python examples/prepare_minimal_dataset.py \
+uv run --no-sync python examples/prepare_minimal_dataset.py \
   --output-dir "$GROOT2_HOME/data/gr00t_red_test"
 ```
 
@@ -77,7 +130,7 @@ GPU, writable cache and output paths, and access to the default pretraining,
 Cosmos, diffusion transformer, and VAE artifacts used by the experiment.
 
 ```bash
-uv run python -m groot.infra.oss train \
+uv run --no-sync python -m groot.infra.oss train \
   --dataset-path "$GROOT2_HOME/data/gr00t_red_test" \
   --embodiment-tag so100_2rgb \
   --output-dir "$TRAINING_OUTPUT_ROOT/so100-smoke" \
@@ -104,7 +157,7 @@ local checkpoint from step 4, one H100-class GPU, and a writable JSON output
 path.
 
 ```bash
-uv run python -m groot.infra.oss eval \
+uv run --no-sync python -m groot.infra.oss eval \
   --checkpoint "$TRAINING_OUTPUT_ROOT/so100-smoke/checkpoint-1" \
   --dataset-path "$GROOT2_HOME/data/gr00t_red_test" \
   --embodiment-tag so100_2rgb \
@@ -125,7 +178,7 @@ Success means model inference runs and `eval.json` is written.
 step 4, one H100-class GPU, and an available TCP port. A dataset is not required.
 
 ```bash
-uv run python -m groot.infra.oss policy-server \
+uv run --no-sync python -m groot.infra.oss policy-server \
   --checkpoint "$TRAINING_OUTPUT_ROOT/so100-smoke/checkpoint-1" \
   --embodiment-tag so100_2rgb \
   --host 0.0.0.0 \
@@ -143,7 +196,7 @@ step 5. Do not provide a checkpoint; this command passes its newly written
 `checkpoint-1` directly to evaluation.
 
 ```bash
-uv run python -m groot.infra.oss train-eval \
+uv run --no-sync python -m groot.infra.oss train-eval \
   --dataset-path "$GROOT2_HOME/data/gr00t_red_test" \
   --embodiment-tag so100_2rgb \
   --output-dir "$TRAINING_OUTPUT_ROOT/so100-train-eval" \

@@ -7,7 +7,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from contextlib import ExitStack
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 import json
 import os
 from pathlib import Path
@@ -33,7 +33,8 @@ DEFAULT_CODEC_ROUNDTRIP = "mp4v"
 
 def _prepare_checkpoint(checkpoint: str) -> Path:
     checkpoint_path = Path(checkpoint).expanduser().resolve()
-    return Path(ensure_cosmos_model_deps(checkpoint_path))
+    ensure_cosmos_model_deps(checkpoint_path)
+    return checkpoint_path
 
 
 def _parse_args() -> argparse.Namespace:
@@ -52,16 +53,16 @@ def _parse_args() -> argparse.Namespace:
         choices=("h264", "mp4v", "none"),
         help="Observation codec roundtrip used only for the deterministic export probe.",
     )
-    parser.add_argument("--num-video-steps", type=int, default=2)
-    parser.add_argument("--num-action-steps", type=int, default=4)
     args = parser.parse_args()
-    # Other export options retain their production defaults.
+    # Fixed production/export contract; deliberately not exposed as knobs.
     args.mode = "production"
     args.embodiment_tag = args.embodiment
     args.policy_embodiment_tag = args.embodiment.upper()
     args.video_mode = "gradient"
     args.language = "pick up the object"
     args.opset = 20
+    args.num_action_steps = 4
+    args.num_video_steps = 2
     args.shift = 5.0
     args.seed = 42
     args.save_samples = True
@@ -689,10 +690,6 @@ def _install_call_probe(
         state_collector: Any = None,
         **transformer_kwargs: Any,
     ) -> torch.Tensor:
-        if packed.attention_mask is not None and transformer_kwargs.get("kv_cache") is None:
-            from groot.core.training.models.n2.components.kv_cache import CondKVCache
-
-            transformer_kwargs["kv_cache"] = CondKVCache()
         output = original(
             packed,
             prompt_embs,
@@ -841,7 +838,7 @@ def _run_policy_probe(
 
     os.environ["GROOT_N2_JOINT_DENOISE"] = "1"
     os.environ["GROOT_N2_KV_CACHE_COND"] = "1"
-    os.environ["GROOT_N2_NUM_VIDEO_STEPS"] = str(args.num_video_steps)
+    os.environ["GROOT_N2_NUM_VIDEO_STEPS"] = "2"
     os.environ["GROOT_N2_SHIFT"] = "5"
     os.environ["GROOT_N2_CODEC_ROUNDTRIP"] = args.codec
     sample_dir = output_dir / "samples"
@@ -849,7 +846,7 @@ def _run_policy_probe(
     policy = Gr00tN2Policy(
         schema.EmbodimentTag[args.policy_embodiment_tag],
         args.checkpoint,
-        num_inference_timesteps=args.num_action_steps,
+        num_inference_timesteps=4,
         device="cuda",
         strict=True,
         use_cuda_graph=False,
@@ -866,8 +863,6 @@ def _run_policy_probe(
     try:
         with torch.inference_mode():
             Gr00tFlatPolicyWrapper(policy, strict=True).get_action(observation)
-            if "action_cached" not in captured:
-                _probe_unused_action_engine(policy.model, captured["joint_full_capture"])
     finally:
         policy.model._call_transformer = original_call_transformer
     missing = {"joint_full_capture", "action_cached"} - set(captured)
@@ -876,42 +871,6 @@ def _run_policy_probe(
             f"policy probe did not capture required transformer calls: {sorted(missing)}"
         )
     return policy.model, sample_paths, captured
-
-
-def _probe_unused_action_engine(model, joint_payload):
-    """Capture the unused cached-action ABI for equal video/action schedules."""
-    packed = joint_payload["packed"]
-    action_indices = torch.where(packed.modality_ids[0] == 3)[0]
-    positions = torch.arange(action_indices.numel(), device=packed.tokens.device)
-    action_packed = replace(
-        packed,
-        tokens=packed.tokens.index_select(1, action_indices),
-        timesteps=packed.timesteps.index_select(1, action_indices),
-        rope_freqs=tuple(freq.index_select(0, action_indices) for freq in packed.rope_freqs),
-        modality_ids=packed.modality_ids.index_select(1, action_indices),
-        attention_mask=None,
-        pad=0,
-        extra_pos_emb=None,
-        video_token_indices=positions[:0],
-        state_token_indices=positions[:0],
-        action_token_indices=positions,
-        non_video_token_indices=positions,
-        has_video_cond_tokens=False,
-        token_valid_mask=None,
-    )
-    kwargs = {}
-    if joint_payload.get("token_merge") is not None:
-        kwargs["token_merge"] = joint_payload["token_merge"]
-    cache = model._slice_cache_to_static_prefix(
-        joint_payload["kv_cache"],
-        packed.modality_ids,
-        token_valid_mask=packed.token_valid_mask,
-        **kwargs,
-    )
-    with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda"):
-        model._call_transformer(
-            action_packed, joint_payload["prompt_embs"], kv_cache=cache, store_kv=False
-        )
 
 
 def _write_json(path: Path, payload: Any) -> None:

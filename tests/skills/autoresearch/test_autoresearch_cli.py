@@ -83,7 +83,6 @@ def test_cli_resumes_existing_state(
     )
     controller = SimpleNamespace(
         state_path=state_path,
-        check_baseline_train_config=lambda: events.append("check_train_config"),
         load_state=lambda: events.append("load_state") or state,
         initialize=lambda: events.append("initialize"),
         run_once=lambda: events.append("run_once")
@@ -97,7 +96,7 @@ def test_cli_resumes_existing_state(
     )
 
     assert cli.main([str(config_path)]) == 0
-    assert events == ["validate", "check_train_config", "load_state", "run_once"]
+    assert events == ["validate", "load_state", "run_once"]
     output = capsys.readouterr().out
     assert "[AutoResearch] resuming" in output
     assert "wave=2" in output
@@ -122,7 +121,6 @@ def test_cli_initializes_when_state_is_missing(
     )
     controller = SimpleNamespace(
         state_path=tmp_path / "state.json",
-        check_baseline_train_config=lambda: events.append("check_train_config"),
         initialize=lambda: events.append("initialize") or state,
         run_once=lambda: events.append("run_once")
         or SimpleNamespace(action="stopped", message="done", done=True),
@@ -135,7 +133,7 @@ def test_cli_initializes_when_state_is_missing(
     )
 
     assert cli.main([str(config_path)]) == 0
-    assert events == ["validate", "check_train_config", "initialize", "run_once"]
+    assert events == ["validate", "initialize", "run_once"]
     output = capsys.readouterr().out
     assert "[AutoResearch] initialized" in output
     assert "wave=none" in output

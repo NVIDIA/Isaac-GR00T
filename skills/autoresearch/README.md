@@ -159,22 +159,6 @@ polling, recovery, and artifact verification.
 Put the training recipe in a dedicated config file used by the training script.
 This config is normally part of **editable_paths**, allowing the configured
 agent to tune learning rates, sampling, architecture options, and other training choices.
-Declare it under **locked_train_config** so the controller rejects any candidate
-whose rendered training datasets, start or resume checkpoint, pretrained
-component paths, step count, GPU count, or effective global batch
-(`per_device_batch_size * num_gpus * gradient_accumulation_steps`) differ from
-the baseline commit, or whose training datasets equal or contain an evaluation
-dataset. Keep the wrapper that launches training, such as `train_local.sh`,
-frozen so it cannot override those fields on the command line.
-
-`data.datasets` is locked as a whole, so per-dataset `mix_ratio` values are part
-of the fixed data split and cannot be tuned; remove it from
-**locked_train_config.fields** only if the study is meant to search the data
-mixture, and keep **eval_dataset_paths** set so the overlap check still applies.
-`${NAME}` references in the training config are expanded with the controller's
-environment layered with **env** and **train.env**, the same values the training
-script receives; variables that only the train script itself sets are not
-available and fail the study at startup.
 
 Keep the evaluation config frozen. Changing the eval dataset, task, metric,
 horizon, or scoring rule during a study would make scores from different trials
@@ -223,9 +207,6 @@ The main arguments are:
 | **git.base_commit** | Optional exact baseline commit |
 | **editable_paths** | Repository paths the configured agent may change |
 | **frozen_paths** | Repository paths that must remain unchanged |
-| **locked_train_config.path** | Workspace-relative editable training config whose locked fields are checked |
-| **locked_train_config.fields** | Dotted fields that must match the baseline; defaults to the training datasets, start and resume checkpoints, step count, GPU count, and the tokenizer, text encoder, diffusion, and VAE pretrained paths (see [the template](scripts/autoresearch.yaml)) |
-| **locked_train_config.eval_dataset_paths** | Held-out datasets that no training dataset path may equal or contain |
 | **idea_types** | Research categories assigned to new trials |
 | **agent** | Agent host and its optional executable, model, timeout, and sandbox settings |
 

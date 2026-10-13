@@ -80,10 +80,6 @@ For a new task or wrapper-contract question, read README.md before editing
 files. Use its current configuration and artifact contracts as the source of
 truth.
 
-Read `docs/findings.md` before proposing changes. It holds what earlier runs on
-this checkout learned, in a fixed format with scope and limits; treat an entry
-as a prior, not as a result of the current study.
-
 ### 2. Run deterministic preflight
 
 Before preflight, check whether the baseline interface is ready. Apply
@@ -192,9 +188,3 @@ Keep user-facing results compact:
 - best score and trial when available;
 - first actionable failure when applicable;
 - exact next command or next safe action.
-
-When a study ends with something a later run should know — a knob that did not
-move the metric, a configuration that failed for a reason the logs did not
-name, a measured result worth keeping — append it to `docs/findings.md` using
-the template there, and ask the user to review the entry. Record what was
-observed and its limits; do not record advice the study did not measure.

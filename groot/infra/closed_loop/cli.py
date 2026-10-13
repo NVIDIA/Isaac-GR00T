@@ -146,7 +146,7 @@ def config_from_args(args: argparse.Namespace) -> ClosedLoopEvalConfig:
 
 
 def prepare_trt_args(args: argparse.Namespace) -> None:
-    """Validate TensorRT options before Ray workers start."""
+    """Validate automatic TensorRT options before Ray workers start."""
     _validate_acceleration_args(args)
 
 
@@ -155,10 +155,14 @@ def _validate_acceleration_args(args: argparse.Namespace) -> None:
         raise ValueError("--rebuild-trt requires --enable-trt")
     if args.trt_cache_dir and not args.enable_trt:
         raise ValueError("--trt-cache-dir requires --enable-trt")
-    if args.enable_trt or args.trt_engine_dir:
-        from groot.deployment.n2_trt.resolver import resolve_n2_trt_schedule
+    if not args.enable_trt:
+        return
+    from groot.deployment.n2_trt.resolver import SUPPORTED_DENOISING_STEPS
 
-        resolve_n2_trt_schedule(args.denoising_steps)
+    if args.enable_trt and args.denoising_steps not in (None, SUPPORTED_DENOISING_STEPS):
+        raise ValueError(
+            f"--enable-trt currently requires --denoising-steps {SUPPORTED_DENOISING_STEPS}"
+        )
 
 
 def parse_backend_options(values: Sequence[str]) -> dict[str, object]:

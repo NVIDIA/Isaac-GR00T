@@ -356,7 +356,7 @@ def create_gr00t_n2_policy(
         ensure_cosmos_model_deps,
     )
 
-    model_path = ensure_cosmos_model_deps(model_path)
+    ensure_cosmos_model_deps(model_path)
 
     if is_rl:
         return policy_cls(model_path=model_path, strict_task_binding=binding, **policy_kwargs)

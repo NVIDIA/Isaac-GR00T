@@ -70,9 +70,6 @@ Reuse existing scripts and configs instead of copying them when possible.
 Place any config that AutoResearch may edit inside the Git workspace and commit
 it. Keep wrapper scripts, datasets, evaluation code, and evaluation config
 frozen. Put only intended training-side code and config in `editable_paths`.
-When the training config is editable, declare it under `locked_train_config`
-with the eval dataset paths so candidates cannot change the training data,
-budget, or base checkpoint, or train on evaluation data.
 
 Adapt wrappers to the environment contract supplied by AutoResearch:
 

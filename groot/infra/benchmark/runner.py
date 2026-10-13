@@ -276,9 +276,8 @@ def run_benchmark(
         spec = load_benchmark_spec(args.benchmark_recipe)
         benchmark.spec = spec
         _apply_recipe(spec, args=args, output_dir=output_dir)
+        _validate_trt_recipe(spec, args=args)
         _populate_spec_report(report, spec=spec, args=args)
-        if args.enable_trt or args.trt_engine_dir:
-            _validate_trt_schedules(spec)
         if not args.dry_run:
             benchmark.stage = "dataset"
             report["inputs"]["dataset"] = resolve_dataset(
@@ -308,17 +307,6 @@ def run_benchmark(
             _print_summary(report, report_path=report_path)
 
     return exit_code
-
-
-def _validate_trt_schedules(spec: BenchmarkSpec) -> None:
-    """Reject unsupported cached schedules before dataset or training work."""
-    from groot.deployment.n2_trt.resolver import resolve_n2_trt_schedule
-
-    for mode, settings in spec.evaluation.items():
-        try:
-            resolve_n2_trt_schedule(settings["denoising_steps"])
-        except ValueError as error:
-            raise ValueError(f"{mode}: {error}") from error
 
 
 def _empty_report(args: argparse.Namespace, *, started_at: datetime) -> dict[str, Any]:
@@ -444,6 +432,25 @@ def _apply_recipe(
         raise ValueError("--output-json must not overwrite benchmark metadata")
     if "--output-json" in provided and "open_loop" not in spec.evaluation:
         raise ValueError("--output-json requires open_loop evaluation")
+
+
+def _validate_trt_recipe(spec: BenchmarkSpec, *, args: argparse.Namespace) -> None:
+    """Reject incompatible recipe-owned settings before dataset or training work."""
+    if not args.enable_trt:
+        return
+    from groot.deployment.n2_trt.resolver import SUPPORTED_DENOISING_STEPS
+
+    incompatible = {
+        mode: settings["denoising_steps"]
+        for mode, settings in spec.evaluation.items()
+        if settings["denoising_steps"] != SUPPORTED_DENOISING_STEPS
+    }
+    if incompatible:
+        configured = ", ".join(f"{mode}={steps}" for mode, steps in sorted(incompatible.items()))
+        raise ValueError(
+            "--enable-trt currently requires benchmark recipe denoising_steps="
+            f"{SUPPORTED_DENOISING_STEPS}; got {configured}"
+        )
 
 
 def _dry_run_plan(

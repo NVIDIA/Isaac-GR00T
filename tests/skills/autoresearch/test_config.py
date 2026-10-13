@@ -95,7 +95,6 @@ def test_load_study_config(tmp_path: Path) -> None:
     assert config.max_parallel_trials == 1
     assert config.max_retry == 2
     assert config.user_guidance == "Change only learning rate, weight decay, or dropout."
-    assert config.train_config_lock is None
 
 
 def test_user_guidance_is_optional_trimmed_and_type_checked(tmp_path: Path) -> None:
@@ -122,15 +121,10 @@ def test_load_study_config_expands_environment_paths(
     monkeypatch.setenv("AUTORESEARCH_ROOT", str(root))
     data = _config_data()
     data["output_dir"] = "${AUTORESEARCH_ROOT}/study"
-    data["locked_train_config"] = {
-        "path": "train_config.yaml",
-        "eval_dataset_paths": ["${AUTORESEARCH_ROOT}/datasets/eval"],
-    }
 
     config = StudyConfig.from_yaml(_write_config(tmp_path, data))
 
     assert config.output_dir == (root / "study").resolve()
-    assert config.train_config_lock.eval_dataset_paths == (f"{root}/datasets/eval",)
 
 
 def test_load_study_config_rejects_missing_environment_paths(tmp_path: Path) -> None:
@@ -147,54 +141,6 @@ def test_load_study_config_rejects_placeholder_environment_values(tmp_path: Path
 
     with pytest.raises(ValueError, match="train environment POOL must be set"):
         StudyConfig.from_yaml(_write_config(tmp_path, data))
-
-
-@pytest.mark.parametrize(
-    ("package_dir", "editable_paths", "frozen_paths", "logs"),
-    [
-        (
-            "oss/skills/autoresearch",
-            ("oss/groot/core/training/models/", "groot/core/training/models/", "oss/vendor/"),
-            ("oss/groot/infra/",),
-            [],
-        ),
-        # An exported checkout is the oss/ package itself: mirrored entries fold together,
-        # while an oss/ path that exists in the checkout is kept as written.
-        (
-            "skills/autoresearch",
-            ("groot/core/training/models/", "oss/vendor/"),
-            ("groot/infra/",),
-            [
-                "[AutoResearch] exported layout detected; dropped oss/ prefix from 1 editable_paths",
-                "[AutoResearch] exported layout detected; dropped oss/ prefix from 1 frozen_paths",
-            ],
-        ),
-    ],
-)
-def test_config_maps_oss_paths_to_workspace_layout(
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-    package_dir: str,
-    editable_paths: tuple[str, ...],
-    frozen_paths: tuple[str, ...],
-    logs: list[str],
-) -> None:
-    (tmp_path / "repo" / package_dir).mkdir(parents=True)
-    (tmp_path / "repo/oss/vendor").mkdir(parents=True)
-    data = _config_data()
-    data["editable_paths"] = [
-        "oss/groot/core/training/models/",
-        "groot/core/training/models/",
-        "oss/vendor/",
-    ]
-    data["frozen_paths"] = ["oss/groot/infra/"]
-
-    with caplog.at_level("INFO", logger="skills.autoresearch.config"):
-        config = StudyConfig.from_yaml(_write_config(tmp_path, data))
-
-    assert config.editable_paths == editable_paths
-    assert config.frozen_paths == frozen_paths
-    assert caplog.messages == logs
 
 
 def test_config_resolves_missing_base_commit_from_branch_head(tmp_path: Path) -> None:

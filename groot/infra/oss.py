@@ -143,7 +143,7 @@ def _run_build_trt(args: argparse.Namespace) -> int:
     bundle = _resolve_or_build_trt(
         checkpoint=checkpoint,
         embodiment=embodiment,
-        denoising_steps=args.denoising_steps,
+        denoising_steps=4,
         cache_dir=args.trt_cache_dir or None,
         rebuild=args.rebuild_trt,
         device=args.device,
@@ -628,7 +628,6 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def _add_build_trt_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--denoising-steps", type=int, default=4)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument(
         "--embodiment-tag",
@@ -765,21 +764,23 @@ def _add_oss_codec_option(parser: argparse.ArgumentParser) -> None:
 
 
 def _validate_acceleration_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    if args.command != "build-trt":
-        if getattr(args, "rebuild_trt", False) and not getattr(args, "enable_trt", False):
-            parser.error("--rebuild-trt requires --enable-trt")
-        if getattr(args, "trt_cache_dir", "") and not getattr(args, "enable_trt", False):
-            parser.error("--trt-cache-dir requires --enable-trt")
-    uses_trt = (
-        args.command == "build-trt"
-        or getattr(args, "enable_trt", False)
-        or bool(getattr(args, "trt_engine_dir", ""))
-    )
-    # Recipes own the effective evaluation steps and validate them after resolution.
-    if uses_trt and not getattr(args, "benchmark_recipe", ""):
-        from groot.deployment.n2_trt.resolver import resolve_n2_trt_schedule
+    if args.command == "build-trt":
+        return
+    if getattr(args, "rebuild_trt", False) and not getattr(args, "enable_trt", False):
+        parser.error("--rebuild-trt requires --enable-trt")
+    if getattr(args, "trt_cache_dir", "") and not getattr(args, "enable_trt", False):
+        parser.error("--trt-cache-dir requires --enable-trt")
+    if not getattr(args, "enable_trt", False):
+        return
+    from groot.deployment.n2_trt.resolver import SUPPORTED_DENOISING_STEPS
 
-        resolve_n2_trt_schedule(args.denoising_steps)
+    if getattr(args, "denoising_steps", SUPPORTED_DENOISING_STEPS) not in (
+        None,
+        SUPPORTED_DENOISING_STEPS,
+    ):
+        parser.error(
+            f"--enable-trt currently requires --denoising-steps {SUPPORTED_DENOISING_STEPS}"
+        )
 
 
 def _job_name(experiment: str, compute_type: str) -> str:

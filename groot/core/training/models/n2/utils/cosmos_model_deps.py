@@ -8,11 +8,12 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""Download model dependencies and localize configs without modifying checkpoints.
+"""Download model dependencies from S3 and rewrite checkpoint config paths.
 
-Current checkpoints record durable S3 identities for their external model dependencies.
-Older DreamCosmos and GrootN2 checkpoints may instead contain absolute Lustre paths.
-This module resolves either representation in a small loader view with localized configs.
+DreamCosmos and GrootN2 checkpoints bake absolute Lustre paths in config.json for 3
+external model dependencies (text encoder, VAE, Cosmos DiT base). On machines without
+Lustre, these paths don't exist. This module auto-downloads them from S3 and rewrites
+configs to point to the local cache.
 
 S3 layout (under s3://GearCheckpoints/model_deps/):
   cosmos25/2b_post.pt           - Cosmos DiT 2B base weights
@@ -31,28 +32,40 @@ from typing import Any
 
 from filelock import FileLock
 
-from groot.core.training.configs.model.n2 import (
-    LOCAL_MODEL_DEPENDENCY_ROOTS,
-    MODEL_DEPENDENCY_REMOTE_ROOT,
-    relative_model_dependency_path,
-)
-from groot.core.training.models.n2.utils.model_dependency_integrity import (
-    DEPENDENCY_RECEIPT_FILENAME,
-    build_dependency_receipt,
-    dependency_invalid_reason,
-)
-from groot.core.utils.storage.checkpoint import (
-    CHECKPOINT_VIEW_CONFIG_FILES,
-    CHECKPOINT_VIEW_METADATA_FILE,
-    checkpoint_view_identity,
-    checkpoint_view_links,
-    checkpoint_view_metadata,
-)
-
 logger = logging.getLogger(__name__)
 
 # Known Lustre prefixes that contain model deps
-_LUSTRE_CKPT_PREFIXES = LOCAL_MODEL_DEPENDENCY_ROOTS
+_LUSTRE_CKPT_PREFIXES = [
+    "/mnt/aws-lfs-02/shared/ckpts/",
+    "/mnt/aws-lfs-03/shared/ckpts/",
+    "/mnt/amlfs-02/shared/ckpts/",
+    "/mnt/amlfs-05/shared/ckpts/",
+    "/mnt/amlfs-07/shared/ckpts/",
+]
+
+
+def _find_lustre_alternative(dep_path: str) -> str | None:
+    """Find an alternative Lustre path where the dep exists.
+
+    Training checkpoints bake in the Lustre prefix of the training cluster.
+    Eval pods on a different cluster may not have that mount, but often have
+    the same data under a sibling mount. Swap prefixes until we find a path that
+    actually exists on the current machine.
+    """
+    if os.path.exists(dep_path):
+        return dep_path
+    for from_prefix in _LUSTRE_CKPT_PREFIXES:
+        if not dep_path.startswith(from_prefix):
+            continue
+        rel = dep_path[len(from_prefix) :]
+        for to_prefix in _LUSTRE_CKPT_PREFIXES:
+            if to_prefix == from_prefix:
+                continue
+            alt = to_prefix + rel
+            if os.path.exists(alt):
+                return alt
+        break
+    return None
 
 
 # Config keys that reference model dep paths
@@ -64,33 +77,39 @@ _CONFIG_PATH_KEYS = [
 ]
 
 # Config files that may contain baked Lustre paths
-_CONFIG_FILES = CHECKPOINT_VIEW_CONFIG_FILES
+_CONFIG_FILES = [
+    "config.json",
+    "processor_config.json",
+    "experiment_cfg/final_processor_config.json",
+]
 
 
 def _to_relative_dep_path(path: str, cache_dir: Path | None = None) -> str | None:
-    """Convert a dep path (S3, Lustre, or cache) to a relative path for S3 lookup.
+    """Convert a dep path (Lustre or cache) to a relative path for S3 lookup.
 
     Handles both original Lustre paths and previously-rewritten cache paths.
     Returns None if no known prefix matches.
     """
-    return relative_model_dependency_path(path, cache_root=cache_dir)
+    for prefix in _LUSTRE_CKPT_PREFIXES:
+        if path.startswith(prefix):
+            return path[len(prefix) :].rstrip("/")
+    # Also handle paths that were already rewritten to point to cache_dir
+    if cache_dir is not None:
+        cache_str = str(cache_dir) + "/"
+        if path.startswith(cache_str):
+            return path[len(cache_str) :].rstrip("/")
+    return None
 
 
-def _extract_dep_roles(config: dict) -> dict[str, set[str]]:
-    """A shared encoder/tokenizer directory must satisfy both consumers."""
-    paths: dict[str, set[str]] = {}
+def _extract_dep_paths(config: dict) -> list[str]:
+    """Extract all model dependency paths from a config dict (recursive search)."""
+    paths = []
 
     def _search(obj: dict | list):
         if isinstance(obj, dict):
             for k, v in obj.items():
                 if k in _CONFIG_PATH_KEYS and isinstance(v, str) and v:
-                    if k == "text_encoder_pretrained_path":
-                        # CosmosTextEncoder loads both the HF model and its
-                        # AutoProcessor, independently of GrootN2's tokenizer.
-                        roles = {"text_encoder", "tokenizer"}
-                    else:
-                        roles = {"tokenizer" if k == "tokenizer_path" else "model"}
-                    paths.setdefault(v, set()).update(roles)
+                    paths.append(v)
                 else:
                     _search(v)
         elif isinstance(obj, list):
@@ -99,51 +118,6 @@ def _extract_dep_roles(config: dict) -> dict[str, set[str]]:
 
     _search(config)
     return paths
-
-
-def _extract_dep_paths(config: dict) -> list[str]:
-    return list(_extract_dep_roles(config))
-
-
-_DEPENDENCY_RECEIPT = DEPENDENCY_RECEIPT_FILENAME
-
-
-def _receipt_path(path: Path) -> Path:
-    return (
-        path / _DEPENDENCY_RECEIPT
-        if path.is_dir()
-        else path.with_name(f".{path.name}{_DEPENDENCY_RECEIPT}")
-    )
-
-
-def _dependency_error(
-    path: Path, roles: set[str], *, verification_cache_dir: Path | None = None
-) -> str | None:
-    receipt_path = _receipt_path(path)
-    try:
-        receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
-        if receipt_path.exists() and not isinstance(receipt, dict):
-            return "invalid dependency receipt"
-    except (OSError, ValueError) as exc:
-        return f"unreadable dependency receipt: {exc}"
-    return dependency_invalid_reason(
-        path, roles, receipt=receipt, verification_cache_dir=verification_cache_dir
-    )
-
-
-def _cache_target(cache_dir: Path, relative: str, *, for_write: bool = False) -> Path:
-    if (
-        not relative
-        or "\\" in relative
-        or any(part in {"", ".", ".."} for part in relative.split("/"))
-    ):
-        raise ValueError(f"Invalid model dependency relative path: {relative!r}")
-    target = cache_dir / relative
-    # Prepared caches may link to a read-only bundle/HF snapshot outside the cache.
-    # Such links are safe to read, but never repair through them into shared storage.
-    if for_write and not target.resolve().is_relative_to(cache_dir.resolve()):
-        raise ValueError(f"Model dependency escapes cache directory: {relative!r}")
-    return target
 
 
 def _is_cosmos_checkpoint(checkpoint_dir: Path) -> bool:
@@ -170,15 +144,11 @@ def ensure_cosmos_model_deps(
     *,
     cache_is_prepared: bool = False,
     lock_dir: str | Path | None = None,
-    local_files_only: bool = False,
-) -> str:
-    """Resolve dependencies and return a loader-ready, source-immutable checkpoint path.
+) -> None:
+    """Download model dependencies from S3 if not locally available.
 
-    Reads config.json from checkpoint_dir and resolves portable S3 identities or legacy
-    Lustre paths. Missing dependencies use Hydrator's S3 backend and config files
-    are localized in a small cached view. Callers must load the returned path.
-    The source checkpoint, its manifest and completion markers are never changed;
-    model payloads are symlinked, not copied. Runtime views are not resume checkpoints.
+    Reads config.json from checkpoint_dir, checks if baked Lustre paths exist locally.
+    If not, downloads from S3 via boto3 and rewrites config files to point to the local cache.
 
     Supports DreamCosmos, DreamZero, and GrootN2 checkpoints.
 
@@ -191,18 +161,8 @@ def ensure_cosmos_model_deps(
         cache_dir: Where to find or cache model deps. Defaults to ~/checkpoints/model_deps/
         cache_is_prepared: Require every dependency to already exist instead of downloading it.
         lock_dir: Writable directory for the inter-process lock when cache_dir is read-only.
-        local_files_only: Resolve mounted/cached dependencies without downloading missing files.
     """
     checkpoint_dir = Path(checkpoint_dir)
-    view_metadata = checkpoint_view_metadata(checkpoint_dir)
-    if view_metadata is not None:
-        # Reuse the original cache and writable view root when an upstream loader
-        # already localized this checkpoint, including a prepared read-only cache.
-        if cache_dir is None:
-            cache_dir = view_metadata["dependency_cache"]
-        if lock_dir is None and checkpoint_dir.resolve().parent.parent != Path(cache_dir).resolve():
-            lock_dir = checkpoint_dir.resolve().parent.parent
-        checkpoint_dir = Path(view_metadata["source"])
     if cache_dir is None:
         cache_dir = Path("~/checkpoints/model_deps").expanduser()
     else:
@@ -220,17 +180,14 @@ def ensure_cosmos_model_deps(
 
     # Trainer ranks on one machine share this cache. Only one of them may inspect or populate it
     # at a time: a dependency directory exists as soon as its first object lands, but it is not a
-    # usable model until the complete prefix has arrived. The lock also serializes publication
-    # of the small immutable config views shared by those ranks.
+    # usable model until the complete prefix has arrived. The lock also serializes config rewrites
+    # in the node-local checkpoint shared by those ranks.
     lock_name = ".model-deps.lock" if lock_dir is not None else ".download.lock"
     with FileLock(str(lock_root / lock_name)):
-        return str(
-            _ensure_cosmos_model_deps_locked(
-                checkpoint_dir,
-                cache_dir,
-                allow_download=not (cache_is_prepared or local_files_only),
-                view_root=lock_root / ".checkpoint-configs",
-            )
+        _ensure_cosmos_model_deps_locked(
+            checkpoint_dir,
+            cache_dir,
+            allow_download=not cache_is_prepared,
         )
 
 
@@ -239,17 +196,12 @@ def _ensure_cosmos_model_deps_locked(
     cache_dir: Path,
     *,
     allow_download: bool,
-    view_root: Path,
-) -> Path:
+) -> None:
     """Resolve dependencies while holding the cache's inter-process lock."""
     config_path = checkpoint_dir / "config.json"
     if not config_path.exists():
-        # RL feature extraction also loads processor-only directories. These
-        # contain the same portable tokenizer dependency as full checkpoints.
-        config_path = checkpoint_dir / "processor_config.json"
-        if not config_path.exists():
-            logger.warning(f"No model or processor config found in {checkpoint_dir}")
-            return checkpoint_dir
+        logger.warning(f"No config.json found in {checkpoint_dir}, skipping model deps check")
+        return
 
     with open(config_path) as f:
         config = json.load(f)
@@ -257,126 +209,129 @@ def _ensure_cosmos_model_deps_locked(
     # Only applies to checkpoints that bake Lustre paths for sub-model deps
     _SUPPORTED_MODEL_TYPES = {"DreamCosmos", "DreamZero", "GrootN2", "GrootN2RL", "GrootN2TTT"}
     model_type = config.get("model_type", "")
-    if (
-        not any(mt in model_type for mt in _SUPPORTED_MODEL_TYPES)
-        and config.get("processor_class") != "GrootN2Processor"
-    ):
+    if not any(mt in model_type for mt in _SUPPORTED_MODEL_TYPES):
         logger.info(f"Not a supported checkpoint (model_type={model_type}), skipping")
-        return checkpoint_dir
+        return
 
-    # A legacy processor may still name the same dependency by a Lustre path while
-    # config.json already stores its durable S3 identity. Resolve both spellings.
-    dep_roles = _extract_dep_roles(config)
-    for config_file in _CONFIG_FILES:
-        if config_file == "config.json":
-            continue
-        additional_config = checkpoint_dir / config_file
-        if additional_config.exists():
-            with open(additional_config) as f:
-                for path, roles in _extract_dep_roles(json.load(f)).items():
-                    dep_roles.setdefault(path, set()).update(roles)
-    if not dep_roles:
+    # Extract all dependency paths from config
+    dep_paths = _extract_dep_paths(config)
+    if not dep_paths:
         logger.info("No model dependency paths found in config")
-        return checkpoint_dir
+        return
 
     # Deduplicate (tokenizer_path often == text_encoder_pretrained_path)
-    dep_paths = list(dep_roles)
-    # Legacy and portable spellings of the same asset may appear in different configs.
-    relative_roles: dict[str, set[str]] = {}
-    for path, roles in dep_roles.items():
-        relative = _to_relative_dep_path(path, cache_dir)
-        if relative is not None:
-            _cache_target(cache_dir, relative)
-            relative_roles.setdefault(relative, set()).update(roles)
+    dep_paths = list(dict.fromkeys(dep_paths))
 
     # Check which paths need downloading
-    paths_to_download: dict[str, str] = {}  # relative_path -> original_path
-    resolved_paths: dict[str, str] = {}
-    invalid_paths: dict[str, str] = {}
-    checked: dict[tuple[Path, frozenset[str]], str | None] = {}
-    verification_cache_dir = view_root.parent / ".model-dependency-verifications"
+    paths_to_download: list[tuple[str, str]] = []  # (original_path, relative_path)
     for dep_path in dep_paths:
-        rel_path = _to_relative_dep_path(dep_path, cache_dir)
-        roles = relative_roles.get(rel_path, dep_roles[dep_path])
-        candidates = [Path(dep_path)] if "://" not in dep_path else []
-        if rel_path is not None:
-            candidates.extend(Path(prefix) / rel_path for prefix in _LUSTRE_CKPT_PREFIXES)
-            candidates.append(_cache_target(cache_dir, rel_path))
-        for candidate in dict.fromkeys(candidates):
-            key = (candidate, frozenset(roles))
-            if key not in checked:
-                checked[key] = _dependency_error(
-                    candidate, roles, verification_cache_dir=verification_cache_dir
-                )
-            error = checked[key]
-            if error is None:
-                resolved_paths[dep_path] = str(candidate)
-                break
-            if candidate.exists():
-                invalid_paths[dep_path] = f"{candidate}: {error}"
-        if dep_path in resolved_paths:
+        # First check if the original path exists (e.g., on a cluster with Lustre)
+        if os.path.exists(dep_path):
+            logger.info(f"  Exists locally: {dep_path}")
             continue
-        if rel_path is not None:
-            paths_to_download.setdefault(rel_path, dep_path)
-        elif dep_path in invalid_paths:
-            raise FileNotFoundError(f"Incomplete model dependency: {invalid_paths[dep_path]}")
-        else:
+
+        # Fall back to sibling Lustre mounts before hitting S3 (handles cross-
+        # cluster evals where the checkpoint baked in the training cluster's
+        # Lustre prefix but the eval cluster has the same data under a
+        # different prefix — e.g. aws-lfs-02 vs amlfs-02/07).
+        alt = _find_lustre_alternative(dep_path)
+        if alt is not None:
+            logger.info(f"  Exists on sibling Lustre: {alt}")
+            continue
+
+        rel_path = _to_relative_dep_path(dep_path, cache_dir)
+        if rel_path is None:
             logger.warning(f"  Unknown prefix, cannot download: {dep_path}")
+            continue
+
+        local_cached = cache_dir / rel_path
+        # For files: exists is enough. For dirs: must have content (not empty mkdir)
+        if local_cached.is_file() or (local_cached.is_dir() and any(local_cached.iterdir())):
+            logger.info(f"  Already cached: {local_cached}")
+        else:
+            paths_to_download.append((dep_path, rel_path))
 
     # Download missing deps
     if paths_to_download:
         if not allow_download:
-            missing = "; ".join(
-                invalid_paths.get(original, relative)
-                for relative, original in paths_to_download.items()
-            )
+            missing = ", ".join(relative for _original, relative in paths_to_download)
             raise FileNotFoundError(
                 f"prepared model dependency directory {cache_dir} is incomplete; missing: {missing}"
             )
-        _download_deps(
-            [(original, relative) for relative, original in paths_to_download.items()],
-            cache_dir,
-            roles_by_path=relative_roles,
-        )
-        for dep_path in dep_paths:
-            if dep_path in resolved_paths:
-                continue
-            relative = _to_relative_dep_path(dep_path, cache_dir)
-            if relative not in paths_to_download:
-                continue
-            local_cached = _cache_target(cache_dir, relative)
-            error = _dependency_error(
-                local_cached,
-                relative_roles[relative],
-                verification_cache_dir=verification_cache_dir,
-            )
-            if error is not None:
-                raise ValueError(f"Downloaded model dependency {relative} is incomplete: {error}")
-            resolved_paths[dep_path] = str(local_cached)
+        _download_deps(paths_to_download, cache_dir)
 
     # Rewrite config files — replace all Lustre paths with local cache paths
-    return _rewrite_configs(checkpoint_dir, resolved_paths, cache_dir, view_root=view_root)
+    _rewrite_configs(checkpoint_dir, dep_paths, cache_dir)
 
 
 def _get_s3_client():
-    """Create the lazy Hydrator-backend adapter without starting Ray workers."""
-    from groot.core.training.models.n2.utils.model_dependency_download import (
-        ModelDependencyDownload,
-    )
+    """Create a boto3 S3 client with PDX endpoint credentials.
 
-    return ModelDependencyDownload()
+    Reads credentials from environment variables, cluster credential files, or
+    the standard Gear data credential source.
+    """
+    from gear.data import get_s3_client
+
+    if os.environ.get("GEAR_DATA_CREDENTIALS") and not (
+        os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY")
+    ):
+        import boto3
+
+        from groot.core.data.hydrator.utils.aws import get_boto3_client_config
+
+        profile = os.environ.get("GROOT_RL_PDX_CREDENTIALS_PROFILE", "default")
+        return boto3.client("s3", **get_boto3_client_config(profile=profile))
+
+    endpoint_url = os.environ.get("AWS_ENDPOINT_URL") or os.environ.get("S3_ENDPOINT_URL")
+    region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
+
+    ak = os.environ.get("AWS_ACCESS_KEY_ID")
+    sk = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    session_token = os.environ.get("AWS_SESSION_TOKEN") if ak and sk else None
+    if not (ak and sk):
+        # Fall back to cluster credential files (GB200 clusters)
+        ak_path = "/etc/gear/s3/access_key"
+        sk_path = "/etc/gear/s3/secret_key"
+        if os.path.exists(ak_path) and os.path.exists(sk_path):
+            with open(ak_path) as f:
+                ak = f.read().strip()
+            with open(sk_path) as f:
+                sk = f.read().strip()
+    if not (ak and sk):
+        try:
+            from gear.common import get_s3_credentials_from_file
+
+            creds = get_s3_credentials_from_file()
+            ak = creds["aws_access_key_id"]
+            sk = creds["aws_secret_access_key"]
+            region = region or creds.get("region")
+            endpoint_url = endpoint_url or creds.get("endpoint_url")
+            session_token = creds.get("aws_session_token")
+        except (ImportError, KeyError, ValueError) as exc:
+            raise RuntimeError(
+                "No S3 credentials found. Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY "
+                "or configure ~/.gear/data_credentials with the Gear CLI."
+            ) from exc
+
+    credentials = {
+        "endpoint_url": endpoint_url or "https://pdx.s8k.io",
+        "aws_access_key_id": ak,
+        "aws_secret_access_key": sk,
+        "region": region or "us-east-1",
+    }
+    if session_token:
+        credentials["aws_session_token"] = session_token
+    return get_s3_client(credentials=credentials)
 
 
 def _download_deps(
     paths_to_download: list[tuple[str, str]],
     cache_dir: Path,
-    *,
-    roles_by_path: dict[str, set[str]] | None = None,
 ) -> None:
-    """Download model deps through Hydrator's synchronous S3 backend.
+    """Download model deps from S3 via boto3.
 
     Downloads model dependencies from s3://GearCheckpoints/model_deps/.
-    Inventory/validation and atomic cache publication remain resolver-owned.
+    Uses boto3 with PDX endpoint credentials (same as checkpoint downloads).
     """
     import time
 
@@ -384,7 +339,7 @@ def _download_deps(
     bucket = "GearCheckpoints"
 
     for _original_path, rel_path in paths_to_download:
-        local_target = _cache_target(cache_dir, rel_path, for_write=True)
+        local_target = cache_dir / rel_path
         s3_prefix = f"model_deps/{rel_path}"
 
         # Determine if this is a directory (text encoder) or single file
@@ -402,7 +357,6 @@ def _download_deps(
                 bucket=bucket,
                 s3_prefix=s3_prefix,
                 local_target=local_target,
-                roles=(roles_by_path or {}).get(rel_path),
             )
             logger.info(f"  Done: {file_count} files downloaded")
         else:
@@ -417,7 +371,6 @@ def _download_deps(
                 bucket=bucket,
                 s3_key=s3_prefix,
                 local_target=local_target,
-                expected_size=head["ContentLength"],
             )
             dt = time.time() - t0
             logger.info(f"  Done in {dt:.1f}s ({size_mb / max(dt, 0.1):.1f} MB/s)")
@@ -429,7 +382,6 @@ def _download_directory_atomically(
     bucket: str,
     s3_prefix: str,
     local_target: Path,
-    roles: set[str] | None = None,
 ) -> int:
     """Stage a complete S3 prefix, then publish the directory in one rename."""
     temporary = Path(
@@ -437,55 +389,33 @@ def _download_directory_atomically(
     ).resolve()
     try:
         paginator = s3.get_paginator("list_objects_v2")
-        inventory = {}
+        file_count = 0
         for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix + "/"):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
-                if not key.startswith(s3_prefix + "/"):
-                    raise ValueError(f"Model dependency key outside prefix: {key}")
                 relative_path = key[len(s3_prefix) + 1 :]
-                if not relative_path or key.endswith("/"):
+                if not relative_path:
                     continue
-                _cache_target(temporary, relative_path, for_write=True)
-                if relative_path == _DEPENDENCY_RECEIPT or relative_path in inventory:
-                    raise ValueError(f"Duplicate or reserved model dependency key: {key}")
-                inventory[relative_path] = obj["Size"]
-        if not inventory:
+                local_path = (temporary / relative_path).resolve()
+                try:
+                    local_path.relative_to(temporary)
+                except ValueError as error:
+                    raise ValueError(f"Model dependency key escapes its prefix: {key}") from error
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                size_mb = obj["Size"] / 1e6
+                logger.info(f"    {relative_path} ({size_mb:.1f} MB)")
+                s3.download_file(bucket, key, str(local_path))
+                file_count += 1
+        if file_count == 0:
             raise FileNotFoundError(f"No objects found under s3://{bucket}/{s3_prefix}/")
-        # Capture the entire expected inventory before starting any transfer.
-        for relative_path in inventory:
-            local_path = temporary / relative_path
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            s3.download_file(bucket, f"{s3_prefix}/{relative_path}", str(local_path))
-        receipt = build_dependency_receipt(temporary, inventory)
-        if roles:
-            error = dependency_invalid_reason(temporary, roles)
-            if error is not None:
-                raise ValueError(f"Downloaded model dependency {s3_prefix} is incomplete: {error}")
-        (temporary / _DEPENDENCY_RECEIPT).write_text(json.dumps(receipt) + "\n")
-        _publish_dependency_directory(temporary, local_target)
-        return len(inventory)
+        try:
+            os.replace(temporary, local_target)
+        except OSError:
+            if not (local_target.is_dir() and any(local_target.iterdir())):
+                raise
+        return file_count
     finally:
         shutil.rmtree(temporary, ignore_errors=True)
-
-
-def _publish_dependency_directory(staging: Path, target: Path) -> None:
-    """Replace an incomplete cache only after its replacement has been verified.
-
-    All resolver callers hold the cache lock. A process killed between these two
-    renames leaves a missing target, never a partially downloaded public directory.
-    """
-    if not target.exists() and not target.is_symlink():
-        os.replace(staging, target)
-        return
-    with tempfile.TemporaryDirectory(prefix=f".{target.name}-replaced.", dir=target.parent) as old:
-        backup = Path(old) / "dependency"
-        os.replace(target, backup)
-        try:
-            os.replace(staging, target)
-        except BaseException:
-            os.replace(backup, target)
-            raise
 
 
 def _download_file_atomically(
@@ -494,53 +424,56 @@ def _download_file_atomically(
     bucket: str,
     s3_key: str,
     local_target: Path,
-    expected_size: int,
 ) -> None:
     """Stage one S3 object, then publish the file in one rename."""
     descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{local_target.name}.", suffix=local_target.suffix, dir=local_target.parent
+        prefix=f".{local_target.name}.", dir=local_target.parent
     )
     os.close(descriptor)
     temporary = Path(temporary_name)
     try:
         s3.download_file(bucket, s3_key, str(temporary))
-        receipt = build_dependency_receipt(temporary, {".": expected_size})
-        error = dependency_invalid_reason(temporary, {"model"})
-        if error is not None:
-            raise ValueError(f"Downloaded model dependency {s3_key} is incomplete: {error}")
         os.replace(temporary, local_target)
-        # The cache lock covers payload+receipt publication. An interrupted receipt
-        # cannot certify a partial payload: only the complete file was renamed.
-        receipt_path = _receipt_path(local_target)
-        temporary.write_text(json.dumps(receipt) + "\n")
-        os.replace(temporary, receipt_path)
     finally:
         temporary.unlink(missing_ok=True)
 
 
 def _rewrite_configs(
     checkpoint_dir: Path,
-    resolved_paths: dict[str, str],
+    dep_paths: list[str],
     cache_dir: Path,
-    *,
-    view_root: Path | None = None,
-) -> Path:
-    """Create an inference view with localized configs, leaving the source immutable.
+) -> None:
+    """Rewrite config files to replace Lustre paths with local cache paths.
 
-    Use the exact validated resolutions, never rediscover an incomplete mounted
-    copy while constructing the view after a cache repair.
+    Only rewrites paths that don't exist locally (original path missing) but
+    have been downloaded to cache_dir. Also applies cross-cluster Lustre prefix
+    remapping (amlfs-02 -> aws-lfs-02).
     """
     # Build replacement map: old_path -> new_path
-    replacements = {
-        original: local for original, local in resolved_paths.items() if original != local
-    }
+    replacements: dict[str, str] = {}
+    for dep_path in dep_paths:
+        # Skip if original path exists (no rewrite needed)
+        if os.path.exists(dep_path):
+            continue
 
-    identities = {
-        local: f"{MODEL_DEPENDENCY_REMOTE_ROOT}/{relative}"
-        for original, local in replacements.items()
-        if (relative := _to_relative_dep_path(original, cache_dir)) is not None
-    }
-    configs: dict[str, str] = {}
+        # Prefer a sibling Lustre mount over our downloaded cache — if the
+        # same data is already available under a different prefix, point at
+        # that instead of shuttling through ~/checkpoints/model_deps.
+        alt = _find_lustre_alternative(dep_path)
+        if alt is not None:
+            replacements[dep_path] = alt
+            continue
+
+        rel_path = _to_relative_dep_path(dep_path, cache_dir)
+        if rel_path is None:
+            continue
+
+        local_cached = cache_dir / rel_path
+        # Only rewrite if the cached version exists and the path isn't already correct
+        if local_cached.exists() and dep_path != str(local_cached):
+            replacements[dep_path] = str(local_cached)
+
+    # Apply cross-cluster and cache path rewrites to config files
     for config_file in _CONFIG_FILES:
         config_path = checkpoint_dir / config_file
         if not config_path.exists():
@@ -554,66 +487,22 @@ def _rewrite_configs(
             content = content.replace(old_path, new_path)
 
         if content != original_content:
-            config = json.loads(content)
-            owner = config.get("processor_kwargs", config)
-            base_model_cfg = config.get("base_model_cfg")
-            if isinstance(base_model_cfg, dict) and any(
-                path in identities for path in _extract_dep_paths(base_model_cfg)
-            ):
-                # N2 RL-family configs serialize the actor through the nested
-                # GrootN2Config.to_dict(). Keep durable identities with that
-                # owner so re-saving cannot bake in this host's cache paths.
-                owner = base_model_cfg
-            # final_processor_config.json is a diagnostic receipt: RL producers
-            # stringify every attribute, including the optional identity map.
-            # It is not a loadable config and must not be interpreted as one.
-            if config_file != "experiment_cfg/final_processor_config.json":
-                owner["model_dependency_identities"] = {
-                    **(owner.get("model_dependency_identities") or {}),
-                    **identities,
-                }
-            configs[config_file] = json.dumps(config, indent=2) + "\n"
+            _atomic_write_text(config_path, content)
+            logger.info(f"  Rewrote paths in {config_file}")
+        else:
+            logger.info(f"No rewrites needed for {config_file}")
 
-    if not configs:
-        return checkpoint_dir
-    source = checkpoint_dir.resolve()
-    links = _checkpoint_view_links(source, configs)
-    metadata = {"version": 1, "source": str(source), "dependency_cache": str(cache_dir.resolve())}
-    identity = checkpoint_view_identity(metadata, configs, links)
-    views = view_root if view_root is not None else cache_dir / ".checkpoint-configs"
-    views.mkdir(parents=True, exist_ok=True)
-    view = views / identity
-    if view.is_dir():
-        checkpoint_view_metadata(view)
-        return view
-    staging = Path(tempfile.mkdtemp(prefix=f".{identity}.", dir=views))
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Publish a rewritten config without exposing a partial JSON document."""
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
     try:
-        _write_checkpoint_view(links, staging, configs)
-        (staging / CHECKPOINT_VIEW_METADATA_FILE).write_text(json.dumps(metadata) + "\n")
-        os.replace(staging, view)
+        with os.fdopen(descriptor, "w") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, path.stat().st_mode)
+        os.replace(temporary, path)
     finally:
-        if staging.exists():
-            shutil.rmtree(staging)
-    return view
-
-
-def _checkpoint_view_links(source: Path, configs: dict[str, str]) -> dict[str, str]:
-    """Snapshot link topology without reading payloads or walking linked asset directories.
-
-    Added/removed entries and retargeted source symlinks require a new view. Recurse
-    only into directories expanded for localized configs; other directories remain
-    live symlinks, so changes within them are already visible to loaders.
-    """
-    return checkpoint_view_links(source, configs)
-
-
-def _write_checkpoint_view(links: dict[str, str], target: Path, configs: dict[str, str]) -> None:
-    """Copy only localized JSON; link the inventoried assets without reading payloads."""
-    for name, content in configs.items():
-        destination = target / name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(content)
-    for name, link in links.items():
-        destination = target / name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.symlink_to(link, target_is_directory=Path(link).is_dir())
+        temporary.unlink(missing_ok=True)

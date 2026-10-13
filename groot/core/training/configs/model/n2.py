@@ -9,8 +9,7 @@
 # its affiliates is strictly prohibited.
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, TypedDict
+from typing import TypedDict
 
 from transformers import PretrainedConfig
 
@@ -19,72 +18,6 @@ from groot.core.training.configs.model import register_model_config
 # The DiT's patch_embed/proj_out shapes derive from this, so the transformer and
 # the VAE cannot disagree.
 VAE_LATENT_CHANNELS = {"wan21": 16, "wan22": 48}
-
-MODEL_DEPENDENCY_REMOTE_ROOT = "s3://GearCheckpoints/model_deps"
-LOCAL_MODEL_DEPENDENCY_ROOTS = (
-    "/mnt/oci-lustre/ckpts/",
-    "/mnt/aws-lfs-02/shared/ckpts/",
-    "/mnt/aws-lfs-03/shared/ckpts/",
-    "/mnt/amlfs-02/shared/ckpts/",
-    "/mnt/amlfs-05/shared/ckpts/",
-    "/mnt/amlfs-07/shared/ckpts/",
-)
-MODEL_DEPENDENCY_CONFIG_KEYS = frozenset(
-    {
-        "diffusion_model_pretrained_path",
-        "text_encoder_pretrained_path",
-        "tokenizer_path",
-        "vae_pretrained_path",
-    }
-)
-
-
-def relative_model_dependency_path(
-    path: str,
-    *,
-    cache_root: str | Path | None = None,
-) -> str | None:
-    """Return the stable path below the shared model-dependency root."""
-    remote_prefix = MODEL_DEPENDENCY_REMOTE_ROOT.rstrip("/") + "/"
-    for prefix in (remote_prefix, remote_prefix.replace("s3://", "msc://", 1)):
-        if path.startswith(prefix):
-            return path[len(prefix) :].strip("/")
-    for prefix in LOCAL_MODEL_DEPENDENCY_ROOTS:
-        if path.startswith(prefix):
-            return path[len(prefix) :].strip("/")
-    if cache_root is not None:
-        cache_prefix = str(cache_root).rstrip("/") + "/"
-        if path.startswith(cache_prefix):
-            return path[len(cache_prefix) :].strip("/")
-    return None
-
-
-def portable_model_dependency_path(path: str, identities: dict[str, str] | None = None) -> str:
-    """Canonicalize known cluster-local and MSC dependencies to durable S3 identities."""
-    if identities and path in identities:
-        return identities[path]
-    relative = relative_model_dependency_path(path)
-    if relative is None:
-        return path
-    return f"{MODEL_DEPENDENCY_REMOTE_ROOT}/{relative}"
-
-
-def portable_model_dependency_config(value: Any, identities: dict[str, str] | None = None) -> Any:
-    """Return a config tree whose known model dependencies use durable S3 identities."""
-    if isinstance(value, dict):
-        return {
-            key: (
-                portable_model_dependency_path(item, identities)
-                if key in MODEL_DEPENDENCY_CONFIG_KEYS and isinstance(item, str)
-                else portable_model_dependency_config(item, identities)
-            )
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [portable_model_dependency_config(item, identities) for item in value]
-    if isinstance(value, tuple):
-        return tuple(portable_model_dependency_config(item, identities) for item in value)
-    return value
 
 
 class DiffusionModelConfig(TypedDict, total=False):
@@ -212,9 +145,6 @@ class GrootN2Config(PretrainedConfig):
 
     # Multiview (n_cameras derived from data at runtime — supports cross-embodiment)
     max_n_cameras: int = 3
-    # Posttraining initialization only: one source row per target camera; -1 keeps
-    # that camera's fresh constructor embedding. None retains legacy prefix loading.
-    pretrained_view_indices: tuple[int, ...] | None = None
     view_embed_dim: int = (
         0  # per-view embedding dim concatenated to input channels (7 for official AV multiview)
     )
@@ -284,21 +214,6 @@ class GrootN2Config(PretrainedConfig):
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
-        if self.pretrained_view_indices is not None:
-            indices = self.pretrained_view_indices
-            if (
-                not isinstance(indices, list | tuple)
-                or not indices
-                or len(indices) != self.max_n_cameras
-                or any(type(i) is not int or i < -1 for i in indices)
-                or len({i for i in indices if i >= 0}) != sum(i >= 0 for i in indices)
-                or self.view_embed_dim <= 0
-            ):
-                raise ValueError(
-                    "pretrained_view_indices requires one source row (or -1 for fresh) "
-                    "per camera, distinct reused rows, and view_embed_dim > 0"
-                )
-            self.pretrained_view_indices = tuple(indices)
         if self.vae_type not in VAE_LATENT_CHANNELS:
             raise ValueError(
                 f"vae_type must be one of {sorted(VAE_LATENT_CHANNELS)}, got {self.vae_type!r}"
@@ -308,12 +223,6 @@ class GrootN2Config(PretrainedConfig):
             if kwargs.get("tiled", False):
                 raise ValueError("vae_type='wan22' does not support tiled VAE encode/decode")
             self.tiled = False
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize external model assets by durable identity, not cluster-local cache path."""
-        config = super().to_dict()
-        identities = config.pop("model_dependency_identities", None)
-        return portable_model_dependency_config(config, identities)
 
 
 register_model_config("GrootN2", GrootN2Config)

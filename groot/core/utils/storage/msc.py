@@ -12,7 +12,7 @@ import hashlib
 import json
 import logging
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import socket
 import tempfile
 import time
@@ -329,46 +329,12 @@ def download_remote_checkpoint_for_resume(
         return False
 
 
-def _read_model_cache_marker(marker: Path, source: str) -> Path:
-    """Trust model cache receipts only when their identity and payload still match."""
-    receipt = json.loads(marker.read_text(encoding="utf-8"))
-    if not isinstance(receipt, dict) or set(receipt) != {"source", "file", "sizes"}:
-        raise ValueError(f"Invalid model asset cache marker: {marker}")
-    if receipt["source"] != source:
-        raise ValueError(f"Model asset cache source mismatch: {marker}")
-    filename, sizes = receipt["file"], receipt["sizes"]
-    if filename is not None and (
-        not isinstance(filename, str)
-        or filename != PurePosixPath(source).name
-        or filename in {"", ".", "..", marker.name}
-    ):
-        raise ValueError(f"Invalid model asset cache filename: {marker}")
-    if not isinstance(sizes, dict) or not sizes:
-        raise ValueError(f"Missing model asset cache inventory: {marker}")
-    for name, size in sizes.items():
-        path = PurePosixPath(name)
-        if (
-            path.is_absolute()
-            or ".." in path.parts
-            or not path.parts
-            or type(size) is not int
-            or size < 0
-            or not (marker.parent / name).is_file()
-            or (marker.parent / name).stat().st_size != size
-        ):
-            raise ValueError(f"Incomplete model asset cache: {marker}")
-    if filename is not None and filename not in sizes:
-        raise ValueError(f"Missing cached model asset: {marker.parent / filename}")
-    return marker.parent / filename if filename is not None else marker.parent
-
-
 def resolve_checkpoint_path(
     checkpoint_path: str,
     output_dir: str,
     global_rank: int | None = None,
     *,
     require_resume_state: bool = False,
-    allow_file: bool = False,
 ) -> str:
     """
     Resolve checkpoint path, downloading from remote storage if needed.
@@ -384,7 +350,6 @@ def resolve_checkpoint_path(
             or 0 when distributed training is not initialized.
         require_resume_state: Require a durable SUCCESS marker and valid explicit
             async ZeRO-2 recovery state, using a separate cache-completion marker.
-        allow_file: Resolve a model directory or single file with a validated cache receipt.
 
     Returns:
         Local POSIX path to checkpoint directory
@@ -392,8 +357,6 @@ def resolve_checkpoint_path(
     if not checkpoint_path.startswith("msc://"):
         # Already a local path, return as-is
         return checkpoint_path
-    if allow_file and require_resume_state:
-        raise ValueError("Training resume requires a checkpoint directory")
     try:
         import torch.distributed as dist
     except ImportError:
@@ -451,62 +414,21 @@ def resolve_checkpoint_path(
     failure = None
     if download_leader:
         try:
-            if allow_file and marker.exists():
-                try:
-                    _read_model_cache_marker(marker, checkpoint_path)
-                except (ValueError, OSError):
-                    # Empty legacy markers have no source/payload evidence. Re-sync
-                    # through MSC, which can reuse matching existing files.
-                    marker.unlink(missing_ok=True)
             if not marker.exists():
                 logging.info(f"{leader_label}: Downloading checkpoint from {checkpoint_path}")
                 logging.info(f"{leader_label}: Destination: {local_dir}")
                 local_dir.mkdir(parents=True, exist_ok=True)
-                asset_file = None
-                if allow_file and msc.is_file(checkpoint_path):  # type: ignore[union-attr]
-                    asset_file = PurePosixPath(checkpoint_path).name
-                    if asset_file in {"", ".", "..", marker.name}:
-                        raise ValueError("Invalid model asset filename")
-                    with tempfile.NamedTemporaryFile(dir=local_dir, delete=False) as handle:
-                        temporary = Path(handle.name)
-                    try:
-                        msc.download_file(checkpoint_path, str(temporary))  # type: ignore[union-attr]
-                        temporary.replace(local_dir / asset_file)
-                    finally:
-                        temporary.unlink(missing_ok=True)
-                else:
-                    msc.sync(  # type: ignore[union-attr]
-                        source_url=checkpoint_path,
-                        target_url=str(local_dir),
-                        execution_mode=ExecutionMode.LOCAL,  # type: ignore[union-attr]
-                        ignore_hidden=False,
-                    )
+                msc.sync(  # type: ignore[union-attr]
+                    source_url=checkpoint_path,
+                    target_url=str(local_dir),
+                    execution_mode=ExecutionMode.LOCAL,  # type: ignore[union-attr]
+                    ignore_hidden=False,
+                )
                 if require_resume_state:
                     validate_explicit_resume_checkpoint(
                         local_dir, require_success=True, world_size=world_size
                     )
-                if allow_file:
-                    sizes = {
-                        path.relative_to(local_dir).as_posix(): path.stat().st_size
-                        for path in local_dir.rglob("*")
-                        if path.is_file() and path != marker
-                    }
-                    with tempfile.NamedTemporaryFile(
-                        dir=local_dir, prefix=f"{marker.name}.", suffix=".tmp", delete=False
-                    ) as handle:
-                        temporary = Path(handle.name)
-                    try:
-                        temporary.write_text(
-                            json.dumps(
-                                {"source": checkpoint_path, "file": asset_file, "sizes": sizes}
-                            )
-                        )
-                        _read_model_cache_marker(temporary, checkpoint_path)
-                        temporary.replace(marker)
-                    finally:
-                        temporary.unlink(missing_ok=True)
-                else:
-                    marker.touch()
+                marker.touch()
                 logging.info(f"{leader_label}: Checkpoint download complete")
             else:
                 logging.info(f"{leader_label}: Checkpoint already cached at {local_dir}")
@@ -522,8 +444,6 @@ def resolve_checkpoint_path(
     try:
         if not marker.is_file():
             raise RuntimeError(f"Checkpoint download failed or incomplete: {local_dir}")
-        if allow_file:
-            resolved_asset = _read_model_cache_marker(marker, checkpoint_path)
         if require_resume_state:
             validate_explicit_resume_checkpoint(
                 local_dir, require_success=True, world_size=world_size
@@ -534,7 +454,7 @@ def resolve_checkpoint_path(
         )
     check_failures(failure)
 
-    return str(resolved_asset if allow_file else local_dir)
+    return str(local_dir)
 
 
 def list_directories_from_path(msc_url: str) -> list[str]:
@@ -773,8 +693,7 @@ def resolve_model_path(
             raise RuntimeError(
                 f"MSC_CACHE_PATH environment variable is required when {param_name} is a remote URL: {path}"
             )
-        source = "msc://" + path.removeprefix("s3://") if path.startswith("s3://") else path
-        return resolve_checkpoint_path(source, cache_dir, allow_file=True)
+        return resolve_checkpoint_path(path, cache_dir)
     if path.startswith("/") and not os.path.exists(path):
         raise RuntimeError(
             f"{param_name} points to a non-existent local path: {path}\n"

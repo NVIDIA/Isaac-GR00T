@@ -741,8 +741,8 @@ class CheckpointUploadCallback(TrainerCallback):
 
         Only waits for safetensors (model shards) since the upload excludes
         optimizer state (optimizer.pt, optimizer_rank*.pt, dcp_state).
-        The Trainer's full-state completion check is collective and must not
-        run here, since only rank 0 reaches this model-only callback.
+        Waiting for DCP async_save here would deadlock: its future.result()
+        may require a collective barrier but only rank 0 reaches this callback.
         """
         if self.trainer is None:
             return
@@ -877,39 +877,16 @@ class OpenLoopEvalCallback(TrainerCallback):
     def on_save(
         self, args: TrainingArguments, state: TrainerState, _control: TrainerControl, **kwargs
     ):
-        import random
-
-        import numpy as np
-        import torch
-
-        # This wait propagates writer failures collectively. Every rank must
-        # participate before rank zero loads the saved checkpoint for eval.
-        if self.trainer is not None:
-            self.trainer._wait_for_pending_trainer_checkpoint_writes()
-
-        python_rng = random.getstate()
-        numpy_rng = np.random.get_state()  # noqa: NPY002 - preserve training's global RNG
-        torch_rng = torch.random.get_rng_state()
-        cuda_device = torch.cuda.current_device() if torch.cuda.is_available() else None
-        cuda_rng = torch.cuda.get_rng_state(cuda_device) if cuda_device is not None else None
-        try:
-            return self._on_save(args, state, _control, **kwargs)
-        finally:
-            random.setstate(python_rng)
-            np.random.set_state(numpy_rng)  # noqa: NPY002 - restore training's global RNG
-            torch.random.set_rng_state(torch_rng)
-            if cuda_rng is not None:
-                torch.cuda.set_rng_state(cuda_rng, cuda_device)
-
-    def _on_save(
-        self, args: TrainingArguments, state: TrainerState, _control: TrainerControl, **kwargs
-    ):
         import torch.distributed as dist
 
         _use_barrier = dist.is_initialized() and dist.get_world_size() > 1
         _gloo_group = dist.new_group(backend="gloo") if _use_barrier else None
 
         should_eval = state.is_world_process_zero and bool(self.eval_configs)
+
+        if should_eval:
+            if self.trainer is not None:
+                self.trainer._wait_for_pending_safetensors_worker()
 
         if not should_eval:
             if _use_barrier:

@@ -12,30 +12,9 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-
-def resolve_n2_trt_schedule(denoising_steps: int | None) -> tuple[int, int]:
-    """Resolve and validate the cached schedule before build or worker setup."""
-    action_steps = (
-        int(os.environ.get("GROOT_N2_NUM_ACTION_STEPS", "4"))
-        if denoising_steps is None
-        else denoising_steps
-    )
-    video_steps = int(os.environ.get("GROOT_N2_NUM_VIDEO_STEPS", "2"))
-    if (
-        video_steps <= 0
-        or not isinstance(action_steps, int)
-        or isinstance(action_steps, bool)
-        or action_steps <= 0
-        or action_steps % video_steps != 0
-    ):
-        raise ValueError(
-            f"N2 TRT schedule {video_steps}v{action_steps}a requires positive integer "
-            "video/action steps with action steps an exact multiple of video steps"
-        )
-    return video_steps, action_steps
+SUPPORTED_DENOISING_STEPS = 4
 
 
 def resolve_n2_trt_device(device: str | None) -> str:
@@ -60,8 +39,13 @@ def resolve_n2_trt_bundle(
     codec: str,
     rebuild_token: str | None = None,
 ) -> Path:
-    """Resolve a bundle exported for the requested inference schedule."""
-    video_steps, action_steps = resolve_n2_trt_schedule(denoising_steps)
+    """Resolve an automatic bundle after validating entrypoint-owned settings."""
+    requested_steps = SUPPORTED_DENOISING_STEPS if denoising_steps is None else denoising_steps
+    if requested_steps != SUPPORTED_DENOISING_STEPS:
+        raise ValueError(
+            "automatic N2 TensorRT bundles currently require "
+            f"denoising_steps={SUPPORTED_DENOISING_STEPS}, got {requested_steps}"
+        )
 
     from groot.deployment.n2_trt.auto_builder import resolve_or_build_engine_bundle
 
@@ -73,8 +57,6 @@ def resolve_n2_trt_bundle(
         device=resolve_n2_trt_device(device),
         rebuild_token=rebuild_token,
         codec=codec,
-        num_video_steps=video_steps,
-        num_action_steps=action_steps,
     )
     from groot.deployment.n2_trt.policy_measurement import report_policy_measurement
 

@@ -47,7 +47,6 @@ not handled here.
 
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
@@ -68,6 +67,7 @@ from groot.core.training.open_loop.live_policy import (
     LivePolicyAdapter,
     build_live_policy,
 )
+
 
 # Sample modes for the in-process callback. Kept as plain strings (not an
 # Enum) so they're trivially CLI-passable via tyro / hydra.
@@ -189,10 +189,13 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
         self.rkl_num_samples = int(rkl_num_samples)
         if self.enable_reverse_kl and self.rkl_num_samples < 2:
             raise ValueError(
-                f"enable_reverse_kl requires rkl_num_samples >= 2, got {self.rkl_num_samples}"
+                f"enable_reverse_kl requires rkl_num_samples >= 2, got "
+                f"{self.rkl_num_samples}"
             )
         if barrier_timeout_s <= 0:
-            raise ValueError(f"barrier_timeout_s must be positive, got {barrier_timeout_s!r}")
+            raise ValueError(
+                f"barrier_timeout_s must be positive, got {barrier_timeout_s!r}"
+            )
         self._barrier_timeout = timedelta(seconds=int(barrier_timeout_s))
         # Side gloo process group used for the post-log monitored_barrier.
         # Created lazily on first eval call (rather than __init__) because
@@ -243,7 +246,7 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
                 backend="gloo",
                 timeout=self._barrier_timeout,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             # Some deployments (e.g. NCCL-only torch builds) may fail to
             # create a gloo PG. Fall back to None so callers degrade
             # gracefully to a plain (NCCL) barrier — strictly worse than
@@ -262,7 +265,9 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_all_pairs(num_specs: int, traj_ids: list[int]) -> list[tuple[int, int]]:
+    def _build_all_pairs(
+        num_specs: int, traj_ids: list[int]
+    ) -> list[tuple[int, int]]:
         """Flatten ``(spec_idx, traj_id)`` cross product in a deterministic order.
 
         Legacy helper kept for backwards compatibility / unit tests; the
@@ -344,7 +349,9 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
         return units
 
     @staticmethod
-    def _resolve_start_step(start_fraction: float, traj_length: int, steps_per_traj: int) -> int:
+    def _resolve_start_step(
+        start_fraction: float, traj_length: int, steps_per_traj: int
+    ) -> int:
         """Map ``start_fraction`` ∈ [0, 1] to a real ``start_step`` ∈ [0, traj_length).
 
         ``start_fraction == 0`` always resolves to ``0`` so that the
@@ -364,7 +371,9 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
         return min(max_start, int(start_fraction * (max_start + 1)))
 
     @staticmethod
-    def _partition_pairs(all_pairs: list, rank: int, world_size: int) -> list:
+    def _partition_pairs(
+        all_pairs: list, rank: int, world_size: int
+    ) -> list:
         """Return the round-robin slice of ``all_pairs`` belonging to ``rank``.
 
         Round-robin partitioning is used (rather than chunked) so work
@@ -432,13 +441,11 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
         return 0, 1
 
     def _seed_for_call(self, global_step: int) -> int:
-        """Mix ``random_seed`` with ``global_step`` for each eval call.
-
-        Sample different work units (an unbiased estimator of dataset
+        """Mix ``random_seed`` with ``global_step`` so different eval calls
+        sample different work units (an unbiased estimator of dataset
         error over training time), while every rank inside a single eval
         call sees the *same* seed (preserves the IID partition + gather
-        invariant).
-        """
+        invariant)."""
         return (int(self.random_seed) ^ int(global_step)) & 0xFFFFFFFF
 
     # ------------------------------------------------------------------
@@ -447,11 +454,11 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
 
     def on_step_end(
         self,
-        args: TrainingArguments,  # noqa: ARG002 - HF callback keyword contract
+        args: TrainingArguments,
         state: TrainerState,
         _control: TrainerControl,
         model=None,
-        **kwargs,  # noqa: ARG002 - HF callback keyword contract
+        **kwargs,
     ) -> None:
         if not self.eval_datasets:
             return
@@ -481,7 +488,7 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
         spec: EvalDatasetSpec,
         policy_cache: dict[str, LivePolicyAdapter],
         rank: int,
-    ) -> tuple[LivePolicyAdapter | None, EmbodimentTag | None]:
+    ) -> tuple[LivePolicyAdapter | None, "EmbodimentTag | None"]:
         """Return (policy, embodiment_tag) — None on unknown embodiment.
 
         ``build_live_policy`` raising ``TypeError`` / ``RuntimeError``
@@ -495,7 +502,8 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
         except ValueError:
             if rank == 0:
                 logger.warning(
-                    "[in-process open-loop eval] unknown embodiment_tag %r — skipping %s",
+                    "[in-process open-loop eval] unknown embodiment_tag "
+                    "%r — skipping %s",
                     spec.embodiment_tag,
                     spec.name,
                 )
@@ -518,7 +526,7 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
         spec: EvalDatasetSpec,
         policy: LivePolicyAdapter,
         rank: int,
-    ) -> LeRobotEpisodeLoader | None:
+    ) -> "LeRobotEpisodeLoader | None":
         from groot.core.data.dataset.lerobot_episode_loader import (
             LeRobotEpisodeLoader,
         )
@@ -534,9 +542,10 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
                     video_backend_kwargs=None,
                 )
                 self._loader_cache[loader_key] = loader
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.exception(
-                    "[in-process open-loop eval][rank=%d] failed to load %s (%s)",
+                    "[in-process open-loop eval][rank=%d] failed to load "
+                    "%s (%s)",
                     rank,
                     spec.dataset_path,
                     spec.embodiment_tag,
@@ -551,10 +560,9 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
         policy_cache: dict[str, LivePolicyAdapter],
         rank: int,
     ) -> list[int]:
-        """Eagerly build policies + loaders and return per-spec dataset lengths.
-
-        Return ``0`` for any spec whose loader could
-        not be built, signalling "no work" to ``_build_work_units``.
+        """Eagerly build policies + loaders for every spec and return
+        per-spec dataset lengths (``0`` for any spec whose loader could
+        not be built, signalling "no work" to ``_build_work_units``).
 
         Required by the random-sampling modes since every rank must
         agree on dataset sizes to draw the *same* random sample set.
@@ -577,7 +585,7 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
                 lengths.append(0)
                 self._spec_length_cache[spec_idx] = 0
                 continue
-            n = len(loader)
+            n = int(len(loader))
             lengths.append(n)
             self._spec_length_cache[spec_idx] = n
         return lengths
@@ -599,7 +607,7 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
             model.eval()
         try:
             self.processor.eval()
-        except Exception:  # noqa: BLE001, S110 - preserve optional processor-hook behavior
+        except Exception:  # noqa: BLE001
             pass
 
         # Per-spec local results: spec_idx -> list of metric dicts.
@@ -670,8 +678,8 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
                 # `traj_length` for this; `loader[traj_id]` gives a
                 # pandas DataFrame and `len()` is O(1).
                 try:
-                    traj_length = len(loader[traj_id])
-                except Exception:
+                    traj_length = int(len(loader[traj_id]))
+                except Exception:  # noqa: BLE001
                     logger.exception(
                         "[in-process open-loop eval][rank=%d] failed to read "
                         "traj %d length from %s",
@@ -716,9 +724,10 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
                         enable_reverse_kl=self.enable_reverse_kl,
                         rkl_num_samples=self.rkl_num_samples,
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001
                     logger.exception(
-                        "[in-process open-loop eval][rank=%d] failed traj %d (start=%d) on %s",
+                        "[in-process open-loop eval][rank=%d] failed traj %d "
+                        "(start=%d) on %s",
                         rank,
                         traj_id,
                         start_step,
@@ -743,14 +752,14 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
             for _emb, p in policy_cache.items():
                 try:
                     p.close()
-                except Exception:  # noqa: BLE001, S110 - best-effort adapter cleanup
+                except Exception:  # noqa: BLE001
                     pass
             if model is not None and was_training:
                 model.train()
             try:
                 if was_processor_training:
                     self.processor.train()
-            except Exception:  # noqa: BLE001, S110 - preserve optional processor-hook behavior
+            except Exception:  # noqa: BLE001
                 pass
 
         # Gather per-spec (mse, mae) lists across all ranks. We pickle-gather
@@ -825,8 +834,12 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
             # the open_loop/avg_* surface — pull it out separately.
             for spec_idx, ds_metrics in aggregate.items():
                 spec = self.eval_datasets[spec_idx]
-                label = f"open_loop/{spec.embodiment_tag}/{spec.eval_type}/{spec.name}"
-                log_dict[f"{label}/num_trajectories"] = ds_metrics.get("num_trajectories", 0.0)
+                label = (
+                    f"open_loop/{spec.embodiment_tag}/{spec.eval_type}/{spec.name}"
+                )
+                log_dict[f"{label}/num_trajectories"] = ds_metrics.get(
+                    "num_trajectories", 0.0
+                )
                 for metric_key, value in ds_metrics.items():
                     if metric_key == "num_trajectories":
                         continue
@@ -859,23 +872,16 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
             # / etc. all pick it up.
             try:
                 if self.trainer is not None and len(log_dict) > 1:
-                    # HF on_log clears should_log. Rank-zero-only eval logging
-                    # must not consume training's all-rank logging decision.
-                    training_control = self.trainer.control
-                    self.trainer.control = copy.copy(training_control)
-                    try:
-                        self.trainer.log(log_dict)
-                    finally:
-                        self.trainer.control = training_control
+                    self.trainer.log(log_dict)
                 else:
                     try:
                         import wandb as _wandb
 
                         if getattr(_wandb, "run", None) is not None:
                             _wandb.log(log_dict, step=global_step)
-                    except Exception:  # noqa: BLE001, S110 - optional standalone metric sink
+                    except Exception:  # noqa: BLE001
                         pass
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.exception("[in-process open-loop eval] failed to log metrics")
 
         # Final lockstep — every rank waits here until rank 0 has finished
@@ -909,13 +915,14 @@ class InProcessOpenLoopEvalCallback(TrainerCallback):
                     timeout=self._barrier_timeout,
                     wait_all_ranks=True,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001
                 # monitored_barrier raises if the per-call timeout fires
                 # OR if any rank failed to participate. Both are real
                 # bugs the operator needs to see, but we don't want to
                 # mask the underlying training error if there is one.
                 logger.exception(
-                    "[in-process open-loop eval] post-log monitored_barrier failed (timeout=%s)",
+                    "[in-process open-loop eval] post-log "
+                    "monitored_barrier failed (timeout=%s)",
                     self._barrier_timeout,
                 )
                 raise

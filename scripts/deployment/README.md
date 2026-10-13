@@ -8,16 +8,15 @@ Run TensorRT-accelerated inference for the GR00T N2 policy.
 
 - A compatible N2 model checkpoint
 - A CUDA-capable target platform
-- The environment for the target platform from the [installation guide](../../docs/installation.md)
+- The environment for the target platform, using the setup below
 
 TensorRT engines are specific to the GPU and software stack on which they are built. Follow
-the installation path for the target platform, then use the common export, build, validation, and
+the setup section for the target platform, then use the common export, build, validation, and
 serving workflow below.
 
 | Platform | Setup | Supported workflow |
 | --- | --- | --- |
-| x86_64 dGPU | [Optional TensorRT setup](../../docs/installation.md#optional-tensorrt-on-x86) | Export, build, validate, and serve for compatible checkpoints |
-| Jetson Thor | [Thor setup](../../docs/installation.md#jetson-thor) (bare metal) | Export, build, validate, and serve |
+| Jetson Thor | [Jetson Thor Setup](#jetson-thor-setup) (bare metal) | Export, build, validate, and serve |
 
 
 ## TensorRT Acceleration
@@ -31,9 +30,8 @@ unvalidated engine bundle stops policy construction.
 
 This runtime is unquantized BF16, batch size 1, 224 x 320 images, five history
 frames per camera, joint denoising, conditional KV cache, two video denoising steps, and four
-action denoising steps. Engines are built from the selected checkpoint. The following
-layouts have been validated end to end; other layouts must satisfy the exporters'
-constraints and pass validation before serving:
+action denoising steps. Engines are built from the selected checkpoint, but this release admits
+only the checkpoint layouts that have been validated end to end:
 
 | Cameras | Action horizon |
 | ---: | ---: |
@@ -50,7 +48,7 @@ bundle path printed by the command.
 
 Start from a clean Git checkout. The checkpoint can be in any local directory; it must contain
 `config.json`, `processor_config.json`, `statistics.json`, and the model safetensors. All model
-dependencies referenced by `config.json` must also resolve on the target host.
+dependencies referenced by `config.json` must also resolve on the Thor.
 
 Set the checkpoint and cache paths. `build-trt` resolves the checkpoint contract, exports the
 ONNX graphs, builds the GPU-specific engines, validates them against PyTorch, and prints the
@@ -77,17 +75,9 @@ the bundle; a mismatch is rejected. The CLI default is `none`.
 The command prints `TRT_ENGINE_DIR=<path>`. Save that path as `TRT_ARTIFACT_DIR` when using
 an explicitly managed bundle. The later inference commands also require the selected workload:
 
-To find the checkpoint's embodiment tags:
-
-```bash
-uv run python -c \
-  'import json, sys; print("\n".join(json.load(open(sys.argv[1]))["processor_kwargs"]["modality_configs"]))' \
-  "$CHECKPOINT/processor_config.json"
-```
-
 ```bash
 export TRT_ARTIFACT_DIR=/path/printed/by/build-trt
-export PROCESSOR_EMBODIMENT="<checkpoint-embodiment-tag>"
+export PROCESSOR_EMBODIMENT=<checkpoint-embodiment-tag>
 export SERVER_EMBODIMENT="$(printf '%s' "$PROCESSOR_EMBODIMENT" | tr '[:lower:]' '[:upper:]')"
 ```
 
@@ -171,7 +161,7 @@ uv run python -P -m groot.infra.oss policy-server \
 ```
 
 To enable graph replay, add `--use-cuda-graph` to any of these commands. On the
-policy server it supports prompt changes with fixed input shapes, disables video
+policy server it fixes the prompt for the life of the process, disables video
 prediction, and requires one real-shaped client warmup with
 `PolicyClient.warmup_and_require_ready(observation)`. Benchmark both modes on
 the target hardware.
@@ -185,10 +175,22 @@ model used by `groot.infra.oss train`.
 
 ### Jetson Thor Setup
 
-Follow the [Thor installation and activation instructions](../../docs/installation.md#jetson-thor),
-then return to this guide to build, validate, and serve your checkpoint.
+#### Bare Metal
 
-### x86 Setup
+```bash
+# One-time install (validates aarch64/Python 3.12 and creates the locked
+# CUDA 13 environment)
+bash scripts/deployment/thor/install_deps.sh
 
-Follow the [x86 TensorRT installation instructions](../../docs/installation.md#optional-tensorrt-on-x86),
-then return to this guide to build, validate, and use your checkpoint's engines.
+# In each new shell
+source scripts/deployment/thor/activate_thor.sh
+```
+
+Activation selects the Thor project with `UV_PROJECT` and its project-local `.venv`.
+Both plain `python` and `uv run` use the same environment; this guide uses `uv run`.
+Verify the environment before building:
+
+```bash
+uv run python -c \
+  'import torch, tensorrt; print(torch.__version__, tensorrt.__version__, torch.cuda.get_device_name())'
+```

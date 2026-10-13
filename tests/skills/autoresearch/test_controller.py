@@ -31,9 +31,7 @@ from skills.autoresearch.study_state import (
     Trial,
     make_trial_id,
 )
-from skills.autoresearch.train_config_lock import TrainConfigLock
 from skills.autoresearch.wave_controller import WaveController
-import yaml
 
 
 def initialize_state(path: Path, state: StudyState) -> None:
@@ -120,33 +118,6 @@ class BrokenCompositionWorkspaceManager(FakeWorkspaceManager):
     def apply_commit(self, workspace, *, commit):
         self.applied.append((workspace.path.name, commit))
         raise RuntimeError("bad source revision")
-
-
-class LockedConfigWorkspaceManager(FakeWorkspaceManager):
-    """Serve one baseline training config and report the candidate's copy as changed."""
-
-    config_path = "skills/autoresearch/scripts/train_config.yaml"
-
-    def __init__(self, tmp_path: Path, *, baseline: dict, candidate: dict) -> None:
-        super().__init__(tmp_path)
-        self.baseline = baseline
-        self.candidate = candidate
-        self.read_commits = []
-
-    def create(self, *, trial_id, base_commit):
-        workspace = super().create(trial_id=trial_id, base_commit=base_commit)
-        path = workspace.path / self.config_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.safe_dump(self.candidate), encoding="utf-8")
-        return workspace
-
-    def changed_files(self, workspace):
-        return [self.config_path]
-
-    def read_file(self, *, commit, path):
-        self.read_commits.append(commit)
-        assert path == self.config_path
-        return yaml.safe_dump(self.baseline)
 
 
 class FakeEditor:
@@ -954,82 +925,6 @@ def test_composition_conflict_defaults_to_audited_skip(tmp_path: Path) -> None:
     assert "groot/core/training/models/n2/model.py" in (trial.train.error or "")
     assert trial.train.status == "skipped"
     assert trial.evaluation.status == "skipped"
-
-
-def _locked_config(tmp_path: Path) -> StudyConfig:
-    return replace(
-        _config(tmp_path),
-        editable_paths=(LockedConfigWorkspaceManager.config_path,),
-        train_config_lock=TrainConfigLock(
-            path=LockedConfigWorkspaceManager.config_path,
-            eval_dataset_paths=("/data/eval",),
-        ),
-    )
-
-
-def _train_config(*, max_steps: int = 1000, dataset_paths=("/data/train",)) -> dict:
-    return {
-        "data": {"datasets": [{"dataset_paths": list(dataset_paths)}]},
-        "training": {"max_steps": max_steps, "num_gpus": 1, "per_device_batch_size": 8},
-    }
-
-
-def test_locked_train_config_change_is_rejected_before_training(tmp_path: Path) -> None:
-    # A composition trial on top of a prior winner must still be compared with the baseline.
-    config = replace(_locked_config(tmp_path), max_trials=3)
-    state_path = tmp_path / "state.json"
-    initialize_state(state_path, _queued_composition_state(config))
-    workspace = LockedConfigWorkspaceManager(
-        tmp_path / "worktrees",
-        baseline=_train_config(),
-        candidate=_train_config(max_steps=5000),
-    )
-    runner = FakeRunner()
-    controller = WaveController(
-        config=config,
-        workspace_manager=workspace,
-        editor=FakeEditor(),
-        runner=runner,
-    )
-
-    assert controller.run_once().action == "wave_created"
-    result = controller.run_once()
-
-    assert result.action == "candidate_rejected"
-    assert "locked field training.max_steps changed from 1000 to 5000" in result.message
-    assert workspace.read_commits == [config.base_commit]
-    assert workspace.pushed == []
-    assert runner.train_runs == []
-
-
-def test_locked_train_config_expands_train_env_like_the_train_script(tmp_path: Path) -> None:
-    config = replace(_locked_config(tmp_path), train_env={"TRAIN_ONLY_ROOT": "/data"})
-    baseline = _train_config(dataset_paths=("${TRAIN_ONLY_ROOT}/train",))
-    controller = WaveController(
-        config=config,
-        workspace_manager=LockedConfigWorkspaceManager(
-            tmp_path / "worktrees", baseline=baseline, candidate=baseline
-        ),
-        editor=FakeEditor(),
-        runner=FakeRunner(),
-    )
-
-    controller.check_baseline_train_config()
-
-
-def test_baseline_training_on_eval_data_fails_preflight(tmp_path: Path) -> None:
-    leaky = _train_config(dataset_paths=("/data/train", "/data/eval"))
-    controller = WaveController(
-        config=_locked_config(tmp_path),
-        workspace_manager=LockedConfigWorkspaceManager(
-            tmp_path / "worktrees", baseline=leaky, candidate=leaky
-        ),
-        editor=FakeEditor(),
-        runner=FakeRunner(),
-    )
-
-    with pytest.raises(ValueError, match="training dataset /data/eval overlaps evaluation"):
-        controller.check_baseline_train_config()
 
 
 def test_non_conflict_composition_failure_is_reported(tmp_path: Path) -> None:

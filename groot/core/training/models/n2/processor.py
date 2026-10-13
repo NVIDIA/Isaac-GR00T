@@ -33,11 +33,7 @@ from groot.core.data.state_action.state_action_processor import StateActionProce
 from groot.core.data.types import BaseProcessor, VLAStepDataId
 from groot.core.data.utils import parse_modality_configs, to_json_serializable
 from groot.core.training.configs.data.embodiment_configs import ModalityConfig
-from groot.core.training.configs.model.n2 import (
-    ActionConfig,
-    GrootN2Config,
-    portable_model_dependency_path,
-)
+from groot.core.training.configs.model.n2 import ActionConfig, GrootN2Config
 from groot.core.training.models.n2.components.image_transforms import (
     FractionalCenterCrop,
     apply_with_replay,
@@ -63,12 +59,9 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "real_g1_relative_eef_absolute_joints": 3,
     "real_g1_relative_eef_absolute_joints_wrist_cam": 3,
     "real_g1_relative_eef_relative_joints": 3,
-    # Legacy compatibility only; do not use for new N2 runs. Keep the row-5
-    # fallback for reproductions; a saved checkpoint mapping still takes precedence.
+    # This schema has different state/action semantics from the older G1
+    # schemas above, so it uses its own projector row.
     "unitree_g1_whole_body_teleop_latent_gripper": 5,
-    "unitree_g1_whole_body_teleop_latent_gripper_new_emb": 15,
-    # New pretraining (09/30) uses row 7; original pretraining/resumes retain their saved row.
-    "unitree_g1_whole_body_teleop_latent_gripper_wrist": 7,
     "real_r1_pro_sharpa_relative_joint": 2,
     "oxe_droid_relative_eef_relative_joint": 1,
     "xdof_relative_eef_relative_joint": 0,
@@ -222,7 +215,6 @@ class GrootN2Processor(BaseProcessor):
         action_cfg: ActionConfig | None = None,
         statistics: dict | None = None,
         embodiment_id_mapping: dict[str, int] | None = None,
-        model_dependency_identities: dict[str, str] | None = None,
         **_kwargs,
     ):
         self.modality_configs = parse_modality_configs(modality_configs)
@@ -238,7 +230,6 @@ class GrootN2Processor(BaseProcessor):
         self.codec_aug_params = codec_aug_params
         self.max_language_length = max_language_length
         self.tokenizer_path = tokenizer_path
-        self.model_dependency_identities = model_dependency_identities
         self.formalize_language = formalize_language
         self.max_n_cameras = max_n_cameras
         self.action_cfg = action_cfg
@@ -678,9 +669,7 @@ class GrootN2Processor(BaseProcessor):
                 "max_n_cameras": self.max_n_cameras,
                 "formalize_language": self.formalize_language,
                 "max_language_length": self.max_language_length,
-                "tokenizer_path": portable_model_dependency_path(
-                    self.tokenizer_path, self.model_dependency_identities
-                ),
+                "tokenizer_path": self.tokenizer_path,
                 "language_dropout_prob": self.language_dropout_prob,
                 "null_prompt": self.null_prompt,
                 "action_cfg": dict(self.action_cfg) if self.action_cfg else None,

@@ -23,7 +23,6 @@ from typing import TypeAlias
 from groot.infra.launcher.one_launcher.automodel_training_experiment import (
     AutoModelTrainingExperiment,
 )
-from groot.infra.launcher.one_launcher.experiment_paths import DEFAULT_EXPERIMENT_DIR
 from groot.infra.launcher.one_launcher.resolved_automodel_training_experiment import (
     ResolvedAutoModelTrainingExperiment,
 )
@@ -35,6 +34,7 @@ from groot.infra.launcher.one_launcher.training_launch_compute_profile import (
     TrainingLaunchComputeProfile,
 )
 
+DEFAULT_EXPERIMENT_DIR = Path("groot/infra/experiments/training/configs")
 TrainingExperimentDefinition: TypeAlias = TrainingExperiment | AutoModelTrainingExperiment
 ResolvedExperiment: TypeAlias = ResolvedTrainingExperiment | ResolvedAutoModelTrainingExperiment
 
