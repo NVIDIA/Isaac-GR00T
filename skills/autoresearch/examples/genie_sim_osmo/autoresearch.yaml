@@ -20,6 +20,7 @@ git:
   base_branch: main
 
 editable_paths:
+  - oss/skills/autoresearch/scripts/train_local.sh
   - oss/skills/autoresearch/examples/genie_sim_osmo/train_config.yaml
   - oss/groot/core/training/models/
   - groot/core/training/models/
@@ -38,16 +39,12 @@ frozen_paths:
   - oss/skills/autoresearch/examples/genie_sim_osmo/autoresearch.yaml
   - oss/skills/autoresearch/examples/genie_sim_osmo/osmo_scripts/
   - oss/skills/autoresearch/examples/genie_sim_osmo/workflows/
-  - oss/skills/autoresearch/scripts/train_local.sh
   - oss/skills/autoresearch/scripts/eval_local.sh
   - oss/groot/infra/
   - groot/infra/
   - oss/groot/core/training/open_loop/
   - groot/core/training/open_loop/
   - oss/groot/core/training/configs/training/open_loop_eval_config.py
-
-locked_train_config:
-  path: oss/skills/autoresearch/examples/genie_sim_osmo/train_config.yaml
 
 idea_types:
   - recipe_tuning

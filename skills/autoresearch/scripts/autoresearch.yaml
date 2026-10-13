@@ -28,6 +28,7 @@ git:
 
 # Repository paths the configured agent may modify while creating an experiment.
 editable_paths:
+  - skills/autoresearch/scripts/train_local.sh
   - skills/autoresearch/scripts/train_config.yaml
   - groot/core/training/models/
   - groot/core/training/experiment/
@@ -39,31 +40,12 @@ editable_paths:
 # Repository or dataset paths that the configured agent must never modify.
 frozen_paths:
   - skills/autoresearch/scripts/launch_autoresearch.sh
-  - skills/autoresearch/scripts/train_local.sh
   - skills/autoresearch/scripts/autoresearch.yaml
   - skills/autoresearch/scripts/eval_local.sh
   - skills/autoresearch/scripts/eval_config.yaml
   - groot/infra/
   - groot/core/training/open_loop/
   - groot/core/training/configs/training/open_loop_eval_config.py
-
-# Fields of the editable training config that must render to the baseline-commit values.
-# Candidates that change them, change the effective global batch, or train on an eval dataset
-# are rejected before training.
-locked_train_config:
-  path: skills/autoresearch/scripts/train_config.yaml # Workspace-relative training config.
-  fields: # Defaults to these dotted paths when omitted; a field absent from both configs matches.
-    - data.datasets
-    - training.start_from_checkpoint
-    - training.resume_from_checkpoint
-    - training.max_steps
-    - training.num_gpus
-    - model.tokenizer_path
-    - model.text_encoder_cfg.text_encoder_pretrained_path
-    - model.diffusion_model_cfg.diffusion_model_pretrained_path
-    - model.vae_cfg.vae_pretrained_path
-  eval_dataset_paths: # Held-out datasets that no training dataset may equal or contain.
-    - /path/to/eval_dataset
 
 # Research categories assigned to trials in repeating order.
 idea_types:

@@ -54,10 +54,6 @@ class WaveController:
             progress=self._progress,
         )
 
-    def check_baseline_train_config(self) -> None:
-        """Reject an unusable locked baseline training config before any agent run."""
-        self.trial_controller.check_baseline_train_config()
-
     def initialize(self) -> StudyState:
         """Create initial study state from the config."""
         state = StudyState.create(

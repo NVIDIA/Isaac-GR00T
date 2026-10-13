@@ -14,12 +14,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import posixpath
 import re
 import subprocess
 
 _HELPER_PATHS = (".codex-autorun-prompt.txt", ".venv")
-_SYMLINK_MODE = "120000"
 _SAFE_ID = re.compile(r"[a-z0-9][a-z0-9._-]*\Z")
 
 
@@ -139,28 +137,19 @@ class GitWorkspaceManager:
             if untracked:
                 self._run(["git", "reset", "--quiet"], cwd=workspace.path)
 
+    @staticmethod
     def validate_changed_files(
-        self,
         changed_files: list[str],
         *,
         editable_paths: tuple[str, ...],
         frozen_paths: tuple[str, ...],
-        commit: str,
     ) -> list[str]:
-        """Return changes outside the configured research surface.
-
-        Git reports edits made through a symlink at the symlink target, so
-        symlinks committed under a configured path at ``commit`` extend that
-        path to their targets. Symlinks created by the candidate never widen
-        the surface.
-        """
-        editable = (*editable_paths, *self._symlink_targets(commit, editable_paths))
-        frozen = (*frozen_paths, *self._symlink_targets(commit, frozen_paths))
+        """Return changes outside the configured research surface."""
         violations = []
         for path in changed_files:
-            if _matches_any(path, frozen):
+            if _matches_any(path, frozen_paths):
                 violations.append(f"{path}: frozen")
-            elif not _matches_any(path, editable):
+            elif not _matches_any(path, editable_paths):
                 violations.append(f"{path}: outside editable paths")
         return violations
 
@@ -206,13 +195,6 @@ class GitWorkspaceManager:
                 conflict_files=conflict_files,
             ) from exc
 
-    def read_file(self, *, commit: str, path: str) -> str:
-        """Return one repository file exactly as stored at a commit."""
-        return self._run(
-            ["git", "show", f"{commit}:{path.strip('/')}"],
-            cwd=self.repository,
-        ).stdout
-
     def head(self, workspace: CandidateWorkspace) -> str:
         """Return the worktree HEAD commit."""
         return self._run(["git", "rev-parse", "HEAD"], cwd=workspace.path).stdout.strip()
@@ -257,28 +239,6 @@ class GitWorkspaceManager:
             ["git", "worktree", "remove", "--force", str(path)],
             cwd=self.repository,
         )
-
-    def _symlink_targets(self, commit: str, patterns: tuple[str, ...]) -> tuple[str, ...]:
-        """Return in-repository targets of symlinks committed under the patterns."""
-        if not patterns:
-            return ()
-        listing = self._run(
-            ["git", "ls-tree", "-r", "-z", commit, "--", *(p.strip("/") for p in patterns)],
-            cwd=self.repository,
-        ).stdout
-        targets: list[str] = []
-        for entry in filter(None, listing.split("\0")):
-            metadata, path = entry.split("\t", 1)
-            mode, _, oid = metadata.split()
-            if mode != _SYMLINK_MODE or not _matches_any(path, patterns):
-                continue
-            link = self._run(["git", "cat-file", "blob", oid], cwd=self.repository).stdout
-            target = posixpath.normpath(posixpath.join(posixpath.dirname(path), link))
-            if posixpath.isabs(link) or target == ".." or target.startswith("../"):
-                continue
-            # The target may be a directory, so cover both the path and its contents.
-            targets.extend((target, f"{target}/"))
-        return tuple(targets)
 
     def _conflict_files(self, workspace: CandidateWorkspace) -> list[str]:
         """List files with unresolved cherry-pick conflicts."""

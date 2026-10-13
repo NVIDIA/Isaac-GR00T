@@ -931,6 +931,7 @@ def test_oss_eval_invokes_open_loop_evaluator_without_running_gpu_backend(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv("GROOT_N2_NUM_VIDEO_STEPS", "1")
     checkpoint = tmp_path / "checkpoint-2"
     dataset_path = tmp_path / "dataset"
     output_json = tmp_path / "eval.json"
@@ -1168,7 +1169,8 @@ def test_oss_eval_uses_one_explicit_nonzero_device_for_build_and_inference(
     assert builds[0]["device"] == "cuda:1"
 
 
-def test_oss_cli_rejects_incoherent_automatic_trt_options() -> None:
+def test_oss_cli_rejects_incoherent_automatic_trt_options(monkeypatch) -> None:
+    monkeypatch.setenv("GROOT_N2_NUM_VIDEO_STEPS", "2")
     with pytest.raises(SystemExit):
         oss.main(
             [
@@ -1184,7 +1186,7 @@ def test_oss_cli_rejects_incoherent_automatic_trt_options() -> None:
     with pytest.raises(SystemExit):
         oss.main(["eval", "--checkpoint", "checkpoint", "--rebuild-trt"])
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError, match="positive.*exact multiple"):
         oss.main(
             [
                 "eval",
@@ -1193,8 +1195,108 @@ def test_oss_cli_rejects_incoherent_automatic_trt_options() -> None:
                 "--enable-trt",
                 "--denoising-steps",
                 "3",
+                "--dry-run",
             ]
         )
+
+
+_TRT_CLI_ROUTES = [
+    ("build-trt", []),
+    *[
+        (command, selection)
+        for command in ("train-eval", "eval", "policy-server", "closed-loop-eval")
+        for selection in (["--enable-trt"], ["--trt-engine-dir", "unused-engines"])
+    ],
+]
+
+
+def _schedule_cli_args(command, selection, action_steps):
+    arguments = [command, "--embodiment-tag", "libero_sim", *selection]
+    if command == "train-eval":
+        arguments.extend(["--dataset-path", "unused-dataset"])
+    else:
+        arguments.extend(["--checkpoint", "unused-checkpoint"])
+    if command == "closed-loop-eval":
+        arguments.extend(["--backend", "unused:Backend", "--suite", "unused"])
+    arguments.extend(["--denoising-steps", str(action_steps)])
+    return arguments
+
+
+@pytest.mark.parametrize(("command", "selection"), _TRT_CLI_ROUTES)
+@pytest.mark.parametrize(("video_steps", "action_steps"), [("2", 3), ("0", 4), ("2", 0)])
+def test_oss_invalid_trt_schedule_fails_before_work(
+    monkeypatch, command, selection, video_steps, action_steps
+):
+    monkeypatch.setenv("GROOT_N2_NUM_VIDEO_STEPS", video_steps)
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail(
+            "invalid TRT schedules must fail before any dataset, training or evaluation work"
+        )
+
+    for name in (
+        "_prepare_train_dataset",
+        "resolve_train",
+        "_run_train",
+        "_run_eval",
+        "_run_build_trt",
+        "_run_policy_server",
+        "_run_closed_loop_eval",
+    ):
+        monkeypatch.setattr(oss, name, unexpected)
+
+    with pytest.raises(ValueError, match="positive.*exact multiple"):
+        oss.main(_schedule_cli_args(command, selection, action_steps))
+
+
+@pytest.mark.parametrize(("command", "selection"), _TRT_CLI_ROUTES)
+def test_oss_valid_custom_trt_schedule_reaches_dispatch(monkeypatch, command, selection):
+    monkeypatch.setenv("GROOT_N2_NUM_VIDEO_STEPS", "3")
+    # Explicit CLI steps take precedence over an unused environment default.
+    monkeypatch.setenv("GROOT_N2_NUM_ACTION_STEPS", "invalid")
+    calls = []
+    monkeypatch.setattr(oss, "_dispatch", lambda args: calls.append(args) or 0)
+
+    assert oss.main(_schedule_cli_args(command, selection, 6)) == 0
+    assert len(calls) == 1
+    assert calls[0].denoising_steps == 6
+
+
+@pytest.mark.parametrize(
+    "selection", [["--enable-trt"], ["--trt-engine-dir", "unused-engines"], []]
+)
+@pytest.mark.parametrize(("video_steps", "action_steps"), [("1", 1), ("2", 2), ("2", 6), ("3", 6)])
+def test_plain_train_eval_valid_custom_schedule_runs_all_stages(
+    monkeypatch, tmp_path, selection, video_steps, action_steps
+):
+    monkeypatch.setenv("GROOT_N2_NUM_VIDEO_STEPS", video_steps)
+    calls = []
+    checkpoint = tmp_path / "checkpoint"
+
+    def prepare(*_args, **_kwargs):
+        calls.append("dataset")
+
+    def resolve(_args):
+        calls.append("resolution")
+        return SimpleNamespace(final_checkpoint=checkpoint)
+
+    def train(*_args, **_kwargs):
+        calls.append("training")
+        return 0
+
+    def evaluate(config, **_kwargs):
+        calls.append("evaluation")
+        assert config.checkpoint == str(checkpoint)
+        assert config.denoising_steps == action_steps
+        return 0
+
+    monkeypatch.setattr(oss, "_prepare_train_dataset", prepare)
+    monkeypatch.setattr(oss, "resolve_train", resolve)
+    monkeypatch.setattr(oss, "_run_train", train)
+    monkeypatch.setattr(oss, "_run_eval", evaluate)
+
+    assert oss.main(_schedule_cli_args("train-eval", selection, action_steps)) == 0
+    assert calls == ["dataset", "resolution", "training", "evaluation"]
 
 
 def test_oss_policy_server_dry_run_reports_effective_config(capsys, tmp_path: Path) -> None:

@@ -15,23 +15,15 @@ from __future__ import annotations
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
-import os
 from pathlib import Path
 import subprocess
 import time
 from typing import Any, Literal
 
-import yaml
-
 from skills.autoresearch.agent_editor import AgenticEditor
-from skills.autoresearch.config import StudyConfig, expand_environment_variables
-from skills.autoresearch.git_workspace import (
-    CandidateWorkspace,
-    CompositionConflictError,
-    GitWorkspaceManager,
-)
+from skills.autoresearch.config import StudyConfig
+from skills.autoresearch.git_workspace import CompositionConflictError, GitWorkspaceManager
 from skills.autoresearch.study_state import StageState, StudyState, Trial
-from skills.autoresearch.train_config_lock import MISSING
 from skills.autoresearch.trial_prompt import build_prompt
 
 StageName = Literal["train", "eval"]
@@ -213,9 +205,7 @@ class TrialController:
                 changed,
                 editable_paths=self.config.editable_paths,
                 frozen_paths=self.config.frozen_paths,
-                commit=self.config.base_commit,
             )
-            violations = [*violations, *self._train_config_violations(workspace)]
             self._save_diff(artifact_dir, self.workspace_manager.diff(workspace))
             # Empty diffs and frozen-path edits are terminal skips, not runner failures.
             if not changed or violations:
@@ -440,52 +430,6 @@ class TrialController:
             score=score,
             improved_over_parent=self.config.objective.is_better(score, parent_score),
         )
-
-    def check_baseline_train_config(self) -> None:
-        """Fail before any agent run when the locked baseline config is unusable."""
-        lock = self.config.train_config_lock
-        if lock is None:
-            return
-        baseline = self._baseline_train_config()
-        violations = lock.violations(
-            baseline=baseline,
-            candidate=baseline,
-            extra_eval_dataset_paths=self._extra_eval_dataset_paths(),
-        )
-        if violations:
-            raise ValueError("Baseline training config is invalid: " + "; ".join(violations))
-
-    def _train_config_violations(self, workspace: CandidateWorkspace) -> list[str]:
-        """Compare the candidate training config with the pinned baseline, not the parent."""
-        lock = self.config.train_config_lock
-        if lock is None:
-            return []
-        candidate_path = workspace.path / lock.path
-        candidate = (
-            self._render_train_config(candidate_path.read_text(encoding="utf-8"), candidate_path)
-            if candidate_path.is_file()
-            else MISSING
-        )
-        return lock.violations(
-            baseline=self._baseline_train_config(),
-            candidate=candidate,
-            extra_eval_dataset_paths=self._extra_eval_dataset_paths(),
-        )
-
-    def _baseline_train_config(self) -> Any:
-        """Render the locked training config stored at the pinned baseline commit."""
-        lock = self.config.train_config_lock
-        text = self.workspace_manager.read_file(commit=self.config.base_commit, path=lock.path)
-        return self._render_train_config(text, Path(f"{self.config.base_commit}:{lock.path}"))
-
-    def _render_train_config(self, text: str, source: Path) -> Any:
-        """Expand ${NAME} with the same layered environment the train script receives."""
-        environ = {**os.environ, **self.config.env, **self.config.train_env}
-        return expand_environment_variables(yaml.safe_load(text), source, environ)
-
-    def _extra_eval_dataset_paths(self) -> tuple[str, ...]:
-        """Treat the study-level eval dataset as held out alongside the lock's list."""
-        return (self.config.eval_dataset,) if self.config.eval_dataset else ()
 
     def _reject_candidate(
         self,

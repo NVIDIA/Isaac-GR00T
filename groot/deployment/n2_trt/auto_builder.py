@@ -64,6 +64,8 @@ def resolve_or_build_engine_bundle(
     device: str | None = None,
     rebuild_token: str | None = None,
     codec: str = DEFAULT_CODEC,
+    num_video_steps: int = 2,
+    num_action_steps: int = 4,
 ) -> Path:
     """Return a validated cached bundle, building it once when necessary."""
     if codec not in {"h264", "mp4v", "none"}:
@@ -78,8 +80,8 @@ def resolve_or_build_engine_bundle(
         contract = N2TensorRTContract.from_checkpoint(
             checkpoint_path,
             embodiment=embodiment,
-            video_denoising_steps=2,
-            action_denoising_steps=4,
+            video_denoising_steps=num_video_steps,
+            action_denoising_steps=num_action_steps,
             joint_denoise=True,
             conditional_kv_cache=True,
         )
@@ -134,6 +136,8 @@ def resolve_or_build_engine_bundle(
                 source_revision=source.revision,
                 cuda_device_index=cuda_device_index,
                 codec=codec,
+                num_video_steps=num_video_steps,
+                num_action_steps=num_action_steps,
             )
             _validate_cached_bundle(
                 temporary,
@@ -290,7 +294,15 @@ def _run_build_pipeline(
     source_revision: str,
     cuda_device_index: int,
     codec: str = DEFAULT_CODEC,
+    num_video_steps: int = 2,
+    num_action_steps: int = 4,
 ) -> None:
+    schedule_args = (
+        "--num-video-steps",
+        num_video_steps,
+        "--num-action-steps",
+        num_action_steps,
+    )
     commands: tuple[tuple[Any, ...], ...] = (
         (
             sys.executable,
@@ -307,6 +319,7 @@ def _run_build_pipeline(
             artifact_root,
             "--source-revision",
             source_revision,
+            *schedule_args,
         ),
         (
             sys.executable,
@@ -321,6 +334,7 @@ def _run_build_pipeline(
             artifact_root,
             "--source-revision",
             source_revision,
+            *schedule_args,
         ),
         (
             sys.executable,
@@ -347,6 +361,7 @@ def _run_build_pipeline(
             embodiment,
             "--source-revision",
             source_revision,
+            *schedule_args,
         ),
         (
             sys.executable,
@@ -363,10 +378,13 @@ def _run_build_pipeline(
             codec,
             "--out",
             artifact_root / POLICY_MEASUREMENT_FILENAME,
+            *schedule_args,
         ),
     )
     environment = os.environ.copy()
     environment["PYTHONUNBUFFERED"] = "1"
+    environment["GROOT_N2_NUM_VIDEO_STEPS"] = str(num_video_steps)
+    environment["GROOT_N2_NUM_ACTION_STEPS"] = str(num_action_steps)
     visible_devices = environment.get("CUDA_VISIBLE_DEVICES")
     if visible_devices:
         devices = [item.strip() for item in visible_devices.split(",") if item.strip()]
