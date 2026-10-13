@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 import shutil
 import subprocess
@@ -32,10 +33,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("config", help="AutoResearch YAML path")
     args = parser.parse_args(argv)
 
+    configure_logging()
     config = StudyConfig.from_yaml(args.config)
     controller = _controller(config)
 
     _validate(config)
+    controller.check_baseline_train_config()
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     # The state file determines whether this invocation initializes or resumes.
@@ -48,6 +51,12 @@ def main(argv: list[str] | None = None) -> int:
     _print_progress(_study_summary(config, state, phase=phase))
 
     return _drive_controller(controller)
+
+
+def configure_logging() -> None:
+    """Show AutoResearch info logs without raising third-party log levels."""
+    logging.basicConfig(format="%(message)s")
+    logging.getLogger("skills.autoresearch").setLevel(logging.INFO)
 
 
 def _controller(config: StudyConfig) -> WaveController:

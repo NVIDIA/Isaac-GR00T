@@ -11,7 +11,7 @@
 # Build OSS training CI Docker images.
 
 image.train.arm64:
-  extends: .image
+  extends: .image_arm64
   tags:
     - cpu/arm64
     - gpu/none

@@ -31,7 +31,8 @@ KEEP-IN-SYNC comment.
 """
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any, Protocol, cast, runtime_checkable
 
 import torch
@@ -106,11 +107,36 @@ class LivePolicyAdapter(BasePolicy):
         restorers: list[_Restorer],
         prev_processor_training: bool,
         strict: bool = True,
+        ttt_model: torch.nn.Module | None = None,
     ) -> None:
         super().__init__(strict=strict)
         self._policy = policy
         self._restorers = restorers
         self._prev_processor_training = prev_processor_training
+        self._ttt_model = ttt_model
+        self._ttt_states = None
+
+    @contextmanager
+    def _use_ttt_cache(self) -> Iterator[None]:
+        """Lend this adapter's cache to N2-TTT only for the prediction.
+
+        The policy allocates inference tensors. Leaving those on the live model
+        breaks the next training backward; restoring only on close also mixes
+        caches between embodiment adapters. Preserve the original cache by
+        identity and discard partial eval state if prediction raises.
+        """
+        model = self._ttt_model
+        if model is None:
+            yield
+            return
+        original = model._ttt_states  # noqa: SLF001 — manage the live model's inference cache
+        model._ttt_states = self._ttt_states  # noqa: SLF001
+        self._ttt_states = None
+        try:
+            yield
+            self._ttt_states = model._ttt_states  # noqa: SLF001
+        finally:
+            model._ttt_states = original  # noqa: SLF001
 
     # ---- BasePolicy delegation ---------------------------------------
     def check_observation(self, observation: dict[str, Any]) -> None:
@@ -132,7 +158,7 @@ class LivePolicyAdapter(BasePolicy):
         # but the inference path goes through FlashAttention which requires
         # fp16/bf16 Q/K/V. HF Trainer's training_step autocast does NOT cover
         # `on_step_end` callbacks, so we wrap explicitly here.
-        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with self._use_ttt_cache(), torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
             return wrapped._get_action(observation, options)  # noqa: SLF001 — see above
 
     def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]:  # noqa: ARG002
@@ -143,9 +169,10 @@ class LivePolicyAdapter(BasePolicy):
         is shared across trajectories (re-encoding wastes work), and
         ``save_video_dir`` is forced to ``None`` so the auto-save path
         would crash on ``os.path.join(None, ...)``. We re-implement reset
-        to do only the safe parts: clear the latent buffer to keep memory
-        bounded, return ``{}``.
+        to do only the safe parts: clear the latent buffer and this adapter's
+        TTT cache between trajectories, return ``{}``.
         """
+        self._ttt_states = None
         latent_buf = getattr(self._policy, "video_latents_buffer", None)
         if isinstance(latent_buf, list):
             latent_buf.clear()
@@ -157,6 +184,7 @@ class LivePolicyAdapter(BasePolicy):
     # ---- Lifecycle ---------------------------------------------------
     def close(self) -> None:
         """Restore mutated state. Let-it-crash: failure aborts training."""
+        self._ttt_states = None
         for r in self._restorers:
             r()
         self._restorers = []
@@ -301,7 +329,7 @@ def _make_n1_concrete(
 def _make_n2_concrete(
     *,
     model: torch.nn.Module,
-    inner_module: torch.nn.Module,  # noqa: ARG001 — kept for signature parity
+    inner_module: torch.nn.Module,
     processor: types.BaseProcessor,
     embodiment_tag: schema.EmbodimentTag,
     num_inference_timesteps: int | None,
@@ -328,6 +356,19 @@ def _make_n2_concrete(
     policy.embodiment_tag = embodiment_tag
     policy.modality_configs = policy._load_modality_configs()  # noqa: SLF001
     policy.collate_fn = processor.collator
+    if hasattr(inner_module, "_ttt_states"):
+        # TTT is not exported by the OSS N2 package. Import it only for a TTT
+        # model, using the same cache marker as build_live_policy below.
+        from groot.core.training.models.n2_ttt.processor import GrootN2TTTDataCollator
+
+        if isinstance(policy.collate_fn, GrootN2TTTDataCollator):
+            # TTT predict consumes one timestep per observation. Training may pad
+            # trajectories to a fixed length; never reuse or mutate that collator.
+            policy.collate_fn = GrootN2TTTDataCollator(
+                tokenizer=policy.collate_fn.tokenizer,
+                seq_len_handle_strategy="fixed",
+                fixed_seq_len=1,
+            )
     policy.language_key = policy.modality_configs["language"].modality_keys[0]
 
     # KEEP IN SYNC WITH Gr00tN2Policy.__init__:
@@ -357,6 +398,7 @@ def _make_n2_concrete(
     # Per-trajectory state — adapter clears the buffer in `reset()`.
     policy.video_latents_buffer = []
     policy.save_video_dir = None  # don't dump training-time video
+    policy.enable_n2_pred_comparison = False
     # `_step_count` is incremented unconditionally by every `_get_action` call;
     # only consulted when `save_video_dir is not None`, but read either way so
     # it must exist. KEEP IN SYNC WITH ``Gr00tN2Policy.__init__``.
@@ -413,4 +455,5 @@ def build_live_policy(
         restorers=restorers,
         prev_processor_training=prev_processor_training,
         strict=strict,
+        ttt_model=inner if hasattr(inner, "_ttt_states") else None,
     )

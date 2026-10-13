@@ -18,6 +18,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from groot.core.utils.storage.checkpoint import checkpoint_source_path
+
 
 class N2ModelVariant(str, Enum):
     """Promoted checkpoint execution family."""
@@ -37,6 +39,37 @@ class TransformerPrecision(str, Enum):
     """
 
     BF16 = "bf16"
+
+
+def resolve_checkpoint_actor_config(model_config: dict[str, Any]) -> dict[str, Any]:
+    """Read the executed N2 actor config without converting the checkpoint.
+
+    Gr00tN2Policy loads the original GrootN2RL weights and unwraps
+    ``wrapped_model`` for inference. Metadata consumers must use the same
+    actor, while manifests continue hashing the original wrapper and weights.
+    Plain configs pass through; each consumer retains its existing validation.
+    """
+    if model_config.get("model_type") != "GrootN2RL":
+        return model_config
+    actor = model_config.get("base_model_cfg")
+    if not isinstance(actor, dict):
+        raise TypeError("GrootN2RL requires a base_model_cfg object")
+    if actor.get("model_type") != "GrootN2":
+        raise ValueError("GrootN2RL base_model_cfg must describe a GrootN2 actor")
+    # Includes the legacy BC aliases normalized by Gr00tN2Policy. Full wrapper
+    # config/weight validation still runs in its ordinary pretrained loader.
+    actor_modes = {
+        "BC",
+        "BC_NORMAL_ONLY",
+        "BC_CONTINUOUS_WEIGHTED",
+        "BC_QUALITY_WEIGHTED",
+        "BC_HUMAN_NORMAL_ONLY",
+    }
+    if model_config.get("loss_mode", "BC_QUALITY_WEIGHTED") not in actor_modes:
+        raise ValueError("N2 TensorRT supports only actor-only GrootN2RL checkpoints")
+    if model_config.get("residual", False):
+        raise ValueError("N2 TensorRT supports only actor-only GrootN2RL without residual policies")
+    return actor
 
 
 def resolve_checkpoint_vae_type(model_config: dict[str, Any]) -> str:
@@ -178,8 +211,8 @@ class N2TensorRTContract:
         conditional_kv_cache: bool,
     ) -> N2TensorRTContract:
         """Resolve the promoted fixed-shape contract without Torch/TensorRT."""
-        checkpoint_path = Path(checkpoint).expanduser().resolve(strict=True)
-        model = _read_json(checkpoint_path / "config.json")
+        checkpoint_path = checkpoint_source_path(Path(checkpoint).expanduser()).resolve(strict=True)
+        model = resolve_checkpoint_actor_config(_read_json(checkpoint_path / "config.json"))
         processor = _read_json(checkpoint_path / "processor_config.json")
         model_type = _require_string(model, "model_type")
         if model_type != "GrootN2":

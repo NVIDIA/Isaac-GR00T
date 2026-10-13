@@ -276,6 +276,12 @@ machine state, deployed package, or remote-only changes may be diagnosed and han
 but remain waiting or blocked until a future implementation-receipt adapter can freeze and
 verify that non-repository state.
 
+Read `docs/findings.md` at the start of an incident: it records constraints and caveats
+earlier work on this checkout hit, each with the file and line behind it, and one may
+name the symptom in front of you. When an incident closes with a verified root cause
+whose shape a later reader would hit before knowing where to look, append it there using
+the template and ask the user to review the entry.
+
 Solved cases prioritize the first test; they never prove the current cause. Follow
 `skills/autodebug/infra/cases/README.md` when contributing a newly verified case.
 Cases are not restricted to N2: matching symptoms and subsystems remain eligible across

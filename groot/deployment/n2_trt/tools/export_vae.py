@@ -39,6 +39,7 @@ from groot.deployment.n2_trt import (
     resolve_checkpoint_vae_type,
     resolve_checkpoint_vae_weights,
 )
+from groot.deployment.n2_trt.contract import resolve_checkpoint_actor_config
 
 
 def _vae_shapes(
@@ -57,13 +58,15 @@ def _vae_shapes(
     )
 
 
-def _checkpoint_contract(checkpoint: Path, embodiment: str) -> N2TensorRTContract:
+def _checkpoint_contract(
+    checkpoint: Path, embodiment: str, *, num_video_steps: int = 2, num_action_steps: int = 4
+) -> N2TensorRTContract:
     """Resolve every fixed VAE dimension through the shared checkpoint contract."""
     return N2TensorRTContract.from_checkpoint(
         checkpoint,
         embodiment=embodiment,
-        video_denoising_steps=2,
-        action_denoising_steps=4,
+        video_denoising_steps=num_video_steps,
+        action_denoising_steps=num_action_steps,
         joint_denoise=True,
         conditional_kv_cache=True,
     )
@@ -75,7 +78,7 @@ def _build_vae(checkpoint: Path, weights: Path):
     The class and kwargs follow ``GrootN2.build_vae`` exactly. Building the
     wrong latent-space VAE fails with state-dict size mismatches.
     """
-    config = json.loads((checkpoint / "config.json").read_text())
+    config = resolve_checkpoint_actor_config(json.loads((checkpoint / "config.json").read_text()))
     vae_cfg = dict(config.get("vae_cfg") or {})
     vae_cfg["vae_pretrained_path"] = str(weights)
     vae_type = resolve_checkpoint_vae_type(config)
@@ -278,6 +281,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vae-weights", default=None)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--source-revision")
+    parser.add_argument("--num-video-steps", type=int, default=2)
+    parser.add_argument("--num-action-steps", type=int, default=4)
     return parser.parse_args()
 
 
@@ -361,8 +366,13 @@ def _export(args: argparse.Namespace) -> int:
         raise RuntimeError("CUDA is required to export the GR00T2 VAE encoder")
 
     checkpoint = Path(args.checkpoint).expanduser().resolve()
-    ensure_cosmos_model_deps(checkpoint)
-    contract = _checkpoint_contract(checkpoint, args.embodiment)
+    checkpoint = Path(ensure_cosmos_model_deps(checkpoint))
+    contract = _checkpoint_contract(
+        checkpoint,
+        args.embodiment,
+        num_video_steps=args.num_video_steps,
+        num_action_steps=args.num_action_steps,
+    )
     input_shape, output_shape = _vae_shapes(
         contract.camera_count,
         contract.conditioning_frames,

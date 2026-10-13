@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+import logging
 import math
 import os
 from pathlib import Path
@@ -24,6 +25,9 @@ from typing import Any
 import yaml
 
 from skills.autoresearch.study_state import Objective
+from skills.autoresearch.train_config_lock import TrainConfigLock
+
+logger = logging.getLogger(__name__)
 
 # Schema guards keep study IDs and commits deterministic.
 _STUDY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -33,21 +37,29 @@ TRIAL_EVAL_RESULT = "eval/results.json"
 _PLACEHOLDER_ENVIRONMENT_VALUES = frozenset({"your-osmo-pool"})
 
 
-def expand_environment_variables(value: Any, source: Path) -> Any:
+def expand_environment_variables(
+    value: Any,
+    source: Path,
+    environ: Mapping[str, str] | None = None,
+) -> Any:
     """Expand ${NAME} values recursively and reject missing variables."""
+    variables = os.environ if environ is None else environ
     if isinstance(value, str):
 
         def replace(match: re.Match[str]) -> str:
             name = match.group(1)
-            if name not in os.environ:
+            if name not in variables:
                 raise ValueError(f"{source}: environment variable {name} is not set")
-            return os.environ[name]
+            return variables[name]
 
         return _ENVIRONMENT_VARIABLE_RE.sub(replace, value)
     if isinstance(value, list):
-        return [expand_environment_variables(item, source) for item in value]
+        return [expand_environment_variables(item, source, variables) for item in value]
     if isinstance(value, dict):
-        return {key: expand_environment_variables(item, source) for key, item in value.items()}
+        return {
+            key: expand_environment_variables(item, source, variables)
+            for key, item in value.items()
+        }
     return value
 
 
@@ -82,6 +94,7 @@ class StudyConfig:
     env: dict[str, str] = field(default_factory=dict)
     train_env: dict[str, str] = field(default_factory=dict)
     eval_env: dict[str, str] = field(default_factory=dict)
+    train_config_lock: TrainConfigLock | None = None
 
     def __post_init__(self) -> None:
         """Validate dataclass invariants before this config reaches the controller."""
@@ -160,6 +173,10 @@ class StudyConfig:
         _validate_string_tuple(self.frozen_paths, "frozen_paths")
         _validate_string_tuple(self.idea_types, "idea_types")
         _copy_json_value(self.agent, "agent")
+        if self.train_config_lock is not None and not isinstance(
+            self.train_config_lock, TrainConfigLock
+        ):
+            raise TypeError("train_config_lock must be a TrainConfigLock or None")
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> StudyConfig:
@@ -207,6 +224,11 @@ class StudyConfig:
         checkpoint_path = train.get("checkpoint") or raw.get("checkpoint_path")
         output_dir_name = train.get("output_dir") or "training"
         agent = _optional_dict(raw, "agent", config_path)
+        train_config_lock = (
+            TrainConfigLock.from_mapping(raw["locked_train_config"], config_path)
+            if "locked_train_config" in raw
+            else None
+        )
         return cls(
             study_id=_required_string(raw, "study_id", config_path),
             workspace=workspace,
@@ -216,8 +238,16 @@ class StudyConfig:
             eval_dataset=_resolved_optional_path(raw, "eval_dataset", config_path),
             objective=Objective.from_baseline(baseline),
             max_trials=_required_int(raw, "max_trials", config_path),
-            editable_paths=_required_string_tuple(raw, "editable_paths", config_path),
-            frozen_paths=_required_string_tuple(raw, "frozen_paths", config_path),
+            editable_paths=_workspace_layout_paths(
+                _required_string_tuple(raw, "editable_paths", config_path),
+                workspace,
+                "editable_paths",
+            ),
+            frozen_paths=_workspace_layout_paths(
+                _required_string_tuple(raw, "frozen_paths", config_path),
+                workspace,
+                "frozen_paths",
+            ),
             idea_types=_required_string_tuple(raw, "idea_types", config_path),
             agent=agent,
             eval_result=eval_result,
@@ -234,6 +264,7 @@ class StudyConfig:
             eval_env=_string_mapping(evaluation.get("env", {}), "eval environment"),
             max_parallel_trials=_optional_int(raw, "max_parallel_trials", config_path, default=1),
             max_retry=_optional_int(raw, "max_retry", config_path, default=0),
+            train_config_lock=train_config_lock,
         )
 
 
@@ -361,6 +392,37 @@ def _required_string_tuple(data: Mapping[str, Any], key: str, path: Path) -> tup
     result = tuple(value)
     _validate_string_tuple(result, f"{path}: {key}")
     return result
+
+
+def _workspace_layout_paths(paths: tuple[str, ...], workspace: Path, label: str) -> tuple[str, ...]:
+    """Map ``oss/``-prefixed repository paths onto the workspace layout.
+
+    The internal repository nests the OSS package under ``oss/``, while the
+    exported repository is that package at its root. Shared study configs use
+    the internal layout, so an exported workspace drops the prefix from entries
+    that do not exist as written.
+    """
+    exported = (workspace / "skills/autoresearch").is_dir() and not (
+        workspace / "oss/skills/autoresearch"
+    ).is_dir()
+    if not exported:
+        return paths
+    mapped = tuple(
+        (
+            path.removeprefix("oss/")
+            if path.startswith("oss/") and not (workspace / path).exists()
+            else path
+        )
+        for path in paths
+    )
+    dropped = sum(original != new for original, new in zip(paths, mapped, strict=True))
+    if dropped:
+        logger.info(
+            "[AutoResearch] exported layout detected; dropped oss/ prefix from %d %s",
+            dropped,
+            label,
+        )
+    return tuple(dict.fromkeys(mapped))
 
 
 def _resolved_path(value: str, base_dir: Path) -> Path:

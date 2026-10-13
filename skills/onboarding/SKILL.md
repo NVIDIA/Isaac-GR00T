@@ -35,8 +35,9 @@ pipelines, internal CI, internal agents, or golden-run workflows.
 ## User Onboarding Walkthrough
 
 Use this walkthrough when a user wants to verify their OSS installation before
-using their own dataset. The complete public container setup and explanation is
-in `docs/minimal_example.md`.
+using their own dataset. Use `docs/installation.md` for platform and environment
+setup and `docs/minimal_example.md` for the dataset, training, evaluation, and serving
+walkthrough.
 
 ### 1. Confirm the required inputs
 
@@ -59,11 +60,19 @@ export GROOT_HF_ARTIFACT_CACHE_ROOT=/workspace/cache/groot
 export TRAINING_OUTPUT_ROOT=/workspace/outputs
 ```
 
-If the environment is not installed yet, follow `docs/minimal_example.md`. For
-a new container, start from its documented public CUDA development image,
-install the listed system libraries, and run exactly
-`uv sync --frozen --extra training`. Do not invent a repository Dockerfile or
-reconcile an arbitrary preinstalled Python environment package by package.
+If the environment is not installed yet, follow `docs/installation.md`:
+
+- Full onboarding, post-training, and train-eval use the x86 training setup.
+- Evaluation or serving with an existing checkpoint can use the x86 inference
+  setup; an installed training environment also supports these workflows.
+- TensorRT requires the optional TensorRT setup and a compatible checkpoint.
+  Automatic bundles require four denoising steps. The minimal walkthrough uses
+  PyTorch with two denoising steps; run its commands as written.
+- Jetson Thor export, build, validation, and serving use the separate Thor setup.
+
+Use the installation guide's commands and dependency checks rather than
+maintaining a separate package-install recipe. For the full onboarding smoke
+test, run the exact workflow commands from `docs/minimal_example.md`.
 
 ### 2. Prepare the public onboarding dataset
 
@@ -71,7 +80,7 @@ Download the pinned three-episode SO100 LeRobot dataset and generate its GR00T
 metadata:
 
 ```bash
-uv run --no-sync python examples/prepare_minimal_dataset.py \
+uv run python examples/prepare_minimal_dataset.py \
   --output-dir /workspace/data/gr00t_red_test
 ```
 

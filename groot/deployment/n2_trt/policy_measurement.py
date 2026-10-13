@@ -71,6 +71,8 @@ def _measure_backend(
     action_shapes: dict[str, tuple[int, int]],
     warmup: int,
     measured: int,
+    num_video_steps: int = 2,
+    num_action_steps: int = 4,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     import torch
 
@@ -84,8 +86,8 @@ def _measure_backend(
         codec=codec,
         device=f"cuda:{torch.cuda.current_device()}",
         engine_dir=str(engine_dir),
-        num_video_steps=2,
-        num_action_steps=4,
+        num_video_steps=num_video_steps,
+        num_action_steps=num_action_steps,
     )
     wrapper = Gr00tFlatPolicyWrapper(policy, strict=True)
     latencies_ms: list[float] = []
@@ -132,6 +134,8 @@ def measure_policy_actions(
     codec: str,
     warmup: int = DEFAULT_WARMUP_REQUESTS,
     measured: int = DEFAULT_MEASURED_REQUESTS,
+    num_video_steps: int = 2,
+    num_action_steps: int = 4,
 ) -> dict[str, Any]:
     """Measure decoded eager/TRT actions using the shared benchmark contract."""
     if warmup < 1 or measured < 1:
@@ -141,8 +145,8 @@ def measure_policy_actions(
     contract = N2TensorRTContract.from_checkpoint(
         checkpoint,
         embodiment=embodiment,
-        video_denoising_steps=2,
-        action_denoising_steps=4,
+        video_denoising_steps=num_video_steps,
+        action_denoising_steps=num_action_steps,
         joint_denoise=True,
         conditional_kv_cache=True,
     )
@@ -160,6 +164,8 @@ def measure_policy_actions(
         action_shapes=action_shapes,
         warmup=warmup,
         measured=measured,
+        num_video_steps=num_video_steps,
+        num_action_steps=num_action_steps,
     )
     trt, trt_metadata = _measure_backend(
         backend="trt",
@@ -173,6 +179,8 @@ def measure_policy_actions(
         action_shapes=action_shapes,
         warmup=warmup,
         measured=measured,
+        num_video_steps=num_video_steps,
+        num_action_steps=num_action_steps,
     )
     equivalence = action_equivalence(eager, trt)
     exact_breaches = gate_action_equivalence(
@@ -252,6 +260,8 @@ def main() -> int:
     parser.add_argument("--warmup", type=int, default=DEFAULT_WARMUP_REQUESTS)
     parser.add_argument("--measured", type=int, default=DEFAULT_MEASURED_REQUESTS)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--num-video-steps", type=int, default=2)
+    parser.add_argument("--num-action-steps", type=int, default=4)
     args = parser.parse_args()
     payload = measure_policy_actions(
         checkpoint=args.checkpoint,
@@ -260,6 +270,8 @@ def main() -> int:
         codec=args.codec,
         warmup=args.warmup,
         measured=args.measured,
+        num_video_steps=args.num_video_steps,
+        num_action_steps=args.num_action_steps,
     )
     write_json_atomic(args.out, payload)
     logger.info("[n2-trt-policy-measurement] receipt=%s", args.out)

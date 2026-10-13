@@ -232,7 +232,7 @@ class N2RolloutPolicy:
                     device=device,
                     codec=codec,
                 )
-            ensure_cosmos_model_deps(str(model_path))
+            model_path = ensure_cosmos_model_deps(str(model_path))
             try:
                 tag = schema.EmbodimentTag[embodiment_tag]
             except KeyError:

@@ -311,7 +311,12 @@ class Gr00tN2Policy(Gr00tPolicy):
                 "part of the fixed replay input"
             )
 
-        model_dir = model_path
+        from groot.core.training.models.n2.utils.cosmos_model_deps import ensure_cosmos_model_deps
+
+        model_dir = ensure_cosmos_model_deps(model_path)
+        # RL subclasses lazily reload the actor for preprocessing/critic identity.
+        # Those loads must use the same immutable-source runtime view as this one.
+        self._model_path = model_dir
         model_config = transformers.AutoConfig.from_pretrained(model_dir)
         # Inference immediately unwraps the base actor. Normalize only the in-memory load config;
         # the checkpoint remains an immutable record of the training recipe that produced it.
