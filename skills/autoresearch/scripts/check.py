@@ -23,7 +23,7 @@ _OSS_ROOT = Path(__file__).resolve().parents[3]
 if str(_OSS_ROOT) not in sys.path:
     sys.path.insert(0, str(_OSS_ROOT))
 
-from skills.autoresearch.cli import _controller, _validate
+from skills.autoresearch.cli import _controller, _validate, configure_logging
 from skills.autoresearch.config import StudyConfig
 
 
@@ -37,11 +37,14 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Validate one config and print its normalized execution contract."""
     args = _parser().parse_args(argv)
+    configure_logging()
     try:
         config = StudyConfig.from_yaml(args.config)
         _validate(config)
+        controller = _controller(config)
+        controller.check_baseline_train_config()
         state_path = config.output_dir / "state.json"
-        state = _controller(config).load_state() if state_path.is_file() else None
+        state = controller.load_state() if state_path.is_file() else None
     except (OSError, RuntimeError, TypeError, ValueError, KeyError) as exc:
         print(f"[autoresearch-check] FAILED: {exc}", file=sys.stderr)
         return 1
@@ -67,6 +70,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"train_script={config.train_script}")
     print(f"eval_script={config.eval_script}")
+    lock = config.train_config_lock
+    if lock is not None:
+        print(f"locked_train_config={lock.path} fields={','.join(lock.fields)}")
     if state is not None:
         active_wave = state.active_wave_index if state.active_wave_index is not None else "none"
         best_trial = state.best_trial_id or "baseline"
