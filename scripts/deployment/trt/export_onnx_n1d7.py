@@ -54,7 +54,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Callable, Literal, Optional
 
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
@@ -71,6 +71,15 @@ import torch.onnx
 import tyro
 
 from ._trt_contract import EXPORT_METADATA_SCHEMA_VERSION
+from .n1d7_optimization_config import (
+    ACTION_HEAD_CONSTANTS_FILENAME,
+    ACTION_HEAD_FORMAT_VERSION,
+    ExecutionProfile,
+    QuantizationPolicy,
+    component_precisions,
+    format_quantization_summary,
+    resolve_dtype,
+)
 
 
 # Set up logging
@@ -78,8 +87,454 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def _consolidate_external_data(onnx_path: str) -> None:
-    """Merge scattered external-data files into a single .data file next to the ONNX model."""
+def _concatenate_linear_projections(linears: tuple[nn.Linear, ...]) -> nn.Linear:
+    """Concatenate same-input Linear layers along their output dimension."""
+    if not linears:
+        raise ValueError("At least one Linear projection is required")
+    if any(layer.in_features != linears[0].in_features for layer in linears):
+        raise ValueError("Fused Linear projections must have identical input sizes")
+
+    has_bias = [layer.bias is not None for layer in linears]
+    if len(set(has_bias)) != 1:
+        raise ValueError("Fused Linear projections must use the same bias setting")
+
+    fused = nn.Linear(
+        linears[0].in_features,
+        sum(layer.out_features for layer in linears),
+        bias=has_bias[0],
+        device=linears[0].weight.device,
+        dtype=linears[0].weight.dtype,
+    )
+    with torch.no_grad():
+        fused.weight.copy_(torch.cat([layer.weight for layer in linears], dim=0))
+        if fused.bias is not None:
+            fused.bias.copy_(torch.cat([layer.bias for layer in linears], dim=0))
+    return fused
+
+
+class FusedQwenMLP(nn.Module):
+    """Export-only Qwen gated MLP with a single Gate/Up projection."""
+
+    def __init__(self, source: nn.Module):
+        super().__init__()
+        self.config = source.config
+        self.hidden_size = source.hidden_size
+        self.intermediate_size = source.intermediate_size
+        self.down_proj = source.down_proj
+        self.act_fn = source.act_fn
+        projections = (source.gate_proj, source.up_proj)
+        self.gateup_out_features = tuple(layer.out_features for layer in projections)
+        self.gateup_proj = _concatenate_linear_projections(projections)
+
+    def forward(self, hidden_states):
+        gate_states, up_states = self.gateup_proj(hidden_states).split(
+            self.gateup_out_features, dim=-1
+        )
+        return self.down_proj(self.act_fn(gate_states) * up_states)
+
+
+def fuse_llm_gateup(wrapper: nn.Module) -> int:
+    """Fuse each decoder layer's Gate/Up projections into one export-only Linear."""
+    for decoder_layer in wrapper.layers:
+        decoder_layer.mlp = FusedQwenMLP(decoder_layer.mlp)
+    logger.info("  Fused Gate/Up LLM projections in %d layers", len(wrapper.layers))
+    return len(wrapper.layers)
+
+
+class DiTCrossKV(nn.Module):
+    """Project fixed VL embeddings to per-cross-block K/V once per frame."""
+
+    def __init__(self, dit: nn.Module):
+        super().__init__()
+        self.dit = dit
+
+    def forward(self, vl_embs):
+        keys = []
+        values = []
+        for index, block in enumerate(self.dit.transformer_blocks):
+            if index % 2 == 1:
+                continue
+            attention = block.attn1
+            encoder_states = vl_embs
+            if attention.norm_cross:
+                encoder_states = attention.norm_encoder_hidden_states(encoder_states)
+            key = attention.to_k(encoder_states)
+            value = attention.to_v(encoder_states)
+            batch_size, seq_len, inner_dim = key.shape
+            head_dim = inner_dim // attention.heads
+            key = key.view(batch_size, seq_len, attention.heads, head_dim).transpose(1, 2)
+            value = value.view(batch_size, seq_len, attention.heads, head_dim).transpose(1, 2)
+            if attention.norm_k is not None:
+                key = attention.norm_k(key)
+            keys.append(key)
+            values.append(value)
+        return torch.stack(keys), torch.stack(values)
+
+
+class CachedCrossKVDiT(nn.Module):
+    """DiT consuming cached cross-K/V and precomputed timestep modulation."""
+
+    def __init__(self, dit: nn.Module):
+        super().__init__()
+        self.dit = dit
+
+    @staticmethod
+    def _cross_attention(attention, hidden_states, key, value, attention_mask):
+        residual = hidden_states
+        batch_size = hidden_states.shape[0]
+        query = attention.to_q(hidden_states)
+        head_dim = query.shape[-1] // attention.heads
+        query = query.view(batch_size, -1, attention.heads, head_dim).transpose(1, 2)
+        if attention.norm_q is not None:
+            query = attention.norm_q(query)
+
+        zero = torch.zeros((), dtype=query.dtype, device=query.device)
+        negative_infinity = torch.full((), float("-inf"), dtype=query.dtype, device=query.device)
+        additive_mask = torch.where(attention_mask[:, None, None, :], zero, negative_infinity)
+        from gr00t.model.modules.dit import _sdpa_context
+
+        # Match the upstream DiT's Spark math-SDPA workaround during export checks.
+        with _sdpa_context():
+            hidden_states = F.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                attn_mask=additive_mask,
+                dropout_p=0.0,
+                is_causal=False,
+            )
+        hidden_states = hidden_states.transpose(1, 2).reshape(
+            batch_size, -1, attention.heads * head_dim
+        )
+        hidden_states = attention.to_out[0](hidden_states.to(query.dtype))
+        hidden_states = attention.to_out[1](hidden_states)
+        if attention.residual_connection:
+            hidden_states = hidden_states + residual
+        return hidden_states / attention.rescale_output_factor
+
+    def forward(
+        self,
+        sa_embs,
+        cross_keys,
+        cross_values,
+        adaln_modulations,
+        output_modulation,
+        image_mask,
+        backbone_attention_mask,
+    ):
+        hidden_states = sa_embs.contiguous()
+        image_attention_mask = image_mask & backbone_attention_mask
+        non_image_attention_mask = (~image_mask) & backbone_attention_mask
+
+        cache_index = 0
+        for index, block in enumerate(self.dit.transformer_blocks):
+            scale, shift = adaln_modulations[index].chunk(2, dim=-1)
+            normalized = block.norm1.norm(hidden_states)
+            normalized = normalized * (1 + scale[:, None]) + shift[:, None]
+            if block.pos_embed is not None:
+                normalized = block.pos_embed(normalized)
+
+            if index % 2 == 1:
+                from gr00t.model.modules.dit import _sdpa_context
+
+                with _sdpa_context():
+                    attention_output = block.attn1(normalized)
+            else:
+                if index % (2 * self.dit.attend_text_every_n_blocks) == 0:
+                    attention_mask = non_image_attention_mask
+                else:
+                    attention_mask = image_attention_mask
+                attention_output = self._cross_attention(
+                    block.attn1,
+                    normalized,
+                    cross_keys[cache_index],
+                    cross_values[cache_index],
+                    attention_mask,
+                )
+                cache_index += 1
+
+            if block.final_dropout:
+                attention_output = block.final_dropout(attention_output)
+            hidden_states = attention_output + hidden_states
+            hidden_states = block.ff(block.norm3(hidden_states)) + hidden_states
+
+        shift, scale = output_modulation.chunk(2, dim=-1)
+        hidden_states = self.dit.norm_out(hidden_states)
+        hidden_states = hidden_states * (1 + scale[:, None]) + shift[:, None]
+        return self.dit.proj_out_2(hidden_states)
+
+
+def save_action_head_constants(policy, dit_model, output_dir: str, batch_size: int):
+    """Evaluate fixed timesteps once and persist action-head modulation constants."""
+    action_head = policy.model.action_head
+    num_steps = int(action_head.num_inference_timesteps)
+    num_buckets = int(action_head.num_timestep_buckets)
+    timestep_ids = torch.tensor(
+        [int(step / float(num_steps) * num_buckets) for step in range(num_steps)],
+        dtype=torch.int64,
+        device=next(dit_model.parameters()).device,
+    )
+
+    adaln_modulations = []
+    output_modulations = []
+    action_time_embeddings = []
+    action_encoder = action_head.action_encoder
+    action_device = next(action_encoder.parameters()).device
+    horizon = int(action_head.config.action_horizon)
+    with torch.inference_mode():
+        for timestep_id in timestep_ids:
+            timestep = timestep_id.expand(batch_size)
+            timestep_embedding = dit_model.timestep_encoder(timestep)
+            block_modulations = [
+                block.norm1.linear(block.norm1.silu(timestep_embedding))
+                for block in dit_model.transformer_blocks
+            ]
+            adaln_modulations.append(torch.stack(block_modulations))
+            output_modulations.append(dit_model.proj_out_1(F.silu(timestep_embedding)))
+            action_timestep = timestep_id.to(action_device).expand(batch_size, horizon)
+            action_time_embeddings.append(action_encoder.pos_encoding(action_timestep))
+
+    constants = {
+        "format_version": 1,
+        "timesteps": timestep_ids.detach().cpu(),
+        "action_time_embeddings": torch.stack(action_time_embeddings).detach().cpu(),
+        "adaln_modulations": torch.stack(adaln_modulations).detach().cpu(),
+        "output_modulations": torch.stack(output_modulations).detach().cpu(),
+    }
+    constants_path = os.path.join(output_dir, ACTION_HEAD_CONSTANTS_FILENAME)
+    torch.save(constants, constants_path)
+    logger.info("  Saved fixed timestep/AdaLN constants to %s", constants_path)
+    return constants
+
+
+def export_optimized_action_encoder(
+    policy,
+    output_dir: str,
+    *,
+    dtype: torch.dtype,
+    batch_size: int,
+):
+    """Export Action Encoder with precomputed timestep embeddings as input."""
+
+    action_encoder = policy.model.action_head.action_encoder
+    config = policy.model.action_head.config
+
+    class ActionEncoderWithTimeEmbedding(nn.Module):
+        def __init__(self, encoder):
+            super().__init__()
+            self.action_encoder = encoder
+
+        def forward(self, actions, timestep_embedding, embodiment_id):
+            action_embedding = self.action_encoder.W1(actions, embodiment_id)
+            hidden_states = torch.cat([action_embedding, timestep_embedding], dim=-1)
+            hidden_states = self.action_encoder.W2(hidden_states, embodiment_id)
+            hidden_states = hidden_states * torch.sigmoid(hidden_states)
+            return self.action_encoder.W3(hidden_states, embodiment_id)
+
+    model = ActionEncoderWithTimeEmbedding(action_encoder.to(dtype)).eval().cuda()
+    actions = torch.randn(
+        batch_size,
+        config.action_horizon,
+        config.max_action_dim,
+        dtype=dtype,
+        device="cuda",
+    )
+    time_ids = torch.zeros(batch_size, config.action_horizon, dtype=torch.int64, device="cuda")
+    with torch.inference_mode():
+        timestep_embedding = action_encoder.pos_encoding(time_ids).to(dtype)
+    embodiment_id = torch.zeros(batch_size, dtype=torch.int64, device="cuda")
+
+    output_path = os.path.join(output_dir, "action_encoder.onnx")
+    with torch.inference_mode():
+        torch.onnx.export(
+            model,
+            (actions, timestep_embedding, embodiment_id),
+            output_path,
+            input_names=["actions", "timestep_embedding", "embodiment_id"],
+            output_names=["output"],
+            opset_version=19,
+            do_constant_folding=True,
+        )
+    verify_onnx_export(output_path)
+    return output_path
+
+
+def export_optimized_dit(
+    policy,
+    captured_inputs,
+    output_path: str,
+    *,
+    precision_tag: str,
+    batch_size: int,
+    pre_export_fn: Optional[Callable] = None,
+):
+    """Export split Cross-KV and cached/modulated DiT engines."""
+
+    dtype = resolve_dtype(precision_tag)
+    enable_nvfp4 = precision_tag == "nvfp4"
+    dit_model = policy.model.action_head.model.to(dtype).eval().cuda()
+
+    class CalibrationWrapper(nn.Module):
+        def __init__(self, dit):
+            super().__init__()
+            self.dit = dit
+
+        def forward(
+            self,
+            sa_embs,
+            vl_embs,
+            timestep,
+            image_mask,
+            backbone_attention_mask,
+        ):
+            return self.dit(
+                sa_embs,
+                vl_embs,
+                timestep,
+                image_mask=image_mask,
+                backbone_attention_mask=backbone_attention_mask,
+            )
+
+    wrapped_model = CalibrationWrapper(dit_model).to(dtype).eval().cuda()
+    sa_embs = (
+        captured_inputs.sa_embs[:1]
+        .expand(batch_size, *captured_inputs.sa_embs.shape[1:])
+        .to(device="cuda", dtype=dtype)
+    )
+    vl_embs = (
+        captured_inputs.vl_embs[:1]
+        .expand(batch_size, *captured_inputs.vl_embs.shape[1:])
+        .to(device="cuda", dtype=dtype)
+    )
+    image_mask = (
+        captured_inputs.image_mask[:1]
+        .expand(batch_size, *captured_inputs.image_mask.shape[1:])
+        .to(device="cuda", dtype=torch.bool)
+    )
+    backbone_attention_mask = (
+        captured_inputs.backbone_attention_mask[:1]
+        .expand(batch_size, *captured_inputs.backbone_attention_mask.shape[1:])
+        .to(device="cuda", dtype=torch.bool)
+    )
+    if pre_export_fn is not None:
+        pre_export_fn(wrapped_model)
+
+    constants = save_action_head_constants(
+        policy, dit_model, os.path.dirname(output_path), batch_size
+    )
+    cross_kv_model = DiTCrossKV(dit_model).to(dtype).eval().cuda()
+    optimized_dit = CachedCrossKVDiT(dit_model).to(dtype).eval().cuda()
+    with torch.inference_mode():
+        cross_keys, cross_values = cross_kv_model(vl_embs)
+
+    adaln_modulations = constants["adaln_modulations"][0].to("cuda", dtype=dtype)
+    output_modulation = constants["output_modulations"][0].to("cuda", dtype=dtype)
+    reference_timestep = constants["timesteps"][0].to("cuda").expand(batch_size)
+    with torch.inference_mode():
+        reference_output = wrapped_model(
+            sa_embs,
+            vl_embs,
+            reference_timestep,
+            image_mask,
+            backbone_attention_mask,
+        )
+        optimized_output = optimized_dit(
+            sa_embs,
+            cross_keys,
+            cross_values,
+            adaln_modulations,
+            output_modulation,
+            image_mask,
+            backbone_attention_mask,
+        )
+    cosine = F.cosine_similarity(
+        reference_output.float().flatten().unsqueeze(0),
+        optimized_output.float().flatten().unsqueeze(0),
+    ).item()
+    max_abs = (reference_output.float() - optimized_output.float()).abs().max().item()
+    logger.info(
+        "  Optimized DiT PyTorch equivalence: cosine=%.8f, max_abs=%.6f",
+        cosine,
+        max_abs,
+    )
+    if not np.isfinite(cosine) or cosine < 0.999:
+        raise RuntimeError(f"Optimized DiT equivalence check failed: cosine={cosine:.8f}")
+
+    cross_kv_path = os.path.join(
+        os.path.dirname(output_path),
+        os.path.basename(output_path).replace("dit_", "dit_cross_kv_", 1),
+    )
+    with torch.inference_mode():
+        torch.onnx.export(
+            cross_kv_model,
+            (vl_embs,),
+            cross_kv_path,
+            input_names=["vl_embs"],
+            output_names=["cross_keys", "cross_values"],
+            opset_version=19,
+            do_constant_folding=True,
+            export_params=True,
+            dynamic_axes={
+                "vl_embs": {1: "vl_seq_len"},
+                "cross_keys": {3: "vl_seq_len"},
+                "cross_values": {3: "vl_seq_len"},
+            },
+            dynamo=False,
+        )
+    _consolidate_external_data(cross_kv_path)
+    verify_onnx_export(cross_kv_path)
+
+    optimized_inputs = (
+        sa_embs,
+        cross_keys,
+        cross_values,
+        adaln_modulations,
+        output_modulation,
+        image_mask,
+        backbone_attention_mask,
+    )
+    input_names = [
+        "sa_embs",
+        "cross_keys",
+        "cross_values",
+        "adaln_modulations",
+        "output_modulation",
+        "image_mask",
+        "backbone_attention_mask",
+    ]
+    attention_handles = _patch_dit_attn_for_export(dit_model)
+    try:
+        with torch.inference_mode():
+            torch.onnx.export(
+                optimized_dit,
+                optimized_inputs,
+                output_path,
+                input_names=input_names,
+                output_names=["output"],
+                opset_version=19,
+                do_constant_folding=True,
+                export_params=True,
+                dynamic_axes={
+                    "cross_keys": {3: "vl_seq_len"},
+                    "cross_values": {3: "vl_seq_len"},
+                    "image_mask": {1: "vl_seq_len"},
+                    "backbone_attention_mask": {1: "vl_seq_len"},
+                },
+                dynamo=False,
+            )
+    finally:
+        _unpatch_dit_attn(attention_handles)
+    _consolidate_external_data(output_path, enable_nvfp4=enable_nvfp4)
+    verify_onnx_export(output_path, skip_check=enable_nvfp4)
+    return output_path
+
+
+def _consolidate_external_data(onnx_path: str, enable_nvfp4: bool = False) -> None:
+    """Merge scattered external-data files into a single .data file next to the ONNX model.
+
+    When ``enable_nvfp4`` is True, also converts FP4 QDQ ops to 2DQ format
+    for TensorRT compatibility.
+    """
     import onnx
     from onnx.external_data_helper import convert_model_to_external_data
 
@@ -92,14 +547,22 @@ def _consolidate_external_data(onnx_path: str) -> None:
         f
         for f in os.listdir(onnx_dir)
         if os.path.isfile(os.path.join(onnx_dir, f))
-        and not f.endswith((".onnx", ".json", ".data"))
+        and not f.endswith((".onnx", ".json", ".data", ".pt"))
         and f != data_file
     ]
-    if not scattered:
+    if not scattered and not enable_nvfp4:
         return
 
-    logger.info(f"  Consolidating {len(scattered)} external data files into {data_file}...")
+    if scattered:
+        logger.info(f"  Consolidating {len(scattered)} external data files into {data_file}...")
     model = onnx.load(onnx_path, load_external_data=True)
+
+    if enable_nvfp4:
+        logger.info("  Converting NVFP4 QDQ ops to 2DQ format for TensorRT...")
+        from modelopt.onnx.quantization.qdq_utils import fp4qdq_to_2dq
+
+        model = fp4qdq_to_2dq(model, verbose=True)
+
     convert_model_to_external_data(
         model, all_tensors_to_one_file=True, location=data_file, size_threshold=0
     )
@@ -108,14 +571,26 @@ def _consolidate_external_data(onnx_path: str) -> None:
     # Clean up scattered files
     for f in scattered:
         os.remove(os.path.join(onnx_dir, f))
-    logger.info(f"  Consolidated and cleaned up {len(scattered)} files.")
+    if scattered:
+        logger.info(f"  Consolidated and cleaned up {len(scattered)} files.")
 
 
-def verify_onnx_export(onnx_path: str) -> None:
-    """Load and check the exported ONNX model for validity."""
+def verify_onnx_export(onnx_path: str, skip_check: bool = False) -> None:
+    """Load and check the exported ONNX model for validity.
+
+    ``skip_check=True`` skips ``onnx.checker.check_model`` (used for NVFP4 LLM
+    whose 2DQ-converted graph trips the stock checker but is valid for TRT).
+    """
     import onnx
 
     logger.info(f"  Verifying {onnx_path} ...")
+    if skip_check:
+        model = onnx.load(onnx_path, load_external_data=False)
+        logger.info(
+            f"  ONNX model loaded (skip_check=True): {len(model.graph.node)} nodes, "
+            f"{len(model.graph.initializer)} initializers."
+        )
+        return
     onnx.checker.check_model(onnx_path)
     logger.info("  ONNX model verified successfully.")
 
@@ -530,7 +1005,16 @@ def _assert_vision_rotary_matches_analytic(vision, vision_config, *, atol=1e-5, 
         )
 
 
-def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True, batch_size=1):
+def export_vit_to_onnx(
+    policy,
+    output_dir,
+    captured_vit,
+    use_bf16=True,
+    batch_size=1,
+    *,
+    precision_tag=None,
+    pre_export_fn=None,
+):
     """Export Qwen3-VL Vision Model to ONNX.
 
     Pre-computes position/rotary embeddings for the captured grid_thw to avoid
@@ -540,6 +1024,13 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True, batch_si
     Input: pixel_values [num_patches * batch_size, C*T*pH*pW]
     Output: image_embeds [num_merged_patches * batch_size, hidden_dim],
             deepstack_features [num_layers, num_merged_patches * batch_size, hidden_dim]
+
+    Quantization hooks (optional, used by the FP8/NVFP4 policies in main()):
+        precision_tag:  Precision tag driving the export dtype and the output
+                        filename (e.g. "fp8" -> vit_fp8.onnx).
+        pre_export_fn:  Called as ``pre_export_fn(wrapper)`` after the wrapper is
+                        built but before ``torch.onnx.export``. Use for modelopt
+                        calibration / quantization.
     """
     logger.info("\n" + "=" * 80)
     logger.info("Exporting ViT (Qwen3-VL Vision) to ONNX")
@@ -550,13 +1041,17 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True, batch_si
     vision = qwen_model.model.visual
 
     # Gr00tPolicy loads the model in bf16, which rounds the non-persistent RoPE
-    # inv_freq. The ViT is exported in fp32 for TRT accuracy, so re-derive the analytic
-    # fp32 inv_freq before baking cos/sin, then verify the (now fp32) buffer against the
-    # independent analytic oracle.
+    # inv_freq. The ViT is exported in fp32 by default for TRT accuracy, so
+    # re-derive the analytic fp32 inv_freq before baking cos/sin, then verify
+    # the buffer against the independent analytic oracle.
     _restore_vision_rotary_inv_freq_fp32(vision, qwen_model.config.vision_config)
     _assert_vision_rotary_matches_analytic(vision, qwen_model.config.vision_config)
 
-    dtype = torch.bfloat16 if use_bf16 else torch.float32
+    dtype = (
+        resolve_dtype(precision_tag)
+        if precision_tag
+        else (torch.bfloat16 if use_bf16 else torch.float32)
+    )
     vision = vision.to(dtype).eval().cuda()
 
     # Compute chunk sizes from grid_thw for per-image attention splitting
@@ -585,8 +1080,12 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True, batch_si
 
     logger.info(f"  pixel_values: {pixel_values.shape} ({pixel_values.dtype})")
 
-    precision_tag = "bf16" if use_bf16 else "fp32"
-    output_path = os.path.join(output_dir, f"vit_{precision_tag}.onnx")
+    # --- Quantization hook: calibrate / quantize the wrapper in-place ---
+    if pre_export_fn is not None:
+        pre_export_fn(wrapper)
+
+    ptag = precision_tag or ("bf16" if use_bf16 else "fp32")
+    output_path = os.path.join(output_dir, f"vit_{ptag}.onnx")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     output_names = ["image_embeds", "deepstack_features"]
@@ -609,15 +1108,17 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True, batch_si
     _consolidate_external_data(output_path)
     verify_onnx_export(output_path)
 
-    # ORT verification: compare ONNX output against PyTorch wrapper
-    # Must run BEFORE restoring attention, since wrapper uses patched attention
-    verify_onnx_with_ort(
-        onnx_path=output_path,
-        pytorch_module=wrapper,
-        sample_inputs={"pixel_values": pixel_values},
-        output_names=output_names,
-        label="ViT",
-    )
+    # ORT verification: compare ONNX output against PyTorch wrapper.
+    # Must run BEFORE restoring attention, since wrapper uses patched attention.
+    # Skip for quantized models (TRT custom Q/DQ ops are not runnable in ORT).
+    if pre_export_fn is None:
+        verify_onnx_with_ort(
+            onnx_path=output_path,
+            pytorch_module=wrapper,
+            sample_inputs={"pixel_values": pixel_values},
+            output_names=output_names,
+            label="ViT",
+        )
 
     # Restore original attention
     _restore_vision_attention(vision, originals)
@@ -630,7 +1131,17 @@ def export_vit_to_onnx(policy, output_dir, captured_vit, use_bf16=True, batch_si
 # ============================================================
 
 
-def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True, batch_size=1):
+def export_llm_to_onnx(
+    policy,
+    captured_llm,
+    output_dir,
+    use_bf16=True,
+    batch_size=1,
+    *,
+    precision_tag=None,
+    pre_export_fn=None,
+    fuse_gateup=False,
+):
     """Export the Qwen3-VL text model (LLM) to ONNX.
 
     The LLM receives inputs_embeds (with vision tokens already scattered in),
@@ -652,6 +1163,14 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True, batch_si
         deepstack_2:    [num_vis_tokens, hidden_size]  (deepstack feature for layer 2)
     Output:
         embeddings: [B, seq_len, hidden_size]
+
+    Quantization hooks (optional, used by the FP8/NVFP4 policies in main()):
+        precision_tag:  Precision tag driving the export dtype, the output
+                        filename (e.g. "nvfp4" -> llm_nvfp4.onnx), and the
+                        NVFP4 2DQ post-processing.
+        pre_export_fn:  Called as ``pre_export_fn(wrapper)`` after the wrapper is
+                        built but before ``torch.onnx.export``.
+        fuse_gateup:    Fuse Gate/Up projections into one Linear per layer.
     """
     logger.info("\n" + "=" * 80)
     logger.info("Exporting LLM (Qwen3-VL Text Model) to ONNX")
@@ -832,7 +1351,14 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True, batch_si
     wrapper.load_state_dict(dst_state)
     logger.info(f"  Loaded {loaded} weight tensors, skipped {skipped}")
 
-    dtype = torch.bfloat16 if use_bf16 else torch.float32
+    if fuse_gateup:
+        fuse_llm_gateup(wrapper)
+
+    dtype = (
+        resolve_dtype(precision_tag)
+        if precision_tag
+        else (torch.bfloat16 if use_bf16 else torch.float32)
+    )
     wrapper = wrapper.to(dtype).eval().cuda()
 
     # Create dummy inputs from captured shapes
@@ -880,8 +1406,12 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True, batch_si
     for name, tensor in zip(input_names, export_inputs):
         logger.info(f"    {name}: {tensor.shape} ({tensor.dtype})")
 
-    precision_tag = "bf16" if use_bf16 else "fp32"
-    output_path = os.path.join(output_dir, f"llm_{precision_tag}.onnx")
+    # --- Quantization hook: calibrate / quantize the wrapper in-place ---
+    if pre_export_fn is not None:
+        pre_export_fn(wrapper)
+
+    ptag = precision_tag or ("bf16" if use_bf16 else "fp32")
+    output_path = os.path.join(output_dir, f"llm_{ptag}.onnx")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     logger.info(f"  Exporting to {output_path}...")
@@ -900,8 +1430,9 @@ def export_llm_to_onnx(policy, captured_llm, output_dir, use_bf16=True, batch_si
         )
 
     logger.info("  LLM exported successfully!")
-    _consolidate_external_data(output_path)
-    verify_onnx_export(output_path)
+    is_nvfp4 = precision_tag == "nvfp4"
+    _consolidate_external_data(output_path, enable_nvfp4=is_nvfp4)
+    verify_onnx_export(output_path, skip_check=is_nvfp4)
     return output_path
 
 
@@ -939,7 +1470,16 @@ def prepare_observation(policy, dataset, traj_idx=0):
 # ============================================================
 
 
-def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=True, batch_size=1):
+def export_vl_self_attention_to_onnx(
+    policy,
+    output_dir,
+    vl_seq_len,
+    use_bf16=True,
+    batch_size=1,
+    *,
+    dtype_override=None,
+    pre_export_fn=None,
+):
     """Export the vl_self_attention (SelfAttentionTransformer) to ONNX.
 
     This module sits between VLLN and the DiT, transforming backbone
@@ -958,7 +1498,7 @@ def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=Tr
     logger.info("=" * 80)
 
     config = policy.model.action_head.config
-    dtype = torch.bfloat16 if use_bf16 else torch.float32
+    dtype = dtype_override or (torch.bfloat16 if use_bf16 else torch.float32)
     model = vl_sa.to(dtype).eval().cuda()
 
     hidden_states = torch.randn(
@@ -968,6 +1508,9 @@ def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=Tr
 
     output_path = os.path.join(output_dir, "vl_self_attention.onnx")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    if pre_export_fn is not None:
+        pre_export_fn(model)
 
     logger.info(f"  Exporting to {output_path}...")
     with torch.inference_mode():
@@ -983,10 +1526,12 @@ def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=Tr
             },
             opset_version=19,
             do_constant_folding=True,
+            export_params=True,
             dynamo=False,
         )
 
     logger.info("  VL Self-Attention exported successfully!")
+    _consolidate_external_data(output_path)
     verify_onnx_export(output_path)
     return output_path
 
@@ -996,7 +1541,14 @@ def export_vl_self_attention_to_onnx(policy, output_dir, vl_seq_len, use_bf16=Tr
 # ============================================================
 
 
-def export_state_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=1):
+def export_state_encoder_to_onnx(
+    policy,
+    output_dir,
+    use_bf16=True,
+    batch_size=1,
+    *,
+    dtype_override=None,
+):
     """Export the state encoder (CategorySpecificMLP) to ONNX.
 
     N1.7 change: input_dim = max_state_dim * state_history_length.
@@ -1013,7 +1565,7 @@ def export_state_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=1
     config = policy.model.action_head.config
     state_encoder = policy.model.action_head.state_encoder
 
-    dtype = torch.bfloat16 if use_bf16 else torch.float32
+    dtype = dtype_override or (torch.bfloat16 if use_bf16 else torch.float32)
     model = state_encoder.to(dtype).eval().cuda()
 
     # N1.7: state is flattened to [B, 1, max_state_dim * state_history_length]
@@ -1059,7 +1611,14 @@ def export_state_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=1
 # ============================================================
 
 
-def export_action_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=1):
+def export_action_encoder_to_onnx(
+    policy,
+    output_dir,
+    use_bf16=True,
+    batch_size=1,
+    *,
+    dtype_override=None,
+):
     """Export the action encoder (MultiEmbodimentActionEncoder) to ONNX.
 
     Input: actions [B, action_horizon, max_action_dim], timesteps [B], embodiment_id [B]
@@ -1072,7 +1631,7 @@ def export_action_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=
     config = policy.model.action_head.config
     action_encoder = policy.model.action_head.action_encoder
 
-    dtype = torch.bfloat16 if use_bf16 else torch.float32
+    dtype = dtype_override or (torch.bfloat16 if use_bf16 else torch.float32)
     model = action_encoder.to(dtype).eval().cuda()
 
     actions = torch.randn(
@@ -1111,7 +1670,59 @@ def export_action_encoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=
 # ============================================================
 
 
-def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batch_size=1):
+def _dit_attn_bool_mask_to_additive_pre_hook(module, args, kwargs):
+    """Convert bool attention_mask to additive (0/-inf) in the compute dtype."""
+    am = kwargs.get("attention_mask")
+    if am is None or am.dtype != torch.bool:
+        return None
+    q = args[0] if args else kwargs.get("hidden_states")
+    if q is None:
+        return None
+    dtype = q.dtype
+    zero = torch.zeros((), dtype=dtype, device=am.device)
+    ninf = torch.full((), float("-inf"), dtype=dtype, device=am.device)
+    kwargs["attention_mask"] = torch.where(am, zero, ninf)
+    return args, kwargs
+
+
+def _patch_dit_attn_for_export(dit_model):
+    """Register pre-hooks on every BasicTransformerBlock.attn1 to enable TRT
+    mha_v2 fusion on cross-attn. Returns handles for restoration."""
+    handles = []
+    blocks = getattr(dit_model, "transformer_blocks", None)
+    if blocks is None:
+        logger.warning("  DiT has no transformer_blocks; skipping mha_v2 fusion patch")
+        return handles
+    for blk in blocks:
+        attn = getattr(blk, "attn1", None)
+        if attn is None:
+            continue
+        h = attn.register_forward_pre_hook(
+            _dit_attn_bool_mask_to_additive_pre_hook, with_kwargs=True
+        )
+        handles.append(h)
+    logger.info(
+        f"  Patched {len(handles)} DiT attn blocks: bool mask -> additive "
+        f"(enables TRT mha_v2 fusion on cross-attn)"
+    )
+    return handles
+
+
+def _unpatch_dit_attn(handles):
+    for h in handles:
+        h.remove()
+
+
+def export_dit_to_onnx(
+    policy,
+    captured_inputs,
+    output_path,
+    use_bf16=True,
+    batch_size=1,
+    *,
+    precision_tag=None,
+    pre_export_fn=None,
+):
     """Export the DiT (AlternateVLDiT) to ONNX.
 
     N1.7: image_mask and backbone_attention_mask are always present
@@ -1122,6 +1733,12 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
            timestep [B], image_mask [B, vl_seq_len],
            backbone_attention_mask [B, vl_seq_len]
     Output: [B, sa_seq_len, hidden_size]
+
+    Quantization hooks (optional, used by the FP8/NVFP4 policies in main()):
+        precision_tag:  Precision tag driving the export dtype and the NVFP4
+                        2DQ post-processing (the caller names the output file).
+        pre_export_fn:  Called as ``pre_export_fn(wrapped_model)`` after the
+                        wrapper is built but before ``torch.onnx.export``.
     """
     logger.info("\n" + "=" * 80)
     logger.info("Exporting DiT to ONNX")
@@ -1130,8 +1747,40 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
     dit_model = policy.model.action_head.model
     dit_model.eval()
 
-    dtype = torch.bfloat16 if use_bf16 else torch.float32
+    enable_nvfp4 = precision_tag == "nvfp4"
+    dtype = (
+        resolve_dtype(precision_tag)
+        if precision_tag
+        else (torch.bfloat16 if use_bf16 else torch.float32)
+    )
     dit_model = dit_model.to(dtype).cuda()
+
+    # Build the DiT wrapper up front so callers can run calibration through it.
+    has_image_mask = captured_inputs.image_mask is not None
+    has_backbone_mask = captured_inputs.backbone_attention_mask is not None
+
+    # Wrapper to convert positional args -> keyword args for DiT.
+    # torch.onnx.export uses positional args: `dit.forward(arg1, arg2...)`.
+    # DiT module uses keyword args: `dit.forward(hidden_states=....)`.
+    class DiTWrapper(torch.nn.Module):
+        def __init__(self, dit, use_image_mask, use_backbone_mask):
+            super().__init__()
+            self.dit = dit
+            self.use_image_mask = use_image_mask
+            self.use_backbone_mask = use_backbone_mask
+
+        def forward(
+            self, sa_embs, vl_embs, timestep, image_mask=None, backbone_attention_mask=None
+        ):
+            kwargs = {}
+            if self.use_image_mask and image_mask is not None:
+                kwargs["image_mask"] = image_mask
+            if self.use_backbone_mask and backbone_attention_mask is not None:
+                kwargs["backbone_attention_mask"] = backbone_attention_mask
+            return self.dit(sa_embs, vl_embs, timestep, **kwargs)
+
+    wrapped_model = DiTWrapper(dit_model, has_image_mask, has_backbone_mask)
+    wrapped_model = wrapped_model.to(dtype).eval().cuda()
 
     # Use captured shapes but replace batch dim (index 0) with batch_size
     sa_shape = (batch_size,) + captured_inputs.sa_embs.shape[1:]
@@ -1144,8 +1793,6 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
 
     export_inputs = [sa_embs, vl_embs, timestep]
     input_names = ["sa_embs", "vl_embs", "timestep"]
-    has_image_mask = captured_inputs.image_mask is not None
-    has_backbone_mask = captured_inputs.backbone_attention_mask is not None
 
     if has_image_mask:
         im_shape = (batch_size,) + captured_inputs.image_mask.shape[1:]
@@ -1169,30 +1816,9 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
     # specializes vl_seq_len here, which breaks the dynamic TensorRT profile.
     logger.info(f"Exporting to {output_path} with legacy ONNX exporter...")
 
-    # Create a wrapper to handle keyword arguments
-    # torch.onnx.export uses positional args: `dit.forward(arg1, arg2...)`
-    # DiT module uses keyword args: `dit.forward(hidden_states=....)`
-    # The DiTWrapper handles this translation
-    # Wrapper to convert positional args -> keyword args for DiT
-    class DiTWrapper(torch.nn.Module):
-        def __init__(self, dit, use_image_mask, use_backbone_mask):
-            super().__init__()
-            self.dit = dit
-            self.use_image_mask = use_image_mask
-            self.use_backbone_mask = use_backbone_mask
-
-        def forward(
-            self, sa_embs, vl_embs, timestep, image_mask=None, backbone_attention_mask=None
-        ):
-            kwargs = {}
-            if self.use_image_mask and image_mask is not None:
-                kwargs["image_mask"] = image_mask
-            if self.use_backbone_mask and backbone_attention_mask is not None:
-                kwargs["backbone_attention_mask"] = backbone_attention_mask
-            return self.dit(sa_embs, vl_embs, timestep, **kwargs)
-
-    wrapped_model = DiTWrapper(dit_model, has_image_mask, has_backbone_mask)
-    wrapped_model.eval()
+    # --- Quantization hook: calibrate / quantize the wrapper in-place ---
+    if pre_export_fn is not None:
+        pre_export_fn(wrapped_model)
 
     # vl_seq_len varies with input text length — mark it dynamic so the TRT engine
     # can handle any sequence length seen at runtime, not just the export-time value.
@@ -1205,28 +1831,32 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
         dit_dynamic_axes["backbone_attention_mask"] = {1: "vl_seq_len"}
 
     logger.info(f"  Exporting to {output_path}...")
-    with torch.inference_mode():
-        torch.onnx.export(
-            wrapped_model,
-            tuple(export_inputs),
-            output_path,
-            input_names=input_names,
-            output_names=["output"],
-            opset_version=19,
-            do_constant_folding=True,
-            export_params=True,
-            dynamic_axes=dit_dynamic_axes,
-            dynamo=False,  # DiT specializes vl_seq_len under dynamo; legacy exporter needed
-        )
+    mha_patch_handles = _patch_dit_attn_for_export(dit_model)
+    try:
+        with torch.inference_mode():
+            torch.onnx.export(
+                wrapped_model,
+                tuple(export_inputs),
+                output_path,
+                input_names=input_names,
+                output_names=["output"],
+                opset_version=19,
+                do_constant_folding=True,
+                export_params=True,
+                dynamic_axes=dit_dynamic_axes,
+                dynamo=False,
+            )
+    finally:
+        _unpatch_dit_attn(mha_patch_handles)
 
     logger.info("  DiT exported successfully!")
 
     # Consolidate scattered external data files into a single .data file.
     # torch.onnx.export scatters large tensors into many small files (one per tensor).
     # TensorRT's parser expects external data in a single file adjacent to the .onnx.
-    _consolidate_external_data(output_path)
+    _consolidate_external_data(output_path, enable_nvfp4=enable_nvfp4)
 
-    verify_onnx_export(output_path)
+    verify_onnx_export(output_path, skip_check=enable_nvfp4)
     return output_path
 
 
@@ -1235,7 +1865,14 @@ def export_dit_to_onnx(policy, captured_inputs, output_path, use_bf16=True, batc
 # ============================================================
 
 
-def export_action_decoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=1):
+def export_action_decoder_to_onnx(
+    policy,
+    output_dir,
+    use_bf16=True,
+    batch_size=1,
+    *,
+    dtype_override=None,
+):
     """Export the action decoder (CategorySpecificMLP) to ONNX.
 
     Input: model_output [B, sa_seq_len, hidden_size], embodiment_id [B]
@@ -1248,7 +1885,7 @@ def export_action_decoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=
     config = policy.model.action_head.config
     action_decoder = policy.model.action_head.action_decoder
 
-    dtype = torch.bfloat16 if use_bf16 else torch.float32
+    dtype = dtype_override or (torch.bfloat16 if use_bf16 else torch.float32)
     model = action_decoder.to(dtype).eval().cuda()
 
     # sa_seq_len = 1 (state) + action_horizon
@@ -1289,6 +1926,23 @@ def export_action_decoder_to_onnx(policy, output_dir, use_bf16=True, batch_size=
 
 def main(args):
     args.embodiment_tag = EmbodimentTag.resolve(args.embodiment_tag)
+
+    optimized_profile = args.execution_profile == "optimized"
+    if optimized_profile and args.export_mode == "dit_only":
+        raise ValueError(
+            "--execution-profile optimized requires --export-mode action_head or full_pipeline"
+        )
+
+    # Per-component precision tags come from the shared policy table so export,
+    # engine build, and runtime can never disagree on artifact names.
+    precisions = component_precisions(args.quantization)
+    vit_prec = precisions["vit"]
+    llm_prec = precisions["llm"]
+    dit_prec = precisions["dit"]
+    aux_prec = precisions["aux"]
+    aux_dtype = resolve_dtype(aux_prec)
+    quantized = args.quantization != "none"
+
     logger.info("=" * 80)
     logger.info("GR00T N1.7 ONNX Export Script")
     logger.info("=" * 80)
@@ -1296,6 +1950,11 @@ def main(args):
     logger.info(f"Dataset path: {args.dataset_path}")
     logger.info(f"Embodiment: {args.embodiment_tag}")
     logger.info(f"Export mode: {args.export_mode}")
+    logger.info(f"Quantization: {args.quantization}")
+    logger.info(
+        f"Component precisions: vit={vit_prec}, llm={llm_prec}, dit={dit_prec}, aux={aux_prec}"
+    )
+    logger.info(f"Execution profile: {args.execution_profile}")
     logger.info(f"Batch size: {args.batch_size}")
     logger.info(f"Output directory: {args.output_dir}")
     logger.info("=" * 80)
@@ -1406,8 +2065,24 @@ def main(args):
         "embodiment_tag": str(args.embodiment_tag),
         "export_mode": args.export_mode,
         "precision": args.precision,
+        "vit_precision": vit_prec,
+        "llm_precision": llm_prec,
+        "dit_precision": dit_prec,
+        "aux_precision": aux_prec,
+        "quantization": args.quantization,
+        "execution_profile": args.execution_profile,
+        "optimized_action_head": optimized_profile,
+        "action_head_format_version": (ACTION_HEAD_FORMAT_VERSION if optimized_profile else None),
+        "num_inference_timesteps": int(policy.model.action_head.num_inference_timesteps),
+        "num_timestep_buckets": int(policy.model.action_head.num_timestep_buckets),
         "batch_size": args.batch_size,
     }
+    if quantized:
+        export_metadata["calibration"] = {
+            "dataset": args.calib_dataset_path or args.dataset_path,
+            "embodiment": str(args.embodiment_tag),
+            "samples": args.calib_size,
+        }
     # The ViT engine bakes pos/rotary buffers for this grid_thw and takes only
     # pixel_values as input; record the grid so the runtime can reject a
     # mismatched image config instead of silently using wrong embeddings.
@@ -1415,92 +2090,176 @@ def main(args):
         export_metadata["vit_grid_thw"] = [
             [int(x) for x in row] for row in vit_capture.grid_thw.tolist()
         ]
+
+    logger.info("\n" + format_quantization_summary(export_metadata))
     os.makedirs(args.output_dir, exist_ok=True)
     metadata_path = os.path.join(args.output_dir, "export_metadata.json")
     with open(metadata_path, "w") as f:
         json.dump(export_metadata, f, indent=2)
     logger.info(f"  Saved export metadata to {metadata_path}")
 
-    # Step 4: Export
+    # Step 3.5: capture calibration inputs. Must run on the still-unquantized
+    # policy: modelopt fake-quant mutates modules in place during Step 4, so a
+    # later capture would observe quantized upstream activations.
     bs = args.batch_size
-    if args.export_mode == "dit_only":
-        logger.info("\n[Step 4] Exporting DiT to ONNX (dit_only mode)...")
-        dit_output_path = os.path.join(args.output_dir, "dit_bf16.onnx")
-        export_dit_to_onnx(
+    calib_batches: dict = {}
+    llm_input_names = None
+    dit_input_names = ["sa_embs", "vl_embs", "timestep"]
+    if dit_capture.image_mask is not None:
+        dit_input_names.append("image_mask")
+    if dit_capture.backbone_attention_mask is not None:
+        dit_input_names.append("backbone_attention_mask")
+
+    if quantized:
+        from .n1d7_calibration import calibrate_component, capture_calibration_batches
+
+        needed = {"dit"}
+        if args.export_mode == "full_pipeline":
+            needed |= {"vit", "llm"}
+            if not isinstance(policy.model.action_head.vl_self_attention, nn.Identity):
+                needed.add("vl_sa")
+        logger.info("\n[Step 3.5] Capturing calibration data (before any quantization)...")
+        calib_batches = capture_calibration_batches(
+            policy,
+            dataset_path=args.calib_dataset_path or args.dataset_path,
+            calib_size=args.calib_size,
+            components=needed,
+        )
+        if args.export_mode == "full_pipeline":
+            llm_input_names = ["inputs_embeds", "attention_mask", "position_ids"]
+            if num_deepstack > 0 and llm_capture.visual_pos_masks is not None:
+                llm_input_names.append("visual_pos_masks")
+                llm_input_names.extend(f"deepstack_{i}" for i in range(num_deepstack))
+
+    def _pre_export(component, tag, input_names=None):
+        """Calibration hook for one component; None for high-precision tags."""
+        if tag not in ("fp8", "nvfp4"):
+            return None
+
+        def fn(wrapper):
+            calibrate_component(
+                wrapper, component, tag, calib_batches[component], input_names=input_names
+            )
+
+        return fn
+
+    def _export_action_encoder_component():
+        if optimized_profile:
+            return export_optimized_action_encoder(
+                policy, args.output_dir, dtype=aux_dtype, batch_size=bs
+            )
+        return export_action_encoder_to_onnx(
+            policy, args.output_dir, batch_size=bs, dtype_override=aux_dtype
+        )
+
+    def _export_dit_component():
+        output_path = os.path.join(args.output_dir, f"dit_{dit_prec}.onnx")
+        pre_export_fn = _pre_export("dit", dit_prec, input_names=dit_input_names)
+        if optimized_profile:
+            if dit_capture.image_mask is None or dit_capture.backbone_attention_mask is None:
+                raise ValueError("Optimized action head requires both DiT attention masks")
+            return export_optimized_dit(
+                policy,
+                dit_capture,
+                output_path,
+                precision_tag=dit_prec,
+                batch_size=bs,
+                pre_export_fn=pre_export_fn,
+            )
+        return export_dit_to_onnx(
             policy=policy,
             captured_inputs=dit_capture,
-            output_path=dit_output_path,
-            use_bf16=True,
+            output_path=output_path,
             batch_size=bs,
+            precision_tag=dit_prec,
+            pre_export_fn=pre_export_fn,
         )
+
+    # Step 4: Export
+    if args.export_mode == "dit_only":
+        logger.info(f"\n[Step 4] Exporting DiT to ONNX (dit_only, precision={dit_prec})...")
+        _export_dit_component()
 
     elif args.export_mode == "action_head":
         logger.info("\n[Step 4] Exporting action head components to ONNX...")
 
         # 4a. State Encoder
         logger.info("\n--- [4a] State Encoder ---")
-        export_state_encoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
+        export_state_encoder_to_onnx(
+            policy, args.output_dir, batch_size=bs, dtype_override=aux_dtype
+        )
 
         # 4b. Action Encoder
         logger.info("\n--- [4b] Action Encoder ---")
-        export_action_encoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
+        _export_action_encoder_component()
 
         # 4c. DiT
-        logger.info("\n--- [4c] DiT ---")
-        dit_output_path = os.path.join(args.output_dir, "dit_bf16.onnx")
-        export_dit_to_onnx(
-            policy=policy,
-            captured_inputs=dit_capture,
-            output_path=dit_output_path,
-            use_bf16=True,
-            batch_size=bs,
-        )
+        logger.info(f"\n--- [4c] DiT (precision={dit_prec}) ---")
+        _export_dit_component()
 
         # 4d. Action Decoder
         logger.info("\n--- [4d] Action Decoder ---")
-        export_action_decoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
+        export_action_decoder_to_onnx(
+            policy, args.output_dir, batch_size=bs, dtype_override=aux_dtype
+        )
 
     elif args.export_mode == "full_pipeline":
         logger.info("\n[Step 4] Exporting full pipeline to ONNX...")
-        logger.info("  (ViT TRT + LLM TRT + Action Head TRT)")
 
-        # 4a. ViT — exported in FP32 to avoid TRT BF16 kernel fusion accuracy issues
-        # ViT is patch-level: for batch_size > 1, num_patches scales by batch_size
-        logger.info("\n--- [4a] ViT (Qwen3-VL Vision, FP32 for TRT accuracy) ---")
-        export_vit_to_onnx(policy, args.output_dir, vit_capture, use_bf16=False, batch_size=bs)
+        # 4a. ViT
+        logger.info(f"\n--- [4a] ViT (precision={vit_prec}) ---")
+        export_vit_to_onnx(
+            policy,
+            args.output_dir,
+            vit_capture,
+            batch_size=bs,
+            precision_tag=vit_prec,
+            pre_export_fn=_pre_export("vit", vit_prec),
+        )
 
         # 4b. LLM
-        logger.info("\n--- [4b] LLM (Qwen3-VL Text Model) ---")
-        export_llm_to_onnx(policy, llm_capture, args.output_dir, use_bf16=True, batch_size=bs)
+        logger.info(f"\n--- [4b] LLM (precision={llm_prec}) ---")
+        export_llm_to_onnx(
+            policy,
+            llm_capture,
+            args.output_dir,
+            batch_size=bs,
+            precision_tag=llm_prec,
+            pre_export_fn=_pre_export("llm", llm_prec, input_names=llm_input_names),
+            fuse_gateup=optimized_profile,
+        )
 
-        # 4c. VL Self-Attention (if present)
+        # 4c. VL Self-Attention (if present). Under a quantized policy only its
+        # FFN linears are quantized to FP8; attention stays high precision.
         logger.info("\n--- [4c] VL Self-Attention ---")
         export_vl_self_attention_to_onnx(
-            policy, args.output_dir, vl_seq_len=vl_seq_len, use_bf16=True, batch_size=bs
+            policy,
+            args.output_dir,
+            vl_seq_len=vl_seq_len,
+            batch_size=bs,
+            dtype_override=aux_dtype,
+            pre_export_fn=_pre_export("vl_sa", "fp8" if quantized else aux_prec),
         )
 
         # 4d. State Encoder
         logger.info("\n--- [4d] State Encoder ---")
-        export_state_encoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
+        export_state_encoder_to_onnx(
+            policy, args.output_dir, batch_size=bs, dtype_override=aux_dtype
+        )
 
         # 4e. Action Encoder
         logger.info("\n--- [4e] Action Encoder ---")
-        export_action_encoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
+        _export_action_encoder_component()
 
         # 4f. DiT
-        logger.info("\n--- [4f] DiT ---")
-        dit_output_path = os.path.join(args.output_dir, "dit_bf16.onnx")
-        export_dit_to_onnx(
-            policy=policy,
-            captured_inputs=dit_capture,
-            output_path=dit_output_path,
-            use_bf16=True,
-            batch_size=bs,
-        )
+        logger.info(f"\n--- [4f] DiT (precision={dit_prec}) ---")
+        _export_dit_component()
 
         # 4g. Action Decoder
         logger.info("\n--- [4g] Action Decoder ---")
-        export_action_decoder_to_onnx(policy, args.output_dir, use_bf16=True, batch_size=bs)
+        export_action_decoder_to_onnx(
+            policy, args.output_dir, batch_size=bs, dtype_override=aux_dtype
+        )
 
     # Summary
     logger.info("\n" + "=" * 80)
@@ -1517,7 +2276,22 @@ def main(args):
 
 @dataclass
 class ExportConfig:
-    """Configuration for exporting GR00T N1.7 model to ONNX."""
+    """Configuration for exporting GR00T N1.7 model to ONNX.
+
+    Usage:
+        # BF16 baseline (default)
+        python -m scripts.deployment.trt.export_onnx_n1d7 --model-path ... --dataset-path ...
+
+        # Fixed quantized precision recipes (see COMPONENT_PRECISIONS)
+        python -m scripts.deployment.trt.export_onnx_n1d7 --model-path ... --dataset-path ... \\
+            --quantization fp8 --export-mode full_pipeline
+        python -m scripts.deployment.trt.export_onnx_n1d7 --model-path ... --dataset-path ... \\
+            --quantization mixed_nvfp4 --export-mode full_pipeline
+
+        # Cross-KV cache + folded timestep + CUDA-graph action head
+        python -m scripts.deployment.trt.export_onnx_n1d7 --model-path ... --dataset-path ... \\
+            --execution-profile optimized --export-mode full_pipeline
+    """
 
     model_path: str
     """Path to the model checkpoint (required)."""
@@ -1532,17 +2306,29 @@ class ExportConfig:
     """Output directory for ONNX models."""
 
     export_mode: ExportMode = ExportMode.dit_only
-    """Export mode: 'dit_only', 'action_head' (4 components), or 'full_pipeline' (ViT + action head)."""
+    """Export mode: 'dit_only', 'action_head' (4 components), or 'full_pipeline'."""
 
     precision: Literal["bf16"] = "bf16"
-    """Export precision for the generated ONNX graph.
+    """Export precision of the default (non-quantized) graph.
 
-    Currently fixed to 'bf16': every Step 4 exporter passes a hardcoded
-    `use_bf16=` argument and does not read this field beyond writing it
-    into export_metadata.json. Re-introducing 'fp16'/'fp32'/'fp8' here
-    requires plumbing this field into each exporter first; until then
-    the Literal is narrowed so the CLI cannot accept a value the export
-    will ignore."""
+    Fixed to 'bf16' (with the ViT promoted to FP32 for TRT accuracy).
+    Quantized exports are selected via --quantization, which maps to a fixed
+    per-component precision recipe in
+    trt.n1d7_optimization_config.COMPONENT_PRECISIONS."""
+
+    execution_profile: ExecutionProfile = "baseline"
+    """'optimized' adds the cross-KV-cache action head (CUDA-graph runtime) and
+    fuses the LLM Gate/Up projections. Requires action_head or full_pipeline
+    export mode."""
+
+    quantization: QuantizationPolicy = "none"
+    """Quantization policy: none (BF16 baseline), fp8, or mixed_nvfp4."""
+
+    calib_dataset_path: Optional[str] = None
+    """LeRobot dataset for calibration. Defaults to --dataset-path."""
+
+    calib_size: int = 10
+    """Number of calibration samples (default: 10)."""
 
     batch_size: int = 1
     """Batch size baked into the exported ONNX models (default: 1)."""

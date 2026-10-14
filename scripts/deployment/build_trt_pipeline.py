@@ -65,6 +65,13 @@ _DEPLOY_DIR = os.path.dirname(os.path.abspath(__file__))
 if _DEPLOY_DIR not in sys.path:
     sys.path.insert(0, _DEPLOY_DIR)
 
+from trt.n1d7_optimization_config import (  # noqa: E402
+    ExecutionProfile,
+    QuantizationPolicy,
+    component_precisions,
+    trt_boundary_precision,
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -217,14 +224,26 @@ class PipelineConfig:
     """Root output directory. ONNX files go to <output_dir>/onnx/, engines to <output_dir>/engines/."""
 
     precision: Literal["bf16"] = "bf16"
-    """Precision baked into the exported ONNX and the built TRT engine.
+    """Precision of the default (non-quantized) export and engine build.
 
-    Only 'bf16' is honored end-to-end: the ONNX export hardcodes a
-    mixed-dtype graph (ViT FP32, every other component BF16) and the
-    builder treats this as the single supported configuration. Adding
-    'fp16'/'fp32'/'fp8' here without first wiring them through
-    export_onnx_n1d7.py would silently produce a bf16 artifact under a
-    different name."""
+    Fixed to 'bf16' (with the ViT promoted to FP32 for TRT accuracy).
+    Quantized deployments are selected via --quantization, which maps to a
+    fixed per-component precision recipe in
+    trt.n1d7_optimization_config.COMPONENT_PRECISIONS."""
+
+    execution_profile: ExecutionProfile = "baseline"
+    """'optimized' adds the cross-KV-cache action head (CUDA-graph runtime) and
+    fuses the LLM Gate/Up projections. Requires action_head or full_pipeline
+    export mode."""
+
+    quantization: QuantizationPolicy = "none"
+    """Quantization policy: none (BF16 baseline), fp8, or mixed_nvfp4."""
+
+    calib_dataset_path: Optional[str] = None
+    """LeRobot dataset for calibration. Defaults to --dataset-path."""
+
+    calib_size: int = 10
+    """Number of calibration samples (default: 10)."""
 
     batch_size: int = 1
     """Batch size baked into the exported ONNX/TRT models (default: 1).
@@ -254,8 +273,20 @@ class PipelineConfig:
     warmup: int = 5
     """Number of warmup iterations."""
 
+    observation_path: str | None = None
+    """Frozen raw observation NPZ for identical cross-device benchmark pixels."""
+
+    flat_e2e: bool = False
+    """Time the complete local policy call, including preprocessing and decoding."""
+
     skip_compile: bool = False
     """Skip torch.compile benchmark (slow JIT compilation)."""
+
+    data_processing_reference_path: str | None = None
+    """Save/reuse preprocessing samples for a paired benchmark on identical inputs."""
+
+    reuse_data_processing: bool = False
+    """Use saved preprocessing samples in this benchmark invocation."""
 
     # -- Pipeline control ---------------------------------------------------
     steps: str = "all"
@@ -280,6 +311,10 @@ def _run_export(cfg: PipelineConfig, onnx_dir: str, embodiment_tag, log_fp) -> N
         output_dir=onnx_dir,
         export_mode=cfg.export_mode,
         precision=cfg.precision,
+        execution_profile=cfg.execution_profile,
+        quantization=cfg.quantization,
+        calib_dataset_path=cfg.calib_dataset_path,
+        calib_size=cfg.calib_size,
         batch_size=cfg.batch_size,
     )
     with _redirect_to_log(log_fp):
@@ -295,12 +330,15 @@ def _run_build(
     build_mode, _, _ = _MODE_MAP[cfg.export_mode]
 
     if build_mode == "single":
-        # dit_only: single ONNX -> single engine
+        # dit_only: single ONNX -> single engine. The DiT artifact name comes
+        # from the shared quantization policy table so it always matches what
+        # the export step produced.
+        dit_precision = component_precisions(cfg.quantization)["dit"]
         build_cfg = BuildConfig(
             mode="single",
-            onnx=os.path.join(onnx_dir, "dit_bf16.onnx"),
-            engine=os.path.join(engine_dir, "dit_bf16.engine"),
-            precision=cfg.precision,
+            onnx=os.path.join(onnx_dir, f"dit_{dit_precision}.onnx"),
+            engine=os.path.join(engine_dir, f"dit_{dit_precision}.engine"),
+            precision=trt_boundary_precision(dit_precision),
             workspace=cfg.workspace,
         )
         with _redirect_to_log(log_fp):
@@ -360,8 +398,9 @@ def _run_benchmark(cfg: PipelineConfig, engine_dir: str, embodiment_tag, log_fp)
     _, _, trt_mode = _MODE_MAP[cfg.export_mode]
 
     # For dit_only, engine path is the single .engine file
-    if cfg.export_mode == "dit_only":
-        trt_engine_path = os.path.join(engine_dir, "dit_bf16.engine")
+    if cfg.export_mode == ExportMode.dit_only:
+        dit_precision = component_precisions(cfg.quantization)["dit"]
+        trt_engine_path = os.path.join(engine_dir, f"dit_{dit_precision}.engine")
     else:
         trt_engine_path = engine_dir
 
@@ -374,6 +413,10 @@ def _run_benchmark(cfg: PipelineConfig, engine_dir: str, embodiment_tag, log_fp)
         num_iterations=cfg.num_iterations,
         warmup=cfg.warmup,
         skip_compile=cfg.skip_compile,
+        observation_path=cfg.observation_path,
+        flat_e2e=cfg.flat_e2e,
+        data_processing_reference_path=cfg.data_processing_reference_path,
+        reuse_data_processing=cfg.reuse_data_processing,
         batch_size=cfg.batch_size,
     )
     with _redirect_to_log(log_fp, tee=True):
@@ -391,6 +434,12 @@ def main(cfg: PipelineConfig | None = None) -> None:
 
     if not cfg.model_path:
         raise ValueError("Please provide --model-path")
+
+    # Fail fast on invalid mode combinations, before any model loading.
+    if cfg.execution_profile == "optimized" and cfg.export_mode == ExportMode.dit_only:
+        raise ValueError(
+            "--execution-profile optimized requires --export-mode action_head or full_pipeline"
+        )
 
     # Parse steps
     valid_names = {s.value for s in Step}

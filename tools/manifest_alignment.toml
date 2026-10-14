@@ -27,3 +27,7 @@ reason = "patch sync lag pending owner alignment to a single version"
 # until owner decides whether to pin main.
 [allowed_drifts.dm-tree]
 reason = "loose on main, exact ==0.1.8 on Jetson — pending owner alignment"
+
+# ModelOpt 0.39 ONNX quantization requires ONNX <1.20.
+[allowed_drifts.onnx]
+reason = "Jetson ModelOpt 0.39 quantization pins ONNX 1.19.1; dGPU/Spark retain >=1.20"
