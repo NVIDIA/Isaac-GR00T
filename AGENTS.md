@@ -1,7 +1,10 @@
 # Agent Instructions
 
-This repository is optimized for local OSS post-training and open-loop
-evaluation.
+This repository supports OSS GR00T 2 post-training, open-loop and simulator
+evaluation, reproducible benchmarks, policy serving, and TensorRT deployment.
+Start with [`README.md`](README.md). The
+[documented feature checklist](docs/agentification.md) maps user goals to guides,
+entrypoints, required inputs, success checks, and validation limits.
 
 ## Default Agents and Skills
 
@@ -19,8 +22,20 @@ follow the task-specific local post-training and evaluation rules below.
 
 ## Default Action
 
-When the user asks to set up OSS GR00T or locally train, evaluate, or serve a
-policy, use the `onboarding` skill. Use the `autoresearch` agent to improve an
+When the user asks for a repo tour, getting-started help, setup, training,
+evaluation, benchmarks, serving, or deployment, use the `onboarding` skill.
+For general onboarding or a menu request, use
+[`onboarding`](skills/onboarding/SKILL.md) to generate a CLI-style chat
+menu by reading the current `groot/infra/oss.py` parser source as text.
+Menu discovery and explanations do not run Python, uv, or runtime `--help`. Keep the
+actual subcommand names; direct task requests bypass the menu. Show `debug`
+and `research` separately as agent-workflow choices that route to AutoDebug and
+AutoResearch with the existing context and execution scope.
+For a tour, explain features and help select a next step without requiring a
+dataset, credentials, or GPU. For execution, read the selected feature guide;
+onboarding does not require a full training smoke before using another feature.
+
+Use the `autoresearch` agent to improve an
 existing post-training recipe and `autodebug` to diagnose a repository failure.
 
 Do not use OSMO, GitLab staging pipelines, or the `golden-run` skill for local
@@ -47,10 +62,14 @@ uv run python -m groot.infra.oss train-eval \
 Run evaluation for an existing checkpoint:
 
 ```bash
-uv run python -m groot.infra.oss eval --checkpoint <hf-uri-or-local-path>
+uv run python -m groot.infra.oss eval \
+  --checkpoint <hf-uri-or-local-path> \
+  --dataset-path /path/to/lerobot_dataset \
+  --embodiment-tag <dataset-embodiment-tag>
 ```
 
-The public CLI uses its fixed `n2_oss_pretrain` experiment. Do not pass an
+Ordinary local training defaults to `n2_oss_pretrain`; benchmark recipes select
+their own experiment and data settings. Do not pass an
 experiment name positionally.
 
 ## Required Inputs
@@ -63,8 +82,10 @@ authentication.
 
 ## Expected Agent Flow
 
-1. Confirm the user wants a local run and has a dataset path and required HF access.
-2. Use `--dry-run` first when setup is unclear.
+1. Identify the selected workflow and its required inputs from the feature
+   guide; only training and open-loop evaluation require a dataset.
+2. Use `--dry-run` first when the selected command supports it and setup is
+   unclear; `build-trt` requires real target hardware and has no dry-run.
 3. Use the `onboarding` skill to run the shared `python -m groot.infra.oss` CLI
    from the OSS package root.
 4. Report the local command, output checkpoint or eval JSON path, and first actionable failure if one occurs.

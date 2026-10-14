@@ -3,6 +3,37 @@
 Choose either an agent-guided workflow or direct CLI commands. Both paths use
 the same supported training, evaluation, and serving implementation.
 
+To explore before installing anything, ask your agent:
+
+```text
+Give me a tour of Isaac GR00T 2. Explain its key features, help me choose
+what to try first, and show me the relevant guide and command.
+```
+
+For an interactive menu inside your agent chat, invoke the
+[`onboarding` skill](skills/onboarding/SKILL.md):
+
+```text
+$onboarding
+```
+
+In Claude Code, use `/onboarding`; in Cursor, ask the agent to use the
+`onboarding` skill. A natural-language request to show the menu also works.
+
+The agent reads the entrypoint's parser source as text to generate the choices.
+Browsing the menu, getting a tour, and drafting commands require no Python or
+installed dependencies. Runtime checks happen only for setup, dry runs, or
+execution. Reply with a number, command name, or goal; the agent collects the
+required inputs and uses the existing CLI. `tour`, `setup`, `help`, `back`, and
+`status` are chat navigation controls. A separate **Agent workflows** section
+offers `debug` for AutoDebug and `research` for AutoResearch. These choices
+load their specialized skills and carry your existing context; they are not
+`oss.py` subcommands. Direct task requests also work.
+
+The [onboarding skill](skills/onboarding/SKILL.md) supports both a repo tour and
+hands-on help. The [feature checklist](docs/agentification.md) records the
+Phase 1 coverage and the success checks for each documented workflow.
+
 ## Agent or CLI Quickstart
 
 > [!WARNING]

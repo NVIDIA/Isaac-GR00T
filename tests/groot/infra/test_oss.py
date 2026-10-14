@@ -850,7 +850,8 @@ def test_oss_train_rejects_experiment_positional() -> None:
 
 
 def test_onboarding_skill_uses_supported_cli_shape() -> None:
-    skill = (_package_root() / "skills/onboarding/SKILL.md").read_text(encoding="utf-8")
+    skill_root = _package_root() / "skills/onboarding"
+    skill = "\n".join(path.read_text(encoding="utf-8") for path in sorted(skill_root.rglob("*.md")))
 
     for line in skill.splitlines():
         if not line.startswith("uv run ") or "python -m groot.infra.oss" not in line:
