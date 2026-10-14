@@ -24,12 +24,13 @@ Measures component-wise timing for:
 - Action Head (DiT): Flow-matching diffusion model
 - E2E: Full end-to-end inference
 
-Supports five inference modes:
+Supports six inference modes:
 1. PyTorch Eager: Standard PyTorch execution
 2. torch.compile: PyTorch 2.0+ JIT compilation with max-autotune
 3. TensorRT (DiT-only): Optimized DiT action head using TensorRT engine
 4. TensorRT (Full Pipeline): All 6 components in TRT (ViT + LLM + Action Head)
-5. TensorRT (vit_llm_only): ViT + LLM in TRT, action head in PyTorch (use on Spark/sm121)
+5. TensorRT (Action Head): Action head engines with the backbone in PyTorch
+6. TensorRT (vit_llm_only): ViT + LLM in TRT, action head in PyTorch (use on Spark/sm121)
 
 Usage:
     # Basic benchmark (Eager + torch.compile)
@@ -50,7 +51,11 @@ Usage:
 
 from dataclasses import dataclass
 import gc
+import hashlib
+import json
+import math
 import os
+from pathlib import Path
 import sys
 import time
 
@@ -71,6 +76,44 @@ _DEPLOY_DIR = os.path.dirname(os.path.abspath(__file__))
 if _DEPLOY_DIR not in sys.path:
     sys.path.insert(0, _DEPLOY_DIR)
 from trt._trt_contract import resolve_batch_size  # noqa: E402
+
+
+def load_observation(path, template):
+    """Require the saved observation to retain the dataset's modality contract."""
+    expected = {
+        f"observation.{group}.{key}": (group, key, np.asarray(value))
+        for group, values in template.items()
+        for key, value in values.items()
+    }
+    observation = {group: {} for group in template}
+    with np.load(path, allow_pickle=False) as saved:
+        actual = {key for key in saved.files if key.startswith("observation.")}
+        if actual != set(expected):
+            raise ValueError("Saved observation modalities do not match the dataset")
+        for name, (group, key, reference) in expected.items():
+            value = saved[name]
+            if value.shape != reference.shape or value.dtype != reference.dtype:
+                raise ValueError(f"Saved observation shape/dtype mismatch: {name}")
+            observation[group][key] = value.tolist() if group == "language" else value.copy()
+    return observation
+
+
+def save_data_processing_reference(path, contract, times_ms):
+    payload = {"schema_version": 1, "contract": contract, "times_ms": list(times_ms)}
+    Path(path).write_text(json.dumps(payload, indent=2))
+
+
+def load_data_processing_reference(path, contract):
+    payload = json.loads(Path(path).read_text())
+    if payload.get("schema_version") != 1 or payload.get("contract") != contract:
+        raise ValueError("Preprocessing reference device/model/input configuration does not match")
+    times = payload.get("times_ms", [])
+    if len(times) != contract["configuration"]["num_iterations"] or any(
+        not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0
+        for value in times
+    ):
+        raise ValueError("Preprocessing reference must contain complete finite positive samples")
+    return times
 
 
 def set_seed(seed: int = 42):
@@ -220,7 +263,7 @@ def benchmark_data_processing(policy, observation, num_iterations=20, warmup=10)
 def benchmark_components(policy, observation, num_iterations=20, warmup=3):
     """
     Benchmark component-wise timing.
-    Returns dict with times for: data_processing, backbone, action_head
+    Returns dict with times for: backbone, action_head
 
     Args:
         policy: The Gr00tPolicy instance
@@ -283,16 +326,35 @@ def benchmark_components(policy, observation, num_iterations=20, warmup=3):
         end = time.perf_counter()
         action_head_times.append(end - start)
 
-    # Benchmark data processing separately with proper warmup
-    data_processing_times = benchmark_data_processing(
-        policy, observation, num_iterations, warmup=10
-    )
-
     return {
-        "data_processing": data_processing_times,
         "backbone": np.array(backbone_times) * 1000,
         "action_head": np.array(action_head_times) * 1000,
     }
+
+
+def benchmark_policy_e2e(policy, observation, num_iterations=20, warmup=10):
+    """Time a complete local policy call, including processing and action decoding."""
+    observations = observation if isinstance(observation, list) else [observation]
+    samples = []
+    for index in range(warmup + num_iterations):
+        obs = observations[index % len(observations)]
+        torch.cuda.synchronize()
+        started = time.perf_counter()
+        with torch.inference_mode():
+            policy.get_action(obs)
+        torch.cuda.synchronize()
+        if index >= warmup:
+            samples.append((time.perf_counter() - started) * 1000)
+    return {"e2e": np.array(samples)}
+
+
+def benchmark_backend(policy, observation, num_iterations, warmup, flat_e2e, processing):
+    if flat_e2e:
+        return benchmark_policy_e2e(policy, observation, num_iterations, warmup)
+    components = benchmark_components(policy, observation, num_iterations, warmup)
+    components["data_processing"] = processing
+    components["e2e"] = compute_e2e_from_components(components)
+    return components
 
 
 def print_markdown_table(results, device_name, denoising_steps):
@@ -302,38 +364,10 @@ def print_markdown_table(results, device_name, denoising_steps):
     print("=" * 100)
     print(f"\nGR00T N1.7 Inference Timing ({denoising_steps} denoising steps):\n")
 
-    # Component breakdown table (using median for robustness against outliers)
-    print("### Component-wise Breakdown\n")
-    print("| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |")
-    print("|--------|------|-----------------|----------|-------------|-----|-----------|")
-
+    print("| Device | Mode | E2E |")
+    print("|--------|------|-----|")
     for mode, data in results.items():
-        dp_median = np.median(data["data_processing"])
-        bb_median = np.median(data["backbone"])
-        ah_median = np.median(data["action_head"])
-        e2e_median = np.median(data["e2e"])
-        freq = 1000 / e2e_median
-        print(
-            f"| {device_name} | {mode} | {dp_median:.0f} ms | {bb_median:.0f} ms | {ah_median:.0f} ms | {e2e_median:.0f} ms | {freq:.1f} Hz |"
-        )
-
-    # Speedup table
-    if "PyTorch Eager" in results and len(results) > 1:
-        print("\n### Speedup vs PyTorch Eager\n")
-        print("| Device | Mode | E2E Speedup | Action Head Speedup |")
-        print("|--------|------|-------------|---------------------|")
-
-        baseline_e2e = np.median(results["PyTorch Eager"]["e2e"])
-        baseline_ah = np.median(results["PyTorch Eager"]["action_head"])
-
-        for mode, data in results.items():
-            e2e_median = np.median(data["e2e"])
-            ah_median = np.median(data["action_head"])
-            e2e_speedup = baseline_e2e / e2e_median
-            ah_speedup = baseline_ah / ah_median
-            print(f"| {device_name} | {mode} | {e2e_speedup:.2f}x | {ah_speedup:.2f}x |")
-
-    print("\n" + "=" * 100)
+        print(f"| {device_name} | {mode} | {np.median(data['e2e']):.1f} ms |")
 
 
 @dataclass
@@ -356,19 +390,31 @@ class BenchmarkConfig:
     """Number of benchmark iterations."""
 
     warmup: int = 5
-    """Number of warmup iterations."""
+    """Number of untimed warmup iterations per backend (minimum 10)."""
 
     seed: int = 42
     """Random seed for reproducibility."""
 
     trt_mode: BenchmarkMode = BenchmarkMode.dit_only
-    """TRT mode: 'dit_only' (DiT engine only), 'n17_full_pipeline' (all 6 engines), or 'vit_llm_only' (ViT+LLM TRT, action head in PyTorch — use on Spark/sm121)."""
+    """TRT mode: 'dit_only', 'action_head' (backbone in PyTorch), 'n17_full_pipeline', or 'vit_llm_only' (ViT+LLM TRT, action head in PyTorch — use on Spark/sm121)."""
+
+    observation_path: str | None = None
+    """Frozen raw observation NPZ; preprocessing still runs inside every policy call."""
+
+    flat_e2e: bool = False
+    """Measure the complete policy call instead of adding separately timed stages."""
 
     skip_compile: bool = False
     """Skip torch.compile benchmark (can take a while due to JIT compilation)."""
 
     batch_size: int = 1
     """Batch size for TRT inference. Must match the batch size used during ONNX export."""
+
+    data_processing_reference_path: str | None = None
+    """Save preprocessing samples for reuse by another invocation on the same device/input."""
+
+    reuse_data_processing: bool = False
+    """Load saved preprocessing samples instead of measuring them again."""
 
     use_trajectory: bool = False
     """Benchmark on full trajectory instead of single data point. This cycles through all steps in an episode for more realistic benchmarking."""
@@ -378,6 +424,7 @@ def main(args: BenchmarkConfig | None = None):
     if args is None:
         args = tyro.cli(BenchmarkConfig)
 
+    policy_trt = None
     set_seed(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
@@ -470,6 +517,11 @@ def main(args: BenchmarkConfig | None = None):
             "language": {modality_config["language"].modality_keys[0]: [[step_data.text]]},
         }
 
+    if args.observation_path:
+        if args.use_trajectory:
+            raise ValueError("A frozen observation cannot be used with trajectory timing")
+        observation = load_observation(args.observation_path, observation)
+
     # Tile observations to match the batch size baked into TRT engines
     if args.batch_size > 1:
         from trt.verify_n1d7_trt import _tile_observation
@@ -480,23 +532,117 @@ def main(args: BenchmarkConfig | None = None):
         else:
             observation = _tile_observation(observation, args.batch_size)
 
+    # Capture the actual processed input contract outside timed regions.
+    first_observation = observation[0] if isinstance(observation, list) else observation
+    processed = prepare_model_inputs(policy, first_observation)
+    tensors = {}
+
+    def record_inputs(value, path="inputs"):
+        if isinstance(value, torch.Tensor):
+            tensor = value.detach().cpu().contiguous()
+            entry = {
+                "shape": list(tensor.shape),
+                "dtype": str(tensor.dtype),
+                "sha256": hashlib.sha256(
+                    tensor.reshape(-1).view(torch.uint8).numpy().tobytes()
+                ).hexdigest(),
+            }
+            if "grid_thw" in path:
+                entry["values"] = tensor.tolist()
+            tensors[path] = entry
+        elif hasattr(value, "items"):
+            for key, child in sorted(value.items()):
+                record_inputs(child, f"{path}.{key}")
+        elif isinstance(value, (list, tuple)):
+            for index, child in enumerate(value):
+                record_inputs(child, f"{path}.{index}")
+
+    record_inputs(processed)
+    # Retain inputs outside timed calls to diagnose decoder/preprocessor drift
+    # between native software stacks before accepting a uniform device table.
+    if args.flat_e2e and args.trt_engine_path:
+        diagnostics = {}
+        for group in ("video", "state", "language"):
+            for key, value in first_observation[group].items():
+                diagnostics[f"observation.{group}.{key}"] = np.asarray(value)
+        for key, value in processed.items():
+            if isinstance(value, torch.Tensor):
+                tensor = value.detach().cpu()
+                diagnostics[f"processed.{key}"] = (
+                    tensor.float().numpy() if tensor.dtype == torch.bfloat16 else tensor.numpy()
+                )
+        diagnostic_path = Path(args.trt_engine_path).parent / "benchmark_inputs.npz"
+        np.savez_compressed(diagnostic_path, **diagnostics)
+    configuration = {
+        "action_horizon": action_horizon,
+        "denoising_steps": denoising_steps,
+        "dit_blocks": len(policy.model.action_head.model.transformer_blocks),
+        "batch_size": args.batch_size,
+        "camera_shapes": {
+            key: list(value.shape) for key, value in first_observation["video"].items()
+        },
+        "processed_inputs": tensors,
+        "num_iterations": args.num_iterations,
+        "requested_warmup": args.warmup,
+        "effective_warmup": max(args.warmup, 10),
+        "seed": args.seed,
+        "cudnn_benchmark": torch.backends.cudnn.benchmark,
+        "use_trajectory": args.use_trajectory,
+        "observation_selection": "episode 0, step 0" if not args.use_trajectory else "episode 0",
+        "e2e_definition": (
+            "median synchronized complete local policy call, including preprocessing and action decoding"
+            if args.flat_e2e
+            else "median of per-iteration data-processing + backbone + action-head times"
+        ),
+    }
+    print("Benchmark configuration: " + json.dumps(configuration, sort_keys=True))
+    del processed
+    effective_warmup = max(args.warmup, 10)
     results = {}
 
-    # ========================================
-    # 0. Benchmark Data Processing (shared across all modes)
-    # ========================================
-    # Data processing is the same regardless of inference mode (PyTorch/compile/TensorRT)
-    # so we benchmark it once with proper warmup to get consistent measurements
-    print("\n" + "-" * 50)
-    print("Benchmarking Data Processing (shared across all modes)...")
-    print("-" * 50)
+    shared_data_processing_times = None
+    if not args.flat_e2e:
+        # ========================================
+        # 0. Benchmark Data Processing (shared across all modes)
+        # ========================================
+        # Data processing is the same regardless of inference mode (PyTorch/compile/TensorRT)
+        # so we benchmark it once with proper warmup to get consistent measurements
+        print("\n" + "-" * 50)
+        print("Benchmarking Data Processing (shared across all modes)...")
+        print("-" * 50)
 
-    shared_data_processing_times = benchmark_data_processing(
-        policy, observation, args.num_iterations, warmup=10
-    )
-    print(
-        f"  Data Processing: {np.mean(shared_data_processing_times):.2f} ± {np.std(shared_data_processing_times):.2f} ms"
-    )
+        import platform
+
+        processing_contract = {
+            "device": torch.cuda.get_device_name(0),
+            "host": platform.node(),
+            "torch": torch.__version__,
+            "cuda": torch.version.cuda,
+            "model_path": os.path.abspath(args.model_path),
+            "configuration": configuration,
+        }
+        if args.reuse_data_processing:
+            if not args.data_processing_reference_path:
+                raise ValueError("Reusing preprocessing requires --data-processing-reference-path")
+            shared_data_processing_times = np.array(
+                load_data_processing_reference(
+                    args.data_processing_reference_path, processing_contract
+                )
+            )
+            print("Reusing the paired run's exact preprocessing samples.")
+        else:
+            shared_data_processing_times = benchmark_data_processing(
+                policy, observation, args.num_iterations, warmup=10
+            )
+            if args.data_processing_reference_path:
+                save_data_processing_reference(
+                    args.data_processing_reference_path,
+                    processing_contract,
+                    shared_data_processing_times.tolist(),
+                )
+        print(
+            f"  Data Processing: {np.mean(shared_data_processing_times):.2f} ± {np.std(shared_data_processing_times):.2f} ms"
+        )
 
     # ========================================
     # 1. PyTorch Eager
@@ -505,21 +651,24 @@ def main(args: BenchmarkConfig | None = None):
     print("Benchmarking PyTorch Eager...")
     print("-" * 50)
 
-    times_components = benchmark_components(policy, observation, args.num_iterations, args.warmup)
-
-    components = {
-        "data_processing": shared_data_processing_times,
-        "backbone": times_components["backbone"],
-        "action_head": times_components["action_head"],
-    }
-    components["e2e"] = compute_e2e_from_components(components)
+    components = benchmark_backend(
+        policy,
+        observation,
+        args.num_iterations,
+        effective_warmup,
+        args.flat_e2e,
+        shared_data_processing_times,
+    )
     results["PyTorch Eager"] = components
 
     e2e_median = np.median(components["e2e"])
     print(f"  E2E:             {e2e_median:.0f} ms ({1000 / e2e_median:.1f} Hz)")
-    print(f"  Data Processing: {np.median(components['data_processing']):.0f} ms")
-    print(f"  Backbone:        {np.median(components['backbone']):.0f} ms")
-    print(f"  Action Head:     {np.median(components['action_head']):.0f} ms")
+    if not args.flat_e2e:
+        print(f"  Data Processing: {np.median(components['data_processing']):.0f} ms")
+    if not args.flat_e2e:
+        print(f"  Backbone:        {np.median(components['backbone']):.0f} ms")
+    if not args.flat_e2e:
+        print(f"  Action Head:     {np.median(components['action_head']):.0f} ms")
 
     # ========================================
     # 2. torch.compile
@@ -546,28 +695,25 @@ def main(args: BenchmarkConfig | None = None):
             policy_compiled.model.action_head.model.forward, mode="max-autotune"
         )
 
-        # Enable cuDNN benchmark for additional optimization
-        if torch.cuda.is_available():
-            torch.backends.cudnn.benchmark = True
-
-        # Extra warmup for torch.compile JIT
-        times_components = benchmark_components(
-            policy_compiled, observation, args.num_iterations, warmup=args.warmup + 2
+        # Compilation occurs during untimed warmup, with the same count as other modes.
+        components = benchmark_backend(
+            policy_compiled,
+            observation,
+            args.num_iterations,
+            effective_warmup,
+            args.flat_e2e,
+            shared_data_processing_times,
         )
-
-        components = {
-            "data_processing": shared_data_processing_times,
-            "backbone": times_components["backbone"],
-            "action_head": times_components["action_head"],
-        }
-        components["e2e"] = compute_e2e_from_components(components)
         results["torch.compile"] = components
 
         e2e_median = np.median(components["e2e"])
         print(f"  E2E:             {e2e_median:.0f} ms ({1000 / e2e_median:.1f} Hz)")
-        print(f"  Data Processing: {np.median(components['data_processing']):.0f} ms")
-        print(f"  Backbone:        {np.median(components['backbone']):.0f} ms")
-        print(f"  Action Head:     {np.median(components['action_head']):.0f} ms")
+        if not args.flat_e2e:
+            print(f"  Data Processing: {np.median(components['data_processing']):.0f} ms")
+        if not args.flat_e2e:
+            print(f"  Backbone:        {np.median(components['backbone']):.0f} ms")
+        if not args.flat_e2e:
+            print(f"  Action Head:     {np.median(components['action_head']):.0f} ms")
 
     # ========================================
     # 3. TensorRT (if available)
@@ -592,8 +738,6 @@ def main(args: BenchmarkConfig | None = None):
         gc.collect()
 
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from standalone_inference_script import replace_dit_with_tensorrt
-
         policy_trt = Gr00tPolicy(
             model_path=args.model_path,
             embodiment_tag=EmbodimentTag.resolve(args.embodiment_tag),
@@ -601,38 +745,31 @@ def main(args: BenchmarkConfig | None = None):
             strict=True,
         )
 
-        if args.trt_mode in ("n17_full_pipeline", "vit_llm_only"):
-            from trt.trt_model_forward import setup_tensorrt_engines
+        from trt.trt_model_forward import setup_tensorrt_engines
 
-            setup_tensorrt_engines(policy_trt, args.trt_engine_path, mode=args.trt_mode)
-        else:
-            from standalone_inference_script import replace_dit_with_tensorrt
-
-            # dit_only mode: trt_engine_path may be a directory; resolve the engine file
-            dit_engine_path = args.trt_engine_path
-            if os.path.isdir(dit_engine_path):
-                dit_engine_path = os.path.join(dit_engine_path, "dit_bf16.engine")
-            replace_dit_with_tensorrt(policy_trt, dit_engine_path)
+        # Verification and benchmarking share metadata-aware bindings and dtypes.
+        setup_tensorrt_engines(policy_trt, args.trt_engine_path, mode=args.trt_mode)
 
         # TensorRT needs extra warmup for engine initialization and CUDA context setup
-        trt_warmup = max(args.warmup + 5, 10)
-        times_components = benchmark_components(
-            policy_trt, observation, args.num_iterations, warmup=trt_warmup
+        trt_warmup = effective_warmup
+        components = benchmark_backend(
+            policy_trt,
+            observation,
+            args.num_iterations,
+            trt_warmup,
+            args.flat_e2e,
+            shared_data_processing_times,
         )
-
-        components = {
-            "data_processing": shared_data_processing_times,
-            "backbone": times_components["backbone"],
-            "action_head": times_components["action_head"],
-        }
-        components["e2e"] = compute_e2e_from_components(components)
         results[trt_label] = components
 
         e2e_median = np.median(components["e2e"])
         print(f"  E2E:             {e2e_median:.0f} ms ({1000 / e2e_median:.1f} Hz)")
-        print(f"  Data Processing: {np.median(components['data_processing']):.0f} ms")
-        print(f"  Backbone:        {np.median(components['backbone']):.0f} ms")
-        print(f"  Action Head:     {np.median(components['action_head']):.0f} ms")
+        if not args.flat_e2e:
+            print(f"  Data Processing: {np.median(components['data_processing']):.0f} ms")
+        if not args.flat_e2e:
+            print(f"  Backbone:        {np.median(components['backbone']):.0f} ms")
+        if not args.flat_e2e:
+            print(f"  Action Head:     {np.median(components['action_head']):.0f} ms")
     elif args.trt_engine_path:
         print(f"\nTensorRT engine not found: {args.trt_engine_path}")
         print("To build engines for full pipeline, run:")
@@ -666,11 +803,18 @@ def main(args: BenchmarkConfig | None = None):
             f"  E2E:             median={np.median(e2e):.1f} ms, mean={np.mean(e2e):.1f} ± {np.std(e2e):.1f} ms, "
             f"min={np.min(e2e):.1f}, max={np.max(e2e):.1f} ({1000 / np.median(e2e):.1f} Hz)"
         )
-        print(f"  Data Processing: {np.median(data['data_processing']):.2f} ms (median)")
-        print(f"  Backbone:        {np.median(data['backbone']):.2f} ms (median)")
-        print(f"  Action Head:     {np.median(data['action_head']):.2f} ms (median)")
+        if not args.flat_e2e:
+            print(f"  Data Processing: {np.median(data['data_processing']):.2f} ms (median)")
+        if not args.flat_e2e:
+            print(f"  Backbone:        {np.median(data['backbone']):.2f} ms (median)")
+        if not args.flat_e2e:
+            print(f"  Action Head:     {np.median(data['action_head']):.2f} ms (median)")
 
     print("\n" + "=" * 100)
+    if policy_trt is not None:
+        from trt.trt_model_forward import close_tensorrt_engines
+
+        close_tensorrt_engines(policy_trt)
 
 
 if __name__ == "__main__":

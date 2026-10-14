@@ -260,6 +260,9 @@ def main(args: VerifyConfig | None = None):
     else:
         print("\n  FAIL — Significant divergence")
 
+    from .trt_model_forward import close_tensorrt_engines
+
+    close_tensorrt_engines(policy)
     return cosine
 
 

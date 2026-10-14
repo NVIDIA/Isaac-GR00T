@@ -82,6 +82,7 @@ class BenchmarkMode(_StrEnum):
     """Allowed values for ``benchmark_inference`` ``--trt-mode``."""
 
     dit_only = enum.auto()
+    action_head = enum.auto()
     n17_full_pipeline = enum.auto()
     vit_llm_only = enum.auto()
 
@@ -157,7 +158,7 @@ PIPELINE_STAGE_MODES: dict[ExportMode, tuple[BuildEngineMode, VerifyMode, Benchm
     ExportMode.action_head: (
         BuildEngineMode.full_pipeline,
         VerifyMode.action_head,
-        BenchmarkMode.dit_only,
+        BenchmarkMode.action_head,
     ),
     ExportMode.dit_only: (
         BuildEngineMode.single,

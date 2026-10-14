@@ -849,6 +849,16 @@ def main(args: ArgsConfig):
             f"No valid trajectories to process. Requested IDs {args.traj_ids} are all out of range (dataset has {len(dataset)} trajectories, valid IDs: 0-{len(dataset) - 1})."
         )
 
+    if args.inference_mode == "trt_full_pipeline":
+        # Release the engines here rather than leaving them to interpreter
+        # shutdown: the optimized runtime's CUDA graph must be destroyed before
+        # the execution contexts it references, and shutdown frees module globals
+        # in an arbitrary order, which intermittently hangs or segfaults inside
+        # the C++ destructors.
+        from trt.trt_model_forward import close_tensorrt_engines
+
+        close_tensorrt_engines(policy)
+
     logging.info("=" * 80)
     logging.info("Done")
     return pred_actions, obs

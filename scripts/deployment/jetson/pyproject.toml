@@ -43,13 +43,14 @@ dependencies = [
     "wandb==0.23.0",
     "pyzmq==27.0.1",
     "torchcodec==0.15.0",
-    "onnx>=1.20.0",
+    "onnx==1.19.1",
     "onnxscript",
     "tensorrt-cu13>=10.16.0.72,<11",
     "tensorrt-cu13-libs>=10.16.0.72,<11",
 ]
 
 [project.optional-dependencies]
+quantization = ["nvidia-modelopt[onnx]==0.39.0"]
 dev = [
     "ruff",
     "ipython",

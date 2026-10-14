@@ -37,6 +37,7 @@ Usage:
 from dataclasses import dataclass
 import logging
 import os
+import shutil
 import time
 from typing import Literal
 
@@ -46,6 +47,7 @@ import tensorrt as trt
 import tyro
 
 from ._trt_contract import load_export_metadata, validate_export_metadata
+from .n1d7_optimization_config import OptimizationArtifacts, trt_boundary_precision
 
 
 # Set up logging
@@ -436,7 +438,7 @@ def build_full_pipeline(
     if metadata is not None:
         # The engine must be built at the precision it was exported for; a drift here
         # produces a valid-but-wrong engine. Per-component precision is still taken from
-        # each ONNX filename below — this guards the pipeline-wide default.
+        # the metadata/ONNX filenames below — this guards the pipeline-wide default.
         if metadata["precision"] != precision:
             raise ValueError(
                 f"build_full_pipeline: --precision={precision} but export_metadata.json in "
@@ -463,10 +465,11 @@ def build_full_pipeline(
 
     # Build order, ONNX candidates, and engine filenames come from the shared
     # component table (single source of truth). ``only`` restricts to the subset
-    # a partial export produced. FP32 ViT is preferred for accuracy and falls
-    # back to BF16; the engine filename stays precision-neutral (vit.engine)
-    # because the input ONNX may be either FP32 or BF16 — the real precision is
-    # recorded in export_metadata.json and inspectable via TRT tooling.
+    # a partial export produced. Quantized/mixed exports record per-component
+    # precision in export_metadata.json; the artifact name derived from it is
+    # tried first (e.g. vit_fp8.onnx -> vit_fp8.engine), then the static table
+    # candidates. FP32 ViT is preferred for accuracy and falls back to BF16;
+    # its table engine filename stays precision-neutral (vit.engine).
     if only is not None:
         valid_names = {c.name for c in FULL_PIPELINE_COMPONENTS}
         unknown = set(only) - valid_names
@@ -475,20 +478,72 @@ def build_full_pipeline(
                 f"Unknown pipeline component(s) {sorted(unknown)}; "
                 f"valid components: {sorted(valid_names)}"
             )
-    components: list[tuple[str, str, str]] = []
+
+    metadata_precision_keys = {"ViT": "vit", "LLM": "llm", "DiT": "dit"}
+    component_precision: dict[str, str] = {}
+    if metadata is not None and all(
+        f"{key}_precision" in metadata for key in ("vit", "llm", "dit")
+    ):
+        aux_precision = metadata.get("aux_precision", precision)
+        for component in FULL_PIPELINE_COMPONENTS:
+            key = metadata_precision_keys.get(component.name)
+            component_precision[component.name] = (
+                metadata[f"{key}_precision"] if key else aux_precision
+            )
+        logger.info(f"Loaded component precisions from metadata: {component_precision}")
+
+    components: list[tuple[str, str, str, str]] = []
     for component in FULL_PIPELINE_COMPONENTS:
         if only is not None and component.name not in only:
             continue
+        candidates = list(component.onnx_candidates)
+        key = metadata_precision_keys.get(component.name)
+        if key and component.name in component_precision:
+            expected = f"{key}_{component_precision[component.name]}.onnx"
+            if expected not in candidates:
+                candidates.insert(0, expected)
         onnx_file = next(
-            (c for c in component.onnx_candidates if os.path.exists(os.path.join(onnx_dir, c))),
-            component.onnx_candidates[0],
+            (c for c in candidates if os.path.exists(os.path.join(onnx_dir, c))),
+            candidates[0],
         )
-        components.append((component.name, onnx_file, component.engine))
+        # Table candidates keep their table engine filename; metadata-derived
+        # (quantized) artifacts mirror their ONNX name.
+        if onnx_file in component.onnx_candidates:
+            engine_file = component.engine
+        else:
+            engine_file = onnx_file[: -len(".onnx")] + ".engine"
+        artifact_precision = component_precision.get(
+            component.name, _precision_from_onnx_path(onnx_file, default=precision)
+        )
+        components.append((component.name, onnx_file, engine_file, artifact_precision))
+
+    # Optimized action head: build the extra Cross-KV engine and ship the
+    # precomputed timestep/AdaLN constants next to the engines.
+    optimized_onnx = OptimizationArtifacts.from_metadata(onnx_dir, metadata, artifact_kind="onnx")
+    if optimized_onnx is not None:
+        optimized_engine = OptimizationArtifacts.from_metadata(
+            engine_dir, metadata, artifact_kind="engine"
+        )
+        for artifact_path in (optimized_onnx.cross_kv, optimized_onnx.constants):
+            if not os.path.exists(artifact_path):
+                raise FileNotFoundError(f"Missing optimized artifact: {artifact_path}")
+        shutil.copy2(optimized_onnx.constants, optimized_engine.constants)
+        components.append(
+            (
+                "DiT Cross-KV",
+                os.path.basename(optimized_onnx.cross_kv),
+                os.path.basename(optimized_engine.cross_kv),
+                metadata.get("dit_precision", precision),
+            )
+        )
+        logger.info(
+            f"Registered optimized action-head artifacts and copied constants to {engine_dir}"
+        )
 
     results: list[tuple[str, str, str]] = []
     skipped: list[tuple[str, str]] = []  # (name, onnx_path) for components with no ONNX input
 
-    for name, onnx_file, engine_file in components:
+    for name, onnx_file, engine_file, artifact_precision in components:
         onnx_path = os.path.join(onnx_dir, onnx_file)
 
         if not os.path.exists(onnx_path):
@@ -502,14 +557,17 @@ def build_full_pipeline(
 
         engine_path = os.path.join(engine_dir, engine_file)
         # Pick the precision that actually matches this ONNX's tensor types.
-        # The full_pipeline export is mixed-precision (ViT FP32, rest BF16),
-        # so the pipeline-wide ``precision`` argument is the default but each
-        # component uses what it was actually exported with.
-        component_precision = _precision_from_onnx_path(onnx_path, default=precision)
-        if component_precision != precision:
+        # FP8/NVFP4 artifacts carry their quantization in internal Q/DQ nodes,
+        # so their STRONGLY_TYPED network boundary is FP16.
+        build_precision = trt_boundary_precision(artifact_precision)
+        if build_precision != artifact_precision:
             logger.info(
-                f"  Using precision={component_precision} for {name} (from ONNX filename); "
-                f"pipeline default is {precision}"
+                f"  Artifact compute precision={artifact_precision}; "
+                f"STRONGLY_TYPED network boundary={build_precision}"
+            )
+        elif build_precision != precision:
+            logger.info(
+                f"  Using precision={build_precision} for {name}; pipeline default is {precision}"
             )
 
         try:
@@ -528,7 +586,7 @@ def build_full_pipeline(
             build_engine(
                 onnx_path=onnx_path,
                 engine_path=engine_path,
-                precision=component_precision,
+                precision=build_precision,
                 workspace_mb=workspace_mb,
                 min_shapes=min_shapes,
                 opt_shapes=opt_shapes,
