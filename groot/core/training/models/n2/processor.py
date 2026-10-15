@@ -73,6 +73,8 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "unitree_g1_whole_body_teleop_latent_gripper_new_emb": 15,
     # New pretraining (09/30) uses row 7; original pretraining/resumes retain their saved row.
     "unitree_g1_whole_body_teleop_latent_gripper_wrist": 7,
+    # Legacy checkpoint compatibility only, not for new N2 runs. Saved mappings
+    # take precedence; sharing the row-7 fallback does not make this a wrist alias.
     "unitree_g1_whole_body_teleop_latent_gripper_new_proj": 7,
     "real_r1_pro_sharpa_relative_joint": 2,
     "oxe_droid_relative_eef_relative_joint": 1,

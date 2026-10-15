@@ -311,25 +311,32 @@ class EmbodimentTag(Enum):
     UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER = "unitree_g1_whole_body_teleop_latent_gripper"
     """
     G1 latent actions with YAM gripper width actions and wrist cameras.
-    Legacy compatibility only for N2; deprecated for new N2 runs. Use NEW_EMB
-    by default or WRIST for pretrained G1 continuation. Keep this exact value
-    for historical configs/checkpoints; it is not an alias for either new tag.
+    Legacy compatibility only for N2; deprecated for new N2 runs. NEW_EMB is
+    the default and recommended choice for posttraining. WRIST optionally reuses projectors
+    from pretraining. Keep this exact value for historical configs/checkpoints;
+    it is not an alias for either new tag.
     """
 
     UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_NEW_EMB = (
         "unitree_g1_whole_body_teleop_latent_gripper_new_emb"
     )
-    """G1 SONIC gripper posttraining with a dedicated N2 projector row (15)."""
+    """Default and recommended N2 SONIC gripper posttraining tag (projector row 15)."""
 
     UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_WRIST = (
         "unitree_g1_whole_body_teleop_latent_gripper_wrist"
     )
-    """G1 SONIC gripper continuation using the pretrained checkpoint's projector row."""
+    """Optional N2 SONIC gripper tag to reuse projectors from pretraining."""
 
     UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_NEW_PROJ = (
         "unitree_g1_whole_body_teleop_latent_gripper_new_proj"
     )
-    """Unchanged SONIC/gripper data layout with a dedicated N2 projector row."""
+    """
+    Legacy N2 SONIC/gripper checkpoint compatibility only; deprecated for new
+    N2 runs. NEW_EMB is the default and recommended choice for posttraining.
+    WRIST is available if you want to reuse projectors from pretraining.
+    Preserve this exact tag and its saved row for historical checkpoints;
+    the row-7 fallback does not make it an alias for WRIST.
+    """
 
     UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_NO_HAND_STATE = (
         "unitree_g1_whole_body_teleop_latent_gripper_no_hand_state"
