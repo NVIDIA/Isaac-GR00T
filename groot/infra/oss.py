@@ -716,7 +716,7 @@ def _add_eval_options(
     parser.add_argument("--output-json", default="/tmp/groot_oss_open_loop_eval.json")  # noqa: S108
     parser.add_argument("--traj-ids", nargs="+", type=int, default=[0])
     parser.add_argument("--steps", type=int, default=200)
-    parser.add_argument("--action-horizon", type=int, default=30)
+    parser.add_argument("--action-horizon", type=int, default=None)
     parser.add_argument(
         "--video-backend",
         choices=("decord", "torchvision_av", "torchcodec"),

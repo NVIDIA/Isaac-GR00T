@@ -70,3 +70,7 @@ def test_load_config_accepts_shipped_templates(template: str, tmp_path: Path, mo
     config = _load_config(package_root / template)
 
     assert config.checkpoint
+    # Pinned rather than left to the checkpoint: this file is frozen and
+    # train_config.yaml is not, so a derived horizon would move with the thing it
+    # is supposed to be scoring.
+    assert config.action_horizon == 30

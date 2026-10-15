@@ -57,8 +57,10 @@ class OssOpenLoopEvalConfig:
     steps: int = 200
     """Maximum steps per trajectory window."""
 
-    action_horizon: int = 30
-    """Action horizon used by the policy and open-loop evaluator."""
+    action_horizon: int | None = None
+    """Steps consumed from each predicted action chunk. Pin this to hold an
+    objective fixed while the checkpoints under it change; None scores whatever
+    chunk the checkpoint predicts."""
 
     video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "torchcodec"
     """Video backend for LeRobotEpisodeLoader."""
