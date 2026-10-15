@@ -64,32 +64,24 @@ def _torch_dtype_for_trt(trt_module: Any, dtype: Any) -> torch.dtype:
 # which is a different token count and a different engine shape, so callers that
 # know their model pass its geometry instead of inheriting this default.
 _BASE_LATENT_SHAPE = (16, 2, 28, 40)
+_PATCH_SIZE = 2
 _STATE_TOKENS = 1
 
 
 def video_tokens_per_camera(
-    latent_shape: tuple[int, int, int, int],
-    total_latent_frames: int,
-    patch_size: tuple[int, int, int] = (1, 2, 2),
+    latent_shape: tuple[int, int, int, int], total_latent_frames: int
 ) -> int:
     """Video tokens one camera contributes for the configured full video window."""
     _, _conditioning_frames, height, width = latent_shape
-    if (
-        len(patch_size) != 3
-        or patch_size[0] != 1
-        or any(type(value) is not int or value <= 0 for value in patch_size)
-    ):
-        raise ValueError(f"unsupported patch size: {patch_size!r}")
-    _, patch_height, patch_width = patch_size
-    if height % patch_height or width % patch_width:
+    if height % _PATCH_SIZE or width % _PATCH_SIZE:
         raise ValueError(
-            f"latent {height}x{width} is not divisible by the {patch_height}x{patch_width} patch"
+            f"latent {height}x{width} is not divisible by the {_PATCH_SIZE}x{_PATCH_SIZE} patch"
         )
     if not isinstance(total_latent_frames, int) or isinstance(total_latent_frames, bool):
         raise TypeError(f"total_latent_frames must be an int, got {total_latent_frames!r}")
     if total_latent_frames <= 0:
         raise ValueError(f"total_latent_frames must be positive, got {total_latent_frames}")
-    return (height // patch_height) * (width // patch_width) * total_latent_frames
+    return (height // _PATCH_SIZE) * (width // _PATCH_SIZE) * total_latent_frames
 
 
 def _require_positive_camera_count(num_cameras: int) -> None:
@@ -102,7 +94,6 @@ def n2_segment_token_counts(
     action_horizon: int,
     latent_shape: tuple[int, int, int, int] = _BASE_LATENT_SHAPE,
     total_latent_frames: int = 4,
-    patch_size: tuple[int, int, int] = (1, 2, 2),
 ) -> tuple[int, int, int]:
     """Fixed (video, state, action) layout derived from checkpoint dimensions."""
     _require_positive_camera_count(num_cameras)
@@ -110,7 +101,7 @@ def n2_segment_token_counts(
         raise TypeError(f"action_horizon must be an int, got {action_horizon!r}")
     if action_horizon <= 0:
         raise ValueError(f"action_horizon must be positive, got {action_horizon}")
-    tokens = video_tokens_per_camera(latent_shape, total_latent_frames, patch_size)
+    tokens = video_tokens_per_camera(latent_shape, total_latent_frames)
     return (tokens * num_cameras, _STATE_TOKENS, action_horizon)
 
 
@@ -200,10 +191,9 @@ def _require_segment_layout(
     action_horizon: int,
     latent_shape: tuple[int, int, int, int] = _BASE_LATENT_SHAPE,
     total_latent_frames: int = 4,
-    patch_size: tuple[int, int, int] = (1, 2, 2),
 ) -> None:
     expected = n2_segment_token_counts(
-        num_cameras, action_horizon, latent_shape, total_latent_frames, patch_size
+        num_cameras, action_horizon, latent_shape, total_latent_frames
     )
     if segment_counts != expected:
         raise RuntimeError(
@@ -651,7 +641,6 @@ class N2TensorRTRuntime:
             self.action_horizon,
             self.latent_shape,
             contract.total_latent_frames,
-            contract.patch_size,
         )
         # With the conditioning KV cache on, the action steps are split across the
         # joint calls, so the schedule must divide evenly.
@@ -853,5 +842,4 @@ class N2TensorRTRuntime:
             action_horizon=self.action_horizon,
             latent_shape=self.latent_shape,
             total_latent_frames=self.contract.total_latent_frames,
-            patch_size=self.contract.patch_size,
         )

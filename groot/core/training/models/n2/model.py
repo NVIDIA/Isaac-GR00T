@@ -223,11 +223,7 @@ class GrootN2(PreTrainedModel):
             in_channels=latent_channels + 1,  # +1 for the cond_mask channel
             out_channels=latent_channels,
         )
-        self.video_tokenizer = VideoTokenizer(
-            dit_config, bottleneck_kernel=config.vae_bottleneck_kernel
-        )
-        # RoPE and the transformer must use the tokenizer's enlarged patch grid.
-        dit_config = self.video_tokenizer.config
+        self.video_tokenizer = VideoTokenizer(dit_config)
         # RoPE lives here (sibling to video_tokenizer), not inside it
         self.video_rope = MultiViewRoPE(
             dit_config.attention_head_dim,
@@ -2556,15 +2552,12 @@ class GrootN2(PreTrainedModel):
         if pe_key in sd:
             ckpt_shape = sd[pe_key].shape
             model_shape = self.video_tokenizer.patch_embed.proj.weight.shape
-            # Pad base Cosmos weights before the tokenizer's bottleneck expansion.
-            k_t, k_h, k_w = self.video_tokenizer.bottleneck_kernel or (1, 1, 1)
-            load_shape = torch.Size((model_shape[0], model_shape[1] // (k_t * k_h * k_w)))
-            if ckpt_shape not in (model_shape, load_shape) and ckpt_shape[0] == load_shape[0]:
+            if ckpt_shape != model_shape and ckpt_shape[0] == model_shape[0]:
                 logging.info(
                     f"[GrootN2] patch_embed shape mismatch: ckpt={ckpt_shape} "
-                    f"load={load_shape}, zero-padding"
+                    f"model={model_shape}, zero-padding"
                 )
-                padded = torch.zeros(load_shape, dtype=sd[pe_key].dtype, device=sd[pe_key].device)
+                padded = torch.zeros(model_shape, dtype=sd[pe_key].dtype, device=sd[pe_key].device)
                 padded[:, : ckpt_shape[1]] = sd[pe_key]
                 sd[pe_key] = padded
 

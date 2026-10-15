@@ -27,7 +27,6 @@ class N2ModelVariant(str, Enum):
     CORE = "n2-core"
     TURBO = "n2-turbo"
     TURBO2 = "n2-turbo2"
-    TURBO3 = "n2-turbo-v3"
 
 
 class TransformerPrecision(str, Enum):
@@ -120,13 +119,6 @@ class N2TensorRTContract:
     token_merge_layers: tuple[int, int] | None
     transformer_precision: TransformerPrecision
     vae_precision: str
-    vae_bottleneck_kernel: tuple[int, int, int] | None = None
-
-    @property
-    def patch_size(self) -> tuple[int, int, int]:
-        """Projection patches; the bottleneck does not resize VAE latents."""
-        kernel = self.vae_bottleneck_kernel or (1, 1, 1)
-        return (kernel[0], 2 * kernel[1], 2 * kernel[2])
 
     @property
     def camera_count(self) -> int:
@@ -174,7 +166,7 @@ class N2TensorRTContract:
 
     def to_dict(self) -> dict[str, Any]:
         """Return the deterministic, path-independent engine contract."""
-        payload = {
+        return {
             "schema_version": self.schema_version,
             "model_type": self.model_type,
             "model_size": self.model_size,
@@ -206,11 +198,6 @@ class N2TensorRTContract:
             "transformer_precision": self.transformer_precision.value,
             "vae_precision": self.vae_precision,
         }
-        # Preserve the canonical payload of existing non-bottleneck bundles.
-        if self.vae_bottleneck_kernel is not None:
-            payload["vae_bottleneck_kernel"] = list(self.vae_bottleneck_kernel)
-            payload["patch_size"] = list(self.patch_size)
-        return payload
 
     @classmethod
     def from_checkpoint(
@@ -276,9 +263,6 @@ class N2TensorRTContract:
                 f"({max_n_cameras} != {len(camera_names)})"
             )
 
-        bottleneck = _optional_int_tuple(
-            model.get("vae_bottleneck_kernel"), "vae_bottleneck_kernel", 3
-        )
         kernel = _optional_int_tuple(model.get("token_merge_kernel"), "token_merge_kernel", 3)
         layers = _optional_int_tuple(model.get("token_merge_layers"), "token_merge_layers", 2)
         if kernel is None:
@@ -298,11 +282,8 @@ class N2TensorRTContract:
                 f"unsupported N2 architecture/token-merge combination: {vae_type!r}, {kernel!r}"
             ) from error
 
-        if bottleneck is not None:
-            model_variant = N2ModelVariant.TURBO3
         contract = cls(
-            schema_version=5 if bottleneck is not None else 3,
-            vae_bottleneck_kernel=bottleneck,
+            schema_version=3,
             checkpoint=str(checkpoint_path),
             model_type=model_type,
             model_size=model_size,
@@ -333,12 +314,8 @@ class N2TensorRTContract:
     def validate(self) -> None:
         """Admit checkpoint-derived shapes while failing closed on other features."""
         failures: dict[str, Any] = {}
-        expected_schema = 5 if self.vae_bottleneck_kernel is not None else 3
-        if self.schema_version != expected_schema:
-            failures["schema_version"] = {
-                "actual": self.schema_version,
-                "supported": [expected_schema],
-            }
+        if self.schema_version != 3:
+            failures["schema_version"] = {"actual": self.schema_version, "supported": [3]}
         if self.model_type != "GrootN2":
             failures["model_type"] = {"actual": self.model_type, "supported": ["GrootN2"]}
         if self.model_size != "2B":
@@ -396,21 +373,8 @@ class N2TensorRTContract:
         patch_multiple = spatial_ratio * 2
         merge_height = self.token_merge_kernel[1] if self.token_merge_kernel is not None else 1
         merge_width = self.token_merge_kernel[2] if self.token_merge_kernel is not None else 1
-        bottleneck = self.vae_bottleneck_kernel
-        if bottleneck is not None and (
-            bottleneck != (1, 2, 2)
-            or self.vae_type != "wan21"
-            or self.token_merge_kernel is not None
-        ):
-            failures["vae_bottleneck_kernel"] = (
-                "Turbo-v3 requires Wan2.1, (1, 2, 2), and no token merge"
-            )
-        required_height_multiple = (
-            patch_multiple * merge_height * (2 if bottleneck is not None else 1)
-        )
-        required_width_multiple = (
-            patch_multiple * merge_width * (2 if bottleneck is not None else 1)
-        )
+        required_height_multiple = patch_multiple * merge_height
+        required_width_multiple = patch_multiple * merge_width
         if (
             self.image_height <= 0
             or self.image_width <= 0
@@ -424,17 +388,10 @@ class N2TensorRTContract:
                     f"{required_height_multiple}/{required_width_multiple}"
                 ),
             }
-        if bottleneck is not None:
-            supported_dimensions = [(256, 256)]
-        elif self.vae_type == "wan22" and self.token_merge_kernel is None:
-            # The 09/30 Turbo-v1 soup keeps native 256-wide heads without a V3 bottleneck.
-            supported_dimensions = [(128, 128), (256, 256)]
-        else:
-            supported_dimensions = [(128, 128)]
-        if (self.max_state_dim, self.max_action_dim) not in supported_dimensions:
+        if (self.max_state_dim, self.max_action_dim) != (128, 128):
             failures["state_action_dimensions"] = {
                 "actual": (self.max_state_dim, self.max_action_dim),
-                "supported": supported_dimensions,
+                "supported": [(128, 128)],
             }
         if not self.joint_denoise or not self.conditional_kv_cache:
             failures["denoising_mode"] = {
@@ -455,8 +412,6 @@ class N2TensorRTContract:
             ("wan21", True): N2ModelVariant.TURBO2,
             ("wan22", False): N2ModelVariant.TURBO,
         }.get((self.vae_type, self.token_merge_kernel is not None))
-        if bottleneck is not None:
-            expected_variant = N2ModelVariant.TURBO3
         if self.model_variant is not expected_variant:
             failures["model_variant"] = {
                 "actual": self.model_variant.value,

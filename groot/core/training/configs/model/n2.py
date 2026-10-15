@@ -172,9 +172,6 @@ class GrootN2Config(PretrainedConfig):
     # Owns the DiT's patch_embed/proj_out widths and the VAE class, so the two
     # latent spaces are not checkpoint-compatible in either direction.
     vae_type: str = "wan21"
-    # Spatial projection bottleneck: enlarges patch_embed/proj_out without
-    # changing VAE latents or supervision. Incompatible with token merging.
-    vae_bottleneck_kernel: tuple[int, int, int] | None = None
     # Token merge: spatially mean-pool video tokens by (1, kh, kw) for layers
     # [token_merge_layers[0], token_merge_layers[1]), then broadcast-upsample with
     # an additive detail skip before the remaining fine layers. Zero new
@@ -250,25 +247,10 @@ class GrootN2Config(PretrainedConfig):
     text_encoder_cfg: TextEncoderConfig | None = None
     vae_cfg: VAEConfig | None = None
     action_cfg: ActionConfig | None = None  # None = video-only (no action modules)
-    # Legacy posttraining checkpoints may also persist their mapping on the model.
-    embodiment_id_mapping: dict[str, int] | None = None
 
     def __init__(self, **kwargs):
         if "action_cfg" in kwargs:
             kwargs["action_cfg"] = _normalize_action_cfg(kwargs["action_cfg"])
-        bottleneck_kernel = kwargs.get("vae_bottleneck_kernel")
-        if bottleneck_kernel is not None:
-            if (
-                not isinstance(bottleneck_kernel, list | tuple)
-                or len(bottleneck_kernel) != 3
-                or any(type(size) is not int or size < 1 for size in bottleneck_kernel)
-            ):
-                raise ValueError("vae_bottleneck_kernel must contain three positive integers")
-            if bottleneck_kernel[0] != 1:
-                raise ValueError("vae_bottleneck_kernel must be spatial-only: (1, kh, kw)")
-            if kwargs.get("token_merge_kernel") is not None:
-                raise ValueError("vae_bottleneck_kernel and token merging are mutually exclusive")
-            kwargs["vae_bottleneck_kernel"] = tuple(bottleneck_kernel)
         token_merge_kernel = kwargs.get("token_merge_kernel")
         if token_merge_kernel is not None:
             if (
@@ -302,22 +284,6 @@ class GrootN2Config(PretrainedConfig):
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
-        if self.embodiment_id_mapping is not None:
-            if not isinstance(self.embodiment_id_mapping, dict) or any(
-                not isinstance(tag, str) or type(index) is not int
-                for tag, index in self.embodiment_id_mapping.items()
-            ):
-                raise ValueError("embodiment_id_mapping must map string tags to integer IDs")
-            if self.action_cfg is not None:
-                num_embodiments = self.action_cfg.get("num_embodiments", 1)
-                if any(
-                    not 0 <= index < num_embodiments
-                    for index in self.embodiment_id_mapping.values()
-                ):
-                    raise ValueError(
-                        "embodiment_id_mapping IDs must satisfy "
-                        f"0 <= ID < num_embodiments ({num_embodiments})"
-                    )
         if self.pretrained_view_indices is not None:
             indices = self.pretrained_view_indices
             if (

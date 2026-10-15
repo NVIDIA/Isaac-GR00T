@@ -142,10 +142,6 @@ def _require_model_contract(model: Any, contract: N2TensorRTContract) -> None:
         "model_size": (getattr(model.config, "model_size", None), contract.model_size),
         "camera_count": (getattr(model, "max_n_cameras", None), contract.camera_count),
         "vae_type": (getattr(model.config, "vae_type", None), contract.vae_type),
-        "vae_bottleneck_kernel": (
-            _optional_tuple(getattr(model.config, "vae_bottleneck_kernel", None)),
-            contract.vae_bottleneck_kernel,
-        ),
         "action_horizon": (
             (getattr(model.config, "action_cfg", None) or {}).get("action_horizon"),
             contract.action_horizon,

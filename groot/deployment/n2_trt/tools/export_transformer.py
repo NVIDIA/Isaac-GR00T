@@ -368,7 +368,6 @@ def _require_segment_counts(
     action_horizon: int,
     latent_shape: tuple[int, int, int, int],
     total_latent_frames: int,
-    patch_size: tuple[int, int, int] = (1, 2, 2),
 ) -> None:
     from groot.deployment.n2_trt.runtime import n2_segment_token_counts
 
@@ -378,7 +377,6 @@ def _require_segment_counts(
         action_horizon,
         latent_shape,
         total_latent_frames,
-        patch_size,
     )
     if actual != expected:
         raise ValueError(
@@ -505,7 +503,6 @@ def _install_segmented_sdpa_flex_patch(
     latent_shape: tuple[int, int, int, int],
     total_latent_frames: int,
     token_merge: Any = None,
-    patch_size: tuple[int, int, int] = (1, 2, 2),
 ) -> tuple[
     Any,
     _BidirectionalVideoActionFullSegments,
@@ -521,7 +518,6 @@ def _install_segmented_sdpa_flex_patch(
         action_horizon=action_horizon,
         latent_shape=latent_shape,
         total_latent_frames=total_latent_frames,
-        patch_size=patch_size,
     )
     coarse_segments = None
     if token_merge is not None:
@@ -1241,7 +1237,6 @@ def main() -> int:
             ),
             total_latent_frames=contract.total_latent_frames,
             token_merge=token_merge,
-            patch_size=contract.patch_size,
         )
 
     joint_adapter = None
