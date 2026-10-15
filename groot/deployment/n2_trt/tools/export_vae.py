@@ -374,7 +374,7 @@ def _export(args: argparse.Namespace) -> int:
         num_action_steps=args.num_action_steps,
     )
     input_shape, output_shape = _vae_shapes(
-        contract.camera_count,
+        contract.total_camera_slot_count,
         contract.conditioning_frames,
         contract.image_size,
         contract.latent_shape,
@@ -439,7 +439,11 @@ def _export(args: argparse.Namespace) -> int:
             SourceRevision.capture("exporter", __file__, revision=args.source_revision)
         ),
         "checkpoint": str(checkpoint),
-        "num_cameras": contract.camera_count,
+        "contract_schema_version": contract.schema_version,
+        "input_camera_names": list(contract.input_camera_names),
+        "input_camera_count": contract.input_camera_count,
+        "total_camera_slot_count": contract.total_camera_slot_count,
+        "padded_camera_slot_count": contract.padded_camera_slot_count,
         "vae_weights": str(weights),
         "vae_weights_sha256": sha256_file(weights),
         "validation_sample_sha256": {"vae_eager": sha256_file(output_dir / "sample.pt")},

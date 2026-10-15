@@ -908,7 +908,12 @@ class EngineManifest:
         """Reject changed checkpoints, foreign plans, or edited receipts."""
         failures: dict[str, Any] = {}
         contract_payload = contract.to_dict()
-        if self.contract != contract_payload or self.contract_sha256 != canonical_sha256(
+        if self.contract.get("schema_version") != contract.schema_version:
+            failures["contract"] = (
+                f"engine contract schema {self.contract.get('schema_version')!r} differs from "
+                f"supported schema {contract.schema_version}; rebuild and re-validate this bundle"
+            )
+        elif self.contract != contract_payload or self.contract_sha256 != canonical_sha256(
             contract_payload
         ):
             failures["contract"] = "manifest does not match resolved checkpoint contract"

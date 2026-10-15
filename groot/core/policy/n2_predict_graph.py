@@ -122,6 +122,7 @@ class PredictGraphRunner:
         if warmup < 3:
             raise ValueError(f"predict CUDA graph requires at least 3 warmups, got {warmup}")
         self.model = model
+        self._require_camera_padding_mask(example_inputs)
         self.device = prompt_embs.device
         self.prompt_embs = prompt_embs.clone()
         self.kwargs = dict(predict_kwargs)
@@ -202,12 +203,28 @@ class PredictGraphRunner:
             raise RuntimeError(f"predict CUDA graph returned non-finite outputs: {non_finite}")
         return outputs
 
+    def _require_camera_padding_mask(self, inputs: dict) -> None:
+        """Require explicit camera validity for padded TRT capture and replay."""
+        model = getattr(self, "model", None)
+        trt_runtime = getattr(model, "n2_trt_runtime", None)
+        contract = getattr(trt_runtime, "contract", None)
+        if (
+            contract is not None
+            and contract.padded_camera_slot_count > 0
+            and inputs.get("video_padded_mask") is None
+        ):
+            raise RuntimeError(
+                "predict CUDA graph requires video_padded_mask for a TRT contract "
+                "with padded camera slots"
+            )
+
     def _validate_replay_contract(
         self,
         inputs: dict,
         prompt_embs: torch.Tensor,
     ) -> None:
         """Reject any replay input that can alter the captured execution layout."""
+        self._require_camera_padding_mask(inputs)
         expected_keys = set(self.static)
         actual_keys = set(inputs)
         if actual_keys != expected_keys:
@@ -230,8 +247,10 @@ class PredictGraphRunner:
             raise RuntimeError("predict CUDA graph prompt embeddings must be finite")
 
         padded_mask = inputs.get("video_padded_mask")
-        if padded_mask is not None and bool(padded_mask.any().item()):
-            raise RuntimeError("predict CUDA graph does not support padded camera views")
+        if padded_mask is not None and not torch.equal(
+            padded_mask, self.static["video_padded_mask"]
+        ):
+            raise RuntimeError("predict CUDA graph padded camera layout changed")
 
     @staticmethod
     def _validate_tensor_contract(name: str, actual, expected: torch.Tensor) -> None:
@@ -338,16 +357,18 @@ class PredictGraphRunner:
         _slice_cache_to_static_prefix derives its keep-index with a tensor
         assert + nonzero() — both host syncs. The index is constant under the
         fixed-layout contract: derive it during warmup, then index_select
-        with the cached index (identical ascending order).
+        with the cached index (identical ascending order). Padded TRT layouts
+        gather each shared fine/coarse engine slab once, retaining layer views
+        so preparing the cached-action bindings needs no additional stack.
         """
         import groot.core.training.models.n2.model as n2_model
 
         model = self.model
         idx_cache: dict = {}
         # TRT's joint output slabs outlive the immediately following cached
-        # action call. Keep prefix views so its runner can compact each whole
-        # slab once. Other graph backends retain independent per-layer copies.
-        borrow_trt_prefix = getattr(model, "n2_trt_runtime", None) is not None
+        # action call. Keep prefix views or gather a shared slab once. Other
+        # graph backends retain independent per-layer copies.
+        trt_cache = getattr(model, "n2_trt_runtime", None) is not None
 
         def graph_safe_slice(
             cache, modality_ids, token_valid_mask=None, token_merge=None, extra_keep_modalities=()
@@ -378,17 +399,38 @@ class PredictGraphRunner:
                 coarse_idx = None
                 if token_merge is not None:
                     fine_idx, coarse_idx = token_merge.keep_indices_per_segment(keep)
-                if borrow_trt_prefix:
-                    for index in (fine_idx, coarse_idx):
-                        if index is not None and not torch.equal(
-                            index, torch.arange(index.numel(), device=index.device)
-                        ):
-                            raise RuntimeError(
-                                "TensorRT KV handoff requires a contiguous static prefix"
-                            )
-                idx_cache[key] = (fine_idx, coarse_idx)
-            fine_idx, coarse_idx = idx_cache[key]
+                prefix_flags = tuple(
+                    index is None
+                    or torch.equal(index, torch.arange(index.numel(), device=index.device))
+                    for index in (fine_idx, coarse_idx)
+                )
+                idx_cache[key] = (fine_idx, coarse_idx, prefix_flags)
+            fine_idx, coarse_idx, prefix_flags = idx_cache[key]
             sliced = n2_model.CondKVCache()
+            gathered_layers: dict = {}
+            if trt_cache:
+                from groot.deployment.n2_trt.runtime import _gather_cache_layers
+
+                # Token-merge fine layers straddle the coarse range, but their
+                # engine outputs are consecutive views of the same fine slab.
+                for reduced, keep_idx in ((False, fine_idx), (True, coarse_idx)):
+                    if keep_idx is None or prefix_flags[1 if reduced else 0]:
+                        continue
+                    layer_indices = [
+                        index
+                        for index in range(len(cache))
+                        if (token_merge is not None and token_merge.is_reduced_layer(index))
+                        == reduced
+                    ]
+                    keys = _gather_cache_layers(
+                        [cache.key_cache[index] for index in layer_indices], keep_idx
+                    )
+                    values = _gather_cache_layers(
+                        [cache.value_cache[index] for index in layer_indices], keep_idx
+                    )
+                    gathered_layers.update(
+                        zip(layer_indices, zip(keys, values, strict=True), strict=True)
+                    )
             for layer_idx, (k_layer, v_layer) in enumerate(
                 zip(cache.key_cache, cache.value_cache, strict=False)
             ):
@@ -397,7 +439,13 @@ class PredictGraphRunner:
                     if token_merge is not None and token_merge.is_reduced_layer(layer_idx)
                     else fine_idx
                 )
-                if borrow_trt_prefix:
+                reduced = token_merge is not None and token_merge.is_reduced_layer(layer_idx)
+                can_borrow = trt_cache and prefix_flags[1 if reduced else 0]
+                if layer_idx in gathered_layers:
+                    selected_key, selected_value = gathered_layers[layer_idx]
+                    sliced.key_cache.append(selected_key)
+                    sliced.value_cache.append(selected_value)
+                elif can_borrow:
                     # Only metadata operations during capture. The runner
                     # materializes dense bindings before the next joint call
                     # can overwrite this engine-owned storage.

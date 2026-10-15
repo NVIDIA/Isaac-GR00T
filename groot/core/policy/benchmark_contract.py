@@ -59,6 +59,7 @@ COND_TRT_ENGINE_ROLE = "transformer_joint_condcached"
 PROFILE_WORKLOAD_FIELDS = (
     "embodiment",
     "camera_count",
+    "camera_slot_count",
     "camera_keys",
     "history_frames_per_camera",
     "history_delta_indices",
@@ -117,6 +118,7 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
     "G1-H80-2V5F-THOR": {
         "embodiment": "unitree_g1_whole_body_teleop_latent_gripper",
         "camera_count": 2,
+        "camera_slot_count": 2,
         "camera_keys": ["ego_view", "right_wrist"],
         "history_frames_per_camera": 5,
         "history_delta_indices": [-40, -30, -20, -10, 0],
@@ -145,6 +147,7 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
     "G1-H80-3V5F-THOR": {
         "embodiment": "unitree_g1_whole_body_teleop_latent_gripper",
         "camera_count": 3,
+        "camera_slot_count": 3,
         "camera_keys": ["left_wrist", "ego_view", "right_wrist"],
         "history_frames_per_camera": 5,
         "history_delta_indices": [-40, -30, -20, -10, 0],
@@ -173,6 +176,7 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
     "G1-H80-3V5F-5090": {
         "embodiment": "unitree_g1_whole_body_teleop_latent_gripper",
         "camera_count": 3,
+        "camera_slot_count": 3,
         "camera_keys": ["left_wrist", "ego_view", "right_wrist"],
         "history_frames_per_camera": 5,
         "history_delta_indices": [-40, -30, -20, -10, 0],
@@ -248,6 +252,7 @@ YAM_TARGET_PROFILES: dict[str, dict[str, Any]] = {
     "YAM-H48-4V5F-5090": {
         "embodiment": "xdof_relative_eef_relative_joint_umi_keys_4views",
         "camera_count": 4,
+        "camera_slot_count": 4,
         "camera_keys": [
             "top_camera-images-rgb_320_240",
             "left_camera-images-rgb_320_240",
@@ -288,6 +293,7 @@ def _yam_wan21_h48_profile(
     return {
         "embodiment": "xdof_relative_eef_relative_joint_umi_keys_4views",
         "camera_count": 4,
+        "camera_slot_count": 4,
         "camera_keys": [
             "top_camera-images-rgb_320_240",
             "left_camera-images-rgb_320_240",
@@ -1896,7 +1902,11 @@ def server_process_identity(
 
 def checkpoint_workload(checkpoint: Path, embodiment: str) -> dict[str, Any]:
     """Return the shape and architecture fields that define an N2 workload."""
-    model_config = json.loads((checkpoint / "config.json").read_text())
+    from groot.deployment.n2_trt.contract import resolve_checkpoint_actor_config
+
+    model_config = resolve_checkpoint_actor_config(
+        json.loads((checkpoint / "config.json").read_text())
+    )
     processor = json.loads((checkpoint / "processor_config.json").read_text())
     processor_kwargs = processor["processor_kwargs"]
     modality_configs = processor_kwargs["modality_configs"]
@@ -1910,9 +1920,10 @@ def checkpoint_workload(checkpoint: Path, embodiment: str) -> dict[str, Any]:
     action_deltas = tuple(modality["action"]["delta_indices"])
     if len(video_keys) != len(set(video_keys)):
         raise ValueError(f"camera keys are not unique: {video_keys}")
-    if model_config.get("max_n_cameras") != len(video_keys):
+    capacity = model_config.get("max_n_cameras")
+    if not isinstance(capacity, int) or isinstance(capacity, bool) or capacity < len(video_keys):
         raise ValueError(
-            "model camera count does not match processor workload: "
+            "model camera capacity is smaller than processor workload: "
             f"model={model_config.get('max_n_cameras')}, processor={len(video_keys)}"
         )
     if not history_deltas or history_deltas[-1] != 0:
@@ -1925,6 +1936,7 @@ def checkpoint_workload(checkpoint: Path, embodiment: str) -> dict[str, Any]:
     return {
         "embodiment": key,
         "camera_count": len(video_keys),
+        "camera_slot_count": capacity,
         "camera_keys": list(video_keys),
         "history_frames_per_camera": len(history_deltas),
         "history_delta_indices": list(history_deltas),

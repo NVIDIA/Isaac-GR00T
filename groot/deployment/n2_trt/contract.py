@@ -20,11 +20,10 @@ from typing import Any
 
 from groot.core.utils.storage.checkpoint import checkpoint_source_path
 
-# The unquantized payload keeps the repository's schema 3 byte-for-byte; a quantized contract adds
-# the per-role precision key and therefore carries its own schema version. A Turbo-v3 contract (the
-# VAE bottleneck keys) is schema 5, and schema 6 when it is also quantized.
-_BF16_SCHEMA_VERSION = 3
-_QUANTIZED_SCHEMA_VERSION = 4
+# One camera-aware format covers all supported precision and VAE variants.
+# Feature fields describe the workload; only format changes advance this version.
+# Schema 7 and earlier use the former camera fields and require rebuilding.
+_CONTRACT_SCHEMA_VERSION = 8
 
 
 class N2ModelVariant(str, Enum):
@@ -120,6 +119,11 @@ class N2TensorRTContract:
     canonical payload. The manifest binds content hashes, so identical admitted
     artifacts remain portable between machines without pretending two different
     checkpoint payloads are interchangeable.
+
+    ``input_camera_names`` lists the real camera inputs in processor order.
+    ``total_camera_slot_count`` is the engine capacity, including trailing slots
+    filled with masked padding. The input and padded counts are derived from
+    those fields, so a three-input, four-slot model has one padded slot.
     """
 
     schema_version: int
@@ -130,7 +134,8 @@ class N2TensorRTContract:
     vae_type: str
     model_dtype: str
     embodiment: str
-    camera_names: tuple[str, ...]
+    input_camera_names: tuple[str, ...]
+    total_camera_slot_count: int
     video_indices: tuple[int, ...]
     history_indices: tuple[int, ...]
     image_height: int
@@ -159,19 +164,19 @@ class N2TensorRTContract:
         kernel = self.vae_bottleneck_kernel or (1, 1, 1)
         return (kernel[0], 2 * kernel[1], 2 * kernel[2])
 
-    @property
-    def expected_schema_version(self) -> int:
-        if self.vae_bottleneck_kernel is not None:
-            return 6 if self.is_quantized else 5
-        return _QUANTIZED_SCHEMA_VERSION if self.is_quantized else _BF16_SCHEMA_VERSION
-
     def __post_init__(self) -> None:
         if self.action_cache_precision is None:
             object.__setattr__(self, "action_cache_precision", self.transformer_precision)
 
     @property
-    def camera_count(self) -> int:
-        return len(self.camera_names)
+    def input_camera_count(self) -> int:
+        """Number of real camera inputs required by the selected embodiment."""
+        return len(self.input_camera_names)
+
+    @property
+    def padded_camera_slot_count(self) -> int:
+        """Number of trailing camera slots filled with masked padding."""
+        return self.total_camera_slot_count - self.input_camera_count
 
     @property
     def is_quantized(self) -> bool:
@@ -220,18 +225,8 @@ class N2TensorRTContract:
             if action_cache_precision is not None
             else joint
         )
-        quantized = (
-            joint is not TransformerPrecision.BF16
-            or action is not TransformerPrecision.BF16
-            or self.vae_precision != "bf16"
-        )
         contract = replace(
             self,
-            schema_version=(
-                (6 if quantized else 5)
-                if self.vae_bottleneck_kernel is not None
-                else (_QUANTIZED_SCHEMA_VERSION if quantized else _BF16_SCHEMA_VERSION)
-            ),
             transformer_precision=joint,
             action_cache_precision=action,
         )
@@ -244,20 +239,7 @@ class N2TensorRTContract:
             raise ValueError(
                 f"unsupported VAE precision {vae_precision!r}; expected one of {VAE_PRECISIONS}"
             )
-        quantized = (
-            self.transformer_precision is not TransformerPrecision.BF16
-            or self.action_cache_precision is not TransformerPrecision.BF16
-            or vae_precision != "bf16"
-        )
-        contract = replace(
-            self,
-            schema_version=(
-                (6 if quantized else 5)
-                if self.vae_bottleneck_kernel is not None
-                else (_QUANTIZED_SCHEMA_VERSION if quantized else _BF16_SCHEMA_VERSION)
-            ),
-            vae_precision=vae_precision,
-        )
+        contract = replace(self, vae_precision=vae_precision)
         contract.validate()
         return contract
 
@@ -321,8 +303,10 @@ class N2TensorRTContract:
             "vae_type": self.vae_type,
             "model_dtype": self.model_dtype,
             "embodiment": self.embodiment,
-            "camera_names": list(self.camera_names),
-            "camera_count": self.camera_count,
+            "input_camera_names": list(self.input_camera_names),
+            "input_camera_count": self.input_camera_count,
+            "total_camera_slot_count": self.total_camera_slot_count,
+            "padded_camera_slot_count": self.padded_camera_slot_count,
             "conditioning_frames": self.conditioning_frames,
             "total_video_frames": self.total_video_frames,
             "video_indices": list(self.video_indices),
@@ -345,7 +329,7 @@ class N2TensorRTContract:
             "transformer_precision": self.transformer_precision.value,
             "vae_precision": self.vae_precision,
         }
-        # Preserve the canonical payload of existing non-bottleneck bundles.
+        # Only bottleneck variants carry the VAE projection geometry.
         if self.vae_bottleneck_kernel is not None:
             payload["vae_bottleneck_kernel"] = list(self.vae_bottleneck_kernel)
             payload["patch_size"] = list(self.patch_size)
@@ -387,11 +371,6 @@ class N2TensorRTContract:
             raise ValueError(
                 f"unsupported VAE precision {vae_precision!r}; expected one of {VAE_PRECISIONS}"
             )
-        quantized = (
-            joint_precision is not TransformerPrecision.BF16
-            or action_precision is not TransformerPrecision.BF16
-            or vae_precision != "bf16"
-        )
         checkpoint_path = checkpoint_source_path(Path(checkpoint).expanduser()).resolve(strict=True)
         model = resolve_checkpoint_actor_config(_read_json(checkpoint_path / "config.json"))
         processor = _read_json(checkpoint_path / "processor_config.json")
@@ -419,7 +398,7 @@ class N2TensorRTContract:
 
         video = _require_mapping(modality, "video")
         action = _require_mapping(modality, "action")
-        camera_names = _require_unique_strings(video, "modality_keys")
+        input_camera_names = _require_unique_strings(video, "modality_keys")
         video_deltas = _require_ints(video, "delta_indices")
         history_indices = tuple(delta for delta in video_deltas if delta <= 0)
         image_size = processor_kwargs.get("image_target_size", model.get("image_target_size"))
@@ -440,12 +419,11 @@ class N2TensorRTContract:
             raise ValueError(
                 f"model and processor action horizons disagree: {configured_horizon} != {action_horizon}"
             )
-        max_n_cameras = _require_positive_int(model, "max_n_cameras")
-        if max_n_cameras != len(camera_names):
+        total_camera_slot_count = _require_positive_int(model, "max_n_cameras")
+        if total_camera_slot_count < len(input_camera_names):
             raise ValueError(
-                "unsupported N2 TensorRT contract: padded camera views are not supported yet; "
-                "model max_n_cameras must equal the processor camera count "
-                f"({max_n_cameras} != {len(camera_names)})"
+                "processor camera count exceeds model capacity: "
+                f"{len(input_camera_names)} input cameras > {total_camera_slot_count} total camera slots"
             )
 
         bottleneck = _optional_int_tuple(
@@ -473,11 +451,7 @@ class N2TensorRTContract:
         if bottleneck is not None:
             model_variant = N2ModelVariant.TURBO3
         contract = cls(
-            schema_version=(
-                (6 if quantized else 5)
-                if bottleneck is not None
-                else (_QUANTIZED_SCHEMA_VERSION if quantized else _BF16_SCHEMA_VERSION)
-            ),
+            schema_version=_CONTRACT_SCHEMA_VERSION,
             vae_bottleneck_kernel=bottleneck,
             checkpoint=str(checkpoint_path),
             model_type=model_type,
@@ -486,7 +460,8 @@ class N2TensorRTContract:
             vae_type=vae_type,
             model_dtype=model_dtype,
             embodiment=resolved_embodiment,
-            camera_names=camera_names,
+            input_camera_names=input_camera_names,
+            total_camera_slot_count=total_camera_slot_count,
             video_indices=video_deltas,
             history_indices=history_indices,
             image_height=image_size[0],
@@ -511,20 +486,24 @@ class N2TensorRTContract:
     def validate(self) -> None:
         """Admit checkpoint-derived shapes while failing closed on other features."""
         failures: dict[str, Any] = {}
-        expected_schema = self.expected_schema_version
-        if self.schema_version != expected_schema:
+        if self.schema_version != _CONTRACT_SCHEMA_VERSION:
             failures["schema_version"] = {
                 "actual": self.schema_version,
-                "supported": [expected_schema],
+                "supported": [_CONTRACT_SCHEMA_VERSION],
             }
         if self.model_type != "GrootN2":
             failures["model_type"] = {"actual": self.model_type, "supported": ["GrootN2"]}
         if self.model_size != "2B":
             failures["model_size"] = {"actual": self.model_size, "supported": ["2B"]}
-        if self.camera_count <= 0:
-            failures["camera_count"] = {
-                "actual": self.camera_count,
-                "requirement": "at least one configured camera",
+        if (
+            not isinstance(self.total_camera_slot_count, int)
+            or isinstance(self.total_camera_slot_count, bool)
+            or not 0 < self.input_camera_count <= self.total_camera_slot_count
+        ):
+            failures["total_camera_slot_count"] = {
+                "actual": self.total_camera_slot_count,
+                "input_camera_count": self.input_camera_count,
+                "requirement": "a positive integer slot count covering at least one input camera",
             }
         steps_are_positive_integers = all(
             isinstance(steps, int) and not isinstance(steps, bool) and steps > 0

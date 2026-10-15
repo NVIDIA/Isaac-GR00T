@@ -74,12 +74,6 @@ class _N2TensorRTPacker:
             raise RuntimeError("N2 TensorRT requires action tokens")
         if state_tokens is None or state_timesteps is None or state_rope is None:
             raise RuntimeError("N2 TensorRT requires state tokens")
-        if (
-            token_valid_mask is not None
-            and _host_checks_allowed()
-            and not bool(token_valid_mask.all().item())
-        ):
-            raise RuntimeError("N2 TensorRT does not support padded tokens or views")
 
         batch = video_tokens.shape[0]
         if batch != 1:
@@ -90,6 +84,26 @@ class _N2TensorRTPacker:
             action_tokens.shape[1],
         )
         self.runtime.validate_segment_layout(segment_counts)
+        if _host_checks_allowed():
+            contract = self.runtime.contract
+            valid_video_tokens = (
+                segment_counts[0] // contract.total_camera_slot_count * contract.input_camera_count
+            )
+            expected_valid = torch.ones(
+                (batch, sum(segment_counts)),
+                dtype=torch.bool,
+                device=video_tokens.device,
+            )
+            expected_valid[:, valid_video_tokens : segment_counts[0]] = False
+            actual_valid = (
+                token_valid_mask
+                if token_valid_mask is not None
+                else torch.ones_like(expected_valid)
+            )
+            if not torch.equal(actual_valid, expected_valid):
+                raise RuntimeError(
+                    "N2 TensorRT token padding does not match the exported camera layout"
+                )
 
         device = video_tokens.device
         video_ids = torch.full(
@@ -135,6 +149,7 @@ class _N2TensorRTPacker:
             action_token_indices=torch.arange(state_end, action_end, device=device),
             non_video_token_indices=torch.arange(video_end, action_end, device=device),
             has_video_cond_tokens=True,
+            token_valid_mask=token_valid_mask,
         )
 
 
@@ -144,7 +159,10 @@ def _require_model_contract(model: Any, contract: N2TensorRTContract) -> None:
     comparisons = {
         "model_type": (getattr(model.config, "model_type", None), contract.model_type),
         "model_size": (getattr(model.config, "model_size", None), contract.model_size),
-        "camera_count": (getattr(model, "max_n_cameras", None), contract.camera_count),
+        "total_camera_slot_count": (
+            getattr(model, "max_n_cameras", None),
+            contract.total_camera_slot_count,
+        ),
         "vae_type": (getattr(model.config, "vae_type", None), contract.vae_type),
         "vae_bottleneck_kernel": (
             _optional_tuple(getattr(model.config, "vae_bottleneck_kernel", None)),
@@ -284,7 +302,7 @@ def _encode_video(self, videos: torch.Tensor) -> torch.Tensor:
     expected = (
         1,
         3,
-        contract.camera_count * contract.conditioning_frames,
+        contract.total_camera_slot_count * contract.conditioning_frames,
         contract.image_height,
         contract.image_width,
     )
@@ -293,13 +311,13 @@ def _encode_video(self, videos: torch.Tensor) -> torch.Tensor:
     per_view = videos.reshape(
         1,
         3,
-        contract.camera_count,
+        contract.total_camera_slot_count,
         contract.conditioning_frames,
         contract.image_height,
         contract.image_width,
     )
     per_view = per_view.permute(0, 2, 1, 3, 4, 5).reshape(
-        contract.camera_count,
+        contract.total_camera_slot_count,
         3,
         contract.conditioning_frames,
         contract.image_height,
@@ -310,16 +328,16 @@ def _encode_video(self, videos: torch.Tensor) -> torch.Tensor:
     # that seam when replacing the encoder with the fixed BF16 engine.
     per_view = per_view.to(dtype=torch.bfloat16)
     latents = self.n2_trt_runtime.encode_video(per_view, tiled=False)
-    if latents.dim() != 5 or latents.shape[0] != contract.camera_count:
+    if latents.dim() != 5 or latents.shape[0] != contract.total_camera_slot_count:
         raise RuntimeError(
             f"N2 TensorRT VAE returned {tuple(latents.shape)}, expected "
-            f"({contract.camera_count}, C, T, H, W)"
+            f"({contract.total_camera_slot_count}, C, T, H, W)"
         )
     channels, frames, height, width = latents.shape[1:]
     return latents.permute(1, 0, 2, 3, 4).reshape(
         1,
         channels,
-        contract.camera_count * frames,
+        contract.total_camera_slot_count * frames,
         height,
         width,
     )

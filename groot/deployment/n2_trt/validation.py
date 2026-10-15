@@ -280,9 +280,13 @@ def _joint_gates(
 
 def _static_indices(sample: dict[str, Any], *, coarse: bool) -> torch.Tensor:
     modality_ids = sample["modality_ids"][0]
+    keep = modality_ids != 3
+    valid_mask = sample.get("token_valid_mask")
+    if valid_mask is not None:
+        keep &= valid_mask[0, : keep.numel()]
     if coarse:
-        modality_ids = modality_ids.index_select(0, sample["coarse_token_idx"].long())
-    return torch.nonzero(modality_ids != 3).flatten()
+        keep = keep.index_select(0, sample["coarse_token_idx"].long())
+    return torch.nonzero(keep).flatten()
 
 
 def _action_gate(

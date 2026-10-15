@@ -152,17 +152,30 @@ def _vae_trt_shapes(
 
 
 def n2_trt_runtime_contract(
-    num_cameras: int,
+    total_camera_slot_count: int,
     num_video_steps: int = 2,
     num_action_steps: int = 4,
+    *,
+    input_camera_count: int,
 ) -> str:
-    """Return the complete runtime contract string.
+    """Identify the real camera inputs, total engine slots, and schedule.
 
     The denoising schedule changes how many times each engine is called without
-    changing engine shapes, so it is part of the runtime identity.
+    changing engine shapes, so it is part of the runtime identity. Both camera
+    counts distinguish a padded three-input/four-slot layout from four inputs
+    using every slot, even though their engine tensor shapes are identical.
     """
-    _require_positive_camera_count(num_cameras)
-    return f"gr00t2_{num_cameras}cam_{num_video_steps}v{num_action_steps}a_tensorrt"
+    _require_positive_camera_count(total_camera_slot_count)
+    _require_positive_camera_count(input_camera_count)
+    if input_camera_count > total_camera_slot_count:
+        raise ValueError(
+            f"input_camera_count ({input_camera_count}) exceeds "
+            f"total_camera_slot_count ({total_camera_slot_count})"
+        )
+    return (
+        f"gr00t2_{input_camera_count}input_{total_camera_slot_count}slots_"
+        f"{num_video_steps}v{num_action_steps}a_tensorrt"
+    )
 
 
 def _require_n2_runtime_contract(
@@ -178,6 +191,7 @@ def _require_n2_runtime_contract(
     cfg_on: bool,
     attention_pattern: AttentionMaskPattern,
     video_padded_mask: Any,
+    expected_configured_cameras: int | None = None,
     expected_cond_kv_freeze: bool = False,
     cond_kv_freeze: bool = False,
 ) -> None:
@@ -198,12 +212,27 @@ def _require_n2_runtime_contract(
     expected_pattern = AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL
     if attention_pattern != expected_pattern:
         reasons.append(f"attention_pattern:{attention_pattern.value}!={expected_pattern.value}")
-    if (
-        video_padded_mask is not None
-        and _host_checks_allowed()
-        and bool(torch.as_tensor(video_padded_mask).any().item())
-    ):
-        reasons.append("padded_camera")
+    if _host_checks_allowed():
+        configured = (
+            expected_num_cameras
+            if expected_configured_cameras is None
+            else expected_configured_cameras
+        )
+        expected_views = torch.arange(expected_num_cameras) >= configured
+        if video_padded_mask is None:
+            if configured != expected_num_cameras:
+                reasons.append("missing_camera_padding")
+        else:
+            padded = torch.as_tensor(video_padded_mask).detach().to(device="cpu", dtype=torch.bool)
+            if padded.numel() == 0 or padded.numel() % expected_num_cameras:
+                reasons.append("camera_padding_shape")
+            elif not torch.equal(
+                padded.reshape(expected_num_cameras, -1),
+                expected_views[:, None].expand(
+                    expected_num_cameras, padded.numel() // expected_num_cameras
+                ),
+            ):
+                reasons.append("camera_padding_layout")
     if reasons:
         raise RuntimeError(
             f"strict GR00T2 {expected_num_cameras}-camera TensorRT contract violation: "
@@ -400,20 +429,20 @@ _TOKEN_MERGE_CACHE_NAMES = {
 }
 
 
-def _stack_cache_layers(layers: list[torch.Tensor]) -> torch.Tensor:
-    """Compact layer views from one engine output slab with a single copy.
-
-    A joint engine returns [layer, batch, head, token, channel] storage. The
-    graph's prefix slices retain that owner and its layer stride, including
-    the skipped action suffix in each head. Prove the shared layout before
-    rebuilding the stacked view; independent or reordered caches retain the
-    ordinary stack path. No tensor values or arithmetic are changed.
-    """
-    if len(layers) < 2:
-        return torch.stack(layers, dim=0)
+def _cache_layer_slab(layers: list[torch.Tensor]) -> torch.Tensor | None:
+    """Return a zero-copy [layer, batch, head, token, channel] view when proven safe."""
+    if not layers:
+        return None
     first = layers[0]
-    if first.layout != torch.strided or first.ndim != 4 or first.device.type == "meta":
-        return torch.stack(layers, dim=0)
+    if (
+        first.layout != torch.strided
+        or first.ndim != 4
+        or first.device.type == "meta"
+        or first.requires_grad
+    ):
+        return None
+    if len(layers) == 1:
+        return first.unsqueeze(0)
     stride = first.stride()
     offset = first.storage_offset()
     layer_stride = layers[1].storage_offset() - offset
@@ -429,12 +458,38 @@ def _stack_cache_layers(layers: list[torch.Tensor]) -> torch.Tensor:
         or layer.untyped_storage().data_ptr() != storage
         for index, layer in enumerate(layers)
     ):
-        return torch.stack(layers, dim=0)
+        return None
     # as_strided inherits the first view's storage offset. Every addressed
     # layer above already exists in this storage, so the combined view cannot
-    # introduce an out-of-bounds access. Keep the dense engine binding owned
-    # independently when the prefix omits the joint action suffix.
-    return first.as_strided((len(layers), *first.shape), (layer_stride, *stride)).contiguous()
+    # introduce an out-of-bounds access.
+    return first.as_strided((len(layers), *first.shape), (layer_stride, *stride))
+
+
+def _stack_cache_layers(layers: list[torch.Tensor]) -> torch.Tensor:
+    """Prepare a dense engine binding, reusing an already gathered slab.
+
+    Prefix views of a joint engine's output require one compaction copy when
+    they omit the action suffix. Views of a bulk-gathered padded cache already
+    form a dense slab and need no further copy. Independent or reordered
+    caches retain the ordinary stack path.
+    """
+    slab = _cache_layer_slab(layers)
+    return torch.stack(layers, dim=0) if slab is None else slab.contiguous()
+
+
+def _gather_cache_layers(
+    layers: list[torch.Tensor], keep_indices: torch.Tensor
+) -> list[torch.Tensor]:
+    """Gather static tokens across a shared engine slab in one allocation.
+
+    Returned layer views share the gathered allocation and remain independent
+    of reusable joint-engine output storage. The action binding can reuse that
+    dense allocation directly, including for a single-layer fine/coarse group.
+    """
+    slab = _cache_layer_slab(layers)
+    if slab is None:
+        return [layer.index_select(2, keep_indices) for layer in layers]
+    return list(slab.index_select(3, keep_indices).unbind(0))
 
 
 def _stack_token_merge_cache(
@@ -818,14 +873,14 @@ class N2TensorRTRuntime:
             if artifact_root is not None
             else None
         )
-        self.num_cameras = contract.camera_count
+        self.total_camera_slot_count = contract.total_camera_slot_count
         self.action_horizon = contract.action_horizon
         self.latent_shape = contract.latent_shape
         self.num_video_steps = contract.video_denoising_steps
         self.num_action_steps = contract.action_denoising_steps
         self.token_merge_layers = contract.token_merge_layers
         self.segment_token_counts = n2_segment_token_counts(
-            self.num_cameras,
+            self.total_camera_slot_count,
             self.action_horizon,
             self.latent_shape,
             contract.total_latent_frames,
@@ -877,7 +932,7 @@ class N2TensorRTRuntime:
         self.vae_runner = N2TensorTrtRunner(engine_paths["vae"])
         contract_reason = _vae_trt_contract_skip_reason(
             self.vae_runner,
-            num_cameras=self.num_cameras,
+            num_cameras=self.total_camera_slot_count,
             latent_shape=self.latent_shape,
             conditioning_frames=contract.conditioning_frames,
             image_size=contract.image_size,
@@ -1041,7 +1096,10 @@ class N2TensorRTRuntime:
     @property
     def runtime_contract(self) -> str:
         label = n2_trt_runtime_contract(
-            self.num_cameras, self.num_video_steps, self.num_action_steps
+            self.total_camera_slot_count,
+            self.num_video_steps,
+            self.num_action_steps,
+            input_camera_count=self.contract.input_camera_count,
         )
         if self.contract.cond_kv_freeze:
             # A bundle carrying the conditioning-cached joint engine names the served mode.
@@ -1280,7 +1338,8 @@ class N2TensorRTRuntime:
 
     def validate_runtime(self, **kwargs: Any) -> None:
         _require_n2_runtime_contract(
-            expected_num_cameras=self.num_cameras,
+            expected_num_cameras=self.total_camera_slot_count,
+            expected_configured_cameras=self.contract.input_camera_count,
             expected_num_video_steps=self.num_video_steps,
             expected_num_action_steps=self.num_action_steps,
             expected_cond_kv_freeze=self.served_cond_kv_freeze,
@@ -1290,7 +1349,7 @@ class N2TensorRTRuntime:
     def validate_segment_layout(self, segment_counts: tuple[int, int, int]) -> None:
         _require_segment_layout(
             segment_counts,
-            num_cameras=self.num_cameras,
+            num_cameras=self.total_camera_slot_count,
             action_horizon=self.action_horizon,
             latent_shape=self.latent_shape,
             total_latent_frames=self.contract.total_latent_frames,

@@ -641,12 +641,36 @@ def _dense_token_mask_from_block_mask(block_mask: Any) -> torch.Tensor:
 
 @dataclass(frozen=True)
 class _BidirectionalVideoActionFullSegments:
-    """Contiguous token ranges for the one segmented attention pattern we export."""
+    """Fixed ``[video | state | action]`` layout for segmented attention export.
+
+    ``video_tokens`` counts conditioning and denoising video tokens across all
+    camera slots, including padded slots. State and action tokens follow that
+    complete video segment.
+
+    ``valid_video_indices`` contains the ordered, zero-based token positions
+    within the video segment whose keys and values attention may use. These
+    positions are inferred from the captured attention mask and checked against
+    the contract's camera layout before export. They cover tokens from real
+    camera inputs; tokens from padded camera slots are excluded. ``None`` means
+    every video token has a valid key and value. The layout is shared across
+    batch items and video/action queries.
+
+    Video and action attention gather video keys and values at these positions.
+    All query positions remain present, including queries for padded video
+    tokens, so sequence length and state/action offsets stay unchanged. For
+    example, three input cameras in four slots with eight tokens per slot have
+    ``video_tokens=32`` and ``valid_video_indices=tuple(range(24))``.
+
+    Fine and merged/coarse attention use separate instances, with indices in
+    their respective token resolutions. ``alignment_pad`` counts extra mask
+    positions beyond ``total_tokens`` used for block alignment.
+    """
 
     video_tokens: int
     state_tokens: int
     action_tokens: int
     alignment_pad: int
+    valid_video_indices: tuple[int, ...] | None = None
 
     @property
     def total_tokens(self) -> int:
@@ -660,6 +684,11 @@ class _BidirectionalVideoActionFullSegments:
             "action_tokens": self.action_tokens,
             "total_tokens": self.total_tokens,
             "alignment_pad": self.alignment_pad,
+            "valid_video_tokens": (
+                self.video_tokens
+                if self.valid_video_indices is None
+                else len(self.valid_video_indices)
+            ),
         }
 
 
@@ -689,7 +718,7 @@ def _model_latent_shape(
 def _require_segment_counts(
     segments: _BidirectionalVideoActionFullSegments,
     *,
-    num_cameras: int,
+    total_camera_slot_count: int,
     action_horizon: int,
     latent_shape: tuple[int, int, int, int],
     total_latent_frames: int,
@@ -699,7 +728,7 @@ def _require_segment_counts(
 
     actual = (segments.video_tokens, segments.state_tokens, segments.action_tokens)
     expected = n2_segment_token_counts(
-        num_cameras,
+        total_camera_slot_count,
         action_horizon,
         latent_shape,
         total_latent_frames,
@@ -711,11 +740,44 @@ def _require_segment_counts(
         )
 
 
+def _require_segment_camera_validity(
+    segments: _BidirectionalVideoActionFullSegments,
+    contract: N2TensorRTContract,
+    *,
+    layout: str,
+) -> None:
+    """Require captured video-key validity to match the runtime camera layout."""
+    total_camera_slot_count = contract.total_camera_slot_count
+    input_camera_count = contract.input_camera_count
+    padded_camera_slot_count = contract.padded_camera_slot_count
+    # Real camera inputs occupy the first slots; trailing slots contain masked padding.
+    if segments.video_tokens % total_camera_slot_count:
+        raise ValueError(
+            f"segmented-sdpa {layout} video tokens cannot be evenly split across "
+            f"{total_camera_slot_count} total camera slots"
+        )
+    video_tokens_per_camera_slot = segments.video_tokens // total_camera_slot_count
+    expected_valid_video_token_count = video_tokens_per_camera_slot * input_camera_count
+    expected_valid_video_indices = tuple(range(expected_valid_video_token_count))
+    captured_valid_video_indices = segments.valid_video_indices
+    if captured_valid_video_indices is None:
+        captured_valid_video_indices = tuple(range(segments.video_tokens))
+    if captured_valid_video_indices != expected_valid_video_indices:
+        raise ValueError(
+            f"segmented-sdpa {layout} camera padding differs from the runtime contract: "
+            f"expected the first {expected_valid_video_token_count} of "
+            f"{segments.video_tokens} video keys for {input_camera_count} input cameras and "
+            f"{padded_camera_slot_count} padded camera slots "
+            f"({total_camera_slot_count} total camera slots); "
+            f"captured {len(captured_valid_video_indices)} valid video keys"
+        )
+
+
 def _validate_bidirectional_video_action_full_segments(
     modality_ids: torch.Tensor,
     dense_mask: torch.Tensor,
 ) -> _BidirectionalVideoActionFullSegments:
-    """Prove a captured mask is exactly three unmasked, contiguous SDPA segments."""
+    """Prove the mask is three contiguous segments with fixed video-key validity."""
     if modality_ids.ndim != 2:
         raise ValueError(
             f"segmented-sdpa requires modality_ids with shape (batch, sequence); got {tuple(modality_ids.shape)}"
@@ -770,9 +832,17 @@ def _validate_bidirectional_video_action_full_segments(
     expected_mask[:, :, :video_tokens, :video_tokens] = True
     expected_mask[:, :, video_tokens:state_end, video_tokens:state_end] = True
     expected_mask[:, :, state_end:sequence, :sequence] = True
+    key_validity = dense_mask[:, :, state_end : state_end + 1, :sequence]
+    if not key_validity[..., video_tokens:].all() or not key_validity[..., :video_tokens].any():
+        raise ValueError(
+            "segmented-sdpa requires valid state/action keys and at least one real video key"
+        )
+    if not torch.equal(key_validity, key_validity[:1].expand_as(key_validity)):
+        raise ValueError("segmented-sdpa requires batch-uniform camera padding")
+    expected_mask[:, :, :, :sequence] &= key_validity
     if not torch.equal(dense_mask, expected_mask):
         raise ValueError(
-            "segmented-sdpa only supports bidirectional_video_action_full with all tokens valid"
+            "segmented-sdpa only supports bidirectional_video_action_full with fixed video-key padding"
         )
 
     return _BidirectionalVideoActionFullSegments(
@@ -780,6 +850,11 @@ def _validate_bidirectional_video_action_full_segments(
         state_tokens=state_tokens,
         action_tokens=action_tokens,
         alignment_pad=int(dense_mask.shape[2] - sequence),
+        valid_video_indices=(
+            tuple(torch.where(key_validity[0, 0, 0, :video_tokens])[0].tolist())
+            if not key_validity[..., :video_tokens].all()
+            else None
+        ),
     )
 
 
@@ -805,15 +880,30 @@ def _segmented_bidirectional_video_action_full_sdpa(
     video_end = segments.video_tokens
     state_end = video_end + segments.state_tokens
 
-    video_out = scaled_dot_product_attention_bf16(
-        q[:, :, :video_end], k[:, :, :video_end], v[:, :, :video_end]
-    )
+    video_k, video_v = k[:, :, :video_end], v[:, :, :video_end]
+    action_k, action_v = k, v
+    if segments.valid_video_indices is not None:
+        video_indices = torch.tensor(
+            segments.valid_video_indices, dtype=torch.long, device=k.device
+        )
+        # Materialize the entire fixed layout once. Concatenating a traced
+        # arange with a constant tensor can mix CPU/CUDA during ONNX folding.
+        key_indices = torch.tensor(
+            (*segments.valid_video_indices, *range(video_end, segments.total_tokens)),
+            dtype=torch.long,
+            device=k.device,
+        )
+        video_k = video_k.index_select(2, video_indices)
+        video_v = video_v.index_select(2, video_indices)
+        action_k = k.index_select(2, key_indices)
+        action_v = v.index_select(2, key_indices)
+    video_out = scaled_dot_product_attention_bf16(q[:, :, :video_end], video_k, video_v)
     state_out = scaled_dot_product_attention_bf16(
         q[:, :, video_end:state_end],
         k[:, :, video_end:state_end],
         v[:, :, video_end:state_end],
     )
-    action_out = scaled_dot_product_attention_bf16(q[:, :, state_end:], k, v)
+    action_out = scaled_dot_product_attention_bf16(q[:, :, state_end:], action_k, action_v)
     out = torch.cat((video_out, state_out, action_out), dim=2)
     out = out.permute(0, 2, 1, 3).contiguous()
     if flatten_heads:
@@ -825,7 +915,8 @@ def _install_segmented_sdpa_flex_patch(
     modality_ids: torch.Tensor,
     dense_mask: torch.Tensor,
     *,
-    num_cameras: int,
+    contract: N2TensorRTContract,
+    total_camera_slot_count: int,
     action_horizon: int,
     latent_shape: tuple[int, int, int, int],
     total_latent_frames: int,
@@ -839,15 +930,21 @@ def _install_segmented_sdpa_flex_patch(
     """Install the exact YAM segmented exporter after validating its camera contract."""
     from groot.core.training.models.n2.components import transformer_cosmos
 
+    if total_camera_slot_count != contract.total_camera_slot_count:
+        raise ValueError(
+            "segmented-sdpa model camera slots differ from the runtime contract: "
+            f"{total_camera_slot_count} != {contract.total_camera_slot_count}"
+        )
     segments = _validate_bidirectional_video_action_full_segments(modality_ids, dense_mask)
     _require_segment_counts(
         segments,
-        num_cameras=num_cameras,
+        total_camera_slot_count=total_camera_slot_count,
         action_horizon=action_horizon,
         latent_shape=latent_shape,
         total_latent_frames=total_latent_frames,
         patch_size=patch_size,
     )
+    _require_segment_camera_validity(segments, contract, layout="fine")
     coarse_segments = None
     if token_merge is not None:
         if token_merge.reduced_attention_mask is None:
@@ -872,6 +969,7 @@ def _install_segmented_sdpa_flex_patch(
                 "segmented-sdpa token-merge layout requires exact coarse token counts "
                 f"{expected_coarse}; got {actual_coarse}"
             )
+        _require_segment_camera_validity(coarse_segments, contract, layout="coarse")
     original = transformer_cosmos.flex_attention_op
 
     def segmented_sdpa_attention_op(
@@ -930,10 +1028,15 @@ class _ConditioningPrefixLayout:
     Keys keep the full ``segments`` layout with the conditioning-video tokens spliced in
     first (``CondKVCache.update`` places the cached prefix before the fresh K/V); queries
     are the remaining ``[denoised video | state | action]`` tokens in their original order.
+
+    ``valid_video_key_indices`` selects real-camera video keys in this reordered
+    key layout, rather than the original positions in ``segments``. Padded query
+    rows remain present to preserve the engine shape, but padded keys are excluded.
     """
 
     segments: _BidirectionalVideoActionFullSegments
     prefix_tokens: int
+    valid_video_key_indices: tuple[int, ...] | None = None
 
     @property
     def query_tokens(self) -> int:
@@ -943,8 +1046,8 @@ class _ConditioningPrefixLayout:
     def key_tokens(self) -> int:
         return self.segments.total_tokens
 
-    def to_manifest(self) -> dict[str, int | str]:
-        return {
+    def to_manifest(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "pattern": "bidirectional_video_action_full",
             "prefix_tokens": self.prefix_tokens,
             "query_tokens": self.query_tokens,
@@ -953,6 +1056,9 @@ class _ConditioningPrefixLayout:
             "state_tokens": self.segments.state_tokens,
             "action_tokens": self.segments.action_tokens,
         }
+        if self.valid_video_key_indices is not None:
+            payload["valid_video_key_indices"] = list(self.valid_video_key_indices)
+        return payload
 
 
 def _conditioning_prefix_indices(
@@ -977,7 +1083,7 @@ def _validate_conditioning_prefix_layout(
             "conditioning-prefix export layout does not match the validated joint layout: "
             f"{modality_ids.shape[1]} != {segments.total_tokens}"
         )
-    cond_index, _query_index = _conditioning_prefix_indices(modality_ids)
+    cond_index, query_index = _conditioning_prefix_indices(modality_ids)
     prefix_tokens = int(cond_index.numel())
     if prefix_tokens == 0 or prefix_tokens >= segments.video_tokens:
         raise ValueError(
@@ -988,7 +1094,20 @@ def _validate_conditioning_prefix_layout(
         raise ValueError(
             "conditioning-prefix export found conditioning tokens outside the video segment"
         )
-    return _ConditioningPrefixLayout(segments=segments, prefix_tokens=prefix_tokens)
+    valid_video_key_indices = None
+    if segments.valid_video_indices is not None:
+        video_key_order = torch.cat((cond_index, query_index[query_index < segments.video_tokens]))
+        valid_video_positions = set(segments.valid_video_indices)
+        valid_video_key_indices = tuple(
+            index
+            for index, position in enumerate(video_key_order.tolist())
+            if position in valid_video_positions
+        )
+    return _ConditioningPrefixLayout(
+        segments=segments,
+        prefix_tokens=prefix_tokens,
+        valid_video_key_indices=valid_video_key_indices,
+    )
 
 
 def _require_conditioning_prefix_count(
@@ -1037,15 +1156,28 @@ def _segmented_conditioning_prefix_sdpa(
     video_k_end = layout.segments.video_tokens
     state_k_end = video_k_end + layout.segments.state_tokens
 
-    video_out = scaled_dot_product_attention_bf16(
-        q[:, :, :video_q_end], k[:, :, :video_k_end], v[:, :, :video_k_end]
-    )
+    video_k, video_v = k[:, :, :video_k_end], v[:, :, :video_k_end]
+    action_k, action_v = k, v
+    if layout.valid_video_key_indices is not None:
+        video_indices = torch.tensor(
+            layout.valid_video_key_indices, dtype=torch.long, device=k.device
+        )
+        key_indices = torch.tensor(
+            (*layout.valid_video_key_indices, *range(video_k_end, layout.key_tokens)),
+            dtype=torch.long,
+            device=k.device,
+        )
+        video_k = video_k.index_select(2, video_indices)
+        video_v = video_v.index_select(2, video_indices)
+        action_k = k.index_select(2, key_indices)
+        action_v = v.index_select(2, key_indices)
+    video_out = scaled_dot_product_attention_bf16(q[:, :, :video_q_end], video_k, video_v)
     state_out = scaled_dot_product_attention_bf16(
         q[:, :, video_q_end:state_q_end],
         k[:, :, video_k_end:state_k_end],
         v[:, :, video_k_end:state_k_end],
     )
-    action_out = scaled_dot_product_attention_bf16(q[:, :, state_q_end:], k, v)
+    action_out = scaled_dot_product_attention_bf16(q[:, :, state_q_end:], action_k, action_v)
     out = torch.cat((video_out, state_out, action_out), dim=2)
     out = out.permute(0, 2, 1, 3).contiguous()
     if flatten_heads:
@@ -1116,6 +1248,18 @@ def _production_eager_oracle() -> str:
     return TRANSFORMER_EAGER_ORACLE
 
 
+def _joint_sample_extras(payload: dict[str, Any]) -> dict[str, torch.Tensor]:
+    """Retain the layout needed to reconstruct the static action cache."""
+    extras = {}
+    valid_mask = getattr(payload["packed"], "token_valid_mask", None)
+    if valid_mask is not None:
+        extras["token_valid_mask"] = valid_mask
+    token_merge = payload.get("token_merge")
+    if token_merge is not None:
+        extras["coarse_token_idx"] = token_merge.reduced_token_indices
+    return extras
+
+
 def _save_capture(path: Path, payload: dict[str, Any]) -> None:
     packed = payload["packed"]
     cache = payload.get("kv_cache")
@@ -1163,9 +1307,9 @@ def _save_capture(path: Path, payload: dict[str, Any]) -> None:
                 strict=True,
             ):
                 sample[name] = tensor.detach().cpu()
-        token_merge = payload.get("token_merge")
-        if token_merge is not None:
-            sample["coarse_token_idx"] = token_merge.reduced_token_indices.detach().cpu()
+    sample.update(
+        {name: tensor.detach().cpu() for name, tensor in _joint_sample_extras(payload).items()}
+    )
     if isinstance(payload.get("cond_index"), torch.Tensor):
         # Conditioning-cached joint step: the frozen prefix the graph receives as inputs.
         for name in ("cond_index", "cond_key", "cond_value"):
@@ -1463,7 +1607,7 @@ def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
-def _runtime_manifest(args: argparse.Namespace, *, num_cameras: int) -> dict[str, Any]:
+def _runtime_manifest(args: argparse.Namespace, *, contract: N2TensorRTContract) -> dict[str, Any]:
     import onnx
 
     from groot.deployment.n2_trt.manifest import SourceRevision
@@ -1482,7 +1626,11 @@ def _runtime_manifest(args: argparse.Namespace, *, num_cameras: int) -> dict[str
         "source": asdict(
             SourceRevision.capture("exporter", __file__, revision=args.source_revision)
         ),
-        "num_cameras": num_cameras,
+        "contract_schema_version": contract.schema_version,
+        "input_camera_names": list(contract.input_camera_names),
+        "input_camera_count": contract.input_camera_count,
+        "total_camera_slot_count": contract.total_camera_slot_count,
+        "padded_camera_slot_count": contract.padded_camera_slot_count,
         "mode": args.mode,
         "transformer_precision": TransformerPrecision.BF16.value,
         "joint_mask_export": args.joint_mask_export,
@@ -1596,7 +1744,10 @@ def _static_cache_outputs(
         raise TypeError("joint export adapter must return hidden state and KV tensors")
     packed = joint_payload["packed"]
     modality_ids = packed.modality_ids[0]
-    fine_indices = torch.nonzero(modality_ids != 3).flatten()
+    keep = modality_ids != 3
+    if getattr(packed, "token_valid_mask", None) is not None:
+        keep &= packed.token_valid_mask[0, : keep.numel()]
+    fine_indices = torch.nonzero(keep).flatten()
 
     if token_merge_layers is None:
         if len(joint_output) != 3:
@@ -1610,8 +1761,7 @@ def _static_cache_outputs(
     token_merge = joint_payload.get("token_merge")
     if token_merge is None:
         raise ValueError("token-merge joint export is missing its token layout")
-    coarse_modality_ids = modality_ids.index_select(0, token_merge.reduced_token_indices.long())
-    coarse_indices = torch.nonzero(coarse_modality_ids != 3).flatten()
+    coarse_indices = torch.where(keep[token_merge.reduced_token_indices.long()])[0]
     return (
         joint_output[1].index_select(3, fine_indices),
         joint_output[2].index_select(3, fine_indices),
@@ -1688,7 +1838,7 @@ def _captured_layout_record(payload: dict[str, Any]) -> dict[str, Any]:
             type(packed.attention_mask).__name__ if packed.attention_mask is not None else None
         ),
         "attention_mask_pattern": "bidirectional_video_action_full",
-        "all_tokens_valid": True,
+        "all_tokens_valid": packed.token_valid_mask is None or bool(packed.token_valid_mask.all()),
         "pad": int(packed.pad),
     }
 
@@ -1944,7 +2094,8 @@ def main() -> int:
         ) = _install_segmented_sdpa_flex_patch(
             packed.modality_ids,
             dense_mask,
-            num_cameras=model.max_n_cameras,
+            contract=contract,
+            total_camera_slot_count=model.max_n_cameras,
             action_horizon=int(model.config.action_cfg["action_horizon"]),
             latent_shape=latent_shape,
             total_latent_frames=contract.total_latent_frames,
@@ -2048,9 +2199,6 @@ def main() -> int:
                 "modality_ids",
             ]
             joint_reference_path = output_dir / "samples/joint_export_source.pt"
-            joint_extras = {}
-            if token_merge is not None:
-                joint_extras["coarse_token_idx"] = token_merge.reduced_token_indices
             _save_export_reference(
                 joint_reference_path,
                 oracle=TRANSFORMER_EXPORT_JOINT_ORACLE,
@@ -2058,7 +2206,7 @@ def main() -> int:
                 inputs=joint_inputs,
                 output_names=joint_output_names,
                 output=joint_output,
-                extras=joint_extras,
+                extras=_joint_sample_extras(joint_payload),
             )
             sample_paths["joint_export_source"] = joint_reference_path
             export = _export_onnx(
@@ -2250,7 +2398,7 @@ def main() -> int:
                 manifests["action_cached"],
             )
 
-        manifest = _runtime_manifest(args, num_cameras=model.max_n_cameras)
+        manifest = _runtime_manifest(args, contract=contract)
         manifest.update(
             {
                 "output_dir": str(output_dir),

@@ -48,7 +48,10 @@ _leapp_stub.OutputKindEnum = SimpleNamespace(JOINT_POSITION="target/joint/positi
 _leapp_stub.TensorSemantics = _TensorSemantics
 _leapp_stub.FunctionPatch = _FunctionPatch
 _leapp_stub.annotate = SimpleNamespace()
-with patch.dict(sys.modules, {"leapp": _leapp_stub}):
+# Keep transitive native imports cached; restoring the whole module map can
+# import ONNX's C++ bindings twice and abort the process.
+with pytest.MonkeyPatch.context() as _leapp_import_patch:
+    _leapp_import_patch.setitem(sys.modules, "leapp", _leapp_stub)
     from scripts.leapp import n2_export as exporter
     from scripts.leapp.n2_export import (
         _element_names,
