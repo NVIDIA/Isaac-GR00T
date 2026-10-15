@@ -247,6 +247,24 @@ class TestShardedMixtureDataset:
         total_shards = sum(len(d) for d in mixture.datasets)
         assert len(schedule) == total_shards
 
+    def test_eval_iterator_is_finite(self):
+        mixture = self._make_mixture(num_datasets=1, training=False)
+        mixture.datasets[0]._shard_length = 2
+        n = 0
+        for _ in mixture:
+            n += 1
+            if n > 1000:
+                pytest.fail("eval iterator did not stop")
+        assert n == 5 * 2
+
+    def test_eval_filter_pads_to_world_size(self):
+        mixture = self._make_mixture(num_datasets=1, training=False)
+        mixture.world_size = 4
+        mixture.rank = 0
+        filtered = mixture.filter_shard_sample_schedule()
+        assert len(mixture.shard_sampling_schedule) == 5
+        assert len(filtered) == 2
+
     def test_get_dataset_statistics(self):
         mixture = self._make_mixture()
         stats = mixture.get_dataset_statistics()
