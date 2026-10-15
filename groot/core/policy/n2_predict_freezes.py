@@ -35,6 +35,16 @@ from types import MethodType
 
 import torch
 
+from groot.core.training.configs.n2_tactile_guard import refuse_tactile_conditioning
+
+
+def validate_predict_freezes_config(config: object) -> None:
+    """Refuse tactile before loading weights or installing process-wide patches."""
+    refuse_tactile_conditioning(
+        config,
+        context="GROOT_N2_PREDICT_FREEZES=1 (disable with GROOT_N2_PREDICT_FREEZES=0)",
+    )
+
 
 def _freeze_attention_mask_builder() -> None:
     """Memoize the packer's BlockMask builder keyed on argument signature."""
@@ -151,6 +161,7 @@ def _freeze_cache_slicing(model) -> None:
 
 def install_predict_freezes(model) -> None:
     """Install all steady-state freezes on a policy-owned model instance."""
+    validate_predict_freezes_config(model.config)
     _freeze_attention_mask_builder()
     _freeze_static_geometry(model)
     _freeze_cache_slicing(model)

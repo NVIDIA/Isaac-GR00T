@@ -15,6 +15,11 @@ from typing import Any, TypedDict
 from transformers import PretrainedConfig
 
 from groot.core.training.configs.model import register_model_config
+from groot.core.training.configs.model.n2_tactile import (
+    DeformConfigArg,
+    TactileConfigArg,
+    validate_tactile_model_config,
+)
 
 # The DiT's patch_embed/proj_out shapes derive from this, so the transformer and
 # the VAE cannot disagree.
@@ -252,6 +257,10 @@ class GrootN2Config(PretrainedConfig):
     action_cfg: ActionConfig | None = None  # None = video-only (no action modules)
     # Legacy posttraining checkpoints may also persist their mapping on the model.
     embodiment_id_mapping: dict[str, int] | None = None
+    # Tactile conditioning (plain GrootN2 only); JSON flags on the command line, see
+    # n2_tactile.py.
+    tactile_cfg: TactileConfigArg = None  # None = no tactile-force conditioning
+    deform_cfg: DeformConfigArg = None  # None = no deform-map conditioning
 
     def __init__(self, **kwargs):
         if "action_cfg" in kwargs:
@@ -299,6 +308,7 @@ class GrootN2Config(PretrainedConfig):
                     f"token_merge_layers must satisfy 0 <= start < end, got {token_merge_layers}"
                 )
             kwargs["token_merge_layers"] = (int(start), int(end))
+        validate_tactile_model_config(kwargs, exact_groot_n2=type(self) is GrootN2Config)
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)

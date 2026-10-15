@@ -30,7 +30,6 @@ from groot.core.data.schema import EmbodimentTag
 from groot.core.policy.base import BasePolicy
 from groot.core.policy.gr00t_policy import Gr00tPolicy
 from groot.core.policy.server_client import PolicyClient
-from groot.core.training.open_loop.action_horizon import resolve_action_horizon
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
@@ -140,7 +139,8 @@ def parse_observation_gr00t(
     obs: dict[str, Any], modality_configs: dict[str, Any]
 ) -> dict[str, Any]:
     new_obs = {}
-    for modality in ["video", "state", "language"]:
+    tactile_groups = [group for group in ("tactile", "deform") if group in modality_configs]
+    for modality in ["video", "state", "language", *tactile_groups]:
         new_obs[modality] = {}
         for key in modality_configs[modality].modality_keys:
             if modality == "language":
@@ -167,7 +167,7 @@ def evaluate_single_trajectory(
     traj_id: int,
     embodiment_tag: EmbodimentTag,
     steps=300,
-    action_horizon: int | None = 16,
+    action_horizon=16,
     save_plot_path=None,
     save_plot: bool = True,
     control_freq: int = 20,
@@ -200,8 +200,6 @@ def evaluate_single_trajectory(
     diffusion / flow-matching action heads this is automatic).
 
     Args:
-        action_horizon: Steps consumed per predicted chunk. Defaults to 16 for
-            compatibility; explicitly pass None to derive from the checkpoint.
         enable_frechet: If True, compute the per-window 2-Wasserstein
             (Bures / Fréchet) distance between the empirical Gaussians of
             the predicted and ground-truth action sequences. Effectively
@@ -220,8 +218,6 @@ def evaluate_single_trajectory(
             (e.g. the dataset-level per-dim Wasserstein). No effect on the
             returned per-window dict.
     """
-    action_horizon = resolve_action_horizon(loader.modality_configs, action_horizon)
-
     # Ensure steps doesn't exceed trajectory length
     traj = loader[traj_id]
     traj_length = len(traj)
@@ -268,6 +264,9 @@ def evaluate_single_trajectory(
             obs[f"state.{k}"] = v  # (T, D)
         for k, v in data_point.images.items():
             obs[f"video.{k}"] = np.array(v)  # (T, H, W, C)
+        for group in ("tactile", "deform"):
+            for k, v in getattr(data_point, group).items():
+                obs[f"{group}.{k}"] = np.array(v)  # tactile (T, 6); deform (T, H, W[, C])
         for language_key in loader.modality_configs["language"].modality_keys:
             obs[language_key] = data_point.text
         parsed_obs = parse_observation_gr00t(obs, loader.modality_configs)
@@ -577,8 +576,8 @@ class ArgsConfig:
     traj_ids: list[int] = field(default_factory=lambda: [0])
     """List of trajectory IDs to evaluate."""
 
-    action_horizon: int | None = 16
-    """Action horizon to evaluate. Defaults to 16; pass None to follow the checkpoint."""
+    action_horizon: int = 16
+    """Action horizon to evaluate."""
 
     video_backend: Literal["decord", "torchvision_av", "torchcodec"] = "torchcodec"
     """Video backend to use for various codec options. h264: decord or av: torchvision_av"""
@@ -754,12 +753,6 @@ def main(args: ArgsConfig):
     else:
         policy = PolicyClient(address=f"tcp://{args.host}:{args.port}")
 
-    # Get the supported modalities for the policy
-    modality = policy.get_modality_config()
-    logging.info(f"Current modality config: \n{modality}")
-    action_horizon = resolve_action_horizon(modality, args.action_horizon)
-    logging.info(f"Action horizon: {action_horizon} (configured: {args.action_horizon})")
-
     # Apply RTC wrapper if needed
     if args.use_rtc_wrapper:
         # Gr00tRTCPolicyWrapper has not been migrated to groot.core yet.
@@ -768,9 +761,13 @@ def main(args: ArgsConfig):
         policy = Gr00tRTCPolicyWrapper(
             policy,
             args.control_freq,
-            action_horizon=action_horizon,  # NOTE: this should be the max action horizon of the model
+            action_horizon=args.action_horizon,  # NOTE: this should be the max action horizon of the model
             denoising_steps=args.denoising_steps,
         )
+
+    # Get the supported modalities for the policy
+    modality = policy.get_modality_config()
+    logging.info(f"Current modality config: \n{modality}")
 
     # Create the dataset
     dataset = LeRobotEpisodeLoader(
@@ -849,7 +846,7 @@ def main(args: ArgsConfig):
             traj_id,
             args.embodiment_tag,
             steps=args.steps,
-            action_horizon=action_horizon,
+            action_horizon=args.action_horizon,
             save_plot_path=args.save_plot_path,
             control_freq=args.control_freq,
             use_rtc_wrapper=args.use_rtc_wrapper,

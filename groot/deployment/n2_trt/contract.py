@@ -398,6 +398,10 @@ class N2TensorRTContract:
         model_type = _require_string(model, "model_type")
         if model_type != "GrootN2":
             raise ValueError(f"checkpoint is not GrootN2: {model_type!r}")
+        # The engines have no inputs for the tactile/deform token groups.
+        tactile = [name for name in ("tactile_cfg", "deform_cfg") if model.get(name) is not None]
+        if tactile:
+            raise ValueError(f"TensorRT does not support tactile/deform checkpoints ({tactile})")
         model_size = _require_string(model, "model_size")
         model_dtype = _require_string(model, "model_dtype")
         vae_type = resolve_checkpoint_vae_type(model)

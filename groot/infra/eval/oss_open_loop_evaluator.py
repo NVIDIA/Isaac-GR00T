@@ -21,7 +21,6 @@ from pathlib import Path
 import re
 from typing import Any
 
-from groot.core.training.open_loop.action_horizon import resolve_action_horizon
 from groot.core.utils.storage.msc import HF_MODEL_URI_PREFIX
 from groot.core.utils.storage.msc import resolve_model_path as resolve_portable_model_path
 from groot.infra.eval.eval_report import EvalReport
@@ -156,12 +155,6 @@ class OssOpenLoopEvaluator:
         from groot.core.training.open_loop.open_loop_eval import evaluate_single_trajectory
 
         modality = self.modality_config_from_policy(policy)
-        action_horizon = resolve_action_horizon(modality, self.config.action_horizon)
-        logging.info(
-            "Open-loop action horizon: %d (configured: %s)",
-            action_horizon,
-            self.config.action_horizon,
-        )
         loader = LeRobotEpisodeLoader(
             dataset_path=str(dataset_path),
             modality_configs=modality,
@@ -189,7 +182,7 @@ class OssOpenLoopEvaluator:
                 traj_id=traj_id,
                 embodiment_tag=embodiment_tag,
                 steps=self.config.steps,
-                action_horizon=action_horizon,
+                action_horizon=self.config.action_horizon,
                 save_plot_path=save_plot_path,
                 enable_frechet=True,
                 enable_reverse_kl=False,
@@ -279,14 +272,6 @@ class OssOpenLoopEvaluator:
         results: dict[str, MetricSummary] = {}
         local_policy = self.make_local_policy(artifacts.model_path)
         try:
-            # Resolved here rather than returned by evaluate_policy, whose
-            # MetricSummary-only return the GPU and transport tests replace wholesale.
-            # The report takes the local policy's value; the server path resolves
-            # against its own chunk, so a pinned horizon one of them cannot answer
-            # raises there rather than being scored at two different depths.
-            action_horizon = resolve_action_horizon(
-                self.modality_config_from_policy(local_policy), self.config.action_horizon
-            )
             results["local"] = self.evaluate_policy(local_policy, artifacts.dataset_path)
         finally:
             self.close_policy(local_policy)
@@ -304,7 +289,7 @@ class OssOpenLoopEvaluator:
             artifacts=artifacts,
             traj_ids=self.config.traj_ids,
             steps=self.config.steps,
-            action_horizon=action_horizon,
+            action_horizon=self.config.action_horizon,
             results=results,
         )
         output_path = Path(self.config.output_json)

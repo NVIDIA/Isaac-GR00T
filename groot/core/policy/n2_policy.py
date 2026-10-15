@@ -270,6 +270,7 @@ class Gr00tN2Policy(Gr00tPolicy):
         # Import to register the N2 model (pipeline setup runs AutoModel
         # registration as a side effect).
         import groot.core.training.models.n2
+        from groot.core.training.models.n2.tactile import guards as tactile_guards
 
         # Internal builds include this package for GrootN2RL AutoModel registration,
         # while the curated OSS package intentionally excludes RL models. Suppress
@@ -332,6 +333,13 @@ class Gr00tN2Policy(Gr00tPolicy):
         # Inference immediately unwraps the base actor. Normalize only the in-memory load config;
         # the checkpoint remains an immutable record of the training recipe that produced it.
         model_config = _normalize_n2rl_config_for_inference(model_config)
+        # Tactile/deform checkpoints serve eager only; refuse before loading.
+        tactile_guards.refuse_inference_acceleration(model_config, acceleration)
+        self.predict_freezes = _env_bool("GROOT_N2_PREDICT_FREEZES", default=False)
+        if self.predict_freezes:
+            from groot.core.policy.n2_predict_freezes import validate_predict_freezes_config
+
+            validate_predict_freezes_config(model_config)
         model = transformers.AutoModel.from_pretrained(model_dir, config=model_config)
         # GrootN2RL actor checkpoints only wrap the base GrootN2 actor; inference
         # uses the inner model's predict/vae/decode_latents APIs directly.
@@ -422,6 +430,7 @@ class Gr00tN2Policy(Gr00tPolicy):
 
         self.embodiment_tag = embodiment_tag
         self.modality_configs = self._load_modality_configs()
+        tactile_guards.check_policy_modalities(self.model.config, self.modality_configs)
         self.collate_fn = self.processor.collator
 
         language_keys = self.modality_configs["language"].modality_keys
@@ -430,7 +439,6 @@ class Gr00tN2Policy(Gr00tPolicy):
         # Memoize per-predict-invariant constructions (BlockMask, RoPE geometry,
         # cache-slice index) on this policy-owned model instance.
         # Off by default; see n2_predict_freezes for the fixed-config contract.
-        self.predict_freezes = _env_bool("GROOT_N2_PREDICT_FREEZES", default=False)
         if self.predict_freezes:
             from groot.core.policy.n2_predict_freezes import install_predict_freezes
 
