@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import contextlib
 import gc
+import importlib
 import io
 import logging
 import os
@@ -250,18 +251,20 @@ def _verify_runtime_mode(
     ]
     record_property(f"public_command_{label}", "python -m " + " ".join(command))
     output = io.StringIO()
-    # Use module execution to preserve the verifier's relative imports.
+    # A normal import preserves relative imports and registers VerifyConfig's
+    # module for tyro/inspect source lookup; runpy leaves it unregistered.
     try:
         with contextlib.redirect_stdout(output), _truncated_policy():
             monkeypatch.setattr(sys, "argv", command)
-            runpy.run_module("scripts.deployment.trt.verify_n1d7_trt", run_name="__main__")
+            verifier = importlib.import_module("scripts.deployment.trt.verify_n1d7_trt")
+            cosine = verifier.main()
     finally:
         # Preserve diagnostics even when a dtype/shape boundary raises.
         Path(engine_dir).parent.joinpath(f"verify-{label}.log").write_text(output.getvalue())
-    log = output.getvalue()
-    matches = re.findall(r"Cosine Similarity:\s*([0-9.]+)", log)
-    assert matches, f"{label}: verifier must report final-action cosine"
-    _assert_action_cosine(float(matches[-1]), label, record_property)
+    # Pytest's live logging can resume FD capture while the verifier runs and
+    # replace redirect_stdout's stream. Check the verifier's numerical result;
+    # console formatting/capture must not determine whether inference is correct.
+    _assert_action_cosine(cosine, label, record_property)
 
 
 # ---------------------------------------------------------------------------
