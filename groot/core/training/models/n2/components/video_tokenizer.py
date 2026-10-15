@@ -18,6 +18,8 @@ Does NOT own RoPE — that lives on GrootN2 alongside action_rope/state_rope so
 the SequencePacker can concatenate all modalities' RoPE uniformly.
 """
 
+import dataclasses
+
 import torch
 from torch import nn
 from torchvision import transforms
@@ -37,8 +39,34 @@ class VideoTokenizer(nn.Module):
     Does NOT own RoPE — that lives on GrootN2 as video_rope.
     """
 
-    def __init__(self, config: CosmosTransformerConfig):
+    def __init__(
+        self,
+        config: CosmosTransformerConfig,
+        bottleneck_kernel: tuple[int, int, int] | None = None,
+    ):
         super().__init__()
+        self.base_patch_size = config.patch_size
+        self.bottleneck_kernel = bottleneck_kernel
+        if bottleneck_kernel is not None:
+            if (
+                not isinstance(bottleneck_kernel, list | tuple)
+                or len(bottleneck_kernel) != 3
+                or any(type(size) is not int or size < 1 for size in bottleneck_kernel)
+            ):
+                raise ValueError("bottleneck_kernel must contain three positive integers")
+            if bottleneck_kernel[0] != 1:
+                raise ValueError("bottleneck_kernel must be spatial-only: (1, kh, kw)")
+            config = dataclasses.replace(
+                config,
+                patch_size=tuple(
+                    patch * bottleneck
+                    for patch, bottleneck in zip(config.patch_size, bottleneck_kernel, strict=True)
+                ),
+            )
+            if config.extra_pos_embed_type == "learnable":
+                raise NotImplementedError(
+                    "vae_bottleneck_kernel does not resample learnable positional tables"
+                )
         self.config = config
         hidden_size = config.num_attention_heads * config.attention_head_dim
 
@@ -67,6 +95,92 @@ class VideoTokenizer(nn.Module):
             * config.patch_size[2]
             * config.out_channels,
             bias=False,
+        )
+
+        if bottleneck_kernel is not None:
+            base_patch_embed = CosmosPatchEmbed(
+                patch_in_ch, hidden_size, self.base_patch_size, bias=False
+            )
+            base_proj_out = nn.Linear(
+                hidden_size,
+                self.base_patch_size[0]
+                * self.base_patch_size[1]
+                * self.base_patch_size[2]
+                * config.out_channels,
+                bias=False,
+            )
+            with torch.no_grad():
+                self.patch_embed.proj.weight.copy_(
+                    self._expand_patch_embed_weight(base_patch_embed.proj.weight)
+                )
+                self.proj_out.weight.copy_(self._expand_proj_out_weight(base_proj_out.weight))
+
+    def _expand_patch_embed_weight(self, weight: torch.Tensor) -> torch.Tensor:
+        if self.bottleneck_kernel is None:
+            return weight
+        p_t, p_h, p_w = self.base_patch_size
+        k_t, k_h, k_w = self.bottleneck_kernel
+        in_channels = weight.shape[1] // (p_t * p_h * p_w)
+        # Expand in fp32: bf16 intermediates lose uniform-block equivalence.
+        dtype = weight.dtype
+        weight = weight.float().unflatten(1, (in_channels, p_t, p_h, p_w))
+        # Preserve the block mean and encode within-block deviations in distinct
+        # channel-rolled directions, matching the upstream bottleneck warm start.
+        num_sub = k_t * k_h * k_w
+        hidden = weight.shape[0]
+        shifts = [(i + 1) * (hidden // (num_sub + 1)) for i in range(num_sub)]
+        rolled = torch.stack([weight.roll(s, dims=0) for s in shifts])
+        blocks = (weight + rolled - rolled.mean(0)) / num_sub
+        blocks = blocks.unflatten(0, (k_t, k_h, k_w))
+        blocks = blocks.permute(3, 4, 0, 5, 1, 6, 2, 7)
+        return (
+            blocks.reshape(hidden, in_channels, k_t * p_t, k_h * p_h, k_w * p_w)
+            .flatten(1)
+            .to(dtype)
+        )
+
+    def _expand_proj_out_weight(self, weight: torch.Tensor) -> torch.Tensor:
+        if self.bottleneck_kernel is None:
+            return weight
+        p_t, p_h, p_w = self.base_patch_size
+        k_t, k_h, k_w = self.bottleneck_kernel
+        out_channels = weight.shape[0] // (p_t * p_h * p_w)
+        weight = weight.unflatten(0, (p_h, p_w, p_t, out_channels))
+        return weight.repeat(k_h, k_w, k_t, 1, 1).flatten(0, 3)
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        if self.bottleneck_kernel is not None:
+            k_t, k_h, k_w = self.bottleneck_kernel
+            num_sub = k_t * k_h * k_w
+            patch_key = f"{prefix}patch_embed.proj.weight"
+            patch_shape = self.patch_embed.proj.weight.shape
+            out_key = f"{prefix}proj_out.weight"
+            out_shape = self.proj_out.weight.shape
+            # Expand only base-geometry tensors. Already-trained bottleneck
+            # weights pass through unchanged; other mismatches remain errors.
+            if (
+                patch_key in state_dict
+                and state_dict[patch_key].shape == (patch_shape[0], patch_shape[1] // num_sub)
+                and state_dict[patch_key].shape != patch_shape
+            ):
+                state_dict[patch_key] = self._expand_patch_embed_weight(state_dict[patch_key])
+            if (
+                out_key in state_dict
+                and state_dict[out_key].shape == (out_shape[0] // num_sub, out_shape[1])
+                and state_dict[out_key].shape != out_shape
+            ):
+                state_dict[out_key] = self._expand_proj_out_weight(state_dict[out_key])
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
         )
 
     def patchify(
@@ -101,7 +215,8 @@ class VideoTokenizer(nn.Module):
         hidden_states = torch.cat([hidden_states, pm.unsqueeze(2).repeat(B, 1, T, 1, 1)], dim=1)
 
         # 3. View embeddings
-        if self.view_embed is not None and n_cameras > 1:
+        # patch_embed reserves these channels even for a single camera.
+        if self.view_embed is not None:
             T_per_view = T // n_cameras
             view_ids = torch.arange(n_cameras, device=hidden_states.device).repeat_interleave(
                 T_per_view
