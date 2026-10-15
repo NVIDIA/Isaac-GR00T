@@ -24,10 +24,3 @@ def env_bool(name: str, *, default: bool) -> bool:
     if value in ("0", "false", "no", "n", "off"):
         return False
     raise ValueError(f"{name}={raw!r} is not a boolean (expected 1/0/true/false/yes/no)")
-
-
-def env_bool_optional(name: str) -> bool | None:
-    """Parse a Boolean environment setting, or return ``None`` when it is unset."""
-    if os.environ.get(name) is None:
-        return None
-    return env_bool(name, default=False)

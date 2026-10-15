@@ -136,10 +136,6 @@ class VLAStepData:
     # Flexible metadata that can be extended by users
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    # Tactile sensing (GrootN2 tactile_cfg / deform_cfg); empty for every other embodiment.
-    tactile: dict[str, np.ndarray] = field(default_factory=dict)  # finger_key -> (T, 6) force
-    deform: dict[str, list[np.ndarray]] = field(default_factory=dict)  # like images
-
     def __post_init__(self, text: str | None):
         if text is not None:
             self._text = text

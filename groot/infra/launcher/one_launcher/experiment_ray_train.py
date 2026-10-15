@@ -22,7 +22,6 @@ from typing import Any
 import yaml
 
 from groot.core.training.configs.training.training_config import TrainingConfig
-from groot.infra.launcher.json_cli import serialize_json_value
 from groot.infra.launcher.one_launcher.training_experiment_resolver import (
     TrainingExperimentResolver,
 )
@@ -227,20 +226,7 @@ class ExperimentRayTrainCommand:
             model_overrides.append((key_path, value))
         args: list[str] = []
         for key_path, value in model_overrides:
-            # These N2 TypedDict fields use flat JSON tyro constructors, not
-            # nested CLI options. Expand paths before serializing the mapping.
-            if key_path.replace("-", "_") in {"tactile_cfg", "deform_cfg"} and isinstance(
-                value, dict
-            ):
-                args.extend(
-                    [
-                        f"--model.{key_path}",
-                        serialize_json_value(
-                            value, lambda item: self.expand_placeholders(item, values)
-                        ),
-                    ]
-                )
-            elif isinstance(value, dict):
+            if isinstance(value, dict):
                 args.extend(self.model_mapping_args(value, values, key_path))
             else:
                 args.extend(self.flag_args(f"--model.{key_path}", value, values))

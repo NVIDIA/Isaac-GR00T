@@ -39,7 +39,6 @@ import pyarrow as pa
 import structlog
 
 from groot.core.data import types as data_types
-from groot.core.data.dataset.tactile_modality_meta import derive_tactile_modality_meta
 from groot.core.data.hydrator import client_protocol, exceptions, service
 from groot.core.data.hydrator import types as hydrator_types
 from groot.core.utils.distributed import worker_logging
@@ -57,14 +56,10 @@ LEROBOT_MODALITY_FILENAME = "modality.json"
 LEROBOT_STATS_FILE_NAME = "stats.json"
 LEROBOT_RELATIVE_STATS_FILE_NAME = "relative_stats.json"
 
-ALLOWED_MODALITIES = ["video", "state", "action", "language", "rl_info", "tactile", "deform"]
-# Modalities decoded from video files. "deform" (per-fingertip deform maps) is decoded like
-# "video" but kept a separate modality so it never enters the Wan-VAE video path.
-VIDEO_DECODED_MODALITIES = ["video", "deform"]
+ALLOWED_MODALITIES = ["video", "state", "action", "language", "rl_info"]
 DEFAULT_COLUMN_NAMES = {
     "state": "observation.state",
     "action": "action",
-    "tactile": "observation.state",  # per-finger F6 slices of the state vector
 }
 
 
@@ -176,11 +171,6 @@ class LeRobotEpisodeLoader:
 
         # Set up modality configs after metadata is loaded
         self.modality_configs = self._parse_and_validate_modality_configs(modality_configs)
-        # Tactile datasets keep F6 under "state" and the deform videos under "video" in
-        # modality.json; derive the requested tactile/deform groups from those.
-        derive_tactile_modality_meta(
-            self.modality_meta, self.modality_configs, dataset_path=self._dataset_path_str
-        )
 
         # Compute effective episode lengths accounting for action horizon
         self.episode_lengths = self.get_episode_lengths()
@@ -402,10 +392,9 @@ class LeRobotEpisodeLoader:
                     )
                 exprs.append(self._language_expr(original_key, f"language.{key}", raw_pl))
 
-        # State / action / tactile: slice the source vector into per-joint-group pl.Array
-        # columns (tactile = per-finger F6 slices of the state vector). Cast through pl.List
-        # so this works whether the source is List or Array.
-        for modality_type in ("state", "action", "tactile"):
+        # State / action: slice the source vector into per-joint-group pl.Array columns.
+        # Cast through pl.List so this works whether the source is List or Array.
+        for modality_type in ("state", "action"):
             if modality_type not in self.modality_configs:
                 continue
             modality_info = self.modality_meta.get(modality_type, {})
@@ -451,9 +440,7 @@ class LeRobotEpisodeLoader:
 
         return raw_pl.select(exprs)
 
-    def _load_video_data(
-        self, episode_index: int, indices: np.ndarray, modality: str = "video"
-    ) -> dict[str, np.ndarray]:
+    def _load_video_data(self, episode_index: int, indices: np.ndarray) -> dict[str, np.ndarray]:
         """Load video data for all configured camera views at specified indices.
 
         Uses the configured video backend to decode video frames at the exact indices
@@ -462,26 +449,24 @@ class LeRobotEpisodeLoader:
         Args:
             episode_index: Index of the episode to load videos for
             indices: Array of indices to extract frames at
-            modality: A video-decoded modality ("video" or "deform")
 
         Returns:
-            Dictionary mapping camera view names to arrays of decoded frames.
-            Deform streams retain only contiguous uint8 channel-zero maps.
+            Dictionary mapping camera view names to arrays of decoded frames
 
         Raises:
             FileNotFoundError: If a video file for this episode does not exist
         """
         video_data = {}
 
-        if not self.video_path_pattern or modality not in self.modality_configs:
+        if not self.video_path_pattern or "video" not in self.modality_configs:
             return video_data
 
         chunk_idx = episode_index // self.chunk_size
-        image_keys = self.modality_configs[modality].modality_keys
+        image_keys = self.modality_configs["video"].modality_keys
 
         for image_key in image_keys:
             # Resolve the original key used in video file naming
-            original_key = self._resolve_video_original_key(image_key, modality)
+            original_key = self._resolve_video_original_key(image_key)
             assert (
                 original_key in self.feature_config
             ), f"Original key {original_key} not found in feature config"
@@ -504,43 +489,36 @@ class LeRobotEpisodeLoader:
                 path_for_decode = str(self._path / video_filename)
 
             # Decode video frames at specified timestamps
-            frames = video_utils.get_frames_by_indices(
+            video_data[image_key] = video_utils.get_frames_by_indices(
                 path_for_decode,
                 indices,
                 video_backend=self.video_backend,
                 video_backend_kwargs=self.video_backend_kwargs or {},
                 resample_on_invalid_frames=self.resample_on_invalid_frames,
             )
-            if modality == "deform":
-                # Compact each stream before decoding the next: a channel view alone
-                # keeps the entire RGB episode alive through the Polars frame views.
-                frames = np.ascontiguousarray(frames[..., 0] if frames.ndim == 4 else frames)
-            video_data[image_key] = frames
 
         return video_data
 
-    def _resolve_video_original_key(self, image_key: str, modality: str = "video") -> str:
+    def _resolve_video_original_key(self, image_key: str) -> str:
         """Use the canonical feature name when modality.json omits a video alias."""
         canonical_key = f"observation.images.{image_key}"
-        image_meta = self.modality_meta.get(modality, {}).get(image_key, {})
+        image_meta = self.modality_meta.get("video", {}).get(image_key, {})
         return image_meta.get("original_key", canonical_key)
 
-    def _get_video_paths_for_episodes(
-        self, episode_indices: list[int], modality: str = "video"
-    ) -> list[str]:
+    def _get_video_paths_for_episodes(self, episode_indices: list[int]) -> list[str]:
         """Return all video file paths (remote or local) needed for the given episodes, deduplicated.
 
         One path per configured camera view per episode. Use for prefetching via
         hydrator.register_files().
         """
-        if not self.video_path_pattern or modality not in self.modality_configs:
+        if not self.video_path_pattern or "video" not in self.modality_configs:
             return []
         paths_set: set[str] = set()
-        image_keys = self.modality_configs[modality].modality_keys
+        image_keys = self.modality_configs["video"].modality_keys
         for ep_idx in episode_indices:
             chunk_idx = ep_idx // self.chunk_size
             for image_key in image_keys:
-                original_key = self._resolve_video_original_key(image_key, modality)
+                original_key = self._resolve_video_original_key(image_key)
                 if original_key not in self.feature_config:
                     continue
                 video_filename = self.video_path_pattern.format(
@@ -563,11 +541,7 @@ class LeRobotEpisodeLoader:
         """
         if self._hydrator is None:
             return
-        paths = [
-            path
-            for modality in VIDEO_DECODED_MODALITIES
-            for path in self._get_video_paths_for_episodes(episode_indices, modality)
-        ]
+        paths = self._get_video_paths_for_episodes(episode_indices)
         self._worker_log.info(
             "[REGISTER_VIDEO] start n_episodes=%s n_paths=%s",
             len(episode_indices),
@@ -585,11 +559,7 @@ class LeRobotEpisodeLoader:
         """
         if self._hydrator is None:
             return
-        paths = [
-            path
-            for modality in VIDEO_DECODED_MODALITIES
-            for path in self._get_video_paths_for_episodes(episode_indices, modality)
-        ]
+        paths = self._get_video_paths_for_episodes(episode_indices)
         if paths:
             self._hydrator.release_files(paths)
 
@@ -667,22 +637,6 @@ class LeRobotEpisodeLoader:
             episode_df = episode_df.with_columns(
                 pl.Series(f"video.{key}", list(frames), dtype=pl.Object)
             )
-
-        # Deform maps decode like video but land in their own "deform.*" columns.
-        if "deform" in self.modality_configs:
-            t0 = time.time()
-            deform_data = self._load_video_data(
-                episode_id, np.arange(actual_length), modality="deform"
-            )
-            video_ms += round((time.time() - t0) * 1000, 2)
-            for key, frames in deform_data.items():
-                assert len(frames) == actual_length, (
-                    f"Deform data for {key} has length {len(frames)} "
-                    f"but episode has {actual_length} frames"
-                )
-                episode_df = episode_df.with_columns(
-                    pl.Series(f"deform.{key}", list(frames), dtype=pl.Object)
-                )
 
         if self.filter is not None:
             filter_meta = {**episode_meta, "modality_configs": self.modality_configs}

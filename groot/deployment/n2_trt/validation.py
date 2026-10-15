@@ -22,43 +22,20 @@ import torch
 
 from groot.deployment.n2_trt.artifacts import resolve_checkpoint_vae_weights
 from groot.deployment.n2_trt.contract import N2TensorRTContract
-from groot.deployment.n2_trt.gate_evidence import (
-    GATE_EVIDENCE_FILENAME,
-    GateEvidence,
-    GateEvidenceError,
-    gate_evidence_policy_for,
-)
-from groot.deployment.n2_trt.golden import (
-    EQUIVALENCE_POLICY,
-    GOLDEN_OUTPUTS_MANIFEST,
-    GOLDEN_OUTPUTS_SCHEMA,
-    GOLDEN_SIDECAR_FILENAME,
-    GoldenRecord,
-    checkpoint_identity,
-    checkpoint_identity_matches,
-    entry_distances,
-    envelope_provenance_matches,
-    judge_entry,
-    load_record,
-    package_sha256,
-    read_golden_sidecar,
-    runtime_envelope_identity,
-    verify_package_files,
-)
 from groot.deployment.n2_trt.manifest import (
-    ADMISSION_GOLDEN,
     BUILD_FILENAME,
     BUILD_SCHEMA,
-    COND_CACHED_ENGINE_ROLE,
     MANIFEST_FILENAME,
     TRANSFORMER_EAGER_ORACLE,
     TRANSFORMER_EXPORT_ACTION_ORACLE,
-    TRANSFORMER_EXPORT_JOINT_COND_ORACLE,
     TRANSFORMER_EXPORT_JOINT_ORACLE,
     VAE_EAGER_ORACLE,
     VALIDATION_FILENAME,
     VALIDATION_POLICY,
+    VALIDATION_POLICY_SHA256,
     VALIDATION_PROFILE_THRESHOLDS,
+    VALIDATION_SAMPLE_PATHS,
+    VALIDATION_SCHEMA,
     ArtifactRecord,
     BuildSettings,
     EngineManifest,
@@ -67,22 +44,9 @@ from groot.deployment.n2_trt.manifest import (
     TensorSpec,
     canonical_sha256,
     checkpoint_file_hashes,
-    gating_parity_gates,
-    golden_validation_policy_for,
-    normalize_build_settings_payload,
-    required_engine_roles,
-    required_parity_gates,
     sha256_file,
-    transformer_export_action_oracle,
-    validation_policy_for,
-    validation_sample_paths,
 )
 from groot.deployment.n2_trt.runtime import N2TensorTrtRunner
-from groot.deployment.n2_trt.tools.inspect_engines import (
-    EngineInspectionError,
-    census_check,
-    require_current_sidecar,
-)
 
 PROFILES = VALIDATION_PROFILE_THRESHOLDS
 
@@ -354,127 +318,6 @@ def _composed_action_gate(
     )
 
 
-def _conditioning_query_positions(sample: dict[str, Any]) -> torch.Tensor:
-    """Positions the conditioning-cached engine runs as queries: every non-frozen token."""
-    keep = torch.ones(int(sample["modality_ids"].shape[1]), dtype=torch.bool)
-    keep[sample["cond_index"].long()] = False
-    return torch.nonzero(keep).flatten()
-
-
-def _reduce_conditioning_production_sample(sample: dict[str, Any]) -> dict[str, Any]:
-    """Bind a full-layout eager capture of a frozen-prefix joint step to the engine's ABI.
-
-    Production captures keep the model's full layout; the engine sees only the query
-    tokens, takes the frozen prefix as inputs, and returns the query tokens' fresh K/V.
-    """
-    for name in ("cond_index", "cond_key", "cond_value", "kv_cache_key", "kv_cache_value"):
-        if name not in sample:
-            raise KeyError(f"conditioning-cached production sample is missing {name!r}")
-    query = _conditioning_query_positions(sample)
-    return {
-        **sample,
-        "latents": sample["latents"].index_select(1, query),
-        "timesteps": sample["timesteps"].index_select(1, query),
-        "rope_cos": sample["rope_cos"].index_select(0, query),
-        "rope_sin": sample["rope_sin"].index_select(0, query),
-        "modality_ids": sample["modality_ids"].index_select(1, query),
-        "output": sample["output"].index_select(1, query),
-        "kv_key": sample["kv_cache_key"].index_select(3, query),
-        "kv_value": sample["kv_cache_value"].index_select(3, query),
-    }
-
-
-def _joint_cond_gates(
-    engine: Path,
-    sample_path: Path,
-    *,
-    expected_oracle: str = TRANSFORMER_EXPORT_JOINT_COND_ORACLE,
-    runner: N2TensorTrtRunner | None = None,
-) -> tuple[dict[str, Any], dict[str, Any], N2TensorTrtRunner, dict[str, Any]]:
-    sample = _load_sample(sample_path)
-    _require_oracle(sample, expected_oracle)
-    if expected_oracle == TRANSFORMER_EAGER_ORACLE:
-        sample = _reduce_conditioning_production_sample(sample)
-    runner = runner or N2TensorTrtRunner(str(engine))
-    _run(runner, _runner_inputs(runner, sample))
-    hidden = _compare(runner.outputs["output"].clone(), sample["output"], profile="joint_hidden")
-    components = {
-        name: _compare(runner.outputs[name].clone(), sample[name], profile="bf16")
-        for name in ("kv_key", "kv_value")
-    }
-    kv_diagnostics = {
-        "fresh": {
-            "passed": all(record["passed"] for record in components.values()),
-            "components": components,
-        }
-    }
-    return hidden, kv_diagnostics, runner, sample
-
-
-def _composed_cond_gate(
-    *,
-    joint_runner: N2TensorTrtRunner,
-    joint_sample: dict[str, Any],
-    cond_runner: N2TensorTrtRunner,
-    cond_sample: dict[str, Any],
-) -> dict[str, Any]:
-    """Run the conditioning-cached engine on the joint engine's own conditioning K/V."""
-    inputs = _runner_inputs(cond_runner, cond_sample)
-    cond_index = cond_sample["cond_index"].long()
-    for cond_name, joint_name, native_name in (
-        ("cond_key", "output2", "kv_cache_key"),
-        ("cond_value", "output3", "kv_cache_value"),
-    ):
-        joint_sample_name = joint_name if joint_name in joint_sample else native_name
-        source = joint_sample[joint_sample_name].index_select(3, cond_index)
-        if not torch.equal(source, cond_sample[cond_name]):
-            raise RuntimeError(
-                f"joint/conditioning-cached samples are not one matched prefix pair: {cond_name}"
-            )
-        joint_output = joint_runner.outputs[joint_name]
-        inputs[cond_name] = joint_output.index_select(
-            3, cond_index.to(device=joint_output.device)
-        ).clone()
-    _run(cond_runner, inputs)
-    return _compare(
-        cond_runner.outputs["output"].clone(), cond_sample["output"], profile="joint_hidden"
-    )
-
-
-def _composed_action_gate_or_diagnostic(*, gating: bool, **kwargs: Any) -> dict[str, Any]:
-    """Run the composed gate; its sample-pairing precondition aborts only when the gate gates.
-
-    A mixed bundle exports its BF16 action graph (and that graph's export sample) before
-    calibration from the BF16 joint's KV output, and its quantized joint graph after, so the
-    two EXPORT samples are not one matched pair by construction. Over a quantized joint the
-    composed gate is a diagnostic, and the receipt records it as unavailable instead of
-    aborting the admission; a BF16 contract keeps the hard failure.
-    """
-    try:
-        return _composed_action_gate(**kwargs)
-    except RuntimeError as error:
-        if gating:
-            raise
-        return {
-            "shape": None,
-            "actual_dtype": None,
-            "expected_dtype": None,
-            "dtype_match": None,
-            "actual_finite": None,
-            "expected_finite": None,
-            "finite": None,
-            "max_abs": None,
-            "relative_rmse": None,
-            "cosine": None,
-            "profile": "composed_action",
-            "thresholds": PROFILES["composed_action"],
-            "gating_metrics": VALIDATION_POLICY["gating_metrics"]["composed_action"],
-            "diagnostic_metrics": ["max_abs"],
-            "unavailable": str(error),
-            "passed": False,
-        }
-
-
 def _vae_gate(engine: Path, sample_path: Path) -> dict[str, Any]:
     sample = _load_sample(sample_path)
     _require_oracle(sample, VAE_EAGER_ORACLE)
@@ -603,263 +446,6 @@ def _validated_runtime_identity(build: dict[str, Any]) -> RuntimeIdentity:
     return validator_runtime
 
 
-def _cpu_outputs(runner: N2TensorTrtRunner) -> dict[str, torch.Tensor]:
-    return {name: tensor.detach().clone().cpu() for name, tensor in runner.outputs.items()}
-
-
-def _action_inputs_from_kv(
-    action_runner: N2TensorTrtRunner,
-    action_sample: dict[str, Any],
-    key: torch.Tensor,
-    value: torch.Tensor,
-    static: torch.Tensor,
-) -> dict[str, torch.Tensor]:
-    """The action engine's inputs with its cached K/V taken from a joint step's full layout."""
-    inputs = _runner_inputs(action_runner, action_sample)
-    if "kv_cache_key" not in action_runner.inputs:
-        raise RuntimeError("golden equivalence covers dense (non-token-merge) action engines only")
-    inputs["kv_cache_key"] = key.index_select(3, static.to(device=key.device)).clone()
-    inputs["kv_cache_value"] = value.index_select(3, static.to(device=value.device)).clone()
-    return inputs
-
-
-def golden_entry_outputs(
-    engine_paths: dict[str, Path], sample_paths: dict[str, Path], *, cond_kv_freeze: bool
-) -> dict[str, dict[str, torch.Tensor]]:
-    """Run every role and composition of a bundle on the package's export samples.
-
-    The same function produces a package's canonical outputs when it is published and a
-    rebuilt bundle's outputs when it is admitted, so equivalence compares like with like:
-    each engine on its export-source sample, the joint's K/V fed into the action engine
-    (``joint_to_action``) and, for a conditioning-cached bundle, the joint's conditioning K/V
-    fed into the conditioning-cached engine whose fresh K/V rebuild the full layout the action
-    engine then consumes (``joint_cond_to_action``) -- the served step order.
-    """
-    outputs: dict[str, dict[str, torch.Tensor]] = {}
-    joint_sample = _load_sample(sample_paths["transformer_joint_export"])
-    joint_runner = N2TensorTrtRunner(str(engine_paths["transformer_joint"]))
-    _run(joint_runner, _runner_inputs(joint_runner, joint_sample))
-    outputs["transformer_joint"] = _cpu_outputs(joint_runner)
-    joint_key = joint_runner.outputs["output2"].clone()
-    joint_value = joint_runner.outputs["output3"].clone()
-    action_sample = _load_sample(sample_paths["transformer_action_export"], output_name="output1")
-    action_runner = N2TensorTrtRunner(str(engine_paths["transformer_action_cache"]))
-    _run(action_runner, _runner_inputs(action_runner, action_sample))
-    outputs["transformer_action_cache"] = _cpu_outputs(action_runner)
-    static = _static_indices(joint_sample, coarse=False)
-    _run(
-        action_runner,
-        _action_inputs_from_kv(action_runner, action_sample, joint_key, joint_value, static),
-    )
-    outputs["joint_to_action"] = _cpu_outputs(action_runner)
-    if cond_kv_freeze:
-        cond_sample = _load_sample(sample_paths["transformer_joint_condcached_export"])
-        cond_runner = N2TensorTrtRunner(str(engine_paths[COND_CACHED_ENGINE_ROLE]))
-        cond_inputs = _runner_inputs(cond_runner, cond_sample)
-        frozen = cond_sample["cond_index"].long()
-        for cond_name, source in (("cond_key", joint_key), ("cond_value", joint_value)):
-            cond_inputs[cond_name] = source.index_select(3, frozen.to(device=source.device)).clone()
-        _run(cond_runner, cond_inputs)
-        outputs[COND_CACHED_ENGINE_ROLE] = _cpu_outputs(cond_runner)
-        total_tokens = int(joint_sample["modality_ids"].shape[1])
-        keep = torch.ones(total_tokens, dtype=torch.bool)
-        keep[frozen] = False
-        query = torch.nonzero(keep).flatten().to(device=joint_key.device)
-        full_key = joint_key.clone()
-        full_value = joint_value.clone()
-        full_key.index_copy_(3, query, cond_runner.outputs["kv_key"].to(dtype=full_key.dtype))
-        full_value.index_copy_(3, query, cond_runner.outputs["kv_value"].to(dtype=full_value.dtype))
-        _run(
-            action_runner,
-            _action_inputs_from_kv(action_runner, action_sample, full_key, full_value, static),
-        )
-        outputs["joint_cond_to_action"] = _cpu_outputs(action_runner)
-    vae_sample = _load_sample(sample_paths["vae_eager"])
-    vae_runner = N2TensorTrtRunner(str(engine_paths["vae_encoder"]))
-    _run(vae_runner, _runner_inputs(vae_runner, vae_sample))
-    outputs["vae_encoder"] = _cpu_outputs(vae_runner)
-    return outputs
-
-
-def _golden_route_inputs(
-    root: Path, *, checkpoint: Path, build: dict[str, Any], settings_payload: dict[str, Any]
-) -> dict[str, Any] | None:
-    """The golden route's inputs when the root carries a golden sidecar (None otherwise).
-
-    Everything that needs no engine execution is verified here, fail-closed: exactly one
-    admission route present, the sidecar and its record (by package digest), the export-half
-    files and every role's ONNX and sample digests, the checkpoint identity, the build settings.
-    """
-    if not (root / GOLDEN_SIDECAR_FILENAME).is_file():
-        return None
-    if (root / GATE_EVIDENCE_FILENAME).is_file():
-        raise RuntimeError(
-            f"{root} carries both {GOLDEN_SIDECAR_FILENAME} and {GATE_EVIDENCE_FILENAME}: a golden "
-            "package root is admitted by its record alone and never receives gate evidence"
-        )
-    sidecar = read_golden_sidecar(root)
-    record = load_record(sidecar["package_id"])
-    digest = package_sha256(record)
-    if digest != sidecar["package_sha256"]:
-        raise RuntimeError(
-            "golden sidecar package digest does not match the record "
-            f"(sidecar {sidecar['package_sha256'][:12]}, record {digest[:12]})"
-        )
-    files = verify_package_files(root, record.package, allow_extra=True)
-    if not files["passed"]:
-        raise RuntimeError(
-            "golden package files do not match the record: " + "; ".join(files["failures"][:8])
-        )
-    roles = record.roles
-    for artifact in build.get("artifacts") or []:
-        role = artifact.get("role")
-        if role not in roles:
-            raise RuntimeError(f"golden record {record.package_id!r} has no role {role!r}")
-        onnx_digest = sha256_file(root / artifact["onnx"])
-        if onnx_digest != roles[role]["onnx_sha256"]:
-            raise RuntimeError(f"{role}: ONNX digest does not match the golden record")
-        for relative, expected in roles[role]["sample_sha256s"].items():
-            if sha256_file(root / relative) != expected:
-                raise RuntimeError(f"{role}: sample {relative} does not match the golden record")
-    differences = checkpoint_identity_matches(
-        record.package["checkpoint"], checkpoint_identity(checkpoint)
-    )
-    if differences:
-        raise RuntimeError(
-            "checkpoint identity does not match the golden record: " + "; ".join(differences)
-        )
-    if settings_payload != record.package["build_settings"]:
-        raise RuntimeError(
-            "build settings do not match the golden record's build_settings "
-            f"(built {settings_payload}, record {record.package['build_settings']})"
-        )
-    return {
-        "sidecar": sidecar,
-        "sidecar_sha256": sha256_file(root / GOLDEN_SIDECAR_FILENAME),
-        "record": record,
-        "package_sha256": digest,
-        "files_checked": files["checked"],
-    }
-
-
-def _golden_admission(
-    root: Path,
-    golden: dict[str, Any],
-    *,
-    contract: N2TensorRTContract,
-    engines: tuple[ArtifactRecord, ...],
-    engine_paths: dict[str, Path],
-    sample_paths: dict[str, Path],
-    validator_runtime: RuntimeIdentity,
-    cond_kv_freeze: bool,
-) -> tuple[str, dict[str, Any], dict[str, Any]]:
-    """The engine-dependent half of the golden route: platform row, census, equivalence."""
-    record: GoldenRecord = golden["record"]
-    sidecar = golden["sidecar"]
-    gates = record.gate_policy.effective()
-    failures: list[str] = []
-    identity = runtime_envelope_identity(validator_runtime)
-    row = None
-    if sidecar["mode"] == "serve":
-        row = record.admission_row_for(identity)
-        if row is None:
-            failures.append(
-                f"no admission row of {record.package_id!r} covers this runtime envelope {identity}"
-            )
-        elif row["row_sha256"] != sidecar["platform_row_sha256"]:
-            failures.append(
-                "the sidecar's platform row digest does not match the record's row for this envelope"
-            )
-            row = None
-    inspection: dict[str, Any] = {}
-    for engine in engines:
-        role = engine.role
-        try:
-            sidecar_record = require_current_sidecar(root / engine.relative_path)
-        except EngineInspectionError as error:
-            failures.append(f"{role}: {error}")
-            inspection[role] = {"passed": False, "failures": [str(error)]}
-            continue
-        check = census_check(
-            sidecar_record["layer_output_dtype_counts"],
-            numeric_format=contract.engine_precisions[role],
-            max_fp32_layer_outputs=gates["max_fp32_layer_outputs"],
-        )
-        inspection[role] = {"engine_sha256": sidecar_record["engine_sha256"], **check}
-        failures.extend(f"{role}: {reason}" for reason in check["failures"])
-    equivalence: dict[str, Any] = {
-        "policy": EQUIVALENCE_POLICY,
-        "gating": row is not None,
-        "entries": {},
-    }
-    oracle_path = root / GOLDEN_OUTPUTS_MANIFEST
-    if not oracle_path.is_file():
-        failures.append(f"the package carries no {GOLDEN_OUTPUTS_MANIFEST}")
-    elif sha256_file(oracle_path) != record.package["oracle_manifest_sha256"]:
-        failures.append("the canonical output manifest does not match the golden record")
-    else:
-        oracle = json.loads(oracle_path.read_text())
-        entries = oracle.get("entries") if isinstance(oracle, dict) else None
-        if oracle.get("schema") != GOLDEN_OUTPUTS_SCHEMA or not isinstance(entries, dict):
-            failures.append(f"unsupported canonical output manifest: {oracle.get('schema')!r}")
-        else:
-            outputs = golden_entry_outputs(
-                engine_paths, sample_paths, cond_kv_freeze=cond_kv_freeze
-            )
-            for name, entry in entries.items():
-                if name not in outputs:
-                    failures.append(f"equivalence {name}: the bundle produces no such entry")
-                    equivalence["entries"][name] = {"passed": False}
-                    continue
-                expected = torch.load(root / entry["output"], map_location="cpu", weights_only=True)
-                dtypes = {key: spec["dtype"] for key, spec in (entry.get("tensors") or {}).items()}
-                distances = entry_distances(outputs[name], expected, oracle_dtypes=dtypes)
-                result: dict[str, Any] = {
-                    key: distances[key] for key in ("rel_rmse", "rel_maxabs", "cosine")
-                }
-                if row is not None:
-                    bounds = (row.get("entries") or {}).get(name)
-                    if bounds is None:
-                        judged = {
-                            "passed": False,
-                            "failures": ["the admitting row carries no bounds for this entry"],
-                        }
-                    else:
-                        judged = judge_entry(distances, bounds)
-                        result["bounds"] = {
-                            key: bounds[key] for key in ("envelope", "maxabs_bound", "cosine_floor")
-                        }
-                    result["passed"] = judged["passed"]
-                    result["failures"] = judged["failures"]
-                else:
-                    # Certify mode: distances are diagnostics; only a structural mismatch fails.
-                    result["passed"] = None
-                    result["failures"] = list(distances["failures"])
-                if result["failures"]:
-                    failures.append(f"equivalence {name}: " + "; ".join(result["failures"]))
-                equivalence["entries"][name] = result
-    schema, policy = golden_validation_policy_for(contract, record, row)
-    payload = {
-        "package_id": record.package_id,
-        "package_sha256": golden["package_sha256"],
-        "mode": sidecar["mode"],
-        "platform_row_sha256": sidecar.get("platform_row_sha256"),
-        "sidecar_sha256": golden["sidecar_sha256"],
-        "certification_level": record.certification.level,
-        "runtime_envelope": identity,
-        "speed_certified_on_this_stack": bool(row)
-        and envelope_provenance_matches(row["envelope"], identity),
-        "files_verified": golden["files_checked"],
-        "checkpoint_identity": "match",
-        "build_settings": "match",
-        "inspection": inspection,
-        "equivalence": equivalence,
-        "failures": failures,
-        "passed": not failures,
-    }
-    return schema, policy, payload
-
-
 def validate_bundle(
     *,
     artifact_root: Path,
@@ -870,23 +456,6 @@ def validate_bundle(
     num_action_steps: int = 4,
 ) -> dict[str, Any]:
     root = artifact_root.expanduser().resolve(strict=True)
-    build = json.loads((root / BUILD_FILENAME).read_text())
-    if build.get("schema") != BUILD_SCHEMA:
-        raise ValueError(f"unsupported build receipt schema: {build.get('schema')!r}")
-    # The transformer precisions are declared by the build receipt (per role); the
-    # contract is resolved for them so the manifest describes the bundle as built.
-    receipt_formats = {
-        record.get("role"): record.get("numeric_format") for record in build.get("artifacts") or []
-    }
-    settings_payload = normalize_build_settings_payload(build.get("settings"))
-    cond_kv_freeze = bool(settings_payload["cond_kv_freeze"])
-    expected_roles = required_engine_roles(cond_kv_freeze)
-    missing_roles = sorted(expected_roles - set(receipt_formats))
-    if missing_roles:
-        raise ValueError(f"build receipt omits engine roles {missing_roles}")
-    unexpected_roles = sorted(set(receipt_formats) - expected_roles)
-    if unexpected_roles:
-        raise ValueError(f"build receipt carries undeclared engine roles {unexpected_roles}")
     contract = N2TensorRTContract.from_checkpoint(
         checkpoint,
         embodiment=embodiment,
@@ -894,27 +463,13 @@ def validate_bundle(
         action_denoising_steps=num_action_steps,
         joint_denoise=True,
         conditional_kv_cache=True,
-        transformer_precision=receipt_formats["transformer_joint"],
-        action_cache_precision=receipt_formats["transformer_action_cache"],
-        vae_precision=receipt_formats["vae_encoder"],
-        cond_kv_freeze=cond_kv_freeze,
     )
-    if (
-        cond_kv_freeze
-        and receipt_formats[COND_CACHED_ENGINE_ROLE] != receipt_formats["transformer_joint"]
-    ):
-        raise ValueError(
-            "build receipt conditioning-cached engine precision "
-            f"{receipt_formats[COND_CACHED_ENGINE_ROLE]!r} != joint "
-            f"{receipt_formats['transformer_joint']!r}"
-        )
-    golden = _golden_route_inputs(
-        root, checkpoint=checkpoint, build=build, settings_payload=settings_payload
-    )
-    action_export_oracle = transformer_export_action_oracle(settings_payload["action_context_mode"])
+    build = json.loads((root / BUILD_FILENAME).read_text())
+    if build.get("schema") != BUILD_SCHEMA:
+        raise ValueError(f"unsupported build receipt schema: {build.get('schema')!r}")
     sample_paths = {
         role: (root / relative_path).resolve(strict=True)
-        for role, relative_path in validation_sample_paths(cond_kv_freeze).items()
+        for role, relative_path in VALIDATION_SAMPLE_PATHS.items()
     }
     expected_samples = build.get("validation_samples")
     actual_samples = {role: sha256_file(path) for role, path in sample_paths.items()}
@@ -924,20 +479,11 @@ def validate_bundle(
     exported_vae_weights = vae_export.get("vae_weights")
     if not isinstance(exported_vae_weights, str) or not exported_vae_weights:
         raise RuntimeError("VAE export manifest omits the resolved weights path")
-    exported_path = Path(exported_vae_weights).expanduser()
-    if golden is not None and exported_path.is_absolute() and not exported_path.is_file():
-        # A package exported on another host names that host's weights path: resolve the
-        # weights from the local checkpoint and bind them by digest instead.
-        vae_weights = resolve_checkpoint_vae_weights(checkpoint)
-    else:
-        vae_weights = resolve_checkpoint_vae_weights(checkpoint, exported_vae_weights)
+    vae_weights = resolve_checkpoint_vae_weights(checkpoint, exported_vae_weights)
     vae_weights_sha256 = sha256_file(vae_weights)
     if vae_export.get("vae_weights_sha256") != vae_weights_sha256:
         raise RuntimeError("VAE weights changed after export")
-    if golden is not None and golden["record"].package["vae_weights_sha256"] != vae_weights_sha256:
-        raise RuntimeError("VAE weights do not match the golden record")
     validator_runtime = _validated_runtime_identity(build)
-    gating = gating_parity_gates(contract)
     sources, engines = _artifact_records(root, build)
     engine_paths = {record.role: root / record.relative_path for record in engines}
 
@@ -950,44 +496,14 @@ def validate_bundle(
         engine_paths["transformer_joint"], joint_export_path
     )
     action_export, action_runner, action_export_sample = _action_gate(
-        engine_paths["transformer_action_cache"],
-        action_export_path,
-        expected_oracle=action_export_oracle,
+        engine_paths["transformer_action_cache"], action_export_path
     )
-    composed_export = _composed_action_gate_or_diagnostic(
-        gating="transformer_composed_action_export" in gating,
+    composed_export = _composed_action_gate(
         joint_runner=joint_runner,
         joint_sample=joint_export_sample,
         action_runner=action_runner,
         action_sample=action_export_sample,
     )
-    cond_gates: dict[str, Any] = {}
-    cond_diagnostics: dict[str, Any] = {}
-    if cond_kv_freeze:
-        # Both cond gates that pair with the joint engine run while its outputs still hold
-        # the export sample's result.
-        cond_engine = engine_paths[COND_CACHED_ENGINE_ROLE]
-        cond_export, cond_export_kv, cond_runner, cond_export_sample = _joint_cond_gates(
-            cond_engine, sample_paths["transformer_joint_condcached_export"]
-        )
-        cond_gates["transformer_joint_condcached_export"] = cond_export
-        cond_gates["transformer_composed_condcached_export"] = _composed_cond_gate(
-            joint_runner=joint_runner,
-            joint_sample=joint_export_sample,
-            cond_runner=cond_runner,
-            cond_sample=cond_export_sample,
-        )
-        cond_production, cond_production_kv, _, _ = _joint_cond_gates(
-            cond_engine,
-            sample_paths["transformer_joint_condcached_production"],
-            expected_oracle=TRANSFORMER_EAGER_ORACLE,
-            runner=cond_runner,
-        )
-        cond_gates["transformer_joint_condcached_production"] = cond_production
-        cond_diagnostics = {
-            "transformer_condcached_kv_export": cond_export_kv,
-            "transformer_condcached_kv_production": cond_production_kv,
-        }
     joint_production, joint_production_kv, _, joint_production_sample = _joint_gates(
         engine_paths["transformer_joint"],
         joint_production_path,
@@ -1000,8 +516,7 @@ def validate_bundle(
         expected_oracle=TRANSFORMER_EAGER_ORACLE,
         runner=action_runner,
     )
-    composed_production = _composed_action_gate_or_diagnostic(
-        gating="transformer_composed_action_production" in gating,
+    composed_production = _composed_action_gate(
         joint_runner=joint_runner,
         joint_sample=joint_production_sample,
         action_runner=action_runner,
@@ -1015,30 +530,14 @@ def validate_bundle(
         "transformer_action_cache_production": action_production,
         "transformer_composed_action_production": composed_production,
         "vae_encoder": _vae_gate(engine_paths["vae_encoder"], vae_sample_path),
-        **cond_gates,
     }
     checkpoint_files = checkpoint_file_hashes(contract.checkpoint)
-    checkpoint_sha256 = canonical_sha256(checkpoint_files)
-    contract_sha256 = canonical_sha256(contract.to_dict())
-    if golden is not None:
-        schema, policy, golden_payload = _golden_admission(
-            root,
-            golden,
-            contract=contract,
-            engines=engines,
-            engine_paths=engine_paths,
-            sample_paths=sample_paths,
-            validator_runtime=validator_runtime,
-            cond_kv_freeze=cond_kv_freeze,
-        )
-    else:
-        schema, policy = validation_policy_for(contract)
     payload = {
-        "schema": schema,
-        "validation_policy": policy,
-        "validation_policy_sha256": canonical_sha256(policy),
-        "contract_sha256": contract_sha256,
-        "checkpoint_sha256": checkpoint_sha256,
+        "schema": VALIDATION_SCHEMA,
+        "validation_policy": VALIDATION_POLICY,
+        "validation_policy_sha256": VALIDATION_POLICY_SHA256,
+        "contract_sha256": canonical_sha256(contract.to_dict()),
+        "checkpoint_sha256": canonical_sha256(checkpoint_files),
         "vae_weights_path": str(vae_weights),
         "vae_weights_sha256": vae_weights_sha256,
         "artifacts": {record.role: record.sha256 for record in (*sources, *engines)},
@@ -1047,53 +546,16 @@ def validate_bundle(
         "diagnostics": {
             "transformer_kv_export": joint_export_kv,
             "transformer_kv_production": joint_production_kv,
-            **cond_diagnostics,
         },
         "validator_runtime": asdict(validator_runtime),
-        "passed": all(gates[name]["passed"] for name in gating),
+        "passed": all(record["passed"] for record in gates.values()),
     }
-    if golden is not None:
-        # Quantized roles are admitted by equivalence against the golden package's canonical
-        # outputs within the admitting platform row (serve) or recorded as diagnostics (certify).
-        payload["gating_parity_gates"] = sorted(gating)
-        payload["diagnostic_parity_gates"] = sorted(required_parity_gates(cond_kv_freeze) - gating)
-        payload["golden"] = golden_payload
-        payload["passed"] = payload["passed"] and golden_payload["passed"]
-    elif contract.is_quantized:
-        # Quantized roles are admitted by the loop's gate evidence, recomputed here
-        # from its stored metrics and bound to these exact engines and this checkpoint.
-        evidence_path = root / GATE_EVIDENCE_FILENAME
-        if not evidence_path.is_file():
-            raise FileNotFoundError(
-                f"quantized bundle admission requires {GATE_EVIDENCE_FILENAME} in {root}"
-            )
-        evidence_schema, evidence_policy_sha256 = gate_evidence_policy_for(cond_kv_freeze)
-        evidence = GateEvidence.read(evidence_path)
-        if evidence.schema != evidence_schema:
-            raise GateEvidenceError(
-                f"gate evidence schema {evidence.schema!r} does not match the bundle contract "
-                f"(cond_kv_freeze={cond_kv_freeze}: expected {evidence_schema!r})"
-            )
-        recomputed = evidence.recompute(
-            engine_sha256={record.role: record.sha256 for record in engines},
-            checkpoint_sha256=checkpoint_sha256,
-            contract_sha256=contract_sha256,
-        )
-        payload["gating_parity_gates"] = sorted(gating)
-        payload["diagnostic_parity_gates"] = sorted(required_parity_gates(cond_kv_freeze) - gating)
-        payload["gate_evidence"] = {
-            "relative_path": GATE_EVIDENCE_FILENAME,
-            "sha256": sha256_file(evidence_path),
-            "policy_sha256": evidence_policy_sha256,
-            "recomputed": recomputed,
-        }
-        payload["passed"] = payload["passed"] and recomputed["passed"]
     receipt_path = root / VALIDATION_FILENAME
     receipt_path.write_text(json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n")
     if not payload["passed"]:
-        raise ParityValidationError(f"N2 TensorRT admission failed; receipt={receipt_path}")
+        raise ParityValidationError(f"N2 TensorRT parity failed; receipt={receipt_path}")
 
-    settings = BuildSettings(**settings_payload)
+    settings = BuildSettings(**build["settings"])
     validation = ArtifactRecord.from_file(
         receipt_path,
         role="engine_validation",
@@ -1119,16 +581,6 @@ def validate_bundle(
         validation=validation,
         vae_weights_path=vae_weights,
         vae_weights_sha256=vae_weights_sha256,
-        **(
-            {}
-            if golden is None
-            else {
-                "admission": ADMISSION_GOLDEN,
-                "certification_level": golden["record"].certification.level,
-                "package_id": golden["record"].package_id,
-                "golden_sidecar_sha256": golden["sidecar_sha256"],
-            }
-        ),
     )
     manifest.write(root / MANIFEST_FILENAME)
     return {**payload, "manifest": asdict(manifest)}

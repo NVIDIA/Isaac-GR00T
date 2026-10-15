@@ -15,11 +15,6 @@ from typing import Any, TypedDict
 from transformers import PretrainedConfig
 
 from groot.core.training.configs.model import register_model_config
-from groot.core.training.configs.model.n2_tactile import (
-    DeformConfigArg,
-    TactileConfigArg,
-    validate_tactile_model_config,
-)
 
 # The DiT's patch_embed/proj_out shapes derive from this, so the transformer and
 # the VAE cannot disagree.
@@ -199,6 +194,10 @@ class GrootN2Config(PretrainedConfig):
     cond_timestep: float = 0.1  # matches Cosmos Predict 2.5 convention
     num_timestep_buckets: int = 1000
 
+    # Train on exact clean action prefixes so hard-prefix RTC is in-distribution.
+    use_training_rtc: bool = False
+    training_rtc_max_delay: int = 0
+
     # Video flow-matching scheduler. "unipc" (default — shifted sigma + UniPC
     # solver, many-step inference) or "beta" (Beta-distribution timesteps
     # biased toward the high-noise regime + Euler solver; matches DreamZero's
@@ -257,10 +256,6 @@ class GrootN2Config(PretrainedConfig):
     action_cfg: ActionConfig | None = None  # None = video-only (no action modules)
     # Legacy posttraining checkpoints may also persist their mapping on the model.
     embodiment_id_mapping: dict[str, int] | None = None
-    # Tactile conditioning (plain GrootN2 only); JSON flags on the command line, see
-    # n2_tactile.py.
-    tactile_cfg: TactileConfigArg = None  # None = no tactile-force conditioning
-    deform_cfg: DeformConfigArg = None  # None = no deform-map conditioning
 
     def __init__(self, **kwargs):
         if "action_cfg" in kwargs:
@@ -308,7 +303,6 @@ class GrootN2Config(PretrainedConfig):
                     f"token_merge_layers must satisfy 0 <= start < end, got {token_merge_layers}"
                 )
             kwargs["token_merge_layers"] = (int(start), int(end))
-        validate_tactile_model_config(kwargs, exact_groot_n2=type(self) is GrootN2Config)
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -352,6 +346,23 @@ class GrootN2Config(PretrainedConfig):
             if kwargs.get("tiled", False):
                 raise ValueError("vae_type='wan22' does not support tiled VAE encode/decode")
             self.tiled = False
+
+        if not isinstance(self.use_training_rtc, bool):
+            raise TypeError("use_training_rtc must be a bool")
+        if isinstance(self.training_rtc_max_delay, bool) or not isinstance(
+            self.training_rtc_max_delay, int
+        ):
+            raise TypeError("training_rtc_max_delay must be an int")
+        if self.training_rtc_max_delay < 0:
+            raise ValueError("training_rtc_max_delay must be non-negative")
+        if self.use_training_rtc:
+            if self.action_cfg is None:
+                raise ValueError("use_training_rtc requires action_cfg")
+            action_horizon = self.action_cfg.get("action_horizon", 48)
+            if self.training_rtc_max_delay >= action_horizon:
+                raise ValueError(
+                    f"training_rtc_max_delay must be smaller than action_horizon ({action_horizon})"
+                )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize external model assets by durable identity, not cluster-local cache path."""

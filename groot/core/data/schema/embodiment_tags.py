@@ -326,11 +326,6 @@ class EmbodimentTag(Enum):
     )
     """G1 SONIC gripper continuation using the pretrained checkpoint's projector row."""
 
-    UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_NEW_PROJ = (
-        "unitree_g1_whole_body_teleop_latent_gripper_new_proj"
-    )
-    """Unchanged SONIC/gripper data layout with a dedicated N2 projector row."""
-
     UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_NO_HAND_STATE = (
         "unitree_g1_whole_body_teleop_latent_gripper_no_hand_state"
     )
@@ -668,13 +663,9 @@ class EmbodimentTag(Enum):
 
     REAL_DEXMATE_SHARPA_RELATIVE_EEF_WITH_TACTILE = "real_dexmate_sharpa_relative_eef_with_tactile"
     """
-    Dexmate Sharpa with relative EEF plus tactile sensing. Same video/state/action/language
-    as ``real_dexmate_sharpa_relative_eef`` (62D state). The dataset additionally carries
-    the ten fingertip ``*_f6`` vectors as extra ``observation.state`` columns and ten
-    per-fingertip deform videos; recipes select them as the separate ``tactile`` and
-    ``deform`` modalities that GrootN2 consumes through ``tactile_cfg`` / ``deform_cfg``.
-    F6 is never folded into ``state``. Use only with datasets collected with
-    ``--require-tactile-full``.
+    Dexmate Sharpa with relative EEF and tactile_f6 sensor readings in state.
+    10 fingers × 6-DoF readings (60 dims) appended to the standard state.
+    Use only with datasets collected with ``--require-tactile-full``.
     """
 
     # ------------- Tianji Embodiments -------------
@@ -687,22 +678,29 @@ class EmbodimentTag(Enum):
 
     REAL_TIANJI_SHARPA_RELATIVE_EEF_WITH_TACTILE = "real_tianji_sharpa_relative_eef_with_tactile"
     """
-    Tianji Sharpa with relative EEF plus tactile sensing. Same video/state/action/language
-    as ``real_tianji_sharpa_relative_eef``; the dataset additionally carries the ten
-    fingertip ``*_f6`` vectors as extra ``observation.state`` columns and ten per-fingertip
-    deform videos.
+    Tianji Sharpa with relative EEF and tactile_f6 sensor readings in state:
+    10 fingers x 6-DoF readings (60 dims) appended to the standard state.
 
     This is the tag the CONVERTER writes into ``meta/info.json`` for every tianji
-    dataset, so it must exist for conversion (``generate_rel_stats`` indexes
-    MODALITY_CONFIGS with the dataset's own tag) and for serving tactile checkpoints --
-    ``run_gr00t_server.py`` types ``--embodiment-tag`` as this enum.
+    dataset (the `_with_tactile` suffix is what enables the F6 + deform streams), so
+    it must exist for conversion to run and for existing tianji checkpoints to be
+    servable -- ``run_gr00t_server.py`` types ``--embodiment-tag`` as this enum.
 
-    Its MODALITY_CONFIGS entry is the base tag's groups plus a ``deform`` group. Tactile
-    recipes add the ``tactile`` group (the ten ``*_f6`` keys, with delta_indices set per
-    recipe because the frozen Tactile-VAE consumes a 20-frame window), and GrootN2
-    consumes both through ``tactile_cfg`` / ``deform_cfg``. Vanilla recipes select the
-    62D state subset by named key from the same data. Never fold F6 into ``state``: that
-    hands the state encoder 122D where it expects 62D.
+    It DOES now have a MODALITY_CONFIGS entry, but only because ``generate_rel_stats``
+    indexes MODALITY_CONFIGS with a bare ``[tag]`` and the merge step passes the
+    dataset's own tag -- so every tianji merge died with KeyError at the last step,
+    after writing the whole dataset. That entry is an ALIAS of the base tag: the ten
+    fingertip F6 vectors are extra state COLUMNS on disk, not extra selected state.
+    The vanilla configs still declare ``real_tianji_sharpa_relative_eef`` and select
+    the 62D subset by named key from this same 136D data, which works because the
+    loader binds modalities by NAME, never by index or by ``meta/info.json``
+    ``robot_type`` (nothing in the training path reads that field at all).
+
+    Training on the tactile block needs more than this alias: a separate ``tactile``
+    modality group (the ten ``*_f6`` keys, delta_indices overridden per arm because
+    the frozen Tactile-VAE consumes a 20-frame window) together with the loader
+    subclass and processor seam that group requires. Do not approximate it by folding
+    F6 into ``state``; that hands the state encoder 122D where it expects 62D.
     """
 
     # ------------- Real G1 Embodiments -------------
