@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 import json
 import logging
@@ -24,6 +25,7 @@ import torch
 from transformers.feature_extraction_utils import BatchFeature
 
 from groot.core.policy.env_utils import env_bool
+from groot.core.training.models.n2.components.kv_cache import FrozenPrefixKVCache
 from groot.core.training.models.n2.components.sequence_packing import (
     MODALITY_ACTION,
     MODALITY_STATE,
@@ -32,7 +34,9 @@ from groot.core.training.models.n2.components.sequence_packing import (
     AttentionMaskPattern,
     PackedSequence,
 )
+from groot.deployment.n2_trt.conditioner import ActionContextConditioner
 from groot.deployment.n2_trt.contract import N2TensorRTContract
+from groot.deployment.n2_trt.golden import served_mode_name
 from groot.deployment.n2_trt.manifest import RuntimeIdentity
 from groot.deployment.n2_trt.runtime import N2TensorRTRuntime, _host_checks_allowed
 
@@ -198,6 +202,14 @@ def _call_transformer(
     del denoising_step, is_cfg, To, total_seqlen
     del last_mini_batch_params_dict, state_collector
     runtime = self.n2_trt_runtime
+    kv_cache = transformer_kwargs.get("kv_cache")
+    frozen_prefix = isinstance(kv_cache, FrozenPrefixKVCache)
+    if frozen_prefix and "joint_cond" not in getattr(runtime, "transformer_runners", {}):
+        raise RuntimeError(
+            "cond_kv_freeze is not served by this TensorRT bundle (no conditioning-cached "
+            "joint engine role); disable GROOT_N2_COND_KV_FREEZE or install a bundle that "
+            "provides it"
+        )
     counts = (
         packed.video_token_indices.numel(),
         packed.state_token_indices.numel(),
@@ -207,7 +219,7 @@ def _call_transformer(
         mode = "action"
     else:
         runtime.validate_segment_layout(counts)
-        mode = "joint"
+        mode = "joint_cond" if frozen_prefix else "joint"
     token_merge = transformer_kwargs.get("sequence_transform")
     expected_token_merge = runtime.token_merge_layers is not None
     if mode == "joint" and (token_merge is not None) != expected_token_merge:
@@ -225,8 +237,44 @@ def _call_transformer(
     return runtime.run_transformer(
         mode,
         packed=engine_packed,
-        prompt_embs=prompt_embs.to(dtype=input_dtypes["context"]),
-        kv_cache=transformer_kwargs.get("kv_cache"),
+        prompt_embs=prompt_embs.to(dtype=runtime.prompt_input_dtype(mode)),
+        kv_cache=kv_cache,
+    )
+
+
+def _build_action_context_conditioner(
+    model: Any, runtime: N2TensorRTRuntime, device: torch.device
+) -> ActionContextConditioner:
+    """Move only the transformer's cross-attention projection back to the GPU as the conditioner.
+
+    The rest of the eager transformer stays parked on the host; the projection is the
+    exact module whose weights the projected-context action engine no longer contains.
+    """
+    transformer = model.transformer
+    if not getattr(transformer.config, "use_crossattn_projection", False):
+        raise RuntimeError("projected action context requires a transformer with crossattn_proj")
+    projection = transformer.crossattn_proj.to(device=device, dtype=torch.bfloat16)
+    cross_attentions = None
+    if runtime.action_context_mode == "kv":
+        if getattr(transformer, "per_view_text", False):
+            raise RuntimeError(
+                "kv action context requires a single text copy (per_view_text=False)"
+            )
+        cross_attentions = []
+        for block in transformer.transformer_blocks:
+            attention = block.attn2
+            # Only the key/value side returns to the GPU; the query and output
+            # projections stay inside the action engine (and parked on the host here).
+            attention.to_k.to(device=device, dtype=torch.bfloat16)
+            attention.to_v.to(device=device, dtype=torch.bfloat16)
+            attention.norm_k.to(device=device, dtype=torch.bfloat16)
+            cross_attentions.append(attention)
+    return ActionContextConditioner(
+        mode=runtime.action_context_mode,
+        projection=projection,
+        device=device,
+        engine_inputs=runtime.transformer_runners["action"].inputs,
+        cross_attentions=cross_attentions,
     )
 
 
@@ -317,9 +365,25 @@ def install_n2_tensorrt(
     *,
     contract: N2TensorRTContract,
     runtime_identity: RuntimeIdentity | None = None,
+    runtime_factory: Callable[[], N2TensorRTRuntime] | None = None,
+    allow_quantized: bool = False,
+    allow_amplitude_only: bool = False,
+    allow_unadmitted_mode: bool = False,
     expected_codec: str | None = None,
+    served_cond_kv_freeze: bool | None = None,
 ) -> N2TensorRTRuntime:
-    """Replace only one normal model instance's fixed inference collaborators."""
+    """Replace only one normal model instance's fixed inference collaborators.
+
+    ``runtime_factory`` constructs the runtime at the same point ``from_directory``
+    would (after the eager collaborators are parked, so device memory peaks the
+    same way) for engines that have no admitted manifest yet; every other
+    installation step is unchanged. ``allow_quantized`` is the opt-in for bundles
+    or runtimes whose transformer engines are quantized; ``allow_amplitude_only`` is the
+    opt-in for a golden package certified at the amplitude level only; ``allow_unadmitted_mode`` is
+    the opt-in for a served mode the platform row does not admit. ``served_cond_kv_freeze``
+    selects the served conditioning-cache mode (``None`` = the bundle's default: on
+    exactly when it carries the conditioning-cached joint engine).
+    """
     if getattr(model, "n2_trt_runtime", None) is not None:
         raise RuntimeError("N2 TensorRT is already installed on this model")
     contract.validate()
@@ -341,12 +405,70 @@ def install_n2_tensorrt(
     model.text_encoder.to("cpu")
     with torch.cuda.device(runtime_device):
         torch.cuda.empty_cache()
-        runtime = N2TensorRTRuntime.from_directory(
-            engine_dir,
-            contract=contract,
-            runtime_identity=runtime_identity,
-            expected_codec=expected_codec,
+        if runtime_factory is None:
+            runtime = N2TensorRTRuntime.from_directory(
+                engine_dir,
+                contract=contract,
+                runtime_identity=runtime_identity,
+                allow_quantized=allow_quantized,
+                allow_amplitude_only=allow_amplitude_only,
+                allow_unadmitted_mode=allow_unadmitted_mode,
+                expected_codec=expected_codec,
+                served_cond_kv_freeze=served_cond_kv_freeze,
+            )
+        else:
+            runtime = runtime_factory()
+            expected = (
+                contract.with_transformer_precisions(
+                    runtime.contract.transformer_precision,
+                    runtime.contract.action_cache_precision,
+                )
+                .with_vae_precision(runtime.contract.vae_precision)
+                .with_cond_kv_freeze(runtime.contract.cond_kv_freeze)
+            )
+            if runtime.contract.to_dict() != expected.to_dict():
+                raise RuntimeError(
+                    "injected N2 TensorRT runtime contract does not match the loaded model's checkpoint contract"
+                )
+            if served_cond_kv_freeze is not None and (
+                getattr(runtime, "served_cond_kv_freeze", runtime.contract.cond_kv_freeze)
+                != served_cond_kv_freeze
+            ):
+                raise RuntimeError(
+                    "injected N2 TensorRT runtime does not serve the selected cond_kv_freeze mode "
+                    f"(runtime={getattr(runtime, 'served_cond_kv_freeze', None)}, "
+                    f"selected={served_cond_kv_freeze})"
+                )
+            if runtime.contract.is_quantized and not allow_quantized:
+                raise RuntimeError(
+                    "the injected runtime serves quantized engines; "
+                    "quantized serving is opt-in (allow_quantized)"
+                )
+            if (
+                getattr(getattr(runtime, "manifest", None), "certification_level", None)
+                == "amplitude"
+                and not allow_amplitude_only
+            ):
+                raise RuntimeError(
+                    "the injected runtime serves a golden package certified at the amplitude "
+                    "level only; serving it is opt-in (allow_amplitude_only)"
+                )
+            admitted = getattr(runtime, "admitted_served_modes", None)
+            if admitted is not None and not allow_unadmitted_mode:
+                served = bool(
+                    getattr(runtime, "served_cond_kv_freeze", runtime.contract.cond_kv_freeze)
+                )
+                if served_mode_name(served) not in admitted:
+                    raise RuntimeError(
+                        f"the injected runtime serves {served_mode_name(served)!r}, a mode its "
+                        f"platform row does not admit (admitted: {list(admitted)}); serving it is "
+                        "opt-in (allow_unadmitted_mode)"
+                    )
+    if getattr(runtime, "action_context_mode", "raw") != "raw":
+        runtime.attach_conditioner(
+            _build_action_context_conditioner(model, runtime, runtime_device)
         )
+        logger.info("N2 action context conditioner: %s", runtime.action_context_mode)
 
     from groot.deployment.n2_trt.prompt_encoder import CachedPromptEncoder
 
@@ -379,6 +501,7 @@ def install_n2_tensorrt(
         joint_denoise: bool = True,
         prompt_embs: torch.Tensor | None = None,
         kv_cache_cond: bool = False,
+        cond_kv_freeze: bool = False,
         step_callback=None,
     ) -> dict[str, Any]:
         data = inputs if isinstance(inputs, dict) else inputs.data
@@ -393,6 +516,7 @@ def install_n2_tensorrt(
             cfg_on=video_guidance_scale != 1.0 or action_guidance_scale != 1.0,
             attention_pattern=model._resolve_attention_mask_pattern(),  # noqa: SLF001
             video_padded_mask=data.get("video_padded_mask"),
+            cond_kv_freeze=cond_kv_freeze,
         )
         if shift != 5.0 or seed != 42 or not joint_denoise:
             raise RuntimeError("N2 TensorRT requires shift=5, seed=42, and joint denoising")
@@ -410,6 +534,7 @@ def install_n2_tensorrt(
             joint_denoise=True,
             prompt_embs=prompt_embs,
             kv_cache_cond=kv_cache_cond,
+            cond_kv_freeze=cond_kv_freeze,
             step_callback=None,
         )
 

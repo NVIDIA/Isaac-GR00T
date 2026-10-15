@@ -326,6 +326,11 @@ class EmbodimentTag(Enum):
     )
     """G1 SONIC gripper continuation using the pretrained checkpoint's projector row."""
 
+    UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_NEW_PROJ = (
+        "unitree_g1_whole_body_teleop_latent_gripper_new_proj"
+    )
+    """Unchanged SONIC/gripper data layout with a dedicated N2 projector row."""
+
     UNITREE_G1_WHOLE_BODY_TELEOP_LATENT_GRIPPER_NO_HAND_STATE = (
         "unitree_g1_whole_body_teleop_latent_gripper_no_hand_state"
     )

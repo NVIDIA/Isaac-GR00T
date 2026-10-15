@@ -122,8 +122,13 @@ def flash_attn_func_v23(
             stacklevel=2,
         )
 
-    # Check for TensorRT at runtime, not import time
-    if os.getenv("ENABLE_TENSORRT", "False").lower() == "true":
+    # Check for TensorRT at runtime, not import time. GROOT_N2_FORCE_SDPA is a serving-safe,
+    # default-off opt-in that reaches this same SDPA path without ENABLE_TENSORRT (which the
+    # policy server rejects as export-only); byte-identical behavior when it is unset.
+    if (
+        os.getenv("ENABLE_TENSORRT", "False").lower() == "true"
+        or os.getenv("GROOT_N2_FORCE_SDPA", "").lower() == "true"
+    ):
         # use torch.nn.functional.scaled_dot_product_attention for tensorrt export
 
         # The input is (s, n, d), but sdpa needs (b, n, s, d).

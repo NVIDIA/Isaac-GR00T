@@ -5824,6 +5824,7 @@ MODALITY_CONFIGS["real_tianji_sharpa_relative_eef_with_tactile"] = dict(
 for _tag in (
     "unitree_g1_whole_body_teleop_latent_gripper_new_emb",
     "unitree_g1_whole_body_teleop_latent_gripper_wrist",
+    "unitree_g1_whole_body_teleop_latent_gripper_new_proj",
 ):
     MODALITY_CONFIGS[_tag] = deepcopy(
         MODALITY_CONFIGS["unitree_g1_whole_body_teleop_latent_gripper"]
