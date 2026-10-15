@@ -48,6 +48,10 @@ from groot.core.training.models.n2.components.text_processor import (
     process_text,
     process_text_negative,
 )
+from groot.core.training.models.n2.tactile.processing import (
+    TACTILE_BATCH_KEYS,
+    process_tactile_modalities,
+)
 from groot.core.utils.storage.msc import resolve_model_path
 
 ### Mapping from embodiment tag to projector index.
@@ -69,6 +73,7 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "unitree_g1_whole_body_teleop_latent_gripper_new_emb": 15,
     # New pretraining (09/30) uses row 7; original pretraining/resumes retain their saved row.
     "unitree_g1_whole_body_teleop_latent_gripper_wrist": 7,
+    "unitree_g1_whole_body_teleop_latent_gripper_new_proj": 7,
     "real_r1_pro_sharpa_relative_joint": 2,
     "oxe_droid_relative_eef_relative_joint": 1,
     "xdof_relative_eef_relative_joint": 0,
@@ -79,6 +84,7 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     # RoboDojo ARX X5 shares the XDOF joint-space projector.
     "arx_x5": 0,
     "real_dexmate_sharpa_relative_eef": 2,
+    "real_dexmate_sharpa_relative_eef_with_tactile": 2,  # Same projector as base dexmate tag
     "real_tianji_sharpa_relative_eef": 2,  # Shares the Sharpa projector
     "real_tianji_sharpa_relative_eef_with_tactile": 2,  # Same projector as base tianji tag
     "real_dexmate_sharpa_relative_eef_relative_joint": 2,
@@ -162,6 +168,10 @@ def _can_parallelize_eval_images(transform: Any) -> bool:
 class GrootN2DataCollator:
     """Collator: stack images, tokenize text, stack action/state tensors."""
 
+    # Tactile batch keys the model consumes; the training pipeline sets them from the model
+    # config. Such a key must be present for every sample of a batch.
+    required_tactile_keys: frozenset[str] = frozenset()
+
     def __init__(self, tokenizer: HuggingfaceTokenizer):
         self.tokenizer = tokenizer
 
@@ -175,6 +185,14 @@ class GrootN2DataCollator:
                     f"GrootN2DataCollator requires stable action/state key `{key}` "
                     "across the whole batch when action/state metadata is present"
                 )
+        for key in TACTILE_BATCH_KEYS:
+            if key in keys and any(key not in elem for elem in features):
+                if key in self.required_tactile_keys:
+                    raise ValueError(
+                        f"GrootN2DataCollator requires tactile key `{key}` for every sample; "
+                        "the model consumes it but part of the batch lacks it"
+                    )
+                keys.remove(key)  # unused here: never stack a shorter batch
         for key in keys:
             values = [elem[key] for elem in features if key in elem]
             if key == "text":
@@ -624,6 +642,13 @@ class GrootN2Processor(BaseProcessor):
 
         if "reward" in getattr(content, "metadata", {}):
             result["reward"] = self._format_reward(content.metadata["reward"])
+
+        # 5b. Tactile force windows and deform maps (only for tags that declare them).
+        result.update(
+            process_tactile_modalities(
+                self.modality_configs[embodiment_tag.value], content, training=self.training
+            )
+        )
 
         # 6. Precompute per-latent-frame validity mask for attention masking.
         # This avoids computing it inside the compiled forward (which breaks CUDA graphs).

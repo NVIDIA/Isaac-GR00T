@@ -106,7 +106,7 @@ def extract_step_data_batch(
             # One gather for all steps × all deltas.
             gathered = col.gather(flat_indices)
 
-            if modality in ["state", "action", "rl_info"]:
+            if modality in ["state", "action", "rl_info", "tactile"]:
                 # Array column: .to_numpy() gives (n_steps * horizon, width).
                 all_np = gathered.to_numpy().astype(np.float32)
                 # Reshape to (n_steps, horizon, width), then assign per step.
@@ -139,6 +139,8 @@ def extract_step_data_batch(
                 states=r.get("state", {}),
                 actions=r.get("action", {}),
                 languages=language_data,
+                tactile=r.get("tactile", {}),
+                deform=r.get("deform", {}),
                 text=text,
                 rl_info=r.get("rl_info"),
                 embodiment=embodiment_tag,

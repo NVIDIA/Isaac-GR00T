@@ -141,6 +141,7 @@ class PredictGraphRunner:
         self._freeze_schedulers()
         self._freeze_attention_mask_builder()
         self._freeze_cache_slicing()
+        self._freeze_conditioning_index()
         self._prepare_capture()
         self._capture(warmup)
 
@@ -175,6 +176,16 @@ class PredictGraphRunner:
                     if isinstance(dst, torch.Tensor):
                         dst.copy_(inputs[key])
                 self.prompt_embs.copy_(prompt_embs)
+                conditioner = getattr(
+                    getattr(getattr(self, "model", None), "n2_trt_runtime", None),
+                    "conditioner",
+                    None,
+                )
+                if conditioner is not None and not conditioner.is_valid:
+                    # The prompt changed since capture: recondition the static prompt
+                    # buffer outside the graph so the replayed action engine reads
+                    # the current prompt's projection from the same stable buffer.
+                    conditioner.refresh(self.prompt_embs)
                 self.graph.replay()
             # Clone: the static buffers are overwritten by the next replay.
             # Outside inference_mode so callers get normal tensors, exactly
@@ -399,6 +410,27 @@ class PredictGraphRunner:
 
         model._slice_cache_to_static_prefix = graph_safe_slice
 
+    def _freeze_conditioning_index(self) -> None:
+        """Memoize the conditioning-token index the frozen-prefix kv-cache is built from.
+
+        ``conditioning_token_index`` derives it with ``nonzero()`` — a host sync. The
+        index is constant under the fixed-layout contract: derive it during warmup,
+        then serve the cached tensor during capture and replay.
+        """
+        import groot.core.training.models.n2.model as n2_model
+
+        real_index = n2_model.conditioning_token_index
+        idx_cache: dict = {}
+
+        def cached_index(modality_ids):
+            key = (tuple(modality_ids[0].shape), modality_ids.dtype)
+            if key not in idx_cache:
+                idx_cache[key] = real_index(modality_ids)
+            return idx_cache[key]
+
+        # Module-global rebind — part of the one-runner-per-process contract.
+        n2_model.conditioning_token_index = cached_index
+
     # ── capture ────────────────────────────────────────────────────────────
 
     def _capture_predict(self) -> dict:
@@ -501,8 +533,21 @@ class PredictGraphRunner:
                 # assert while TensorRT owns a MemPool in PyTorch 2.7. Drive the
                 # CUDAGraph lifecycle explicitly on the warmed side stream.
                 side.wait_stream(torch.cuda.current_stream(self.device))
+                # A replay executes the captured kernels and dispatches no Python, so
+                # the TensorRT runtime's call counters never see it. The counter delta
+                # around the capture is the per-request engine schedule the graph bakes.
+                trt_runtime = getattr(self.model, "n2_trt_runtime", None)
+                calls_before = dict(getattr(trt_runtime, "engine_calls", None) or {})
                 with torch.cuda.stream(side), torch.inference_mode():
                     self.static_out = self._capture_predict()
+                self.captured_engine_calls = (
+                    {
+                        mode: count - calls_before.get(mode, 0)
+                        for mode, count in trt_runtime.engine_calls.items()
+                    }
+                    if trt_runtime is not None
+                    else None
+                )
                 torch.cuda.current_stream(self.device).wait_stream(side)
         finally:
             torch.manual_seed = real_manual_seed

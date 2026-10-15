@@ -14,6 +14,8 @@ import json
 import logging
 from pathlib import Path
 
+from transformers.trainer_callback import TrainerCallback
+
 from groot.core.data.dataset.build_artifacts import DatasetBuildArtifacts
 from groot.core.data.dataset.factory import DatasetFactory
 from groot.core.training.configs.base_config import Config
@@ -25,8 +27,25 @@ from groot.core.training.models.n2.processor import (
     EMBODIMENT_TAG_TO_PROJECTOR_INDEX,
     GrootN2Processor,
 )
+from groot.core.training.models.n2.tactile import complete_encoder_load
+from groot.core.training.models.n2.tactile.callbacks import trainer_callbacks
+from groot.core.training.models.n2.tactile.processing import required_batch_keys
 from groot.core.training.models.registry import register_model
 from groot.core.utils.storage.msc import resolve_model_path
+
+
+class _CompleteEncoderLoadCallback(TrainerCallback):
+    """Validate after Trainer (including its DeepSpeed/DCP path) restores all shards."""
+
+    def __init__(self, model):
+        self.model = model
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        del args, state, control, kwargs
+        # Only tracked loads prove restoration. A native loader that copies frozen
+        # fragments without load_state_dict must leave unresolved keys pending and
+        # fail here, even if the tensors happen to be finite.
+        complete_encoder_load(self.model, self.model.tactile_spec.pending_encoder_keys)
 
 
 class GrootN2Pipeline(ModelPipeline):
@@ -54,6 +73,16 @@ class GrootN2Pipeline(ModelPipeline):
         self.model = self._create_model()
         self.train_dataset, self.eval_dataset = self._create_dataset()
         self.data_collator = self.processor.collator
+        self.data_collator.required_tactile_keys = required_batch_keys(self.model_config)
+
+    def create_trainer_callbacks(self, trainer) -> list:
+        callbacks = super().create_trainer_callbacks(trainer)
+        if (
+            getattr(self, "resume_checkpoint", None) is not None
+            and getattr(self.model, "tactile_spec", None) is not None
+        ):
+            callbacks.append(_CompleteEncoderLoadCallback(self.model))
+        return [*callbacks, *trainer_callbacks(self.model)]
 
     def _create_model(self):
         import glob
@@ -147,6 +176,13 @@ class GrootN2Pipeline(ModelPipeline):
                     ),
                     assign=True,
                 )
+
+        spec = getattr(model, "tactile_spec", None)
+        if spec is not None and getattr(self, "resume_checkpoint", None) is None:
+            # With no resume, the initial checkpoint/external assets are final.
+            # Otherwise Trainer will load the authoritative checkpoint later; its
+            # on_train_begin callback validates completeness before the first step.
+            complete_encoder_load(model, spec.pending_encoder_keys)
 
         total = sum(p.numel() for p in model.parameters())
         trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)

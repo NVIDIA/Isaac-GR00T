@@ -46,7 +46,7 @@ def _rec_to_dtype(x: Any, dtype: torch.dtype) -> Any:
         return x.to(dtype=dtype)
     # Handle dict-like objects (some objects are not dict but have items() method)
     elif isinstance(x, dict) or hasattr(x, "items"):
-        return {k: _rec_to_dtype(v, dtype) for k, v in x.items()}  # type: ignore
+        return {k: _rec_to_dtype(v, dtype) for k, v in x.items()}
     elif isinstance(x, list):
         return [_rec_to_dtype(v, dtype) for v in x]
     else:
@@ -82,6 +82,7 @@ class Gr00tPolicy(base.BasePolicy):
         Args:
             embodiment_tag: The embodiment tag defining the robot/environment type
             model_path: Path to the pretrained model checkpoint directory
+            num_inference_timesteps: Override the model's default inference step count
             device: Device to run the model on (e.g., 'cuda:0', 0, 'cpu')
             strict: Whether to enforce strict input validation (default: True)
             use_torch_compile: Whether to torch.compile the action head's get_action method
@@ -118,9 +119,13 @@ class Gr00tPolicy(base.BasePolicy):
                 "num_inference_timesteps",
                 getattr(action_head, "num_inference_steps", 4),
             )
-            print(f"Using default num_inference_timesteps from model config: {default_steps}")
+            print(  # noqa: T201
+                f"Using default num_inference_timesteps from model config: {default_steps}"
+            )
         else:
-            print(f"Using num_inference_timesteps from init args: {num_inference_timesteps}")
+            print(  # noqa: T201
+                f"Using num_inference_timesteps from init args: {num_inference_timesteps}"
+            )
             if hasattr(action_head, "num_inference_timesteps"):
                 action_head.num_inference_timesteps = num_inference_timesteps
             else:
@@ -134,7 +139,7 @@ class Gr00tPolicy(base.BasePolicy):
         self.language_key = language_keys[0]
 
         if use_torch_compile and action_head is not None:
-            print(
+            print(  # noqa: T201
                 f"[Gr00tPolicy] Applying torch.compile (mode={torch_compile_mode}) to action head..."
             )
             try:
@@ -144,9 +149,9 @@ class Gr00tPolicy(base.BasePolicy):
                     fullgraph=False,
                     dynamic=True,
                 )
-                print("[Gr00tPolicy] torch.compile applied to action head.")
+                print("[Gr00tPolicy] torch.compile applied to action head.")  # noqa: T201
             except Exception as e:  # noqa: BLE001
-                print(
+                print(  # noqa: T201
                     f"[Gr00tPolicy] WARNING: torch.compile failed: {e}, continuing without compilation..."
                 )
 
@@ -160,11 +165,13 @@ class Gr00tPolicy(base.BasePolicy):
             ):
                 orig_indices = config.delta_indices
                 config.delta_indices = [i for i in config.delta_indices if i <= 0]
-                print(
-                    f"[Gr00tPolicy] WARNING: Observation modality {modality} has positive delta indices, truncating to negative indices"
+                print(  # noqa: T201
+                    f"[Gr00tPolicy] WARNING: Observation modality {modality} has positive delta "
+                    "indices, truncating to negative indices"
                 )
-                print(
-                    f"[Gr00tPolicy] WARNING: Observation modality {modality} original indices: {orig_indices}, new indices: {config.delta_indices}"
+                print(  # noqa: T201
+                    f"[Gr00tPolicy] WARNING: Observation modality {modality} original indices: "
+                    f"{orig_indices}, new indices: {config.delta_indices}"
                 )
         return new_config
 
@@ -179,7 +186,7 @@ class Gr00tPolicy(base.BasePolicy):
         """
         unbatched_obs = []
         # Infer batch size from the first video key
-        batch_size = value["video"][list(value["video"].keys())[0]].shape[0]
+        batch_size = value["video"][next(iter(value["video"]))].shape[0]
 
         # Split each modality along the batch dimension
         for i in range(batch_size):
@@ -205,10 +212,13 @@ class Gr00tPolicy(base.BasePolicy):
             languages=observation["language"],
             text=observation["language"][self.language_key][0],  # Deprecated
             embodiment=self.embodiment_tag,
+            # Tactile embodiments only; the processor ignores empty groups.
+            tactile=observation.get("tactile", {}),
+            deform=observation.get("deform", {}),
         )
 
     def _postprocess_normalized_action(self, normalized_action: torch.Tensor) -> torch.Tensor:
-        """Postprocess the normalized action
+        """Postprocess the normalized action.
 
         Args:
             normalized_action: Normalized action tensor
@@ -452,7 +462,7 @@ class Gr00tPolicy(base.BasePolicy):
             key: value.astype(np.float32) for key, value in unnormalized_action.items()
         }
         t_end = time.perf_counter()
-        print(
+        print(  # noqa: T201
             f"[Gr00tPolicy] preprocess={t_preprocess - t0:.3f}s  "
             f"predict={t_predict - t_preprocess:.3f}s  "
             f"postprocess={t_end - t_predict:.3f}s  "
@@ -520,6 +530,7 @@ class Gr00tPolicy(base.BasePolicy):
         Returns:
             Dictionary containing the info after resetting the policy
         """
+        del options
         if hasattr(self.model, "on_env_reset"):
             self.model.on_env_reset()
         return {}
@@ -570,9 +581,9 @@ class Gr00tFlatPolicyWrapper(base.PolicyWrapper):
             flat = f"state.{state_key}"
             assert flat in observation, f"State key '{flat}' must be in observation"
         for language_key in modality_configs["language"].modality_keys:
-            assert self._resolve_language_value(observation, language_key) is not None, (
-                f"Language key '{language_key}' (or alias) must be in observation"
-            )
+            assert (
+                self._resolve_language_value(observation, language_key) is not None
+            ), f"Language key '{language_key}' (or alias) must be in observation"
 
     def check_action(self, action: dict[str, Any]) -> None:
         modality_configs = self.get_modality_config()
@@ -580,17 +591,16 @@ class Gr00tFlatPolicyWrapper(base.PolicyWrapper):
             flat = f"action.{action_key}"
             assert flat in action, f"Action key '{flat}' must be in action"
             arr = action[flat]
-            assert isinstance(arr, np.ndarray), (
-                f"Action key '{flat}' must be a numpy array. Got {type(arr)}"
-            )
-            assert arr.ndim in (2, 3), (
-                f"Action key '{flat}' must be (T, D) or (B, T, D). Got shape {arr.shape}"
-            )
+            assert isinstance(
+                arr, np.ndarray
+            ), f"Action key '{flat}' must be a numpy array. Got {type(arr)}"
+            assert arr.ndim in (
+                2,
+                3,
+            ), f"Action key '{flat}' must be (T, D) or (B, T, D). Got shape {arr.shape}"
 
     @classmethod
-    def _resolve_language_value(
-        cls, observation: dict[str, Any], modality_key: str
-    ) -> Any | None:
+    def _resolve_language_value(cls, observation: dict[str, Any], modality_key: str) -> Any | None:
         """Return the language value for ``modality_key`` from a flat observation.
 
         Tries the exact modality key first, then the known fallback aliases so
@@ -613,10 +623,21 @@ class Gr00tFlatPolicyWrapper(base.PolicyWrapper):
             if value.ndim == 2:  # (T, D) -> (1, T, D)
                 return np.expand_dims(value, axis=0)
             return value
-        if isinstance(value, (list, tuple)) and value and isinstance(value[0], str):
+        if isinstance(value, list | tuple) and value and isinstance(value[0], str):
             return [list(value)]  # (T,) -> (1, T)
         if isinstance(value, str):
             return [[value]]
+        return value
+
+    @staticmethod
+    def _maybe_add_deform_batch_dim(value: Any) -> Any:
+        """Batch deformation frames with or without an explicit channel axis."""
+        # Rank four can be (T, H, W, C) or (B, T, H, W). Image channel counts
+        # distinguish the former from the latter's 240-pixel spatial axis.
+        if isinstance(value, np.ndarray) and (
+            value.ndim == 3 or (value.ndim == 4 and value.shape[-1] in (1, 3, 4))
+        ):
+            return np.expand_dims(value, axis=0)
         return value
 
     @staticmethod
@@ -633,12 +654,12 @@ class Gr00tFlatPolicyWrapper(base.PolicyWrapper):
         unchanged. Mirrors the legacy ``Gr00tG1RealPolicyWrapper._decode_video``
         (no channel reorder: cv2 imencode/imdecode round-trips raw channel order).
         """
-        if isinstance(value, (list, tuple)):
-            if len(value) == 0 or not isinstance(value[0], (bytes, bytearray)):
+        if isinstance(value, list | tuple):
+            if len(value) == 0 or not isinstance(value[0], bytes | bytearray):
                 return value
             frames: Any = value
         elif isinstance(value, np.ndarray) and value.dtype == np.object_:
-            if value.size == 0 or not isinstance(value.flat[0], (bytes, bytearray)):
+            if value.size == 0 or not isinstance(value.flat[0], bytes | bytearray):
                 return value
             frames = list(value)
         else:
@@ -693,6 +714,21 @@ class Gr00tFlatPolicyWrapper(base.PolicyWrapper):
         for language_key in modality_configs["language"].modality_keys:
             value = self._resolve_language_value(observation, language_key)
             nested["language"][language_key] = self._maybe_add_batch_dim(value)
+
+        # Tactile/deform groups the embodiment declares. A model that consumes a group
+        # refuses an observation without it; one that does not ignores it.
+        for group in ("tactile", "deform"):
+            keys = modality_configs[group].modality_keys if group in modality_configs else ()
+            add_batch_dim = (
+                self._maybe_add_deform_batch_dim if group == "deform" else self._maybe_add_batch_dim
+            )
+            values = {
+                key: add_batch_dim(observation[f"{group}.{key}"])
+                for key in keys
+                if f"{group}.{key}" in observation
+            }
+            if values:
+                nested[group] = values
 
         if "previous_action" in observation:
             nested["previous_action"] = observation["previous_action"]
