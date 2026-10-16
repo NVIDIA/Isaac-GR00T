@@ -175,7 +175,7 @@ class Config:
             # if not Path(d_cfg.dataset_path).exists():
             #     raise ValueError(f"Dataset path does not exist: {d_cfg.dataset_path}")
             if d_cfg.dataset_type == "physical_embodiment" and not d_cfg.embodiment_tag:
-                raise ValueError(f"Embodiment tag is empty for dataset {d_cfg.dataset_path}")
+                raise ValueError(f"Embodiment tag is empty for dataset {d_cfg.dataset_paths}")
             if d_cfg.embodiment_tag is not None:
                 embodiment_tags.add(d_cfg.embodiment_tag)
 
@@ -207,7 +207,8 @@ class Config:
                         type=ActionType.NON_EEF,
                         format=ActionFormat.DEFAULT,
                     )
-                ] * len(self.data.modality_configs[embodiment_tag]["action"].modality_keys)
+                    for _ in self.data.modality_configs[embodiment_tag]["action"].modality_keys
+                ]
 
         # Validate precision settings
         if self.training.fp16 and self.training.bf16:
