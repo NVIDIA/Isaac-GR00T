@@ -25,7 +25,7 @@ from transformers.feature_extraction_utils import BatchFeature
 import tree
 
 from gr00t.configs.model.gr00t_n1d7 import Gr00tN1d7Config
-from gr00t.model.modules.dit import AlternateVLDiT, DiT, SelfAttentionTransformer
+from gr00t.model.modules.dit import AlternateVLDiT, CrossAttnKVCache, DiT, SelfAttentionTransformer
 from gr00t.model.modules.embodiment_conditioned_mlp import (
     CategorySpecificMLP,
     MultiEmbodimentActionEncoder,
@@ -393,6 +393,12 @@ class Gr00tN1d7ActionHead(nn.Module):
                 :,
             ] = ramp[None, :, None].to(device)
 
+        # Cross-attention K/V depend only on vl_embeds, which is fixed for this call,
+        # so project them once and reuse across the denoising steps. Deliberately a
+        # local: vl_embeds changes every control step, so a cache that outlived this
+        # function would feed stale vision to the action head.
+        cross_kv_cache = CrossAttnKVCache() if self.config.use_alternate_vl_dit else None
+
         # Run denoising steps.
         for t in range(self.num_inference_timesteps):
             t_cont = t / float(self.num_inference_timesteps)  # e.g. goes 0, 1/N, 2/N, ...
@@ -420,6 +426,7 @@ class Gr00tN1d7ActionHead(nn.Module):
                     timestep=timesteps_tensor,
                     image_mask=backbone_output.image_mask,
                     backbone_attention_mask=backbone_output.backbone_attention_mask,
+                    kv_cache=cross_kv_cache,
                 )
             else:
                 model_output = self.model(
