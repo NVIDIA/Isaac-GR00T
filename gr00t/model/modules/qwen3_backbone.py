@@ -359,7 +359,16 @@ class Qwen3Backbone(torch.nn.Module):
         # 0. Set frozen module to eval
         keys_to_use = ["input_ids", "attention_mask", "pixel_values", "image_grid_thw"]
         vl_input = {k: vl_input[k] for k in keys_to_use}
-        outputs = self.model(**vl_input, output_hidden_states=True)
+        # logits_to_keep=1 confines the lm_head matmul to a single position. We only read
+        # hidden_states, but transformers otherwise runs lm_head over the whole sequence
+        # and the full vocabulary (151936 for Cosmos-Reason2-2B) and we discard the result.
+        #
+        # This cannot be avoided by calling the inner Qwen3VLModel instead: its output
+        # carries `last_hidden_state`, so check_model_inputs ties hidden_states[-1] to the
+        # POST-final-norm tensor, whereas Qwen3VLCausalLMOutputWithPast has no such field
+        # and hidden_states[-1] here is the PRE-final-norm decoder output this model was
+        # trained on. Keeping the wrapper preserves that exactly.
+        outputs = self.model(**vl_input, output_hidden_states=True, logits_to_keep=1)
         outputs = outputs.hidden_states[-1]
         image_mask = vl_input["input_ids"] == self.model.config.image_token_id
         attention_mask = vl_input["attention_mask"] == 1
