@@ -354,6 +354,10 @@ class Gr00tN1d7ActionHead(nn.Module):
 
         dt = 1.0 / self.num_inference_timesteps
         vel_strength = torch.ones_like(actions)
+        return_speed_rl_features = bool(
+            options is not None and options.get("return_speed_rl_features", False)
+        )
+        speed_rl_action_features = None
 
         if "action" in action_input:
             # If action in input when doing get action, it means we want to use RTC.
@@ -413,20 +417,32 @@ class Gr00tN1d7ActionHead(nn.Module):
             sa_embs = torch.cat((state_features, action_features), dim=1)
 
             # Run model forward.
+            capture_hidden_state = (
+                return_speed_rl_features and t == self.num_inference_timesteps - 1
+            )
             if self.config.use_alternate_vl_dit:
-                model_output = self.model(
+                model_result = self.model(
                     hidden_states=sa_embs,
                     encoder_hidden_states=vl_embeds,
                     timestep=timesteps_tensor,
+                    return_all_hidden_states=capture_hidden_state,
                     image_mask=backbone_output.image_mask,
                     backbone_attention_mask=backbone_output.backbone_attention_mask,
                 )
             else:
-                model_output = self.model(
+                model_result = self.model(
                     hidden_states=sa_embs,
                     encoder_hidden_states=vl_embeds,
                     timestep=timesteps_tensor,
+                    return_all_hidden_states=capture_hidden_state,
                 )
+            if capture_hidden_state:
+                model_output, hidden_states = model_result
+                # Speed-RL feature A: final-denoise action tokens from the last DiT block,
+                # captured before norm_out, timestep modulation, and proj_out_2.
+                speed_rl_action_features = hidden_states[-1][:, -self.action_horizon :].float()
+            else:
+                model_output = model_result
             pred = self.action_decoder(model_output, embodiment_id)
 
             pred_velocity = pred[:, -self.action_horizon :]
@@ -434,13 +450,16 @@ class Gr00tN1d7ActionHead(nn.Module):
             # Update actions using euler integration.
             actions = actions + dt * pred_velocity * vel_strength
 
-        return BatchFeature(
-            data={
-                "action_pred": actions,
-                "backbone_features": vl_embeds,
-                "state_features": state_features,
-            }
-        )
+        result = {
+            "action_pred": actions,
+            "backbone_features": vl_embeds,
+            "state_features": state_features,
+        }
+        if return_speed_rl_features:
+            if speed_rl_action_features is None:
+                raise RuntimeError("Speed-RL features were not captured during action denoising")
+            result["speed_rl_action_features"] = speed_rl_action_features
+        return BatchFeature(data=result)
 
     @torch.no_grad()
     def get_action(
