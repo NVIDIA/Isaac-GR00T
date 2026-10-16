@@ -2,7 +2,7 @@
 
 `docker/Dockerfile` builds the [x86 training environment](../docs/installation.md#x86-training)
 as an image. It starts from the documented public base,
-`nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04`, installs the documented system
+`nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04`, installs the documented system
 packages, and runs `uv sync --frozen --extra training` into `/opt/gr00t-venv`.
 The frozen uv environment remains the software contract; the image only records
 the installation steps.
@@ -111,7 +111,7 @@ checkout's lock.
 ## Troubleshooting
 
 - GPU not visible: check the NVIDIA Container Toolkit with
-  `docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu22.04 nvidia-smi`.
+  `docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia-smi`.
 - ARM64 hosts, such as Apple Silicon, cannot use this image. `build.sh`
   requests `linux/amd64`, so Docker would build it under QEMU emulation, which
   is very slow, and the container would have no NVIDIA GPU.

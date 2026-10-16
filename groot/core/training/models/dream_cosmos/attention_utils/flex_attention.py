@@ -32,15 +32,37 @@ compiled_flex_attention = torch.compile(torch_flex_attention)
 create_block_mask = torch.compile(create_block_mask)
 BLOCK_SIZE = 128
 
-# Auto-detect GPU shared memory and set kernel_options for flex_attention.
-# Desktop GPUs (RTX) have ~99KB shared memory per SM — the default Triton
-# tile size (128) requires ~110KB and fails. Force 64x64 tiles on those GPUs.
-_FLEX_KERNEL_OPTIONS: dict = {}
+
+def flex_kernel_options(shared_memory_per_block: int) -> dict[str, int]:
+    """Return flex_attention kernel_options for a GPU's opt-in shared memory per block.
+
+    Desktop GPUs (RTX), L40S, A40/A6000 and DGX Spark allow ~99KB of opt-in shared
+    memory per block (shared_memory_per_block_optin) — the default Triton tile size
+    (128) requires ~110KB and fails. Force 64x64 tiles on those GPUs.
+    The backward default on SM86/89 (32x128, 3 stages in torch 2.7) also overflows,
+    so pin the backward tiles too; the bwd_ prefix keeps them off the forward kernel.
+    torch merges autotune candidates under these options, so max-autotune does not
+    tune the pinned tiles on these GPUs.
+    """
+    if shared_memory_per_block >= 110_000:  # ~110KB threshold matches the observed failure
+        return {}
+    return {
+        "BLOCK_M": 64,
+        "BLOCK_N": 64,
+        "bwd_BLOCK_M1": 64,
+        "bwd_BLOCK_N1": 64,
+        "bwd_BLOCK_M2": 64,
+        "bwd_BLOCK_N2": 64,
+        "bwd_num_stages": 2,
+    }
+
+
+_FLEX_KERNEL_OPTIONS: dict[str, int] = {}
 if torch.cuda.is_available() and _HAS_KERNEL_OPTIONS:
     try:
-        _shmem = torch.cuda.get_device_properties(0).shared_memory_per_block_optin
-        if _shmem < 110_000:  # ~110KB threshold matches the observed failure
-            _FLEX_KERNEL_OPTIONS = {"BLOCK_M": 64, "BLOCK_N": 64}
+        _FLEX_KERNEL_OPTIONS = flex_kernel_options(
+            torch.cuda.get_device_properties(0).shared_memory_per_block_optin
+        )
     except AttributeError:
         pass
 
