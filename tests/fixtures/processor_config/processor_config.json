@@ -140,7 +140,6 @@
     "max_action_dim": 128,
     "max_action_horizon": 50,
     "use_percentiles": false,
-    "use_mean_std": false,
     "clip_outliers": true,
     "apply_sincos_state_encoding": true,
     "use_relative_action": true,
