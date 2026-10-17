@@ -17,8 +17,11 @@ Focus on DeepSpeed for distributed training.
 import copy
 from dataclasses import dataclass, field
 import time
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
+import tyro
+
+from groot.core.data.dataset.recipe_fields import expand_filter_sets
 from groot.core.data.hydrator.config import HydratorConfig
 from groot.core.data.types import ModalityConfig
 from groot.core.training.configs.data.embodiment_configs import MODALITY_CONFIGS
@@ -128,8 +131,39 @@ class SingleDatasetConfig:
     # without encoding loader settings into the dataset URI.
     deltacat: DeltaCatDatasetConfig | None = None
 
+    # Which LanceDS view an entry reads, and at which version (views are materialized offline by
+    # `gear lance ingest`). Each field is one value for the entry or a {dataset_path: value}
+    # mapping. An s3:// path is read as a LanceDS store only when its entry gives it one of these
+    # fields (path_detection.is_lance_source); a local store is found by its layout.
+    # lance_view_id takes legacy (spec.json) view ids only: a tagged view is named by its filters,
+    # in lance_step_filter, and the loader refuses its id, with or without them.
+    # The lance_* entry fields are typed Any: experiment.py dumps conf.yaml as an OmegaConf
+    # structured config for every run, and OmegaConf refuses unions of containers (as tyro does).
+    lance_view_id: Annotated[Any, tyro.conf.Suppress] = None  # str | {dataset_path: str}
+    # The pin: which versions of step.lance, media.lance and episodes.lance a LanceDS training path
+    # reads. Either lance_as_of, a quoted ISO-8601 UTC timestamp (yaml reads an unquoted one as a
+    # datetime): each table at its newest version committed at or before it; or
+    # lance_step_version, lance_media_version and lance_episodes_version, all three: exactly those
+    # versions. Training refuses a layout that does not describe the step table it reads (pin a
+    # time after both committed), a path left unpinned and a pin that does not pin
+    # (lance_pins.check_lance_training_pins); a launch stamps every path given neither with its
+    # launch time (lance_pins.stamp_lance_pins). A store val_dataset_path reads its full view,
+    # unpinned (the step table's latest version at startup): the entry's lance_view_id and
+    # lance_step_filter do not reach it.
+    lance_as_of: Annotated[Any, tyro.conf.Suppress] = None  # str | {dataset_path: str}
+    lance_step_version: Annotated[Any, tyro.conf.Suppress] = None  # int | {dataset_path: int}
+    lance_media_version: Annotated[Any, tyro.conf.Suppress] = None  # int | {dataset_path: int}
+    lance_episodes_version: Annotated[Any, tyro.conf.Suppress] = None  # int | {dataset_path: int}
+    # The view by definition: a filter list `[{fn, args}]`, or the name of a data.lance_step_filters
+    # entry; its view id is derived at load, so an edited filter is a missing view, never another.
+    # str | [{fn, args}] | {dataset_path: either}
+    lance_step_filter: Annotated[Any, tyro.conf.Suppress] = None
+
     def __post_init__(self):
         """Convert dict/OmegaConf DictConfig values to nested configs when needed."""
+        # Plain containers: the filter list is hashed (json) into the view id downstream.
+        if OmegaConf is not None and OmegaConf.is_config(self.lance_step_filter):
+            self.lance_step_filter = OmegaConf.to_container(self.lance_step_filter, resolve=True)
         if self.deltacat is None or isinstance(self.deltacat, DeltaCatDatasetConfig):
             return
         raw = _to_plain_container(self.deltacat)
@@ -271,6 +305,27 @@ class DataConfig:
     # carrying legacy metadata retain their prior behavior.
     load_step_filter: bool = False
 
+    # The datasets root: its _registry/ is keyed by store path relative to it; unset = each store's
+    # meta/.
+    lance_datasets_root: str | None = None
+    # {name: [{fn, args}]} filter sets that entries' lance_step_filter may name; expanded at load.
+    lance_step_filters: Annotated[dict[str, list[dict[str, Any]]] | None, tyro.conf.Suppress] = None
+    # The registry as of this ISO-8601 UTC timestamp: every loader reads its row (modality, stats)
+    # at the registry version committed at or before it; needs lance_datasets_root. When unset, a
+    # launch stamps its launch time and a resume reuses its checkpoint's
+    # (lance_pins.stamp_lance_pins).
+    lance_registry_as_of: str | None = None
+
+    def _resolve_filter_sets(self) -> None:
+        """Replace ``lance_step_filter`` names with the lists ``lance_step_filters`` defines."""
+        if self.lance_step_filters is not None:
+            self.lance_step_filters = _to_plain_container(self.lance_step_filters)
+        sets = self.lance_step_filters or {}
+        for entry in self.datasets:
+            entry.lance_step_filter = expand_filter_sets(
+                entry.lance_step_filter, sets, entry.dataset_paths
+            )
+
     def __post_init__(self):
         """Convert dict/OmegaConf DictConfig values to nested configs when needed."""
         converted_datasets: list[SingleDatasetConfig] = []
@@ -284,6 +339,7 @@ class DataConfig:
             else:
                 converted_datasets.append(dataset)
         self.datasets = converted_datasets
+        self._resolve_filter_sets()
 
         if self.hydrator_config is not None and not isinstance(
             self.hydrator_config, HydratorConfig
