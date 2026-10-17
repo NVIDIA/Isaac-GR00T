@@ -24,7 +24,7 @@ import subprocess
 from typing import Any
 
 from groot.core.utils.storage.checkpoint import checkpoint_source_path
-from groot.deployment.n2_trt.artifacts import resolve_checkpoint_vae_weights
+from groot.deployment.n2_trt.artifacts import resolve_recorded_vae_weights
 from groot.deployment.n2_trt.contract import (
     ACTION_CONTEXT_MODES,
     N2TensorRTContract,
@@ -923,10 +923,7 @@ class EngineManifest:
         ):
             failures["checkpoint"] = "checkpoint metadata changed after engine build"
         try:
-            vae_weights = resolve_checkpoint_vae_weights(
-                contract.checkpoint,
-                self.vae_weights_path,
-            )
+            vae_weights = resolve_recorded_vae_weights(contract.checkpoint, self.vae_weights_path)
             vae_weights_sha256 = sha256_file(vae_weights)
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             failures["vae_weights"] = f"cannot resolve current VAE weights: {error}"

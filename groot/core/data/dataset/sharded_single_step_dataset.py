@@ -257,13 +257,7 @@ class ShardedSingleStepDataset(types.ShardedDataset):
             **episode_loader_kwargs,
         )
 
-        # A LanceDS loader serves its view as the filter; a store refuses data.load_step_filter
-        # (factory._create_sharded_dataset).
-        self.step_indices_filter = (
-            step_indices_filter
-            if step_indices_filter is not None
-            else getattr(self.episode_loader, "step_indices_filter", None)
-        )
+        self.step_indices_filter = step_indices_filter
         if self.step_indices_filter is None and load_step_filter:
             self.step_indices_filter = load_step_indices_filter(dataset_path, self.episode_loader)
         self.dataset_index = -1  # Set by ShardedMixtureDataset after construction
