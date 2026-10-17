@@ -590,6 +590,10 @@ uv run python -m pytest
 
 Use targeted test paths for faster local checks, and reserve GPU-marked tests for machines with the required CUDA hardware.
 
+### Community Guides
+- [GR00T N1.7 on RTX 5090 — WSL2 & Docker Install Guide](https://rao-sanaullah.github.io/GR00TN1.7/) by [@Rao-Sanaullah](https://github.com/Rao-Sanaullah)
+
+# Support
 ---
 
 ## Contributions
