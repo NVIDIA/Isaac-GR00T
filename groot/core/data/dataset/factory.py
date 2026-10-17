@@ -33,7 +33,12 @@ from groot.core.data.dataset import (
     vision_language,
 )
 from groot.core.data.dataset.filter import annotation_source, sys2_filter
-from groot.core.data.dataset.path_detection import is_packds_path
+from groot.core.data.dataset.path_detection import (
+    is_lance_dataset_path,
+    is_lance_source,
+    is_packds_path,
+    uses_lance,
+)
 from groot.core.data.hydrator import client, service
 from groot.core.data.hydrator.config import HydratorConfig
 from groot.core.training.configs.data import filter_config
@@ -74,11 +79,12 @@ def _resolve_one_path(p: str) -> str:
     """Resolve a single dataset path via ``Hydrator.resolve_path``.
 
     Explicit ``s3://`` paths are returned unchanged (no bucket probe needed).
-    PackDS paths are returned unchanged. Local paths go through the hydrator
+    PackDS paths are returned unchanged. A LanceDS store is returned unchanged:
+    LanceEpisodeLoader reads it where it is named. Local paths go through the hydrator
     resolver, which may rewrite Lustre prefixes to ``s3://`` URIs.
     """
     s = str(p)
-    if _is_packds_path(s) or s.startswith("s3://"):
+    if _is_packds_path(s) or s.startswith("s3://") or is_lance_dataset_path(s):
         return s
     return service.Hydrator.resolve_path(s)
 
@@ -118,6 +124,68 @@ def _deltacat_episode_loader_kwargs(
     }
 
 
+def _lance_episode_loader_kwargs(
+    dataset_path: str, lance_fields: dict[str, object], data_config: DataConfig
+) -> dict[str, object]:
+    """LanceEpisodeLoader kwargs for a store: its entry's lance fields, and its registry key.
+
+    ``lance_fields`` is the store's resolved LANCE_ENTRY_FIELDS (lance_pins.lance_fields).
+    """
+    # load-bearing: a store has no meta/step_filter.jsonl, so the exclusions this flag asks for
+    # would silently not apply; its selection is its view.
+    if data_config.load_step_filter:
+        raise ValueError(
+            f"{dataset_path} is a LanceDS store, so data.load_step_filter cannot apply to it: a "
+            "store's steps are selected by its view (lance_step_filter or lance_view_id)."
+        )
+    kwargs = {
+        "view_id": lance_fields.get("lance_view_id"),
+        "lance_as_of": lance_fields.get("lance_as_of"),
+        "lance_step_version": lance_fields.get("lance_step_version"),
+        "lance_media_version": lance_fields.get("lance_media_version"),
+        "lance_episodes_version": lance_fields.get("lance_episodes_version"),
+        "lance_step_filter": lance_fields.get("lance_step_filter"),
+    }
+    datasets_root = data_config.lance_datasets_root
+    if datasets_root:
+        try:
+            name = Path(dataset_path).resolve().relative_to(Path(datasets_root).resolve())
+        except ValueError:
+            raise ValueError(
+                f"{dataset_path} is not under data.lance_datasets_root={datasets_root!r}, so its "
+                "registry key cannot be derived. The registry is keyed by the path RELATIVE to "
+                "that root, because the same corpus is mounted at different prefixes on H100 and "
+                "GB200."
+            ) from None
+        kwargs["datasets_root"] = str(datasets_root)
+        kwargs["dataset_name"] = str(name)
+        kwargs["lance_registry_as_of"] = data_config.lance_registry_as_of
+    return kwargs
+
+
+def _require_store_relative_stats(
+    dataset: types.ShardedDataset, dataset_path: str, embodiment_tag: str
+) -> None:
+    """Refuse a store whose relative action stats lack a RELATIVE action key of its embodiment.
+
+    The stats pre-pass computes a LeRobot dataset's missing relative stats (or refuses them, with
+    data.auto_generate_stats off) but skips a store: its loader serves the relative stats its
+    source had at conversion and computes none. load-bearing: the mixture merges relative stats
+    over only the datasets that have them, so a store without them would drop out unnoticed.
+    """
+    keys = stats.relative_action_keys(embodiment_tag)
+    missing = sorted(set(keys) - set(dataset.get_dataset_statistics().get("relative_action", {})))
+    if missing:
+        raise ValueError(
+            f"{dataset_path} is a LanceDS store without the relative action stats {missing} that "
+            f"embodiment {embodiment_tag} trains with. Generate them on its LeRobot source: "
+            "python -m groot.core.data.stats --dataset-path <source> --embodiment-tag "
+            f"{schema.EmbodimentTag(embodiment_tag).name}, then re-snapshot the store's meta/: "
+            "gear lance refresh --recipe <recipe> --datasets-root <datasets root> "
+            "--dataset <store's path under it>"
+        )
+
+
 def _broadcast_object_from_rank0(value: object | None) -> object | None:
     """Broadcast one Python object from rank 0 through a temporary Gloo group."""
     if not dist.is_available() or not dist.is_initialized():
@@ -151,6 +219,7 @@ def _has_deltacat_dataset(datasets: list[types.ShardedDataset]) -> bool:
 def _all_stats_cached(
     data_config: DataConfig,
     resolved_dataset_sources: list[list[source_resolver.ResolvedDatasetSource]] | None = None,
+    lance_fields_by_entry: list[dict[str, dict[str, object]]] | None = None,
 ) -> bool:
     """Return whether eager LeRobot stats generation can be skipped.
 
@@ -158,10 +227,14 @@ def _all_stats_cached(
     ``_generate_all_stats``. PackDS stores stats in its own table metadata, so it
     is skipped here. Local and S3-backed LeRobot roots must already have both
     stats files; S3 checks use HEAD only and do not download file contents.
+    ``lance_fields_by_entry`` is each entry's ``{source uri: lance fields}``
+    (lance_pins.lance_fields): an s3 store is skipped by them (path_detection.is_lance_source), a
+    local one by its structure.
     """
     resolved_dataset_sources = resolved_dataset_sources or _resolve_all_dataset_sources(data_config)
-    for dataset_spec, dataset_sources in zip(
-        data_config.datasets, resolved_dataset_sources, strict=True
+    lance_fields_by_entry = lance_fields_by_entry or [{}] * len(data_config.datasets)
+    for dataset_spec, dataset_sources, fields in zip(
+        data_config.datasets, resolved_dataset_sources, lance_fields_by_entry, strict=True
     ):
         embodiment_tag = dataset_spec.embodiment_tag
         if embodiment_tag is None:
@@ -170,6 +243,9 @@ def _all_stats_cached(
             if source.format in ("packds", "deltacat"):
                 continue
             resolved = _resolve_one_path(source.uri)
+            # A store's loader serves its own stats (registry row or view/full/stats.json).
+            if is_lance_source(resolved, fields.get(source.uri)):
+                continue
             for relative_path in (
                 stats.LE_ROBOT_STATS_FILENAME,
                 stats.LE_ROBOT_REL_STATS_FILENAME,
@@ -240,12 +316,14 @@ def _generate_all_stats(
     hydrator: service.Hydrator | None,
     use_relative_action: bool | None = None,
     resolved_dataset_sources: list[list[source_resolver.ResolvedDatasetSource]] | None = None,
+    lance_fields_by_entry: list[dict[str, dict[str, object]]] | None = None,
 ) -> None:
     """Generate stats/relative stats for all datasets.
 
     Uses the provided hydrator (single-process) or per-worker hydrators (multi-process).
 
     When hydrator is None (no S3 paths detected), stats are generated using local paths only.
+    LanceDS stores are skipped as :func:`_all_stats_cached` skips them.
     """
     rank = dist.get_rank() if (dist.is_available() and dist.is_initialized()) else 0
     worker_logging.get_unified_logger().info(
@@ -255,10 +333,11 @@ def _generate_all_stats(
     use_reservoir_sampling = getattr(data_config, "use_reservoir_sampling", True)
     auto_generate = getattr(data_config, "auto_generate_stats", True)
     resolved_dataset_sources = resolved_dataset_sources or _resolve_all_dataset_sources(data_config)
+    lance_fields_by_entry = lance_fields_by_entry or [{}] * len(data_config.datasets)
     if not dist.is_available() or not dist.is_initialized() or hydrator is None:
         if rank == 0:
-            for dataset_spec, dataset_sources in zip(
-                data_config.datasets, resolved_dataset_sources, strict=True
+            for dataset_spec, dataset_sources, fields in zip(
+                data_config.datasets, resolved_dataset_sources, lance_fields_by_entry, strict=True
             ):
                 embodiment_tag = dataset_spec.embodiment_tag
                 if embodiment_tag is None:
@@ -267,6 +346,8 @@ def _generate_all_stats(
                     if source.format in ("packds", "deltacat"):
                         continue
                     path_str = service.Hydrator.normalize_path(_resolve_one_path(source.uri))
+                    if is_lance_source(path_str, fields.get(source.uri)):
+                        continue
                     stats.generate_stats(path_str, hydrator, auto_generate=auto_generate)
                     use_rel = (
                         use_relative_action
@@ -294,7 +375,7 @@ def _generate_all_stats(
     # Fast path: if all stats are already cached, skip the barrier entirely.
     # This avoids NCCL socket errors during dist.barrier() on large clusters
     # when no actual stats computation is needed.
-    if _all_stats_cached(data_config, resolved_dataset_sources):
+    if _all_stats_cached(data_config, resolved_dataset_sources, lance_fields_by_entry):
         if rank == 0:
             print(  # noqa: T201
                 "All dataset stats already cached, skipping stats generation barrier."
@@ -303,8 +384,8 @@ def _generate_all_stats(
 
     # Build a deterministic global task list; deduplicate by (path, embodiment_tag).
     raw_tasks: list[tuple[str, object]] = []
-    for dataset_spec, dataset_sources in zip(
-        data_config.datasets, resolved_dataset_sources, strict=True
+    for dataset_spec, dataset_sources, fields in zip(
+        data_config.datasets, resolved_dataset_sources, lance_fields_by_entry, strict=True
     ):
         embodiment_tag = dataset_spec.embodiment_tag
         if embodiment_tag is None:
@@ -312,12 +393,10 @@ def _generate_all_stats(
         for source in dataset_sources:
             if source.format in ("packds", "deltacat"):
                 continue
-            raw_tasks.append(
-                (
-                    service.Hydrator.normalize_path(_resolve_one_path(source.uri)),
-                    embodiment_tag,
-                )
-            )
+            path_str = service.Hydrator.normalize_path(_resolve_one_path(source.uri))
+            if is_lance_source(path_str, fields.get(source.uri)):
+                continue
+            raw_tasks.append((path_str, embodiment_tag))
     seen: set[tuple[str, object]] = set()
     tasks: list[tuple[str, object]] = []
     for path, tag in raw_tasks:
@@ -384,6 +463,13 @@ def get_dataset_factory(
 ):
     """Return the appropriate dataset factory based on ``data_config.dataset_factory_type``."""
     factory_type = getattr(data_config, "dataset_factory_type", "default")
+    if factory_type in ("weighted_sampling", "quality_weighted") and uses_lance(data_config):
+        from groot.core.data.dataset import lance_pins
+
+        # Before any dataset is built, as DatasetFactory.build checks the default route.
+        lance_pins.check_lance_training_pins(
+            data_config, _resolve_all_dataset_sources(data_config), factory_type=factory_type
+        )
     if factory_type == "default":
         return DatasetFactory(
             data_config,
@@ -466,8 +552,12 @@ class DatasetFactory:
         hydrator=None,
         dataset_format: source_resolver.DatasetSourceFormat | None = None,
         deltacat_config: DeltaCatDatasetConfig | None = None,
+        lance_fields: dict[str, object] | None = None,
     ):
-        """Create a single ShardedDataset from a path and embodiment tag."""
+        """Create a single ShardedDataset from a path and embodiment tag.
+
+        ``lance_fields`` is this source's resolved LANCE_ENTRY_FIELDS.
+        """
         if embodiment_tag is None:
             return sharded_map_dataset.ShardedMapDataset(
                 dataset=vision_language.VisionLanguageDataset(dataset_path),
@@ -485,7 +575,10 @@ class DatasetFactory:
             )
 
         if self.data_config.mode in ["single_turn", "single_turn_rl"]:
-            is_packds = (
+            # A store is read as one, as create_episode_loader reads it, whatever a .packds or
+            # yam_packds* name says; lance_pins refuses a declared packds/deltacat format on one.
+            is_lance = is_lance_source(dataset_path, lance_fields)
+            is_packds = not is_lance and (
                 dataset_format == "packds"
                 if dataset_format is not None
                 else _is_packds_path(dataset_path)
@@ -515,7 +608,15 @@ class DatasetFactory:
                     dataset_class = sharded_single_step_rl_dataset.ShardedSingleStepRLDataset
                 else:
                     raise ValueError(f"Invalid mode: {self.data_config.mode}")
-                return dataset_class(
+                episode_loader_kwargs = None
+                if is_deltacat_packds:
+                    episode_loader_kwargs = _deltacat_episode_loader_kwargs(deltacat_config)
+                elif is_lance:
+                    episode_loader_kwargs = _lance_episode_loader_kwargs(
+                        dataset_path, lance_fields or {}, self.data_config
+                    )
+                    hydrator = None  # LanceEpisodeLoader reads its store itself and takes none
+                dataset = dataset_class(
                     dataset_path=dataset_path,
                     embodiment_tag=schema.EmbodimentTag(embodiment_tag),
                     modality_configs=self.data_config.modality_configs[embodiment_tag],
@@ -528,13 +629,16 @@ class DatasetFactory:
                     load_step_filter=self.data_config.load_step_filter,
                     data_filter=data_filter,
                     hydrator=hydrator,
-                    episode_loader_kwargs=(
-                        _deltacat_episode_loader_kwargs(deltacat_config)
-                        if is_deltacat_packds
-                        else None
-                    ),
+                    episode_loader_kwargs=episode_loader_kwargs,
                     enable_batched_step_extraction=is_deltacat_packds,
                 )
+                if is_lance and (
+                    self.use_relative_action
+                    if self.use_relative_action is not None
+                    else _needs_relative_stats(embodiment_tag, self.data_config)
+                ):
+                    _require_store_relative_stats(dataset, dataset_path, embodiment_tag)
+                return dataset
         elif self.data_config.mode == "chunk":
             return sharded_single_step_chunk_dataset.ShardedSingleStepChunkDataset(
                 dataset_path=dataset_path,
@@ -611,10 +715,53 @@ class DatasetFactory:
         """Build the dataset. Returns a tuple of (train_dataset, eval_dataset)."""
         rank = dist.get_rank() if (dist.is_available() and dist.is_initialized()) else 0
         resolved_dataset_sources = _resolve_all_dataset_sources(self.data_config)
+        lance_run = uses_lance(self.data_config)
+        # Each entry's {source uri: its lance fields}, which make an s3:// path a store
+        # (path_detection.is_lance_source); a run without LanceDS sets none.
+        lance_fields_by_entry = [{} for _ in resolved_dataset_sources]
+        if lance_run:
+            from groot.core.data.dataset import lance_pins
+
+            # A subclass that overrides _create_sharded_dataset hands its loaders no lance fields.
+            overridden = (
+                self._create_sharded_dataset.__func__ is not DatasetFactory._create_sharded_dataset
+            )
+            lance_pins.check_lance_training_pins(
+                self.data_config,
+                resolved_dataset_sources,
+                factory_type=type(self).__name__ if overridden else "default",
+            )
+            lance_fields_by_entry = [
+                lance_pins.lance_fields(spec, [source.uri for source in sources])
+                for spec, sources in zip(
+                    self.data_config.datasets, resolved_dataset_sources, strict=True
+                )
+            ]
+        else:
+            # uses_lance sees every path the config names, so only a DeltaCAT table's rows, read
+            # here, can name a store it did not see.
+            unseen_stores = [
+                source.uri
+                for dataset_sources in resolved_dataset_sources
+                for source in dataset_sources
+                if is_lance_dataset_path(source.uri)
+            ]
+            if unseen_stores:
+                raise ValueError(
+                    f"LanceDS stores among a DeltaCAT table's rows: {unseen_stores}. The launch "
+                    "decides from the config, before any table is read, whether a run reads "
+                    "LanceDS, so it neither pinned them nor set their reads up (I/O shim, allocator "
+                    "environment, parent-read shutdown, fork check). List each store in "
+                    "dataset_paths, or set a lance field (such as a {path: lance_as_of} pin on its "
+                    "entry): the launch then treats the run as a LanceDS run."
+                )
 
         hydrator_enabled = any(
             _resolve_one_path(source.uri).startswith("s3://")
-            for dataset_sources in resolved_dataset_sources
+            and not is_lance_source(source.uri, fields.get(source.uri))  # lance reads it itself
+            for dataset_sources, fields in zip(
+                resolved_dataset_sources, lance_fields_by_entry, strict=True
+            )
             for source in dataset_sources
             if source.format not in ("packds", "deltacat")
         )
@@ -652,14 +799,20 @@ class DatasetFactory:
             hydrator,
             self.use_relative_action,
             resolved_dataset_sources,
+            lance_fields_by_entry,
         )
 
         all_datasets = []
         all_weights = []
         data_filter = self._get_data_filter()
 
-        for dataset_spec, dataset_sources in tqdm(
-            zip(self.data_config.datasets, resolved_dataset_sources, strict=True),
+        for dataset_spec, dataset_sources, fields_by_uri in tqdm(
+            zip(
+                self.data_config.datasets,
+                resolved_dataset_sources,
+                lance_fields_by_entry,
+                strict=True,
+            ),
             total=len(self.data_config.datasets),
             desc="Initializing datasets",
         ):
@@ -668,6 +821,13 @@ class DatasetFactory:
             embodiment_tag = dataset_spec.embodiment_tag
             for source in dataset_sources:
                 dataset_path = _resolve_one_path(source.uri)
+                # Only a store's build takes lance_fields: a subclass that overrides
+                # _create_sharded_dataset takes none, and the pin check refuses a store on it.
+                lance_kwargs = (
+                    {"lance_fields": fields_by_uri[source.uri]}
+                    if is_lance_source(dataset_path, fields_by_uri.get(source.uri))
+                    else {}
+                )
                 dataset = self._create_sharded_dataset(
                     dataset_path,
                     embodiment_tag,
@@ -675,6 +835,7 @@ class DatasetFactory:
                     hydrator=hydrator_client,
                     dataset_format=source.format,
                     deltacat_config=dataset_spec.deltacat,
+                    **lance_kwargs,
                 )
                 datasets.append(dataset)
             dataset_lengths = np.array([len(dataset) for dataset in datasets])

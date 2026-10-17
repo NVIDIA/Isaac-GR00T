@@ -580,6 +580,18 @@ def _calculate_stats_for_key_exact(
     return exact_stats_from_chunks(all_chunks)
 
 
+def relative_action_keys(embodiment_tag: str) -> list[str]:
+    """The action keys ``embodiment_tag`` trains RELATIVE: the keys its relative stats must hold."""
+    action_config = MODALITY_CONFIGS[embodiment_tag]["action"]
+    return [
+        key
+        for key, ac in zip(
+            action_config.modality_keys, action_config.action_configs or (), strict=False
+        )
+        if ac.rep == ActionRepresentation.RELATIVE
+    ]
+
+
 def generate_rel_stats(
     dataset_path: Path | str,
     embodiment_tag: EmbodimentTag,
@@ -599,11 +611,7 @@ def generate_rel_stats(
     action_config = MODALITY_CONFIGS[embodiment_tag.value]["action"]
     if action_config.action_configs is None:
         return None
-    action_keys = [
-        key
-        for key, ac in zip(action_config.modality_keys, action_config.action_configs, strict=False)
-        if ac.rep == ActionRepresentation.RELATIVE
-    ]
+    action_keys = relative_action_keys(embodiment_tag.value)
     if not action_keys:
         return None  # No relative actions for this embodiment
     if hydrator is not None:

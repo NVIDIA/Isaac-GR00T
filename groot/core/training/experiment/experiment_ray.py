@@ -8,6 +8,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+import copy
 import getpass
 import logging
 import os
@@ -28,6 +29,7 @@ import tyro
 
 from groot.core.data.dataset import deltacat_sampled_stats
 from groot.core.data.dataset.build_artifacts import DatasetBuildArtifacts
+from groot.core.data.dataset.path_detection import uses_lance
 from groot.core.training.configs import base_config
 from groot.core.training.experiment import experiment, memory_monitor
 from groot.core.training.experiment.gear_registration import (
@@ -39,6 +41,7 @@ from groot.core.training.experiment.gear_registration import (
 from groot.core.training.experiment.placement import gpu_placement_bundles
 from groot.core.utils.storage import cache as cache_entrypoint
 from groot.core.utils.storage.checkpoint import node_local_checkpoint_output
+from groot.core.utils.storage.data_paths import resolve_all_dataset_paths
 
 _DRY_RUN_PROPAGATED_VARS = ("_GROOT_DRY_RUN_STUB_MODEL", "IDENTITY_FORWARD_SLEEP_MS")
 _TORCH_COMPILE_PROPAGATED_VARS = (
@@ -181,9 +184,10 @@ def train_func(cfg, dataset_build_artifacts=None):
 
 
 class TorchTrainer:
-    def __init__(self, placement_group) -> None:
+    def __init__(self, placement_group, worker_runtime_env: dict | None = None) -> None:
         # create placement group
         self.placement_group = placement_group
+        self.worker_runtime_env = worker_runtime_env
         self.workers = []
         self.training_fn = None
         self.training_fn_cfg = None
@@ -226,6 +230,12 @@ class TorchTrainer:
             if i >= num_workers_to_create:
                 break
 
+            # runtime_env only when there is one: an explicit None would replace the one a wrapper
+            # sets by default (Colossus's PYTHONPATH). A lance run's runtime_env does replace it;
+            # its actors still get that PYTHONPATH, which Ray merges in from the job's runtime_env.
+            runtime_env_option = (
+                {"runtime_env": self.worker_runtime_env} if self.worker_runtime_env else {}
+            )
             self.workers.append(
                 _TrainingWorker.options(
                     num_cpus=bundle.get("CPU", 0),
@@ -234,6 +244,7 @@ class TorchTrainer:
                         placement_group=self.placement_group,
                         placement_group_bundle_index=i,
                     ),
+                    **runtime_env_option,
                 ).remote(
                     training_fn,
                     training_fn_cfg,
@@ -628,6 +639,38 @@ def main():
             )
         )
         memory_monitor.phase("post-stats-pre-train")
+    worker_runtime_env = None
+    if uses_lance(config.data):
+        from groot.core.data.dataset import lance_pins
+        from groot.core.data.dataset.lance.read.io_shim import lance_io_shim
+
+        # Every unpinned LanceDS path, and the registry, pinned at this launch's time (a resume: at
+        # the time its checkpoint recorded) in the config the actors get, so every rank reads the
+        # same versions. The paths are resolved on a copy: workers resolve the original config
+        # themselves in experiment.run, and resolving twice is not guaranteed to be a no-op
+        # (container-directory expansion).
+        resolved_config = copy.deepcopy(config)
+        resolve_all_dataset_paths(resolved_config)
+        lance_pins.stamp_lance_pins(
+            config.data,
+            resolved_config.data,
+            experiment.output_dir_of(config),
+            experiment.resume_checkpoint_choice(config),
+        )
+        # The allocator environment lance was measured with plus the O_DIRECT I/O shim, built once
+        # here (the head has the compiler) into output_dir and LD_PRELOADed into every training
+        # actor through its runtime_env: every node loads it when output_dir is shared storage
+        # (Lustre), only the head's ranks when it is node-local (the others warn). DataLoader
+        # workers inherit both (fork and spawn).
+        lance_actor_env = lance_io_shim.actor_env(
+            config.training.output_dir.format(user=getpass.getuser())
+        )
+        logging.info(
+            "lance actor environment (I/O shim %s): %s",
+            "ON" if "LD_PRELOAD" in lance_actor_env else "off",
+            lance_actor_env,
+        )
+        worker_runtime_env = {"env_vars": lance_actor_env}
     num_gpus = config.training.num_gpus
 
     # Get the maximum available GPUs
@@ -696,7 +739,7 @@ def main():
         )
         placement_group = ray.util.placement_group(gpu_bundles)
         logging.info(f"Waiting for placement group with {num_gpus} GPUs...")
-    trainer = TorchTrainer(placement_group)
+    trainer = TorchTrainer(placement_group, worker_runtime_env=worker_runtime_env)
     memory_monitor.phase("training")
     trainer.train(
         train_func,

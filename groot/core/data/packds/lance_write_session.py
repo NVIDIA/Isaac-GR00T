@@ -431,6 +431,7 @@ class BaseLanceWriteSession:
         self._first_write_done = False
         self._pending_fragments: list[Any] = []
         self._fragment_lock = threading.Lock()
+        self._fragment_storage_version: str | None = None  # None: pylance's default
 
     @staticmethod
     def _join_table_uri(base_path: str, table_dir: str) -> str:
@@ -620,7 +621,10 @@ class BaseLanceWriteSession:
             data = self.align_table_to_schema(data, self._schema)
 
         uri = self.working_table_uri()
-        frag = LanceFragment.create(uri, data, mode="create", **self._connect_kwargs())
+        frag = LanceFragment.create(
+            uri, data, mode="create", data_storage_version=self._fragment_storage_version,
+            **self._connect_kwargs(),
+        )
         with self._fragment_lock:
             self._pending_fragments.append(frag)
 
@@ -853,8 +857,10 @@ class StagedRemoteLanceWriteSession(BaseLanceWriteSession):
         if mode == "a":
             try:
                 remote_db = lancedb.connect(self._remote_path, **self._remote_connect_kwargs())
-                remote_table = remote_db.open_table(self.table_name)
-                self._schema = remote_table.to_lance().schema
+                remote_table = remote_db.open_table(self.table_name).to_lance()
+                self._schema = remote_table.schema
+                # Staged fragments must match the table's format (pylance 11 stages 2.1 by default).
+                self._fragment_storage_version = remote_table.data_storage_version
                 self._first_write_done = True
             except (FileNotFoundError, OSError, ValueError):
                 pass  # Dataset doesn't exist yet; schema set by first write
