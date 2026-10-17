@@ -29,11 +29,17 @@ DatasetSourceFormat = Literal["lerobot", "packds", "deltacat"]
 
 @dataclass(frozen=True)
 class ResolvedDatasetSource:
-    """A concrete dataset root after resolving any catalog indirection."""
+    """A concrete dataset root after resolving any catalog indirection.
+
+    ``format_inferred``: no ``format`` was given, so ``format`` was inferred from the path's name; a
+    LanceDS store (path_detection.is_lance_source) is read as one whatever that name says. A store
+    with a declared packds or deltacat format is refused (lance_pins.check_lance_training_pins).
+    """
 
     uri: str
     format: DatasetSourceFormat
     metadata: dict[str, Any] = field(default_factory=dict)
+    format_inferred: bool = False
 
 
 def _is_packds_path(path: str) -> bool:
@@ -235,6 +241,7 @@ def resolve_dataset_source(source: Any) -> list[ResolvedDatasetSource]:
                     else _infer_format(path=path_str)
                 ),
                 metadata={"source": "path"},
+                format_inferred=source.get("format") is None,
             )
         ]
 
@@ -252,6 +259,7 @@ def resolve_dataset_source(source: Any) -> list[ResolvedDatasetSource]:
             uri=path_str,
             format=_infer_format(path=path_str),
             metadata={"source": "path"},
+            format_inferred=True,
         )
     ]
 
