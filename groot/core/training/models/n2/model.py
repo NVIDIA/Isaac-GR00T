@@ -2267,6 +2267,12 @@ class GrootN2(PreTrainedModel):
                     action_tokens = self.action_encoder(
                         action_latents, action_t_per_step, embodiment_id
                     )
+                    if future_tactile is not None:
+                        # The solver can promote action latents/tokens to FP32.
+                        # Keep the joint snapshot's input precision: Cosmos's
+                        # timestep embedding uses the token dtype even under
+                        # autocast, so changing it alters the cached forward.
+                        action_tokens = action_tokens.to(packed.tokens.dtype)
                     action_rope_freqs = self.action_rope(action_tokens)
 
                     action_noise_pred = self._run_action_step(

@@ -188,30 +188,19 @@ def ensure_cosmos_model_deps(
 
     Args:
         checkpoint_dir: Path to the checkpoint directory containing config.json
-        cache_dir: Explicit cache (legacy behavior). Otherwise GROOT_N2_MODEL_DEPS_ROOT
-            selects a package-owned cache: dependencies must be real files inside it,
-            never links to another cache. Unset retains ~/checkpoints/model_deps/.
+        cache_dir: Where to find or cache model deps. Defaults to ~/checkpoints/model_deps/
         cache_is_prepared: Require every dependency to already exist instead of downloading it.
         lock_dir: Writable directory for the inter-process lock when cache_dir is read-only.
         local_files_only: Resolve mounted/cached dependencies without downloading missing files.
     """
     checkpoint_dir = Path(checkpoint_dir)
-    packaged_root = os.environ.get("GROOT_N2_MODEL_DEPS_ROOT") if cache_dir is None else None
-    if packaged_root:
-        # The root may live behind a data-disk/HOME symlink. Containment and
-        # payload symlink checks below apply within this canonical directory.
-        cache_dir = Path(packaged_root).expanduser().resolve()
     view_metadata = checkpoint_view_metadata(checkpoint_dir)
     if view_metadata is not None:
         # Reuse the original cache and writable view root when an upstream loader
         # already localized this checkpoint, including a prepared read-only cache.
         if cache_dir is None:
             cache_dir = view_metadata["dependency_cache"]
-        if (
-            not packaged_root
-            and lock_dir is None
-            and checkpoint_dir.resolve().parent.parent != Path(cache_dir).resolve()
-        ):
+        if lock_dir is None and checkpoint_dir.resolve().parent.parent != Path(cache_dir).resolve():
             lock_dir = checkpoint_dir.resolve().parent.parent
         checkpoint_dir = Path(view_metadata["source"])
     if cache_dir is None:
@@ -241,7 +230,6 @@ def ensure_cosmos_model_deps(
                 cache_dir,
                 allow_download=not (cache_is_prepared or local_files_only),
                 view_root=lock_root / ".checkpoint-configs",
-                contained=bool(packaged_root),
             )
         )
 
@@ -252,7 +240,6 @@ def _ensure_cosmos_model_deps_locked(
     *,
     allow_download: bool,
     view_root: Path,
-    contained: bool = False,
 ) -> Path:
     """Resolve dependencies while holding the cache's inter-process lock."""
     config_path = checkpoint_dir / "config.json"
@@ -311,26 +298,10 @@ def _ensure_cosmos_model_deps_locked(
     for dep_path in dep_paths:
         rel_path = _to_relative_dep_path(dep_path, cache_dir)
         roles = relative_roles.get(rel_path, dep_roles[dep_path])
-        if contained:
-            if rel_path is None:
-                raise ValueError(
-                    f"Cannot package model dependency {dep_path!r}: use its durable "
-                    "s3://GearCheckpoints/model_deps/ identity in the source checkpoint"
-                )
-            target = _cache_target(cache_dir, rel_path, for_write=True)
-            # Reject ancestor, directory and payload links, including broken links.
-            # A prepared package must not silently depend on another cache.
-            ancestors = [cache_dir / path for path in target.relative_to(cache_dir).parents]
-            if any(path.is_symlink() for path in [target, *ancestors]) or any(
-                path.is_symlink() for path in target.rglob("*")
-            ):
-                raise ValueError(f"Packaged model dependency contains symlinks: {target}")
-            candidates = [target]
-        else:
-            candidates = [Path(dep_path)] if "://" not in dep_path else []
-            if rel_path is not None:
-                candidates.extend(Path(prefix) / rel_path for prefix in _LUSTRE_CKPT_PREFIXES)
-                candidates.append(_cache_target(cache_dir, rel_path))
+        candidates = [Path(dep_path)] if "://" not in dep_path else []
+        if rel_path is not None:
+            candidates.extend(Path(prefix) / rel_path for prefix in _LUSTRE_CKPT_PREFIXES)
+            candidates.append(_cache_target(cache_dir, rel_path))
         for candidate in dict.fromkeys(candidates):
             key = (candidate, frozenset(roles))
             if key not in checked:

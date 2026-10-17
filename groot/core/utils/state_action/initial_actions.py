@@ -9,7 +9,6 @@
 # its affiliates is strictly prohibited.
 
 from pathlib import Path
-from typing import IO
 
 import numpy as np
 
@@ -22,9 +21,8 @@ def save_initial_actions(
     np.savez(str(initial_actions_path), initial_actions)
 
 
-def load_initial_actions(initial_actions_path: str | Path | IO[bytes]):
-    """What :func:`save_initial_actions` wrote, from its path or a file object of its bytes.
-
+def load_initial_actions(initial_actions_path: str | Path):
+    """
     initial_actions: list[dict[str, dict[str, np.ndarray]]]
     0: (the first dataset)
         trajectory_name:
@@ -33,7 +31,7 @@ def load_initial_actions(initial_actions_path: str | Path | IO[bytes]):
     1: (the second dataset)
         ...
     """
-    initial_actions_npz = np.load(initial_actions_path, allow_pickle=True)
+    initial_actions_npz = np.load(str(initial_actions_path), allow_pickle=True)
     initial_actions = []
     initial_actions_array = initial_actions_npz[
         "arr_0"
