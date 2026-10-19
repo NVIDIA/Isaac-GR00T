@@ -134,6 +134,12 @@ class TrainingConfig:
     )
     save_vl_model: bool = False  # Control whether to save VL model and processor in callbacks
 
+    # Exponential moving average of the trainable weights, saved next to each
+    # checkpoint as ema_model.safetensors for inference-time use. 0 disables it
+    # (training is byte-identical when off). 0.999 averages over ~1k steps.
+    # See groot/core/training/experiment/callbacks/ema.py.
+    ema_decay: float = 0.0
+
     # Checkpoint uploading
     upload_checkpoints: bool = False
     upload_every: int = 1000
