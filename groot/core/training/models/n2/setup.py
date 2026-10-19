@@ -25,9 +25,7 @@ from groot.core.training.models.base.model_pipeline import ModelPipeline
 from groot.core.training.models.n2.model import GrootN2
 from groot.core.training.models.n2.processor import (
     EMBODIMENT_TAG_TO_PROJECTOR_INDEX,
-    PROJECTOR_ROW_ALIASES,
     GrootN2Processor,
-    apply_projector_row_aliases,
 )
 from groot.core.training.models.n2.tactile import complete_encoder_load
 from groot.core.training.models.n2.tactile.callbacks import trainer_callbacks
@@ -254,8 +252,6 @@ class GrootN2Pipeline(ModelPipeline):
         Saved mappings take precedence over the code table; resume_checkpoint takes
         precedence over start_from_checkpoint. New tags need an explicit code-table
         row, and reserved-row reuse requires training.allow_pretrained_projector_row_reuse.
-        A PROJECTOR_ROW_ALIASES tag always takes its base tag's row; when the checkpoint saved
-        the base tag, that row is the checkpoint's own and is not re-guarded.
         Returns None for fresh pretraining, single-row heads, or legacy checkpoints
         without mappings. Legacy selected rows are validated, but reservations are unknown.
         """
@@ -288,12 +284,7 @@ class GrootN2Pipeline(ModelPipeline):
         ):
             raise ValueError(f"[GrootN2] {source} {ckpt} has an invalid embodiment_id_mapping")
         saved_mapping = ckpt_mapping or {}
-        # Alias the saved rows before the code table fills gaps: only a neck row the checkpoint
-        # itself listed can be overridden (and warned about).
-        mapping = {
-            **EMBODIMENT_TAG_TO_PROJECTOR_INDEX,
-            **apply_projector_row_aliases(saved_mapping),
-        }
+        mapping = {**EMBODIMENT_TAG_TO_PROJECTOR_INDEX, **saved_mapping}
         allow_reuse = (
             getattr(self.config.training, "allow_pretrained_projector_row_reuse", False) is True
         )
@@ -310,8 +301,6 @@ class GrootN2Pipeline(ModelPipeline):
                     f"[GrootN2] {tag}: invalid projector row {row!r} for "
                     f"num_embodiments={action_cfg['num_embodiments']} ({source} {ckpt})"
                 )
-            if PROJECTOR_ROW_ALIASES.get(tag) in saved_mapping:
-                continue  # the checkpoint's own row for the base tag
             code_row = EMBODIMENT_TAG_TO_PROJECTOR_INDEX.get(tag)
             if tag in saved_mapping:
                 if code_row is not None and code_row != row:

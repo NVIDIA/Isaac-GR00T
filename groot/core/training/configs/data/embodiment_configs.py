@@ -5852,49 +5852,5 @@ for _tag in (
     )
 
 
-# Moving-neck Tianji Sharpa: the fixed-neck groups with neck_joints APPENDED to state and
-# action (65D; dims 0:62 keep the fixed-neck layout, the neck is 62:65). The neck IS
-# selected, unlike F6: a moving ego camera is the reason the tag exists. neck_joints is
-# ABSOLUTE/NON_EEF like the hands, so it needs no relative-stats key. The _with_tactile twin
-# adds the fixed-neck _with_tactile tag's "deform" group by design, so tactile neck recipes
-# read the fixed-neck tactile inputs; recipes without tactile input use the bare neck tag.
-# Groups are deep-copied so a yaml override of one tag never mutates another tag's registered
-# ModalityConfig.
-_TIANJI_NECK_BASE = MODALITY_CONFIGS["real_tianji_sharpa_relative_eef"]
-MODALITY_CONFIGS["real_tianji_sharpa_neck_relative_eef"] = {
-    "video": deepcopy(_TIANJI_NECK_BASE["video"]),
-    "state": ModalityConfig(
-        delta_indices=[0],
-        modality_keys=[*_TIANJI_NECK_BASE["state"].modality_keys, "neck_joints"],
-        exclude_state=False,
-    ),
-    "action": ModalityConfig(
-        delta_indices=list(range(0, 48)),
-        modality_keys=[*_TIANJI_NECK_BASE["action"].modality_keys, "neck_joints"],
-        normalize_rotation=True,
-        action_configs=[
-            *deepcopy(_TIANJI_NECK_BASE["action"].action_configs),
-            ActionConfig(
-                rep=ActionRepresentation.ABSOLUTE,
-                type=ActionType.NON_EEF,
-                format=ActionFormat.DEFAULT,
-            ),
-        ],
-    ),
-    "language": deepcopy(_TIANJI_NECK_BASE["language"]),
-}
-del _TIANJI_NECK_BASE
-MODALITY_CONFIGS["real_tianji_sharpa_neck_relative_eef_with_tactile"] = {
-    **deepcopy(MODALITY_CONFIGS["real_tianji_sharpa_neck_relative_eef"]),
-    "deform": deepcopy(MODALITY_CONFIGS["real_tianji_sharpa_relative_eef_with_tactile"]["deform"]),
-}
-
-# Same key names and cameras as the tianji Sharpa rig; per-key widths come from each
-# dataset's meta/modality.json, so the copies need no dim edits. Separate tags give each
-# corpus its own normalization statistics.
-for _tag in ("tianji_wuji_relative_eef", "sharpa_north_human_relative_eef"):
-    MODALITY_CONFIGS[_tag] = deepcopy(MODALITY_CONFIGS["real_tianji_sharpa_relative_eef"])
-
-
 def register_modality_config(embodiment_tag: str, config: dict):
     MODALITY_CONFIGS[embodiment_tag] = config
