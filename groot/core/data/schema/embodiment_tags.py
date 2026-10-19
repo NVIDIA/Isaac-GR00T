@@ -712,6 +712,46 @@ class EmbodimentTag(Enum):
     hands the state encoder 122D where it expects 62D.
     """
 
+    REAL_TIANJI_SHARPA_NECK_RELATIVE_EEF = "real_tianji_sharpa_neck_relative_eef"
+    """
+    Tianji Sharpa on a rig whose 3-DoF neck MOVES, so the ego cameras are no longer at a
+    fixed pose relative to the base-frame actions. ``REAL_TIANJI_SHARPA_RELATIVE_EEF`` plus
+    ``neck_joints`` (3 dims, absolute) APPENDED to state and action: 65D, dims 0:62 keep
+    the fixed-neck layout. ``neck`` goes before ``_with_tactile`` in the name because the
+    converter enables F6 via ``embodiment_tag.endswith("_with_tactile")``.
+    """
+
+    REAL_TIANJI_SHARPA_NECK_RELATIVE_EEF_WITH_TACTILE = (
+        "real_tianji_sharpa_neck_relative_eef_with_tactile"
+    )
+    """
+    Moving-neck Tianji Sharpa datasets with tactile sensing.
+    ``REAL_TIANJI_SHARPA_NECK_RELATIVE_EEF``'s groups plus, by design, the fixed-neck
+    ``_with_tactile`` tag's ``deform`` group (the ten per-fingertip deform videos), so tactile
+    neck recipes read the same tactile inputs as fixed-neck tactile recipes. As with that tag,
+    the fingertip ``*_f6`` vectors are extra ``observation.state`` columns that recipes select
+    as the separate ``tactile`` modality.
+    Recipes without tactile input use ``REAL_TIANJI_SHARPA_NECK_RELATIVE_EEF`` (or override
+    ``deform`` to ``modality_keys: []``); saved checkpoints keep the modality configs they were
+    trained with. A tag distinct from the fixed-neck family makes an accidental neck/no-neck
+    merge fail on the ``embodiment.json`` check.
+    """
+
+    TIANJI_WUJI_RELATIVE_EEF = "tianji_wuji_relative_eef"
+    """
+    Tianji rig with Wuji hands, relative EEF, ego + two wrist views. Same key names and
+    cameras as ``REAL_TIANJI_SHARPA_RELATIVE_EEF``, but 20-DoF hands and no tactile, so its
+    own normalization statistics and its own projector row.
+    """
+
+    SHARPA_NORTH_HUMAN_RELATIVE_EEF = "sharpa_north_human_relative_eef"
+    """
+    Sharpa North rig worn by human operators. Same key schema as
+    ``REAL_TIANJI_SHARPA_RELATIVE_EEF`` (relative-EEF wrists + 2x 22-DoF Sharpa hands, ego +
+    L/R wrist views); its own tag for its own normalization statistics, on the Sharpa
+    projector row.
+    """
+
     # ------------- Real G1 Embodiments -------------
     REAL_G1_RELATIVE_EEF_ABSOLUTE_JOINTS = "real_g1_relative_eef_absolute_joints"
     """
