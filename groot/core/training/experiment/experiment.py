@@ -58,6 +58,7 @@ from groot.core.data.dataset.factory import DatasetFactory as _ValDatasetFactory
 from groot.core.data.dataset.path_detection import is_lance_dataset_path, uses_lance
 from groot.core.data.dataset.recipe_fields import LANCE_ENTRY_FIELDS
 from groot.core.training.configs.base_config import Config
+from groot.core.training.experiment.callbacks.ema import EMACallback
 from groot.core.training.experiment.callbacks.msc_checkpoint import MSCCheckpointCallback
 from groot.core.training.experiment.callbacks.save_steps import OverrideSaveStepsCallback
 from groot.core.training.experiment.callbacks.validation_loss import ValidationLossCallback
@@ -1565,6 +1566,18 @@ def run(
         # Conditionally add SaveVlModelCallback based on config
         if config.training.save_vl_model:
             trainer.add_callback(SaveVlModelCallback(processor=processor))
+
+        # Registered before the upload callbacks: EMACallback.on_save writes
+        # ema_model.safetensors into the checkpoint dir synchronously, and
+        # callbacks fire in registration order, so the file is on disk before an
+        # upload of that directory is dispatched.
+        if config.training.ema_decay > 0:
+            trainer.add_callback(
+                EMACallback(
+                    decay=config.training.ema_decay,
+                    resume_checkpoint=pipeline.resume_checkpoint,
+                )
+            )
 
         trainer.add_callback(
             CheckpointFormatCallback(
