@@ -20,7 +20,6 @@ from transformers import TrainerCallback
 from transformers.trainer_callback import TrainerControl, TrainerState
 from transformers.training_args import TrainingArguments
 
-from groot.core.training.experiment.callbacks.ema import EMA_WEIGHTS_FILENAME
 from groot.core.utils.storage.msc import (
     list_directories_from_path,
     resolve_checkpoint_path,
@@ -633,8 +632,7 @@ def check_pdx_checkpoint_upload_completed(pdx_checkpoint: Path) -> bool:
         # check the existence of all files
         safetensors = []
         for item in files_and_dirs:
-            # The EMA weights are not a model shard; the shard count below ignores them.
-            if item.endswith(".safetensors") and item != EMA_WEIGHTS_FILENAME:
+            if item.endswith(".safetensors"):
                 assert item.startswith("model-"), f"{item=}"
                 assert "-of-" in item, f"{item=}"
                 safetensors.append(item)

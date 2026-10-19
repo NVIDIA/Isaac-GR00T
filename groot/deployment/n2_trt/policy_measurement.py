@@ -58,9 +58,6 @@ DEFAULT_MEASURED_REQUESTS = 3
 # The receipt compares a reference leg with a candidate leg, in this order.
 DEFAULT_BACKENDS = ("eager", "trt")
 COND_KV_FREEZE_ENV = "GROOT_N2_COND_KV_FREEZE"
-# Both legs denoise from fixed noise (every request reuses the policy seed), the regime every
-# retained receipt was measured in.
-FIXED_SEED_ENV = "GROOT_N2_FIXED_SEED"
 _TENSORRT_BACKENDS = frozenset(("trt", "trt_graph"))
 logger = logging.getLogger(__name__)
 
@@ -75,19 +72,17 @@ def _embodiment_tag(embodiment: str) -> Any:
 
 
 @contextmanager
-def _served_policy_env(cond_kv_freeze: bool):
-    """Select the served conditioning-cache mode and fixed noise for ONE policy construction."""
-    selected = {COND_KV_FREEZE_ENV: "1" if cond_kv_freeze else "0", FIXED_SEED_ENV: "1"}
-    previous = {name: os.environ.get(name) for name in selected}
-    os.environ.update(selected)
+def _served_cond_kv_freeze(enabled: bool):
+    """Select the served conditioning-cache mode for ONE policy construction, then restore."""
+    previous = os.environ.get(COND_KV_FREEZE_ENV)
+    os.environ[COND_KV_FREEZE_ENV] = "1" if enabled else "0"
     try:
         yield
     finally:
-        for name, value in previous.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
+        if previous is None:
+            os.environ.pop(COND_KV_FREEZE_ENV, None)
+        else:
+            os.environ[COND_KV_FREEZE_ENV] = previous
 
 
 def _engine_settings(engine_dir: Path, *, bare_engines: bool) -> dict[str, Any]:
@@ -142,7 +137,7 @@ def _measure_backend(
     from groot.deployment.n2_trt.benchmark_adapter import build_benchmark_policy
 
     uses_tensorrt = backend in _TENSORRT_BACKENDS
-    with _served_policy_env(served_cond_kv_freeze):
+    with _served_cond_kv_freeze(served_cond_kv_freeze):
         policy = build_benchmark_policy(
             backend=backend,
             checkpoint=str(checkpoint),
@@ -210,10 +205,6 @@ def _measure_backend(
         raise RuntimeError(
             f"{backend} leg served cond_kv_freeze={runtime_contract.get('cond_kv_freeze')!r}, "
             f"selected {served_cond_kv_freeze}"
-        )
-    if runtime_contract.get("noise_mode") != "fixed":
-        raise RuntimeError(
-            f"{backend} leg served noise_mode={runtime_contract.get('noise_mode')!r}, not fixed"
         )
     stacked = {key: np.stack(values) for key, values in samples.items()}
     metadata: dict[str, Any] = {

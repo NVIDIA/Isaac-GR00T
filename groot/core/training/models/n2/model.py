@@ -228,10 +228,6 @@ class GrootN2(PreTrainedModel):
 
     config_class = GrootN2Config
     supports_gradient_checkpointing = True
-    # The loss is a per-batch mean that never reads num_items_in_batch. Without this, HF infers
-    # the opposite from forward's **kwargs and skips its 1/gradient_accumulation_steps scaling;
-    # DeepSpeed (scale_wrt_gas=False) skips it too, so accumulated gradients were summed.
-    accepts_loss_kwargs = False
     # Set by n2_tactile.attach when the config has tactile_cfg / deform_cfg.
     tactile_spec = None
 
