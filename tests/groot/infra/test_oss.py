@@ -1759,17 +1759,93 @@ def test_oss_tensorrt_runtime_and_tools_are_packaged() -> None:
     assert all(path.is_file() for path in deployment_files)
 
 
+def _lock_packages() -> dict[tuple[str, str], str]:
+    text = (_package_root() / "uv.lock").read_text(encoding="utf-8")
+    blocks = text.split("\n[[package]]\n")
+    packages: dict[tuple[str, str], str] = {}
+    for block in blocks:
+        name = re.search(r'^name = "([^"]+)"', block, re.MULTILINE)
+        version = re.search(r'^version = "([^"]+)"', block, re.MULTILINE)
+        if name is None or version is None:
+            continue
+        packages[(name.group(1), version.group(1))] = block
+    return packages
+
+
+def _pyproject_pin(name: str, *, aarch64: bool | None = None) -> str:
+    """Return the version pyproject.toml pins for ``name`` on Linux aarch64, elsewhere, or both."""
+    text = (_package_root() / "pyproject.toml").read_text(encoding="utf-8")
+    versions = {
+        version
+        for version, marker in re.findall(rf'"{re.escape(name)}==([^ ";]+)(?: ; ([^"]*))?"', text)
+        if aarch64 is None or ("platform_machine == 'aarch64'" in marker) == aarch64
+    }
+    assert len(versions) == 1, f"{name} pins {versions}"
+    return versions.pop()
+
+
+def _has_linux_aarch64_wheels(block: str) -> bool:
+    return (
+        "platform_machine == 'aarch64'" in block
+        and "sys_platform == 'linux'" in block
+        and any(
+            tag in block
+            for tag in (
+                "manylinux_2_27_aarch64",
+                "manylinux_2_28_aarch64",
+                "manylinux_2_35_aarch64",
+            )
+        )
+    )
+
+
+def test_locked_training_stack_supports_linux_aarch64_and_keeps_x86_cu128() -> None:
+    """Catch an x86-only pin regressing the GB300 lock, and the reverse."""
+    packages = _lock_packages()
+
+    arm_torch_version = _pyproject_pin("torch", aarch64=True)
+    arm_torch = packages[("torch", arm_torch_version)]
+    assert _has_linux_aarch64_wheels(arm_torch)
+    assert "x86_64" not in arm_torch
+    for name in ("torchvision", "torchcodec"):
+        assert _has_linux_aarch64_wheels(packages[(name, _pyproject_pin(name, aarch64=True))])
+    # triton is not pinned; the aarch64 torch wheel pulls it in.
+    assert any(
+        _has_linux_aarch64_wheels(block)
+        for (name, _), block in packages.items()
+        if name == "triton"
+    )
+    arm_trt = packages[("tensorrt-cu13", _pyproject_pin("tensorrt-cu13", aarch64=True))]
+    assert "platform_machine == 'aarch64' and sys_platform == 'linux'" in arm_trt
+
+    x86_torch_version = f"{_pyproject_pin('torch', aarch64=False)}+cu128"
+    x86_torch = packages[("torch", x86_torch_version)]
+    assert "platform_machine != 'aarch64'" in x86_torch
+    assert "manylinux_2_28_x86_64" in x86_torch
+    assert "platform_machine == 'aarch64' and sys_platform == 'linux'" not in x86_torch
+    # flash-attn installs on both architectures, against each one's torch.
+    flash = packages[("flash-attn", _pyproject_pin("flash-attn"))]
+    assert f'version = "{x86_torch_version}"' in flash
+    assert f'version = "{arm_torch_version}"' in flash
+
+
 def test_oss_gpu_ci_job_runs_gpu_marked_package_tests() -> None:
     ci_config = (_package_root() / "ci/test.oss.gitlab-ci.yml").read_text(encoding="utf-8")
     workflow_config = (_package_root() / ".gitlab-ci.yml").read_text(encoding="utf-8")
-    gpu_job = _job_block(ci_config, "test.oss.gpu")
+    gpu_job = _job_block(ci_config, ".oss_gpu_job")
+    l40s_job = _job_block(ci_config, "test.oss.gpu.l40s")
+    gb300_job = _job_block(ci_config, "test.oss.gpu.gb300")
 
-    assert "test.oss.gpu:" in ci_config
     assert '$CI_PIPELINE_SOURCE == "merge_request_event"' in workflow_config
     assert '$OSS_TESTS == "true"' not in workflow_config
-    assert "- image.train" in gpu_job
-    assert "groot-ci-train:${CI_COMMIT_SHORT_SHA}" in gpu_job
-    assert "-arm64" not in gpu_job
+    assert "IPP_RUNNER_GPU_TYPE: NVIDIA-L40S" in l40s_job
+    assert "- ipp-group-gear" in l40s_job
+    assert "IPP_RUNNER_MEMORY_LIMIT: 64Gi" in l40s_job
+    assert "- gpu/gb300" in gb300_job
+    for job, arch in ((l40s_job, "amd64"), (gb300_job, "arm64")):
+        assert "extends: .oss_gpu_job" in job
+        assert f"- image.oss.{arch}\n" in job
+        assert f"groot-ci-oss:${{CI_COMMIT_SHORT_SHA}}-{arch}\n" in job
     assert "HF_HUB_OFFLINE" not in gpu_job
     assert "GROOT_HF_ARTIFACT_CACHE_ROOT" not in gpu_job
     assert "OSS_REBUILD_PYAV_FROM_SOURCE" not in ci_config
@@ -1783,7 +1859,13 @@ def test_oss_gpu_ci_job_runs_gpu_marked_package_tests() -> None:
     assert "--tb=short" in gpu_job
     assert "-vv" in gpu_job
     assert "-ra" in gpu_job
-    assert "tensorrt-cu13==10.16.1.11" in gpu_job
+    assert "uv sync --frozen --inexact --extra training --extra dev --extra tensorrt" in gpu_job
+    assert "uv pip install" not in gpu_job
+    assert 'GR00T_DOCKER_IMAGE_TESTS: "1"' in gpu_job
+    assert '"$OSS_PACKAGE_ROOT/tests/test_dockerfile.py"' in gpu_job
+    assert "python - <<" not in gpu_job
+    assert "--no-install-package" not in ci_config
+    assert "--system-site-packages" not in ci_config
     # The standalone OSS repository keeps its lock at the root.
     assert "\n        - uv.lock\n" in _job_block(ci_config, "test.oss.cpu")
     assert '-m "not gpu"' in ci_config
@@ -1794,8 +1876,8 @@ def test_oss_cpu_ci_job_runs_the_dockerfile_tests_in_the_x86_image() -> None:
     ci_config = (_package_root() / "ci/test.oss.gitlab-ci.yml").read_text(encoding="utf-8")
     cpu_job = _job_block(ci_config, "test.oss.cpu")
 
-    assert "- image.oss.amd64" in cpu_job
-    assert "groot-ci-oss:${CI_COMMIT_SHORT_SHA}-amd64" in cpu_job
+    assert "- image.oss.amd64\n" in cpu_job
+    assert "groot-ci-oss:${CI_COMMIT_SHORT_SHA}-amd64\n" in cpu_job
     assert 'GR00T_DOCKER_IMAGE_TESTS: "1"' in cpu_job
     pytest_call = cpu_job[cpu_job.index("python -m pytest") :]
     assert '"$OSS_PACKAGE_ROOT/tests/test_dockerfile.py"' in pytest_call
@@ -1811,7 +1893,8 @@ def test_oss_ci_images_build_the_user_dockerfile_with_its_defaults() -> None:
     assert "--build-arg" not in image_ci
     assert "--export-oss-for-tests" in build
     assert '--platform "linux/${OSS_IMAGE_ARCH}"' in build
-    assert "OSS_IMAGE_ARCH: amd64" in _job_block(image_ci, "image.oss.amd64")
+    for arch in ("amd64", "arm64"):
+        assert f"OSS_IMAGE_ARCH: {arch}" in _job_block(image_ci, f"image.oss.{arch}")
 
 
 def test_oss_test_job_change_triggers_are_covered_by_their_image_jobs() -> None:
@@ -1820,9 +1903,14 @@ def test_oss_test_job_change_triggers_are_covered_by_their_image_jobs() -> None:
     for path in sorted((_package_root() / "ci").glob("*.gitlab-ci.yml")):
         jobs.update(yaml.load(path.read_text(encoding="utf-8"), Loader=_GitLabCiLoader) or {})
 
-    for name in ("test.oss.cpu", "test.oss.gpu", "build.oss.dependencies"):
+    for name in (
+        "test.oss.cpu",
+        "test.oss.gpu.l40s",
+        "test.oss.gpu.gb300",
+        "build.oss.dependencies",
+    ):
         test_paths, _ = _merge_request_change_paths(jobs, name)
-        for need in jobs[name]["needs"]:
+        for need in _inherited(jobs, name, "needs"):
             image_paths, always = _merge_request_change_paths(jobs, need)
             if not always:
                 assert test_paths <= image_paths, (name, need, sorted(test_paths - image_paths))
@@ -1830,12 +1918,7 @@ def test_oss_test_job_change_triggers_are_covered_by_their_image_jobs() -> None:
 
 def test_oss_ci_variable_trigger_does_not_force_image_jobs() -> None:
     package_root = _package_root()
-    oss_train_ci = (package_root / "ci/image.train.gitlab-ci.yml").read_text(encoding="utf-8")
     oss_image_ci = (package_root / "ci/image.oss.gitlab-ci.yml").read_text(encoding="utf-8")
-
-    _assert_job_does_not_run_for_oss_tests(oss_train_ci, "image.train.arm64")
-    _assert_job_does_not_run_for_oss_tests(oss_train_ci, "image.train.amd64")
-    _assert_job_does_not_run_for_oss_tests(oss_train_ci, "image.train")
     _assert_job_does_not_run_for_oss_tests(oss_image_ci, ".image.oss")
 
     monorepo_root = _monorepo_root()
@@ -1907,16 +1990,11 @@ _GitLabCiLoader.add_constructor("!reference", lambda loader, node: loader.constr
 
 def _merge_request_change_paths(jobs: dict, job_name: str) -> tuple[set[str], bool]:
     """Return a job's merge-request `changes` paths, and whether it runs on every MR."""
-    job = jobs[job_name]
-    while "rules" not in job:
-        extends = job.get("extends", [])
-        extends = [extends] if isinstance(extends, str) else extends
-        parents = [jobs[parent] for parent in extends if "rules" in jobs[parent]]
-        if not parents:
-            return set(), True
-        job = parents[-1]
+    rules = _inherited(jobs, job_name, "rules")
+    if rules is None:
+        return set(), True
     paths: set[str] = set()
-    for rule in job["rules"]:
+    for rule in rules:
         if "merge_request_event" not in rule.get("if", ""):
             continue
         if "changes" not in rule:
@@ -1924,6 +2002,19 @@ def _merge_request_change_paths(jobs: dict, job_name: str) -> tuple[set[str], bo
         changes = rule["changes"]
         paths.update(changes["paths"] if isinstance(changes, dict) else changes)
     return paths, False
+
+
+def _inherited(jobs: dict, job_name: str, key: str):
+    """Return a job's `key`, following `extends` the way GitLab merges it (last parent wins)."""
+    job = jobs[job_name]
+    if key in job:
+        return job[key]
+    extends = job.get("extends", [])
+    for parent in reversed([extends] if isinstance(extends, str) else extends):
+        value = _inherited(jobs, parent, key)
+        if value is not None:
+            return value
+    return None
 
 
 def _job_block(ci_config: str, job_name: str) -> str:

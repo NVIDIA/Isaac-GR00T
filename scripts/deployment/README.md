@@ -17,6 +17,7 @@ serving workflow below.
 | Platform | Setup | Supported workflow |
 | --- | --- | --- |
 | x86_64 dGPU | [Optional TensorRT setup](../../docs/installation.md#optional-tensorrt-on-x86) | Export, build, validate, and serve for compatible checkpoints |
+| GB300 / DGX Station (Linux aarch64) | [GB300 setup](../../docs/installation.md#gb300-training) with `--extra tensorrt`. The lock selects PyTorch 2.11.0 CUDA 13 and TensorRT cu13 10.16.1.11 | Eager policy serving. GB300 CI builds synthetic bf16 engines with `build_engines` and serves them; real N2 export, full-size engine build, numeric validation, and end-to-end `build-trt` / `--enable-trt` are not yet validated |
 | Jetson Thor | [Thor setup](../../docs/installation.md#jetson-thor) (bare metal) | Export, build, validate, and serve |
 
 

@@ -17,7 +17,7 @@ import pytest
 
 try:
     import tomllib
-except ModuleNotFoundError:  # Python 3.10
+except ModuleNotFoundError:  # The monorepo unit tests collect tests/oss on Python 3.10.
     import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
