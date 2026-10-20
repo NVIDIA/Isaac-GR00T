@@ -93,6 +93,10 @@ VIDEO_TOKENIZER_PREFIXES = (
 )
 VIDEO_ROPE_PREFIXES = ("rope.",)
 ACTION_ROPE_SEQ_KEYS = frozenset(("action_rope.seq", "state_rope.seq"))
+# The action/state RoPE tables legacy checkpoints store; a rope_fp32 model recomputes them.
+LEGACY_ROPE_BUFFER_KEYS = frozenset(
+    f"{module}_rope.{name}" for module in ("action", "state") for name in ("freqs", "seq")
+)
 ACTION_TEMPORAL_POS_EMB_KEY = "action_encoder.temporal_pos_emb"
 
 VAE_TEMPORAL_FACTOR = 4  # Wan VAE temporal compression ratio
@@ -298,11 +302,16 @@ class GrootN2(PreTrainedModel):
             self.state_encoder = StateEncoder(ac.get("max_state_dim", 64), hidden_size, n_emb)
             self.state_dropout_prob = ac.get("state_dropout_prob", 0.0)
             self.action_decoder = ActionDecoder(hidden_size, ac.get("max_action_dim", 32), n_emb)
+            rope_persistent = not config.rope_fp32
             self.action_rope = ActionRoPE1D(
-                dit_config.attention_head_dim, max_len=ac.get("action_horizon", 48)
+                dit_config.attention_head_dim,
+                max_len=ac.get("action_horizon", 48),
+                persistent=rope_persistent,
             )
             self.state_rope = ActionRoPE1D(
-                dit_config.attention_head_dim, max_len=ac.get("action_horizon", 48)
+                dit_config.attention_head_dim,
+                max_len=ac.get("action_horizon", 48),
+                persistent=rope_persistent,
             )
             self.attention_mask_pattern = ac.get("attention_mask_pattern", None)
         # 2. Frozen components
@@ -2659,6 +2668,9 @@ class GrootN2(PreTrainedModel):
         ``_fix_state_dict_key_on_load`` (the same hook HF runs on every
         internal load path including ``from_pretrained``), so direct callers
         and ``from_pretrained`` produce equivalent post-load weights.
+
+        A ``rope_fp32`` model drops the stored action/state RoPE tables
+        (``LEGACY_ROPE_BUFFER_KEYS``), strict or not, and keeps its fp32 ones.
         """
         from groot.core.training.models.n2.utils.checkpoint_compat import (
             remap_n2_vae_key,
@@ -2666,6 +2678,7 @@ class GrootN2(PreTrainedModel):
         )
 
         current_state = self.state_dict() if not strict else {}
+        drop_rope_tables = bool(getattr(getattr(self, "config", None), "rope_fp32", False))
         remapped = {}
         for key, val in state_dict.items():
             new_key = key
@@ -2677,6 +2690,8 @@ class GrootN2(PreTrainedModel):
                     new_key = f"video_tokenizer.{suffix}"
             new_key = remap_n2_vae_key(new_key)
             new_key, _ = self._fix_state_dict_key_on_load(new_key)
+            if drop_rope_tables and new_key in LEGACY_ROPE_BUFFER_KEYS:
+                continue
             if (
                 not strict
                 and new_key in ACTION_ROPE_SEQ_KEYS

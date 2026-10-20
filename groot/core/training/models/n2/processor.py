@@ -346,6 +346,7 @@ class GrootN2Processor(BaseProcessor):
                 use_relative_action=True,
                 use_q99_for_rel_action=use_q99_for_rel_action,
                 skip_inference_clip=action_cfg.get("skip_inference_clip", False),
+                action_clip_range=action_cfg.get("action_clip_range", 1.0),
             )
             self.state_dropout_prob = action_cfg.get("state_dropout_prob", 0.0)
         else:

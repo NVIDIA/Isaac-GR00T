@@ -109,6 +109,9 @@ class TrainingConfig:
     # checkpoint tags (e.g. historical human/Sharpa-row G1 reproduction).
     # Does not override saved mappings or allow unknown tags / invalid row indices.
     allow_pretrained_projector_row_reuse: bool = False
+    # N2: allow an explicit model.action_cfg.action_clip_range / model.rope_fp32 that
+    # disagrees with the checkpoint's (groot/core/utils/n2_numerics.py).
+    allow_numerics_override: bool = False
     # Explicit async ZeRO-2 continuation; None preserves existing resume behavior.
     resume_from_checkpoint: str | None = None
 

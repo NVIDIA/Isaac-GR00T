@@ -69,6 +69,7 @@ class StateActionProcessor:
         use_relative_action: bool = False,
         use_q99_for_rel_action: bool | None = None,
         skip_inference_clip: bool = False,
+        action_clip_range: float = 1.0,
     ):
         """Initialize unified state and action processor.
 
@@ -93,12 +94,17 @@ class StateActionProcessor:
                 Off by default, so decoding always clamps regardless of clip_outliers. Set
                 (via action_cfg in the checkpoint's processor config) for models trained
                 with clip_outliers off whose outputs are meant to exceed the q01/q99 band.
+            action_clip_range: Bound for normalized ACTIONS: clip_outliers clips training
+                labels to [-action_clip_range, action_clip_range], and decoding clamps to the
+                same bound (unless skip_inference_clip). Default 1.0 = [-1, 1]. State
+                clipping stays at [-1, 1].
         """
         self.modality_configs = parse_modality_configs(modality_configs)
         self.statistics: dict[str, dict[str, dict[str, dict[str, list[float]]]]] = {}
         self.use_percentiles = use_percentiles
         self.clip_outliers = clip_outliers
         self.skip_inference_clip = skip_inference_clip
+        self.action_clip_range = action_clip_range
         self.apply_sincos_state_encoding = apply_sincos_state_encoding
         self.use_relative_action = use_relative_action
         self.use_q99_for_rel_action = (
@@ -435,7 +441,7 @@ class StateActionProcessor:
                 normalized = normalize_values_minmax(group_values, params)
 
             if self.clip_outliers:
-                normalized = np.clip(normalized, -1.0, 1.0)
+                normalized = np.clip(normalized, -self.action_clip_range, self.action_clip_range)
 
             normalized_values[joint_group] = normalized
 
@@ -489,7 +495,10 @@ class StateActionProcessor:
                 unnormalized = unnormalize_values_meanstd(group_values, params)
             else:
                 unnormalized = unnormalize_values_minmax(
-                    group_values, params, clip=not self.skip_inference_clip
+                    group_values,
+                    params,
+                    clip=not self.skip_inference_clip,
+                    clip_range=self.action_clip_range,
                 )
 
             unnormalized_values[joint_group] = unnormalized
@@ -805,6 +814,7 @@ class StateActionProcessor:
             f"use_percentiles={self.use_percentiles}, "
             f"clip_outliers={self.clip_outliers}, "
             f"skip_inference_clip={self.skip_inference_clip}, "
+            f"action_clip_range={self.action_clip_range}, "
             f"apply_sincos_state_encoding={self.apply_sincos_state_encoding}, "
             f"use_relative_action={self.use_relative_action})"
         )

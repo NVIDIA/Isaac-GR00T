@@ -126,6 +126,11 @@ class ActionConfig(TypedDict, total=False):
     # clip_outliers=False when the outputs are meant to exceed the q01/q99 band. Absent
     # from checkpoints saved before this key existed, so those keep clamping.
     skip_inference_clip: bool
+    # Bound for normalized ACTIONS, for both the clip_outliers label clip and the decode clamp:
+    # [-action_clip_range, action_clip_range] (default 1.0). State stays [-1, 1]. With q01/q99
+    # normalization, 2.0 keeps most of the 1% tails per side that [-1, 1] cuts. Absent from
+    # checkpoints saved before this key existed, so those keep [-1, 1].
+    action_clip_range: float
     state_dropout_prob: float  # probability of zeroing out state during training (default 0.0)
     # Beta flow matching noise schedule (N1.7-style)
     noise_beta_alpha: float  # Beta distribution alpha (default 1.5)
@@ -259,6 +264,12 @@ class GrootN2Config(PretrainedConfig):
     text_encoder_cfg: TextEncoderConfig | None = None
     vae_cfg: VAEConfig | None = None
     action_cfg: ActionConfig | None = None  # None = video-only (no action modules)
+    # True: the action/state RoPE tables are fp32 constants that checkpoints do not store,
+    # and training (DeepSpeed) and serving cast parameters only to bf16, so every fp32 buffer
+    # (RoPE tables, Qwen inv_freq, VAE mean/inv_std) stays fp32. None/False: the legacy
+    # stored tables and whole-model bf16 casts. Training and serving resolve it from the
+    # checkpoint (groot/core/utils/n2_numerics.py); new checkpoints record it.
+    rope_fp32: bool | None = None
     # Legacy posttraining checkpoints may also persist their mapping on the model.
     embodiment_id_mapping: dict[str, int] | None = None
     # Tactile conditioning (plain GrootN2 only); JSON flags on the command line, see
@@ -357,6 +368,8 @@ class GrootN2Config(PretrainedConfig):
                 raise ValueError("vae_type='wan22' does not support tiled VAE encode/decode")
             self.tiled = False
 
+        if self.rope_fp32 is not None and not isinstance(self.rope_fp32, bool):
+            raise TypeError("rope_fp32 must be a bool or None")
         if not isinstance(self.use_training_rtc, bool):
             raise TypeError("use_training_rtc must be a bool")
         if isinstance(self.training_rtc_max_delay, bool) or not isinstance(
