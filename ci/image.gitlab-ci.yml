@@ -11,6 +11,7 @@
 # OSS CI images.
 
 include:
+  - local: ci/image.train.gitlab-ci.yml
   - local: ci/image.oss.gitlab-ci.yml
 
 .image_build_retry:

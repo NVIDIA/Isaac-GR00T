@@ -293,7 +293,8 @@ Credential flow: `DataSourceResolver (bucket→profile map)` →
 ## Tests
 
 Unit tests live in `tests/groot/core/data/hydrator/`. End-to-end tests (require live S3
-and Ray) live in `groot/core/data/hydrator/e2e_tests/`.
+and Ray) live in `tests/groot/core/data/hydrator/e2e_tests/`; their shared helpers live in
+`groot/core/data/hydrator/e2e_tests/`.
 
 ```bash
 # Unit tests
@@ -303,5 +304,5 @@ uv run pytest -s tests/groot/core/data/hydrator/
 uv run pytest -s tests/groot/core/data/hydrator/workers/
 
 # E2E (requires S3 access and a running Ray cluster)
-uv run python -m groot.core.data.hydrator.e2e_tests.test_cache
+uv run pytest -s tests/groot/core/data/hydrator/e2e_tests/test_cache.py
 ```

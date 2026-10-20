@@ -26,11 +26,7 @@ import torch.nn.functional as F
 from groot.core.training.models.n2.components.sequence_packing import unpack
 from groot.core.training.models.n2.tactile import guards, tokens
 from groot.core.training.models.n2.tactile.attention import MODALITY_TACTILE
-from groot.core.training.models.n2.tactile.modules import (
-    encode_deform,
-    encode_tactile,
-    pin_tactile_vae,
-)
+from groot.core.training.models.n2.tactile.modules import encode_deform, encode_tactile
 
 
 class TactileTrainInputs(NamedTuple):
@@ -82,9 +78,6 @@ def prepare_training_inputs(
         has_action=has_action,
         action_loss_details=action_loss_details,
     )
-    if spec.has_tactile:
-        # Before the first encode: see pin_tactile_vae (compiled forward + CUDA-graph trees).
-        pin_tactile_vae(model, device)
     tactile_mu = encode_tactile(model, data["tactile_raw"].to(device)) if spec.has_tactile else None
     deform_mu = encode_deform(model, data["deform_raw"].to(device)) if spec.has_deform else None
     if not spec.predict_future:

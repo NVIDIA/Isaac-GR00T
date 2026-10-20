@@ -67,10 +67,9 @@ training, open-loop evaluation, and the policy server.</code></pre>
       </td>
       <td>
         <p>Follow the <a href="docs/installation.md#x86-training">x86 training
-        setup</a>, or the <a href="docs/installation.md#gb300-training">GB300
-        training setup</a> on Linux aarch64 GB300 and DGX Station, then run the
-        <a href="docs/minimal_example.md">minimal end-to-end example</a> to
-        prepare the dataset and verify training, evaluation, and serving.</p>
+        setup</a>, then run the <a href="docs/minimal_example.md">minimal
+        end-to-end example</a> to prepare the dataset and verify training,
+        evaluation, and serving.</p>
         <p>For Jetson AGX Thor inference, use the
         <a href="docs/installation.md#jetson-thor">Thor setup</a> and
         <a href="scripts/deployment/README.md">deployment guide</a>.</p>
@@ -395,11 +394,8 @@ checkout instead of the setup script's default.
 
 ### RoboDojo
 
-RoboDojo requires x86_64 Linux, an NVIDIA GPU, and acceptance of the Isaac Sim
-EULA. The supported Isaac Sim version is **5.1.0**. That runtime publishes no
-aarch64 build, so RoboDojo closed-loop evaluation is unsupported on GB300 and
-DGX Station. Install its pinned runtime, then select one of the approved ARX
-X5 suites:
+RoboDojo requires Linux, an NVIDIA GPU, and acceptance of the Isaac Sim EULA.
+Install its pinned runtime, then select one of the approved ARX X5 suites:
 
 ```bash
 groot/infra/closed_loop/backends/robodojo/setup.sh

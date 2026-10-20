@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+# Build OSS training CI Docker images.
+
+image.train.arm64:
+  extends: .image_arm64
+  tags:
+    - cpu/arm64
+    - gpu/none
+  stage: premerge
+  script:
+    - |
+      ci/scripts/docker_buildx_push.sh \
+        --registry "nvcr.io/nvidian" \
+        --image-name "groot-ci-train" \
+        --dockerfile "ci/images/train.Dockerfile" \
+        --cache-slug "${CI_COMMIT_REF_SLUG}-arm64" \
+        --tag "nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}-arm64" \
+        --platform "linux/arm64" \
+        --build-arg "PYTORCH_IMAGE=nvcr.io/nvidia/pytorch:25.11-py3"
+  artifacts:
+    when: always
+    paths:
+      - $CI_PROJECT_DIR/log.json
+      - $CI_PROJECT_DIR/kpis.json
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - groot/core/**/*
+        - groot/infra/**/*
+        - oss/**/*
+        - ci/sync/copybara_sync.py
+        - ci/test.oss.gitlab-ci.yml
+        - ci/image.train.gitlab-ci.yml
+        - ci/images/train.Dockerfile
+        - ci/scripts/docker_buildx_push.sh
+        - docker/**/*
+        - pyproject.toml
+        - uv.lock
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$POSTMERGE_TESTS == "true"'
+  timeout: 150m
+
+image.train.amd64:
+  extends: .image
+  stage: premerge
+  script:
+    - export REGISTRY="nvcr.io/nvidian"
+    - export IMAGE_NAME="groot-ci-train"
+    - |
+      ci/scripts/docker_buildx_push.sh \
+        --registry "${REGISTRY}" \
+        --image-name "${IMAGE_NAME}" \
+        --dockerfile ci/images/train.Dockerfile \
+        --cache-slug "${CI_COMMIT_REF_SLUG}-amd64" \
+        --tag "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}-amd64" \
+        --platform linux/amd64 \
+        --build-arg "PYTORCH_IMAGE=nvcr.io/nvidia/pytorch:25.04-py3"
+  artifacts:
+    when: always
+    paths:
+      - $CI_PROJECT_DIR/log.json
+      - $CI_PROJECT_DIR/kpis.json
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - groot/core/**/*
+        - groot/infra/**/*
+        - oss/**/*
+        - ci/sync/copybara_sync.py
+        - ci/test.oss.gitlab-ci.yml
+        - ci/image.train.gitlab-ci.yml
+        - ci/images/train.Dockerfile
+        - ci/scripts/docker_buildx_push.sh
+        - docker/**/*
+        - pyproject.toml
+        - uv.lock
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$POSTMERGE_TESTS == "true"'
+  timeout: 60m
+
+image.train:
+  extends: .image
+  stage: premerge
+  needs:
+    - job: image.train.arm64
+    - job: image.train.amd64
+  script:
+    - |
+      docker buildx imagetools create \
+        -t "nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}" \
+        "nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}-arm64" \
+        "nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}-amd64"
+  artifacts:
+    when: always
+    paths:
+      - $CI_PROJECT_DIR/log.json
+      - $CI_PROJECT_DIR/kpis.json
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - groot/core/**/*
+        - groot/infra/**/*
+        - oss/**/*
+        - ci/sync/copybara_sync.py
+        - ci/test.oss.gitlab-ci.yml
+        - ci/image.train.gitlab-ci.yml
+        - ci/images/train.Dockerfile
+        - docker/**/*
+        - pyproject.toml
+        - uv.lock
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$POSTMERGE_TESTS == "true"'
+  timeout: 30m

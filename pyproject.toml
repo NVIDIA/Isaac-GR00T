@@ -17,7 +17,7 @@ name = "isaac-groot-n2"
 version = "0.1.0"
 description = "Minimal OSS GR00T N2 package"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.10,<3.13"
 license = { file = "LICENSE" }
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -71,12 +71,9 @@ training = [
     "structlog",
     "tianshou==0.5.1",
     "tiktoken",
-    "torch==2.7.1 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
-    "torch==2.11.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "torchcodec>=0.5,<0.6 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
-    "torchcodec==0.15.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "torchvision==0.22.1 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
-    "torchvision==0.26.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "torch==2.7.1",
+    "torchcodec>=0.5,<0.6",
+    "torchvision==0.22.1",
     "transformers==4.57.6",
     "truststore",
     "wandb",
@@ -84,8 +81,7 @@ training = [
 tensorrt = [
     "onnx>=1.20.0",
     "onnxscript",
-    "tensorrt-cu12==10.16.1.11 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "tensorrt-cu13==10.16.1.11 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "tensorrt-cu12==10.16.1.11",
 ]
 # Runtime, export, evaluation, and policy-server dependencies. N2 model registration currently
 # imports data modules, so their import-time dependencies are also required here.
@@ -114,12 +110,9 @@ deployment = [
     "ray[default]==2.56.1",
     "scipy",
     "structlog",
-    "torch==2.7.1 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
-    "torch==2.11.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "torchcodec>=0.5,<0.6 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
-    "torchcodec==0.15.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "torchvision==0.22.1 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
-    "torchvision==0.26.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "torch==2.7.1",
+    "torchcodec>=0.5,<0.6",
+    "torchvision==0.22.1",
     "tqdm",
     "transformers==4.57.6",
 ]
@@ -136,43 +129,13 @@ include = ["groot*", "skills", "skills.autoresearch*"]
 groot = ["**/*.yaml", "core/training/configs/deepspeed/zero2_config.json", "infra/benchmark/specs/*.json"]
 "skills.autoresearch" = ["**/*.yaml"]
 
-# x86_64 stays on the CUDA 12.8 index. Linux aarch64 (GB300 / DGX Station) takes the
-# CUDA 13 wheels published on PyPI, which are the first torch builds with aarch64 GPU wheels.
 [tool.uv.sources]
-torch = [
-    { index = "pytorch-cu128", marker = "sys_platform != 'linux' or platform_machine != 'aarch64'" },
-    { index = "pypi", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
-]
-torchcodec = [
-    { index = "pytorch-cu128", marker = "sys_platform != 'linux' or platform_machine != 'aarch64'" },
-    { index = "pypi", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
-]
-torchvision = [
-    { index = "pytorch-cu128", marker = "sys_platform != 'linux' or platform_machine != 'aarch64'" },
-    { index = "pypi", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
-]
+torch = { index = "pytorch-cu128" }
+torchcodec = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
 
-# flash-attn's build downloads the GitHub wheel for the build's torch, and compiles from
-# source where none is published, which includes every Linux aarch64 build.
 [tool.uv.extra-build-dependencies]
-flash-attn = [
-    "ninja",
-    "psutil",
-    "torch==2.7.1 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
-    "torch==2.11.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-]
-
-# These TensorRT packages are platform stubs. Building one on the other
-# architecture fails even though that architecture does not install it.
-[[tool.uv.dependency-metadata]]
-name = "tensorrt-cu12-libs"
-version = "10.16.1.11"
-requires-dist = []
-
-[[tool.uv.dependency-metadata]]
-name = "tensorrt-cu13-libs"
-version = "10.16.1.11"
-requires-dist = []
+flash-attn = ["torch==2.7.1"]
 
 [[tool.uv.index]]
 name = "pypi"
@@ -185,7 +148,7 @@ explicit = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

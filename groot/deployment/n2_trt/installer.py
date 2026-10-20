@@ -406,12 +406,6 @@ def install_n2_tensorrt(
         raise RuntimeError("N2 TensorRT is already installed on this model")
     contract.validate()
     _require_model_contract(model, contract)
-    text_keys = getattr(model.config, "dit_text_keys", "all")
-    if text_keys != "all":
-        raise RuntimeError(
-            f"N2 TensorRT does not support dit_text_keys={text_keys!r}: its engines cross-attend "
-            "every prompt slot, pads included"
-        )
     if model.tiled:
         raise RuntimeError("N2 TensorRT does not support tiled VAE execution")
     expected_pattern = AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL
@@ -542,10 +536,8 @@ def install_n2_tensorrt(
             video_padded_mask=data.get("video_padded_mask"),
             cond_kv_freeze=cond_kv_freeze,
         )
-        # The seed only feeds the Torch-side noise draw and is never an engine binding, so it
-        # may change per request; shift and joint denoising change the served workload.
-        if shift != 5.0 or not joint_denoise:
-            raise RuntimeError("N2 TensorRT requires shift=5 and joint denoising")
+        if shift != 5.0 or seed != 42 or not joint_denoise:
+            raise RuntimeError("N2 TensorRT requires shift=5, seed=42, and joint denoising")
         if predict_video or step_callback is not None:
             raise RuntimeError("N2 TensorRT does not support decoded-video callbacks")
         return original_predict(

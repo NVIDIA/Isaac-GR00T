@@ -8,8 +8,8 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# OSS images built from the user-facing docker/Dockerfile with its defaults, one
-# per architecture. Each OSS test job runs in its runner's architecture image.
+# OSS images built from the user-facing docker/Dockerfile with its defaults.
+# The OSS test jobs run in them.
 
 .image.oss:
   stage: premerge
@@ -44,13 +44,3 @@ image.oss.amd64:
     - .image.oss
   variables:
     OSS_IMAGE_ARCH: amd64
-
-image.oss.arm64:
-  extends:
-    - .image_arm64
-    - .image.oss
-  tags:
-    - cpu/arm64
-    - gpu/none
-  variables:
-    OSS_IMAGE_ARCH: arm64

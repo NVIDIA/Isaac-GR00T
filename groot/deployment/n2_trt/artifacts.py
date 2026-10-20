@@ -61,18 +61,6 @@ def resolve_checkpoint_vae_weights(
     return weights.resolve()
 
 
-def resolve_recorded_vae_weights(checkpoint: str | Path, recorded_path: str | Path) -> Path:
-    """Resolve saved VAE evidence after relocation; callers must verify its recorded hash."""
-    if not os.environ.get("GROOT_N2_MODEL_DEPS_ROOT"):
-        return resolve_checkpoint_vae_weights(checkpoint, recorded_path)
-    from groot.core.training.models.n2.utils.cosmos_model_deps import ensure_cosmos_model_deps
-
-    # Package admission/revalidation is offline. Do not follow a historical
-    # absolute cache path or mutate the original checkpoint to localize it.
-    localized = ensure_cosmos_model_deps(checkpoint, local_files_only=True)
-    return resolve_checkpoint_vae_weights(localized)
-
-
 def _resolve_remote_model_file(path: str, *, param_name: str) -> Path:
     """Download one remote VAE object and atomically publish its cached file."""
     cache_dir = os.environ.get("MSC_CACHE_PATH")

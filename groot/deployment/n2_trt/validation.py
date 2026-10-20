@@ -15,16 +15,12 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 import torch
 
-from groot.deployment.n2_trt.artifacts import (
-    resolve_checkpoint_vae_weights,
-    resolve_recorded_vae_weights,
-)
+from groot.deployment.n2_trt.artifacts import resolve_checkpoint_vae_weights
 from groot.deployment.n2_trt.contract import N2TensorRTContract
 from groot.deployment.n2_trt.gate_evidence import (
     GATE_EVIDENCE_FILENAME,
@@ -933,19 +929,12 @@ def validate_bundle(
     if not isinstance(exported_vae_weights, str) or not exported_vae_weights:
         raise RuntimeError("VAE export manifest omits the resolved weights path")
     exported_path = Path(exported_vae_weights).expanduser()
-    if (
-        golden is not None
-        and not os.environ.get("GROOT_N2_MODEL_DEPS_ROOT")
-        and exported_path.is_absolute()
-        and not exported_path.is_file()
-    ):
+    if golden is not None and exported_path.is_absolute() and not exported_path.is_file():
         # A package exported on another host names that host's weights path: resolve the
         # weights from the local checkpoint and bind them by digest instead.
         vae_weights = resolve_checkpoint_vae_weights(checkpoint)
     else:
-        # Explicit package mode stays offline, including for golden bundles whose
-        # export manifest still names another host's absolute cache path.
-        vae_weights = resolve_recorded_vae_weights(checkpoint, exported_vae_weights)
+        vae_weights = resolve_checkpoint_vae_weights(checkpoint, exported_vae_weights)
     vae_weights_sha256 = sha256_file(vae_weights)
     if vae_export.get("vae_weights_sha256") != vae_weights_sha256:
         raise RuntimeError("VAE weights changed after export")

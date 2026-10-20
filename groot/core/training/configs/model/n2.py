@@ -126,11 +126,6 @@ class ActionConfig(TypedDict, total=False):
     # clip_outliers=False when the outputs are meant to exceed the q01/q99 band. Absent
     # from checkpoints saved before this key existed, so those keep clamping.
     skip_inference_clip: bool
-    # Bound for normalized ACTIONS, for both the clip_outliers label clip and the decode clamp:
-    # [-action_clip_range, action_clip_range] (default 1.0). State stays [-1, 1]. With q01/q99
-    # normalization, 2.0 keeps most of the 1% tails per side that [-1, 1] cuts. Absent from
-    # checkpoints saved before this key existed, so those keep [-1, 1].
-    action_clip_range: float
     state_dropout_prob: float  # probability of zeroing out state during training (default 0.0)
     # Beta flow matching noise schedule (N1.7-style)
     noise_beta_alpha: float  # Beta distribution alpha (default 1.5)
@@ -163,23 +158,6 @@ def _normalize_action_cfg(action_cfg: ActionConfig | None) -> ActionConfig | Non
     if pattern is not None:
         normalized["attention_mask_pattern"] = [tuple(pair) for pair in pattern]
     return normalized
-
-
-def _rename_legacy_text_keys(fields: dict) -> None:
-    """Map the bool ``dit_text_pad_mask`` of configs written before 2026-10-13 to ``dit_text_keys``.
-
-    load-bearing: the config.json and pickled config of a checkpoint trained on real text keys hold
-    only the old key; left as a stray attribute, dit_text_keys would read "all" and the model would
-    attend the pads it was trained without.
-    """
-    if "dit_text_pad_mask" not in fields:
-        return
-    legacy = "real" if fields.pop("dit_text_pad_mask") else "all"
-    if fields.setdefault("dit_text_keys", legacy) != legacy:
-        raise ValueError(
-            f"dit_text_pad_mask (now dit_text_keys) means {legacy!r}, but dit_text_keys is "
-            f"{fields['dit_text_keys']!r}"
-        )
 
 
 @dataclass
@@ -256,17 +234,6 @@ class GrootN2Config(PretrainedConfig):
     # path; local smoke can override these explicitly for smaller GPUs.
     flex_attention_block_size: int = 128
     compile_flex_attention: bool = True
-    # The prompt tokens the DiT cross-attention reads as keys. Every prompt is padded to
-    # max_language_length with <|endoftext|>, and the causal text encoder runs those pads after the
-    # prompt, so their embeddings carry the prompt. "all" (default; Cosmos Predict 2.5 and every
-    # checkpoint saved without this key): every slot, pads included. "real": each sample's real
-    # prompt tokens only, in training and inference (components/text_pad_mask.py); checkpoints
-    # trained that way save it, and with it dit_attention_backend: "cudnn" there runs their
-    # unmasked inference attention on cuDNN SDPA, as the branch that trained them does. Switching
-    # a checkpoint trained on one to the other changes the model's input. Named
-    # dit_text_pad_mask (bool, True = "real") in configs written before 2026-10-13;
-    # _rename_legacy_text_keys reads it.
-    dit_text_keys: str = "all"
 
     # Image processing
     image_target_size: list[int] | None = None
@@ -292,12 +259,6 @@ class GrootN2Config(PretrainedConfig):
     text_encoder_cfg: TextEncoderConfig | None = None
     vae_cfg: VAEConfig | None = None
     action_cfg: ActionConfig | None = None  # None = video-only (no action modules)
-    # True: the action/state RoPE tables are fp32 constants that checkpoints do not store,
-    # and training (DeepSpeed) and serving cast parameters only to bf16, so every fp32 buffer
-    # (RoPE tables, Qwen inv_freq, VAE mean/inv_std) stays fp32. None/False: the legacy
-    # stored tables and whole-model bf16 casts. Training and serving resolve it from the
-    # checkpoint (groot/core/utils/n2_numerics.py); new checkpoints record it.
-    rope_fp32: bool | None = None
     # Legacy posttraining checkpoints may also persist their mapping on the model.
     embodiment_id_mapping: dict[str, int] | None = None
     # Tactile conditioning (plain GrootN2 only); JSON flags on the command line, see
@@ -306,7 +267,6 @@ class GrootN2Config(PretrainedConfig):
     deform_cfg: DeformConfigArg = None  # None = no deform-map conditioning
 
     def __init__(self, **kwargs):
-        _rename_legacy_text_keys(kwargs)  # config.json (from_pretrained calls cls(**config_dict))
         if "action_cfg" in kwargs:
             kwargs["action_cfg"] = _normalize_action_cfg(kwargs["action_cfg"])
         bottleneck_kernel = kwargs.get("vae_bottleneck_kernel")
@@ -396,11 +356,7 @@ class GrootN2Config(PretrainedConfig):
             if kwargs.get("tiled", False):
                 raise ValueError("vae_type='wan22' does not support tiled VAE encode/decode")
             self.tiled = False
-        if self.dit_text_keys not in ("all", "real"):
-            raise ValueError(f"dit_text_keys must be 'all' or 'real', got {self.dit_text_keys!r}")
 
-        if self.rope_fp32 is not None and not isinstance(self.rope_fp32, bool):
-            raise TypeError("rope_fp32 must be a bool or None")
         if not isinstance(self.use_training_rtc, bool):
             raise TypeError("use_training_rtc must be a bool")
         if isinstance(self.training_rtc_max_delay, bool) or not isinstance(
@@ -423,11 +379,6 @@ class GrootN2Config(PretrainedConfig):
         config = super().to_dict()
         identities = config.pop("model_dependency_identities", None)
         return portable_model_dependency_config(config, identities)
-
-    def __setstate__(self, state: dict) -> None:
-        # pickle and the experiment_cfg/config.yaml (yaml.Loader) restore state without __init__
-        _rename_legacy_text_keys(state)
-        self.__dict__.update(state)
 
 
 register_model_config("GrootN2", GrootN2Config)

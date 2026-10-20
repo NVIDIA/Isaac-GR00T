@@ -106,8 +106,6 @@ class ServerConfig:
     # Flow-matching timestep shift (groot_n2 only) is read by Gr00tN2Policy from
     # the GROOT_N2_SHIFT env var, not a CLI flag — keeps the launch uniform for N1
     # (Gr00tPolicy has no shift). Set GROOT_N2_SHIFT=<float> in the environment.
-    # Each request draws fresh denoising noise (the seed advances per request);
-    # GROOT_N2_FIXED_SEED=1 keeps one seed for every request, as before.
 
     use_torch_compile: bool = False
     """torch.compile the model (groot_n2 only). YAM RTX 5090 stations should

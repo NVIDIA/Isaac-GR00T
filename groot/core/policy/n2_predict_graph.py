@@ -165,8 +165,7 @@ class PredictGraphRunner:
         # Release external graph inputs only after destroying the graph.
         self._frozen_noise = {}
 
-    def __call__(self, inputs: dict, *, prompt_embs: torch.Tensor, seed: int | None = None) -> dict:
-        """Replay on ``inputs``; ``seed`` redraws the noise as ``model.predict(seed=seed)`` would."""
+    def __call__(self, inputs: dict, *, prompt_embs: torch.Tensor) -> dict:
         self._validate_replay_contract(inputs, prompt_embs)
         with torch.cuda.device(self.device):
             # inference_mode: replay_prologue does inplace updates on the
@@ -178,8 +177,6 @@ class PredictGraphRunner:
                     if isinstance(dst, torch.Tensor):
                         dst.copy_(inputs[key])
                 self.prompt_embs.copy_(prompt_embs)
-                if seed is not None and seed != self._noise_seed:
-                    self._redraw_noise(seed)
                 conditioner = getattr(
                     getattr(getattr(self, "model", None), "n2_trt_runtime", None),
                     "conditioner",
@@ -205,18 +202,6 @@ class PredictGraphRunner:
         if non_finite:
             raise RuntimeError(f"predict CUDA graph returned non-finite outputs: {non_finite}")
         return outputs
-
-    def _redraw_noise(self, seed: int) -> None:
-        """Refill the captured noise buffers in place with ``seed``'s draws, outside the graph.
-
-        The capture froze predict()'s seeded draws as constant buffers. Drawing them again in
-        predict()'s order from a Generator seeded with ``seed`` gives exactly the noise
-        ``model.predict(seed=seed)`` would use, and the replay reads it from the same addresses.
-        """
-        generator = torch.Generator(device=self.device).manual_seed(seed)
-        for key, shape, draw in self._noise_draws:
-            self._frozen_noise[key].copy_(torch.randn(*shape, generator=generator, **draw))
-        self._noise_seed = seed
 
     def _require_camera_padding_mask(self, inputs: dict) -> None:
         """Require explicit camera validity for padded TRT capture and replay."""
@@ -523,8 +508,6 @@ class PredictGraphRunner:
         # across prompt encoding, allocator reuse, and empty_cache calls.
         self._frozen_noise: dict = {}
         frozen = self._frozen_noise
-        # The seeded draws, in predict()'s order, so _redraw_noise can refill them per request.
-        self._noise_draws: list[tuple[tuple, tuple, dict]] = []
 
         # predict() uses a local Generator so open-loop evaluation does not
         # reset the process-global RNG. CUDA forbids constructing that
@@ -534,7 +517,6 @@ class PredictGraphRunner:
         # first eager draw of each fixed tensor.
         noise_seed = self.kwargs["seed"]
         noise_generator = real_generator(device=self.device).manual_seed(noise_seed)
-        self._noise_seed = noise_seed
 
         class FrozenGenerator:
             def manual_seed(self, seed):
@@ -569,8 +551,6 @@ class PredictGraphRunner:
             key = (shape, str(kwargs.get("dtype")), str(kwargs.get("device")))
             if key not in frozen:
                 if kwargs.get("generator") is frozen_generator:
-                    draw = {k: v for k, v in kwargs.items() if k != "generator"}
-                    self._noise_draws.append((key, shape, draw))
                     kwargs["generator"] = noise_generator
                 frozen[key] = real_randn(*shape, **kwargs)
             return frozen[key]

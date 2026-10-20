@@ -8,7 +8,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, wait
 import contextlib
 import dataclasses
@@ -28,77 +28,6 @@ from groot.core.data import types
 from groot.core.policy import base
 
 RPC_TIMING_INFO_KEY = "_rpc_timing"
-JPEG_VIDEO_VERSION = 1
-JPEG_VIDEO_MARKER = "__camera_jpeg_video__"
-
-
-@dataclass(frozen=True)
-class JpegVideo:
-    """Time-major JPEGs, with the source's decoding convention per frame.
-
-    ``rgb`` is a standard device JPEG (OpenCV decode needs BGR -> RGB).
-    ``opencv_legacy`` is the camera publisher's historical RGB-array encode
-    without a channel swap (OpenCV decode already gives the intended RGB).
-    These bytes must not be reused after any pixel transformation.
-    """
-
-    frames: tuple[bytes, ...]
-    encodings: tuple[str, ...]
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.frames, tuple) or not isinstance(self.encodings, tuple):
-            raise TypeError("JPEG frames and encodings must be immutable tuples")
-        if not self.frames or len(self.frames) != len(self.encodings):
-            raise ValueError("JPEG frames and encodings must have equal nonzero lengths")
-        for frame, encoding in zip(self.frames, self.encodings, strict=True):
-            if not isinstance(frame, bytes) or not frame.startswith(b"\xff\xd8"):
-                raise ValueError("camera frame must contain JPEG bytes")
-            if encoding not in ("rgb", "opencv_legacy"):
-                raise ValueError(f"unsupported camera JPEG encoding: {encoding!r}")
-
-    def decode_frame(self, index: int) -> np.ndarray:
-        """Decode an RGB frame, possibly as a view, for stack_decoded_frames."""
-        import cv2
-        from PIL import Image
-
-        frame = self.frames[index]
-        # Retain Pillow's image-size safeguards before OpenCV allocates pixels.
-        with Image.open(io.BytesIO(frame)) as image:
-            if image.format != "JPEG" or image.mode not in ("RGB", "L"):
-                raise ValueError("camera JPEG must be RGB or grayscale")
-        decoded = cv2.imdecode(np.frombuffer(frame, np.uint8), cv2.IMREAD_COLOR)
-        if decoded is None:
-            raise ValueError("camera JPEG could not be decoded")
-        if self.encodings[index] == "rgb":
-            # Batch assembly materializes RGB once; retain the decoder's buffer here.
-            decoded = decoded[..., ::-1]
-        return decoded
-
-    def stack_decoded_frames(self, frames: Iterable[np.ndarray]) -> np.ndarray:
-        """Assemble decode_frame results using one contiguous RGB batch allocation."""
-        import cv2
-
-        frames = list(frames)
-        if len(frames) != len(self.frames):
-            raise ValueError("decoded frame count does not match JPEG history")
-        shape = frames[0].shape
-        if any(frame.shape != shape for frame in frames):
-            raise ValueError("all decoded frames must have the same shape")
-        batch = np.empty((len(frames), *shape), dtype=np.uint8)
-        for index, frame in enumerate(frames):
-            if self.encodings[index] == "rgb":
-                # Convert the contiguous BGR view into the final slice without an
-                # intermediate RGB allocation or a negative-stride NumPy copy.
-                cv2.cvtColor(frame[..., ::-1], cv2.COLOR_BGR2RGB, dst=batch[index])
-            else:
-                batch[index] = frame
-        return batch
-
-    def decode(self) -> np.ndarray:
-        """Materialize RGB uint8 (T,H,W,3), rejecting inconsistent frame sizes."""
-        return self.stack_decoded_frames(
-            self.decode_frame(index) for index in range(len(self.frames))
-        )
 
 
 class PolicyServerUnhealthyError(RuntimeError):
@@ -312,10 +241,6 @@ class MsgSerializer:
     are JPEG-compressed instead of using ``np.save``. Non-image arrays are
     unaffected.
 
-    Explicit ``JpegVideo`` inputs bypass encoding and carry their source color
-    convention. They decode to RGB uint8 ``(T, H, W, 3)`` before policy handling;
-    clients must negotiate ``get_transport_capabilities`` before sending them.
-
     **Color convention: RGB on both sides.**
     Encoding expects RGB uint8 input; decoding produces RGB uint8 output.
     Callers that start from BGR (OpenCV / camera drivers) MUST convert to RGB
@@ -518,26 +443,6 @@ class MsgSerializer:
                 return types.ModalityConfig(**filtered)
             except Exception:  # noqa: BLE001 - fall back to dict on any mismatch
                 return data
-        if JPEG_VIDEO_MARKER in obj:
-            if (
-                type(obj[JPEG_VIDEO_MARKER]) is not int
-                or obj[JPEG_VIDEO_MARKER] != JPEG_VIDEO_VERSION
-            ):
-                raise ValueError("unsupported camera JPEG video version")
-            video = JpegVideo(tuple(obj["frames"]), tuple(obj["encodings"]))
-            if self.jpeg_decode_workers == 1 or len(video.frames) == 1:
-                return video.decode()
-            executor = self._get_decode_executor()
-            decoded = executor.map(video.decode_frame, range(len(video.frames)))
-            try:
-                return video.stack_decoded_frames(decoded)
-            except BaseException:
-                decoded.close()
-                executor.shutdown(wait=True, cancel_futures=True)
-                self._decode_executor = None
-                raise
-            finally:
-                decoded.close()
         if "__ndarray_jpeg__" in obj:
             codec = self._get_codec()
             encoded_frames = obj["as_jpeg"]
@@ -555,12 +460,6 @@ class MsgSerializer:
         return obj
 
     def _encode_custom_classes(self, obj):
-        if isinstance(obj, JpegVideo):
-            return {
-                JPEG_VIDEO_MARKER: JPEG_VIDEO_VERSION,
-                "frames": obj.frames,
-                "encodings": obj.encodings,
-            }
         if isinstance(obj, types.ModalityConfig):
             return {
                 "__ModalityConfig_class__": True,
@@ -632,11 +531,6 @@ class PolicyServer:
 
         # Register the ping endpoint by default
         self.register_endpoint("ping", self._handle_ping, requires_input=False)
-        self.register_endpoint(
-            "get_transport_capabilities",
-            self._handle_get_transport_capabilities,
-            requires_input=False,
-        )
         self.register_endpoint("kill", self._kill_server, requires_input=False)
         self.register_endpoint("get_action", self._handle_get_action)
         self.register_endpoint("warmup", self.policy.get_action)
@@ -656,10 +550,6 @@ class PolicyServer:
             self._handle_get_readiness,
             requires_input=False,
         )
-
-    @staticmethod
-    def _handle_get_transport_capabilities() -> dict[str, int]:
-        return {"camera_jpeg_video": JPEG_VIDEO_VERSION}
 
     def _handle_get_modality_config(self) -> dict[str, Any]:
         get_modality_config = getattr(self.policy, "get_modality_config", None)

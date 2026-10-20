@@ -9,26 +9,16 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# Isaac GR00T 2 training image for x86_64 Linux and Linux aarch64 (GB300).
+# Isaac GR00T 2 training image for x86_64 Linux.
 #
-# Runs the training installation from docs/installation.md: the documented
-# public CUDA base for the target architecture, its system packages, and
-# `uv sync --frozen`. The lock selects each architecture's stack. The frozen uv
+# Runs the x86 training installation from docs/installation.md: the documented
+# public CUDA base, its system packages, and `uv sync --frozen`. The frozen uv
 # environment stays the software contract; this file only records those steps.
 # The image holds no source checkout. Mount the repository and run commands
 # from its package root. See docker/README.md.
 
-ARG BASE_IMAGE_AMD64=nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
-ARG BASE_IMAGE_ARM64=nvidia/cuda:13.0.2-devel-ubuntu24.04
-
-FROM ${BASE_IMAGE_AMD64} AS base-amd64
-FROM ${BASE_IMAGE_ARM64} AS base-arm64
-# flash-attn compiles from source on Linux aarch64. GB300 runs its sm_100 kernels;
-# other GPUs need their own, e.g. --build-arg FLASH_ATTN_CUDA_ARCHS=90 for GH200.
-ARG FLASH_ATTN_CUDA_ARCHS=100
-ENV FLASH_ATTN_CUDA_ARCHS=${FLASH_ATTN_CUDA_ARCHS}
-# hadolint ignore=DL3006
-FROM base-${TARGETARCH}
+ARG BASE_IMAGE=nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+FROM ${BASE_IMAGE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
