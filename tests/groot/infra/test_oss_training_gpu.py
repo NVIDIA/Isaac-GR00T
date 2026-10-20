@@ -114,6 +114,8 @@ def _resolve_fixture_training(
                 "--set",
                 "training.save_total_limit=1",
                 "--set",
+                "training.optim=adamw_torch_fused",
+                "--set",
                 "training.use_wandb=false",
                 "--set",
                 "training.enable_profiling=false",
@@ -240,6 +242,8 @@ def _assert_resolved_training_command(
     assert command[command.index("--training.output_dir") + 1] == str(output_dir)
     assert "--training.max_steps" in command
     assert command[command.index("--training.max_steps") + 1] == max_steps
+    assert "--training.optim" in command
+    assert command[command.index("--training.optim") + 1] == "adamw_torch_fused"
     assert "--data.datasets.0.dataset_paths" not in command
     assert "--load_config_path" in command
     data_config = Path(command[command.index("--load_config_path") + 1])

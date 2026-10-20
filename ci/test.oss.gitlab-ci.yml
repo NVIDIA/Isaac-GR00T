@@ -97,16 +97,21 @@ test.oss.cpu:
 test.oss.gpu:
   stage: premerge
   needs:
-    - image.train
+    - image.train.amd64
   image:
-    name: nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}
+    name: nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}-amd64
     entrypoint: [""]
   tags:
-    - cpu/arm64
-    - gpu/gb300
+    - ipp-group-gear
   variables:
+    IPP_RUNNER_QUEUE_NAME: user-queue-gpu
+    IPP_RUNNER_GPU_REQUEST: "1"
+    IPP_RUNNER_GPU_LIMIT: "1"
+    IPP_RUNNER_GPU_TYPE: NVIDIA-L40S
+    IPP_RUNNER_MEMORY_REQUEST: "32Gi"
+    IPP_RUNNER_MEMORY_LIMIT: "32Gi"
     GIT_LFS_SKIP_SMUDGE: "1"
-    OSS_GPU_COMPUTE_TYPE: "gb300"
+    OSS_GPU_COMPUTE_TYPE: "h100"
     OSS_GPU_TRAIN_NUM_GPUS: "1"
     OSS_GPU_TRAIN_BATCH_SIZE: "1"
     OSS_GPU_TRAIN_MAX_STEPS: "2"
@@ -136,18 +141,6 @@ test.oss.gpu:
     - if: '$POSTMERGE_TESTS == "true"'
 
   before_script:
-    - |
-      unset OPENSSL_FORCE_FIPS_MODE OPENSSL_FIPS_MODE_SWITCH_PATH
-      if [ "$(head -c 1 /proc/sys/crypto/fips_enabled 2>/dev/null || true)" = "1" ]; then
-        echo "Masking runner host FIPS mode for the non-FIPS OSS training image"
-        printf '0\n' > /tmp/groot-ci-fips-disabled
-        chmod 0444 /tmp/groot-ci-fips-disabled
-        if ! mount --bind /tmp/groot-ci-fips-disabled /proc/sys/crypto/fips_enabled; then
-          echo "Failed to mask inherited runner FIPS mode" >&2
-          exit 1
-        fi
-        test "$(head -c 1 /proc/sys/crypto/fips_enabled)" = "0"
-      fi
     - *oss_package_before_script
     - uv pip install "onnx>=1.20.0" "tensorrt-cu13==10.16.1.11"
 

@@ -331,6 +331,17 @@ class Gr00tN2Policy(Gr00tPolicy):
         self.action_guidance_scale = action_guidance_scale
         self.shift = _env_float("GROOT_N2_SHIFT", default=shift)
         self.seed = seed
+        # model.predict reseeds a local Generator from the seed it is given, so a constant seed
+        # made every chunk denoise from the same noise draw: no sampling diversity, and
+        # consecutive chunks correlated. Instead, request n of this process uses ``seed + n``,
+        # counting every request that reaches _run_predict: server warmup requests, benchmark
+        # warmups and the request that captures the CUDA graph (the capture's own passes use
+        # ``seed`` and do not count). reset() does not restart the count, so episodes do not
+        # replay each other's noise; a new process starts again at ``seed``, so the same request
+        # sequence reproduces. GROOT_N2_FIXED_SEED=1 restores the constant seed (bit-exact with
+        # servers that used it); benchmark target profiles require it ("noise_mode" below).
+        self.fixed_seed = _env_bool("GROOT_N2_FIXED_SEED", default=False)
+        self._noise_requests = 0
         self.kv_cache_cond = _env_bool("GROOT_N2_KV_CACHE_COND", default=True)
         # Hold conditioning-video K/V at their first-joint-step values on later joint steps.
         # Unset defers to the TensorRT bundle (on exactly when it carries the
@@ -515,6 +526,8 @@ class Gr00tN2Policy(Gr00tPolicy):
             "video_guidance_scale": self.video_guidance_scale,
             "action_guidance_scale": self.action_guidance_scale,
             "seed": self.seed,
+            # "per_request": request n uses seed + n; "fixed": every request uses seed.
+            "noise_mode": "fixed" if self.fixed_seed else "per_request",
         }
         if trt_runtime is not None:
             self.benchmark_runtime_contract["text_encoder_offload"] = dict(
@@ -548,6 +561,15 @@ class Gr00tN2Policy(Gr00tPolicy):
         self._cached_prompt_embs: torch.Tensor | None = None
         self._cached_language_dict: str | None = None
 
+    def _next_seed(self) -> int:
+        """This request's denoising seed: ``seed`` advanced once per request, unless fixed."""
+        # Policies assembled without __init__ (in-process RL adapters) keep the constant seed.
+        if getattr(self, "fixed_seed", True):
+            return self.seed
+        seed = self.seed + self._noise_requests
+        self._noise_requests += 1
+        return seed
+
     def _run_predict(self, collated_inputs: Any, prompt_embs: Any) -> dict[str, Any]:
         """Run the admitted prediction strategy behind one stable policy seam.
 
@@ -569,7 +591,7 @@ class Gr00tN2Policy(Gr00tPolicy):
                 video_guidance_scale=self.video_guidance_scale,
                 action_guidance_scale=self.action_guidance_scale,
                 shift=self.shift,
-                seed=self.seed,
+                seed=self._next_seed(),
                 predict_video=self.save_video_dir is not None or self.enable_n2_pred_comparison,
                 joint_denoise=self.joint_denoise,
                 kv_cache_cond=self.kv_cache_cond,
@@ -660,7 +682,8 @@ class Gr00tN2Policy(Gr00tPolicy):
             # leave ``text_negative`` in its payload, but steady-state graph
             # execution consumes the already-materialized prompt embeddings
             # and deliberately excludes that source tensor.
-            result = self._graph_runner(captured, prompt_embs=prompt_embs)
+            seed = Gr00tN2Policy._next_seed(self)
+            result = self._graph_runner(captured, prompt_embs=prompt_embs, seed=seed)
             self._graph_replay_count = getattr(self, "_graph_replay_count", 0) + 1
             Gr00tN2Policy._publish_cuda_graph_lifecycle(self)
         except Exception as exc:
@@ -913,6 +936,7 @@ class Gr00tN2Policy(Gr00tPolicy):
         )
         if conditioner is not None:
             conditioner.invalidate()
+        # The noise seed keeps advancing across resets (see __init__).
         return super().reset(options)
 
     def save_video(

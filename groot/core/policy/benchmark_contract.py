@@ -85,6 +85,9 @@ PROFILE_RUNTIME_FIELDS = (
     "video_guidance_scale",
     "action_guidance_scale",
     "seed",
+    # Every registered profile measures fixed noise (each request reuses ``seed``), the regime
+    # its recorded results were measured in; per-request noise needs a profile of its own.
+    "noise_mode",
 )
 
 MEASUREMENT_RUN_ROLES = ("reference", "candidate", "diagnostic")
@@ -141,6 +144,7 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "video_guidance_scale": 1.0,
         "action_guidance_scale": 1.0,
         "seed": 42,
+        "noise_mode": "fixed",
         "gpu_name_contains": "Thor",
         "hardware_family": "thor",
     },
@@ -170,6 +174,7 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "video_guidance_scale": 1.0,
         "action_guidance_scale": 1.0,
         "seed": 42,
+        "noise_mode": "fixed",
         "gpu_name_contains": "Thor",
         "hardware_family": "thor",
     },
@@ -199,6 +204,7 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "video_guidance_scale": 1.0,
         "action_guidance_scale": 1.0,
         "seed": 42,
+        "noise_mode": "fixed",
         "gpu_name_contains": "RTX 5090",
         "hardware_family": "rtx5090",
     },
@@ -280,6 +286,7 @@ YAM_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "video_guidance_scale": 1.0,
         "action_guidance_scale": 1.0,
         "seed": 42,
+        "noise_mode": "fixed",
         "gpu_name_contains": "RTX 5090",
         "hardware_family": "rtx5090",
     },
@@ -321,6 +328,7 @@ def _yam_wan21_h48_profile(
         "video_guidance_scale": 1.0,
         "action_guidance_scale": 1.0,
         "seed": 42,
+        "noise_mode": "fixed",
         "gpu_name_contains": gpu_name_contains,
         "hardware_family": hardware_family,
     }

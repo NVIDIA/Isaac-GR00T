@@ -588,8 +588,10 @@ class N2TensorRTContract:
             }
         if bottleneck is not None:
             supported_dimensions = [(256, 256)]
-        elif self.vae_type == "wan22" and self.token_merge_kernel is None:
-            # The 09/30 Turbo-v1 soup keeps native 256-wide heads without a V3 bottleneck.
+        elif self.token_merge_kernel is None:
+            # Wan2.2 Turbo-v1 and Wan2.1 Core checkpoints may keep native 256-wide state/action
+            # heads without a V3 bottleneck. Token-merge (Turbo2) engines are qualified at
+            # 128/128 only.
             supported_dimensions = [(128, 128), (256, 256)]
         else:
             supported_dimensions = [(128, 128)]
