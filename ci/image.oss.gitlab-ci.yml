@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+# OSS images built from the user-facing docker/Dockerfile with its defaults.
+# The OSS test jobs run in them.
+
+.image.oss:
+  stage: premerge
+  script:
+    - |
+      if [ -d oss ]; then
+        # Build from the exported package, which is what staging and public
+        # users check out, so its pyproject.toml carries the exported header.
+        apk add --no-cache python3
+        export OSS_PACKAGE_ROOT="$(mktemp -d)/package"
+        python3 ci/sync/copybara_sync.py \
+          --repo-root "$CI_PROJECT_DIR" \
+          --export-oss-for-tests "$OSS_PACKAGE_ROOT"
+        cd "$OSS_PACKAGE_ROOT"
+      fi
+      ci/scripts/docker_buildx_push.sh \
+        --registry "nvcr.io/nvidian" \
+        --image-name "groot-ci-oss" \
+        --dockerfile docker/Dockerfile \
+        --cache-slug "${CI_COMMIT_REF_SLUG}-${OSS_IMAGE_ARCH}" \
+        --tag "nvcr.io/nvidian/groot-ci-oss:${CI_COMMIT_SHORT_SHA}-${OSS_IMAGE_ARCH}" \
+        --platform "linux/${OSS_IMAGE_ARCH}"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$POSTMERGE_TESTS == "true"'
+  timeout: 90m
+
+image.oss.amd64:
+  extends:
+    - .image
+    - .image.oss
+  variables:
+    OSS_IMAGE_ARCH: amd64

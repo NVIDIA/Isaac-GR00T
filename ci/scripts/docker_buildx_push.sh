@@ -16,8 +16,8 @@
 # --load export overhead on cache hits.
 #
 # A stable content tag is also used to skip the build entirely when the
-# Dockerfile, copied context files, base image digest, build args, and platform
-# are unchanged. This keeps per-commit tags available without forcing downstream
+# Dockerfile, copied context files, the digests of every FROM and COPY --from
+# image, build args, and platform are unchanged. This keeps per-commit tags available without forcing downstream
 # images to see a new base digest on every commit.
 #
 # Secrets are read from environment variables:
@@ -26,8 +26,8 @@
 # Usage:
 #   docker_buildx_push.sh \
 #     --registry nvcr.io/nvidian \
-#     --image-name groot-ci-minimal \
-#     --dockerfile ci/images/minimal.Dockerfile \
+#     --image-name groot-ci-oss \
+#     --dockerfile docker/Dockerfile \
 #     --cache-slug main \
 #     [--tag IMAGE:TAG ...] \
 #     [--build-arg KEY=VAL ...]
@@ -134,7 +134,7 @@ _resolve_base_digest() {
 
 _apply_build_args() {
   VALUE="$1"
-  set -- ${BUILD_ARGS:-}
+  set -- ${RESOLVE_ARGS:-${BUILD_ARGS:-}}
   while [ $# -gt 0 ]; do
     if [ "$1" = "--build-arg" ] && [ $# -ge 2 ]; then
       ARG_KEY="${2%%=*}"
@@ -151,25 +151,83 @@ _apply_build_args() {
   printf '%s\n' "${VALUE}"
 }
 
+# Global ARG defaults (declared before the first FROM). Values with spaces are
+# skipped because the resolved argument list is word-split.
+_global_arg_defaults() {
+  awk 'toupper($1) == "FROM" { exit }
+    toupper($1) == "ARG" && NF == 2 && index($2, "=") { print "--build-arg " $2 }' "${DOCKERFILE}"
+}
+
+# Prints "ref <template>" for every FROM image and COPY --from source and
+# "stage <name>" for every named stage, in Dockerfile order.
+_image_references() {
+  awk 'toupper($1) == "FROM" {
+      i = 2
+      while ($i ~ /^--/) i++
+      print "ref " $i
+      if (toupper($(i + 1)) == "AS") print "stage " $(i + 2)
+    }
+    toupper($1) == "COPY" {
+      for (i = 2; i <= NF; i++) if ($i ~ /^--from=/) print "ref " substr($i, 8)
+    }' "${DOCKERFILE}"
+}
+
+# Prints "base:<ref>@<digest>" for every external image the build reads, and
+# fails when one cannot be resolved so that the build is never skipped on an
+# unknown base.
+_base_image_digests() {
+  STAGES=" "
+  _image_references | while read -r KIND NAME; do
+    if [ "${KIND}" = "stage" ]; then
+      STAGES="${STAGES}${NAME} "
+      continue
+    fi
+    REF="$(_apply_build_args "${NAME}")"
+    # Skip scratch, numeric stage indexes (COPY --from=0) and named stages.
+    case "${REF}" in
+      scratch) continue ;;
+      *[!0-9]*) ;;
+      *) continue ;;
+    esac
+    case "${STAGES}" in
+      *" ${REF} "*) continue ;;
+    esac
+    case "${REF}" in
+      *'$'*)
+        echo "unresolved image reference: ${NAME}" >&2
+        exit 1
+        ;;
+    esac
+    DIGEST="$(_resolve_base_digest "${REF}" "${PLATFORM:-}")"
+    if [ -z "${DIGEST}" ]; then
+      echo "cannot resolve the digest of ${REF}" >&2
+      exit 1
+    fi
+    printf 'base:%s@%s\n' "${REF}" "${DIGEST}"
+  done
+}
+
 _compute_content_hash() {
   HASH_INPUT="$(mktemp)"
-  BASE_REF_TEMPLATE="$(
-    awk 'toupper($1) == "FROM" && tolower($2) != "scratch" { print $2; exit }' "${DOCKERFILE}"
-  )"
-  BASE_REF="$(_apply_build_args "${BASE_REF_TEMPLATE}")"
-
-  BASE_DIGEST=""
-  if [ -n "${BASE_REF}" ]; then
-    BASE_DIGEST="$(_resolve_base_digest "${BASE_REF}" "${PLATFORM:-}")"
-  fi
+  PLATFORM_ARGS=""
+  case "${PLATFORM:-}" in
+    "" | *,*) ;;
+    */*)
+      TARGET_ARCH_VARIANT="${PLATFORM#*/}"
+      PLATFORM_ARGS="--build-arg TARGETOS=${PLATFORM%%/*} --build-arg TARGETARCH=${TARGET_ARCH_VARIANT%%/*}"
+      ;;
+  esac
+  # Explicit build args come first so they win over the Dockerfile defaults.
+  RESOLVE_ARGS="${BUILD_ARGS:-} $(_global_arg_defaults | tr '\n' ' ') ${PLATFORM_ARGS}"
+  BASE_DIGESTS="$(_base_image_digests)" || return 1
+  REF_TEMPLATES="$(_image_references | awk '$1 == "ref" { print $2 }')"
 
   NORMALIZED_BUILD_ARGS=""
   set -- ${BUILD_ARGS:-}
   while [ $# -gt 0 ]; do
     if [ "$1" = "--build-arg" ] && [ $# -ge 2 ]; then
       ARG_KEY="${2%%=*}"
-      if [ -z "${BASE_DIGEST}" ] \
-        || ! _from_uses_build_arg "${BASE_REF_TEMPLATE}" "${ARG_KEY}"; then
+      if ! _from_uses_build_arg "${REF_TEMPLATES}" "${ARG_KEY}"; then
         NORMALIZED_BUILD_ARGS="${NORMALIZED_BUILD_ARGS}
 --build-arg $2"
       fi
@@ -182,8 +240,8 @@ _compute_content_hash() {
 
   {
     cat "${DOCKERFILE}"
-    printf '\n%s\n%s\n%s\n' "${BASE_DIGEST}" "${NORMALIZED_BUILD_ARGS}" "${PLATFORM:-}"
-    awk 'toupper($1) == "COPY" {
+    printf '\n%s\n%s\n%s\n' "${BASE_DIGESTS}" "${NORMALIZED_BUILD_ARGS}" "${PLATFORM:-}"
+    awk 'toupper($1) == "COPY" && $0 !~ /--from=/ {
       for (i = 2; i < NF; i++) {
         if ($i !~ /^--/) {
           print $i

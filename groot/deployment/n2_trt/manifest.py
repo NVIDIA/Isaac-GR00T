@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 import hashlib
 from importlib import metadata
@@ -23,8 +24,29 @@ import subprocess
 from typing import Any
 
 from groot.core.utils.storage.checkpoint import checkpoint_source_path
-from groot.deployment.n2_trt.artifacts import resolve_checkpoint_vae_weights
-from groot.deployment.n2_trt.contract import N2TensorRTContract
+from groot.deployment.n2_trt.artifacts import resolve_recorded_vae_weights
+from groot.deployment.n2_trt.contract import (
+    ACTION_CONTEXT_MODES,
+    N2TensorRTContract,
+    TransformerPrecision,
+)
+from groot.deployment.n2_trt.gate_evidence import (
+    GATE_EVIDENCE_FILENAME,
+    GateEvidence,
+    GateEvidenceError,
+    gate_evidence_policy_for,
+)
+from groot.deployment.n2_trt.golden import (
+    EQUIVALENCE_POLICY,
+    GOLDEN_SIDECAR_FILENAME,
+    GoldenRecord,
+    GoldenRecordError,
+    envelope_matches,
+    load_record,
+    package_sha256,
+    read_golden_sidecar,
+    runtime_envelope_identity,
+)
 
 MANIFEST_SCHEMA = "groot_n2_tensorrt_engine_manifest_v4"
 MANIFEST_FILENAME = "n2_trt_manifest.json"
@@ -36,15 +58,36 @@ REQUIRED_SERVING_RECEIPTS = (
     VALIDATION_FILENAME,
     MANIFEST_FILENAME,
 )
-VALIDATION_SCHEMA = "groot_n2_tensorrt_engine_parity_v8"
+VALIDATION_SCHEMA = "groot_n2_tensorrt_engine_parity_v9"
+# A cond_kv_freeze bundle's receipt covers one more engine, so it has its own schema.
+COND_CACHED_VALIDATION_SCHEMA = "groot_n2_tensorrt_engine_parity_condcached_v1"
+# Receipt schema of a bundle with quantized transformer engines: the BF16 roles
+# keep their parity gates, the quantized roles are admitted by gate evidence.
+QUANTIZED_VALIDATION_SCHEMA = "groot_n2_tensorrt_quantized_admission_v3"
+# Receipt schemas of a bundle built from a golden package: admitted against the package's
+# record and a platform row (servable), or a candidate on a platform without a row yet.
+GOLDEN_ADMISSION_SCHEMA = "groot_n2_tensorrt_quantized_admission_golden_v1"
+GOLDEN_CANDIDATE_SCHEMA = "groot_n2_tensorrt_quantized_admission_golden_candidate_v1"
+# The admission route a manifest records: the loop's gate evidence or a golden package.
+ADMISSION_GATE_EVIDENCE = "gate_evidence"
+ADMISSION_GOLDEN = "golden"
 TRANSFORMER_EAGER_ORACLE = "production-eager-native-attention-v2"
 TRANSFORMER_EXPORT_JOINT_ORACLE = "export-segmented-sdpa-joint-v1"
 TRANSFORMER_EXPORT_ACTION_ORACLE = "export-sdpa-action-cache-v1"
+# The projected-context action graph has a different language ABI, so its export
+# source carries a distinct oracle name and cannot be confused with a raw sample.
+TRANSFORMER_EXPORT_ACTION_PROJECTED_ORACLE = "export-sdpa-action-cache-projected-context-v1"
+TRANSFORMER_EXPORT_ACTION_KV_ORACLE = "export-sdpa-action-cache-cross-kv-v1"
+# Conditioning-cached joint graph (cond_kv_freeze): query tokens only, cached prefix inputs.
+TRANSFORMER_EXPORT_JOINT_COND_ORACLE = "export-segmented-sdpa-joint-condcached-v1"
 VAE_EAGER_ORACLE = "unchanged-eager-chunked-encoder-v1"
 CHECKPOINT_METADATA = ("config.json", "processor_config.json", "statistics.json")
 REQUIRED_ENGINE_ROLES = frozenset({"transformer_joint", "transformer_action_cache", "vae_encoder"})
 REQUIRED_SOURCE_ROLES = frozenset(f"{role}_onnx" for role in REQUIRED_ENGINE_ROLES)
 REQUIRED_TOOL_COMPONENTS = frozenset({"exporter", "builder", "validator"})
+# The conditioning-cached joint graph a cond_kv_freeze bundle carries as its fourth engine.
+COND_CACHED_ENGINE_ROLE = "transformer_joint_condcached"
+OPTIONAL_ENGINE_ROLES = frozenset({COND_CACHED_ENGINE_ROLE})
 REQUIRED_PARITY_GATES = frozenset(
     {
         "transformer_joint_export",
@@ -56,6 +99,31 @@ REQUIRED_PARITY_GATES = frozenset(
         "vae_encoder",
     }
 )
+COND_CACHED_PARITY_GATES = frozenset(
+    {
+        "transformer_joint_condcached_export",
+        "transformer_composed_condcached_export",
+        "transformer_joint_condcached_production",
+    }
+)
+# Engine roles each parity gate exercises. A gate GATES only when every role it
+# exercises is a BF16 transcription; gates over a quantized role (transformer or
+# VAE) are retained as diagnostics because parity bounds do not describe a
+# quantized engine.
+PARITY_GATE_ROLES = {
+    "transformer_joint_export": ("transformer_joint",),
+    "transformer_action_cache_export": ("transformer_action_cache",),
+    "transformer_composed_action_export": ("transformer_joint", "transformer_action_cache"),
+    "transformer_joint_production": ("transformer_joint",),
+    "transformer_action_cache_production": ("transformer_action_cache",),
+    "transformer_composed_action_production": ("transformer_joint", "transformer_action_cache"),
+    "vae_encoder": ("vae_encoder",),
+}
+COND_CACHED_PARITY_GATE_ROLES = {
+    "transformer_joint_condcached_export": (COND_CACHED_ENGINE_ROLE,),
+    "transformer_composed_condcached_export": ("transformer_joint", COND_CACHED_ENGINE_ROLE),
+    "transformer_joint_condcached_production": (COND_CACHED_ENGINE_ROLE,),
+}
 VALIDATION_SAMPLE_PATHS = {
     "transformer_joint_export": "samples/joint_export_source.pt",
     "transformer_action_export": "samples/action_export_source.pt",
@@ -63,10 +131,21 @@ VALIDATION_SAMPLE_PATHS = {
     "transformer_action_production": "samples/action_cached.pt",
     "vae_eager": "sample.pt",
 }
+COND_CACHED_VALIDATION_SAMPLE_PATHS = {
+    "transformer_joint_condcached_export": "samples/joint_condcached_export_source.pt",
+    "transformer_joint_condcached_production": "samples/joint_cond_capture.pt",
+}
 VALIDATION_PROFILE_THRESHOLDS = {
     "bf16": {"max_relative_rmse": 0.02, "min_cosine": None},
     "joint_hidden": {"max_relative_rmse": 0.1, "min_cosine": 0.995},
-    "cached_action": {"max_relative_rmse": 0.025, "min_cosine": 0.9995},
+    # v9: the cached-action limit is calibrated on the G1 Turbo 3V5F/H80 family
+    # (dense Wan2.2 graph). Measured 2026-09-17 on an RTX PRO 6000 over 18 real
+    # open-door windows, its BF16 action engine reads 0.0239-0.0251 relative RMSE
+    # (median 0.0245; the synthetic export window 0.0251) while its decoded
+    # actions stay within 0.0108 of eager over 600 windows. The v7 limit of 0.025
+    # sat on that family median with no margin; 0.03 carries the composed gate's
+    # margin and remains an independent bound on the action engine alone.
+    "cached_action": {"max_relative_rmse": 0.03, "min_cosine": 0.9995},
     # The composed gate contains the accepted numerical error of both BF16
     # transformer engines. Target-local G1 calibration for this policy is
     # retained in groot/core/docs/n2/TENSORRT_RUNTIME.md.
@@ -80,6 +159,11 @@ VALIDATION_GATE_PROFILES = {
     "transformer_action_cache_production": "cached_action",
     "transformer_composed_action_production": "composed_action",
     "vae_encoder": "bf16",
+}
+COND_CACHED_GATE_PROFILES = {
+    "transformer_joint_condcached_export": "joint_hidden",
+    "transformer_composed_condcached_export": "joint_hidden",
+    "transformer_joint_condcached_production": "joint_hidden",
 }
 RUNTIME_COMPATIBILITY_FIELDS = (
     "machine",
@@ -96,7 +180,131 @@ RUNTIME_COMPATIBILITY_FIELDS = (
 
 def required_serving_files(manifest: EngineManifest) -> tuple[str, ...]:
     """Return manifest-owned engine paths plus required serving receipts."""
-    return tuple(record.relative_path for record in manifest.engines) + REQUIRED_SERVING_RECEIPTS
+    files = tuple(record.relative_path for record in manifest.engines) + REQUIRED_SERVING_RECEIPTS
+    if getattr(manifest, "admission", ADMISSION_GATE_EVIDENCE) == ADMISSION_GOLDEN:
+        files += (GOLDEN_SIDECAR_FILENAME,)
+    elif contract_payload_is_quantized(getattr(manifest, "contract", None) or {}):
+        files += (GATE_EVIDENCE_FILENAME,)
+    return files
+
+
+def declared_transformer_precisions(contract_payload: Mapping[str, Any]) -> tuple[str, str]:
+    """The (joint, action_cache) precisions a manifest's contract payload declares."""
+    joint = str(contract_payload.get("transformer_precision", TransformerPrecision.BF16.value))
+    action = str(contract_payload.get("action_cache_precision", joint))
+    return joint, action
+
+
+def declared_vae_precision(contract_payload: Mapping[str, Any]) -> str:
+    """The VAE encoder precision a manifest's contract payload declares (``bf16`` when absent)."""
+    return str(contract_payload.get("vae_precision", "bf16"))
+
+
+def contract_payload_is_quantized(contract_payload: Mapping[str, Any]) -> bool:
+    joint, action = declared_transformer_precisions(contract_payload)
+    return (
+        joint != TransformerPrecision.BF16.value
+        or action != TransformerPrecision.BF16.value
+        or declared_vae_precision(contract_payload) != "bf16"
+    )
+
+
+def required_engine_roles(cond_kv_freeze: bool) -> frozenset[str]:
+    """Engine roles one bundle must carry: the three fixed roles, plus the conditioning-cached joint."""
+    return REQUIRED_ENGINE_ROLES | (OPTIONAL_ENGINE_ROLES if cond_kv_freeze else frozenset())
+
+
+def required_source_roles(cond_kv_freeze: bool) -> frozenset[str]:
+    return frozenset(f"{role}_onnx" for role in required_engine_roles(cond_kv_freeze))
+
+
+def required_parity_gates(cond_kv_freeze: bool) -> frozenset[str]:
+    return REQUIRED_PARITY_GATES | (COND_CACHED_PARITY_GATES if cond_kv_freeze else frozenset())
+
+
+def parity_gate_roles(cond_kv_freeze: bool) -> dict[str, tuple[str, ...]]:
+    return {**PARITY_GATE_ROLES, **(COND_CACHED_PARITY_GATE_ROLES if cond_kv_freeze else {})}
+
+
+def validation_gate_profiles(cond_kv_freeze: bool) -> dict[str, str]:
+    return {**VALIDATION_GATE_PROFILES, **(COND_CACHED_GATE_PROFILES if cond_kv_freeze else {})}
+
+
+def validation_sample_paths(cond_kv_freeze: bool) -> dict[str, str]:
+    return {
+        **VALIDATION_SAMPLE_PATHS,
+        **(COND_CACHED_VALIDATION_SAMPLE_PATHS if cond_kv_freeze else {}),
+    }
+
+
+def gating_parity_gates(contract: N2TensorRTContract) -> frozenset[str]:
+    """The parity gates that gate admission of ``contract``'s bundle (all seven for BF16).
+
+    A parity gate describes a BF16 transcription, so it gates only while every engine
+    it exercises is BF16; over a quantized role (transformer or VAE) it is retained as
+    a diagnostic and admission runs on the bundle's end-to-end gate evidence. MEASURED
+    2026-09-21 (G1 Turbo, RTX PRO 6000): an FP8 VAE whose latents differ from the BF16
+    encoder by 4.9% relative RMSE moved the policy's paired action error by +0.55 pp.
+    """
+    precisions = contract.engine_precisions
+    return frozenset(
+        gate
+        for gate, roles in parity_gate_roles(contract.cond_kv_freeze).items()
+        if all(precisions[role] == TransformerPrecision.BF16.value for role in roles)
+    )
+
+
+def validation_policy_for(contract: N2TensorRTContract) -> tuple[str, dict[str, Any]]:
+    """The receipt schema and immutable validation policy admitting ``contract``'s bundle."""
+    cond_kv_freeze = contract.cond_kv_freeze
+    if not contract.is_quantized:
+        if not cond_kv_freeze:
+            return VALIDATION_SCHEMA, VALIDATION_POLICY
+        return COND_CACHED_VALIDATION_SCHEMA, {
+            **VALIDATION_POLICY,
+            "schema": COND_CACHED_VALIDATION_SCHEMA,
+            "gate_profiles": validation_gate_profiles(True),
+        }
+    gating = sorted(gating_parity_gates(contract))
+    return QUANTIZED_VALIDATION_SCHEMA, {
+        "schema": QUANTIZED_VALIDATION_SCHEMA,
+        "engine_precisions": contract.engine_precisions,
+        "gating_parity_gates": gating,
+        "diagnostic_parity_gates": sorted(required_parity_gates(cond_kv_freeze) - set(gating)),
+        "gate_profiles": validation_gate_profiles(cond_kv_freeze),
+        "profile_thresholds": VALIDATION_PROFILE_THRESHOLDS,
+        "gating_metrics": VALIDATION_POLICY["gating_metrics"],
+        "gate_evidence_policy_sha256": gate_evidence_policy_for(cond_kv_freeze)[1],
+    }
+
+
+def golden_validation_policy_for(
+    contract: N2TensorRTContract, record: GoldenRecord, row: Mapping[str, Any] | None
+) -> tuple[str, dict[str, Any]]:
+    """The receipt schema and policy of a bundle built from a golden package.
+
+    With an admitting platform row the bundle is servable; without one it is a candidate (the
+    platform is not certified yet). Either way the BF16 roles keep their parity gates and every
+    quantized role is judged by equivalence against the package's canonical outputs.
+    """
+    cond_kv_freeze = contract.cond_kv_freeze
+    gating = sorted(gating_parity_gates(contract))
+    schema = GOLDEN_ADMISSION_SCHEMA if row is not None else GOLDEN_CANDIDATE_SCHEMA
+    return schema, {
+        "schema": schema,
+        "admission": ADMISSION_GOLDEN,
+        "package_id": record.package_id,
+        "package_sha256": package_sha256(record),
+        "certification_level": record.certification.level,
+        "platform_row_sha256": None if row is None else row["row_sha256"],
+        "equivalence_policy": EQUIVALENCE_POLICY,
+        "engine_precisions": contract.engine_precisions,
+        "gating_parity_gates": gating,
+        "diagnostic_parity_gates": sorted(required_parity_gates(cond_kv_freeze) - set(gating)),
+        "gate_profiles": validation_gate_profiles(cond_kv_freeze),
+        "profile_thresholds": VALIDATION_PROFILE_THRESHOLDS,
+        "gating_metrics": VALIDATION_POLICY["gating_metrics"],
+    }
 
 
 def sha256_file(path: str | Path) -> str:
@@ -343,6 +551,10 @@ class BuildSettings:
     transformer_precision: str
     vae_precision: str
     codec: str
+    # Bundles written before this field existed are raw-context bundles.
+    action_context_mode: str = "raw"
+    # Bundles written before this field existed carry no conditioning-cached joint engine.
+    cond_kv_freeze: bool = False
 
     def validate(self, contract: N2TensorRTContract) -> None:
         if not self.strongly_typed:
@@ -355,6 +567,34 @@ class BuildSettings:
             raise ValueError("VAE build precision does not match the runtime contract")
         if self.codec not in {"h264", "mp4v", "none"}:
             raise ValueError(f"unsupported N2 TensorRT serving codec: {self.codec!r}")
+        if self.action_context_mode not in ACTION_CONTEXT_MODES:
+            raise ValueError(
+                f"unsupported action context mode {self.action_context_mode!r}; "
+                f"expected one of {ACTION_CONTEXT_MODES}"
+            )
+        if self.cond_kv_freeze != bool(getattr(contract, "cond_kv_freeze", False)):
+            raise ValueError(
+                "build settings cond_kv_freeze does not match the runtime contract "
+                f"({self.cond_kv_freeze} != {getattr(contract, 'cond_kv_freeze', False)})"
+            )
+
+
+def normalize_build_settings_payload(payload: Any) -> dict[str, Any]:
+    """Return build settings with the fields older receipts predate filled with their defaults."""
+    if not isinstance(payload, dict):
+        raise TypeError("build settings must be an object")
+    return {"action_context_mode": "raw", "cond_kv_freeze": False, **payload}
+
+
+def transformer_export_action_oracle(action_context_mode: str) -> str:
+    """Name the exact action export-source oracle for one action context mode."""
+    if action_context_mode == "raw":
+        return TRANSFORMER_EXPORT_ACTION_ORACLE
+    if action_context_mode == "projected":
+        return TRANSFORMER_EXPORT_ACTION_PROJECTED_ORACLE
+    if action_context_mode == "kv":
+        return TRANSFORMER_EXPORT_ACTION_KV_ORACLE
+    raise ValueError(f"unsupported action context mode {action_context_mode!r}")
 
 
 @dataclass(frozen=True)
@@ -471,6 +711,12 @@ class EngineManifest:
     engines: tuple[ArtifactRecord, ...]
     build: ArtifactRecord
     validation: ArtifactRecord
+    # The admission route: the loop's gate evidence (default) or a golden package's record. The
+    # golden fields are serialized for golden bundles only, so every other manifest is unchanged.
+    admission: str = ADMISSION_GATE_EVIDENCE
+    certification_level: str | None = None
+    package_id: str | None = None
+    golden_sidecar_sha256: str | None = None
 
     @classmethod
     def create(
@@ -486,8 +732,21 @@ class EngineManifest:
         validation: ArtifactRecord,
         vae_weights_path: str | Path,
         vae_weights_sha256: str,
+        admission: str = ADMISSION_GATE_EVIDENCE,
+        certification_level: str | None = None,
+        package_id: str | None = None,
+        golden_sidecar_sha256: str | None = None,
     ) -> EngineManifest:
         contract.validate()
+        if admission not in (ADMISSION_GATE_EVIDENCE, ADMISSION_GOLDEN):
+            raise ValueError(f"unsupported admission route {admission!r}")
+        golden_fields = (certification_level, package_id, golden_sidecar_sha256)
+        if admission == ADMISSION_GOLDEN and any(field is None for field in golden_fields):
+            raise ValueError(
+                "a golden admission names its certification level, package id and sidecar digest"
+            )
+        if admission != ADMISSION_GOLDEN and any(field is not None for field in golden_fields):
+            raise ValueError("only a golden admission carries package fields")
         build_settings.validate(contract)
         checkpoint_files = checkpoint_file_hashes(contract.checkpoint)
         source_records = tuple(sources)
@@ -498,10 +757,11 @@ class EngineManifest:
         _require_artifact_io(source_records, "source")
         _require_artifact_io(engine_records, "engine")
         source_roles = {record.role for record in source_records}
-        if source_roles != REQUIRED_SOURCE_ROLES:
+        expected_source_roles = required_source_roles(contract.cond_kv_freeze)
+        if source_roles != expected_source_roles:
             raise ValueError(
                 "source manifest requires exactly "
-                f"{sorted(REQUIRED_SOURCE_ROLES)}, got {sorted(source_roles)}"
+                f"{sorted(expected_source_roles)}, got {sorted(source_roles)}"
             )
         tool_components = {record.component for record in tool_records}
         if tool_components != REQUIRED_TOOL_COMPONENTS:
@@ -512,16 +772,13 @@ class EngineManifest:
         if any(not record.revision or record.dirty for record in tool_records):
             raise ValueError("manifest tool revisions must be non-empty and from clean sources")
         engine_roles = {record.role for record in engine_records}
-        if engine_roles != REQUIRED_ENGINE_ROLES:
+        expected_engine_roles = required_engine_roles(contract.cond_kv_freeze)
+        if engine_roles != expected_engine_roles:
             raise ValueError(
                 "engine manifest requires exactly "
-                f"{sorted(REQUIRED_ENGINE_ROLES)}, got {sorted(engine_roles)}"
+                f"{sorted(expected_engine_roles)}, got {sorted(engine_roles)}"
             )
-        expected_formats = {
-            "transformer_joint": contract.transformer_precision.value,
-            "transformer_action_cache": contract.transformer_precision.value,
-            "vae_encoder": contract.vae_precision,
-        }
+        expected_formats = contract.engine_precisions
         format_mismatches = {
             record.role: {
                 "actual": record.numeric_format,
@@ -572,12 +829,19 @@ class EngineManifest:
             engines=engine_records,
             build=build,
             validation=validation,
+            admission=admission,
+            certification_level=certification_level,
+            package_id=package_id,
+            golden_sidecar_sha256=golden_sidecar_sha256,
         )
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["runtime"]["compute_capability"] = list(self.runtime.compute_capability)
         payload["runtime"]["gpu_architecture"] = self.runtime.gpu_architecture
+        if self.admission == ADMISSION_GATE_EVIDENCE:
+            for key in ("admission", "certification_level", "package_id", "golden_sidecar_sha256"):
+                payload.pop(key)
         return payload
 
     def write(self, path: str | Path) -> None:
@@ -628,6 +892,10 @@ class EngineManifest:
             engines=tuple(ArtifactRecord(**record) for record in payload["engines"]),
             build=_artifact_record_from_payload(payload["build"]),
             validation=_artifact_record_from_payload(payload["validation"]),
+            admission=payload.get("admission", ADMISSION_GATE_EVIDENCE),
+            certification_level=payload.get("certification_level"),
+            package_id=payload.get("package_id"),
+            golden_sidecar_sha256=payload.get("golden_sidecar_sha256"),
         )
 
     def validate(
@@ -640,7 +908,12 @@ class EngineManifest:
         """Reject changed checkpoints, foreign plans, or edited receipts."""
         failures: dict[str, Any] = {}
         contract_payload = contract.to_dict()
-        if self.contract != contract_payload or self.contract_sha256 != canonical_sha256(
+        if self.contract.get("schema_version") != contract.schema_version:
+            failures["contract"] = (
+                f"engine contract schema {self.contract.get('schema_version')!r} differs from "
+                f"supported schema {contract.schema_version}; rebuild and re-validate this bundle"
+            )
+        elif self.contract != contract_payload or self.contract_sha256 != canonical_sha256(
             contract_payload
         ):
             failures["contract"] = "manifest does not match resolved checkpoint contract"
@@ -650,10 +923,7 @@ class EngineManifest:
         ):
             failures["checkpoint"] = "checkpoint metadata changed after engine build"
         try:
-            vae_weights = resolve_checkpoint_vae_weights(
-                contract.checkpoint,
-                self.vae_weights_path,
-            )
+            vae_weights = resolve_recorded_vae_weights(contract.checkpoint, self.vae_weights_path)
             vae_weights_sha256 = sha256_file(vae_weights)
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             failures["vae_weights"] = f"cannot resolve current VAE weights: {error}"
@@ -683,13 +953,23 @@ class EngineManifest:
             except (json.JSONDecodeError, OSError) as error:
                 failures["validation"] = f"unreadable receipt: {error}"
             else:
-                if receipt.get("schema") != VALIDATION_SCHEMA:
+                golden_failure = None
+                if self.admission == ADMISSION_GOLDEN:
+                    golden_failure, expected_schema, expected_policy = self._golden_policy(
+                        root, contract, runtime
+                    )
+                else:
+                    expected_schema, expected_policy = validation_policy_for(contract)
+                gating_gates = gating_parity_gates(contract)
+                if golden_failure is not None:
+                    failures["golden"] = golden_failure
+                elif receipt.get("schema") != expected_schema:
                     failures["validation"] = (
                         f"unsupported receipt schema: {receipt.get('schema')!r}"
                     )
-                elif receipt.get("validation_policy") != VALIDATION_POLICY:
+                elif receipt.get("validation_policy") != expected_policy:
                     failures["validation"] = "receipt validation policy does not match runtime"
-                elif receipt.get("validation_policy_sha256") != VALIDATION_POLICY_SHA256:
+                elif receipt.get("validation_policy_sha256") != canonical_sha256(expected_policy):
                     failures["validation"] = (
                         "receipt validation policy digest does not match runtime"
                     )
@@ -734,22 +1014,149 @@ class EngineManifest:
                         if isinstance(result, dict) and result.get("passed") is True
                     }
                     if validator_runtime is not None and (
-                        gate_names != REQUIRED_PARITY_GATES or passed_gates != REQUIRED_PARITY_GATES
+                        gate_names != required_parity_gates(contract.cond_kv_freeze)
+                        or not gating_gates <= passed_gates
                     ):
                         failures["validation"] = (
                             "receipt must pass the required parity gates: "
-                            f"{sorted(REQUIRED_PARITY_GATES)}"
+                            f"{sorted(gating_gates)}"
                         )
                     elif validator_runtime is not None:
-                        semantic_failures = _validation_gate_semantic_failures(gates)
+                        semantic_failures = _validation_gate_semantic_failures(
+                            gates, cond_kv_freeze=contract.cond_kv_freeze
+                        )
                         if semantic_failures:
                             failures["validation"] = {
                                 "gate_semantics": semantic_failures,
                             }
+                        elif contract.is_quantized and self.admission != ADMISSION_GOLDEN:
+                            evidence_failure = self._gate_evidence_failure(
+                                root, receipt, cond_kv_freeze=contract.cond_kv_freeze
+                            )
+                            if evidence_failure is not None:
+                                failures["gate_evidence"] = evidence_failure
         if failures:
             raise RuntimeError(
                 "N2 TensorRT manifest validation failed: " + json.dumps(failures, default=str)
             )
+
+    def admitting_row(self, root: Path, runtime: RuntimeIdentity) -> dict[str, Any] | None:
+        """The platform row a promoted golden bundle serves under (None: not golden, or a candidate).
+
+        ``validate`` has already re-verified the sidecar, the record digest, the row and the
+        envelope on this load; this returns the row's content for callers that act on it (its
+        admitted served modes).
+        """
+        if self.admission != ADMISSION_GOLDEN:
+            return None
+        sidecar = read_golden_sidecar(root)
+        if sidecar["mode"] != "serve":
+            return None
+        record = load_record(self.package_id)
+        identity = runtime_envelope_identity(runtime)
+        for row in record.admission_rows:
+            if row["row_sha256"] == sidecar["platform_row_sha256"] and envelope_matches(
+                row["envelope"], identity
+            ):
+                return dict(row)
+        return None
+
+    def _golden_policy(
+        self, root: Path, contract: N2TensorRTContract, runtime: RuntimeIdentity
+    ) -> tuple[str | None, str, dict[str, Any]]:
+        """Re-verify the golden sidecar, its record and the admitting platform row on every load.
+
+        The sidecar must be the pinned one, the record's package digest must equal the sidecar's,
+        the row the sidecar names must still be in the record (appending other platforms' rows
+        changes nothing; changing this row does) and the runtime must fall inside its envelope.
+        """
+        try:
+            sidecar_path = root / GOLDEN_SIDECAR_FILENAME
+            if not sidecar_path.is_file():
+                return "golden sidecar file is missing", GOLDEN_ADMISSION_SCHEMA, {}
+            if sha256_file(sidecar_path) != self.golden_sidecar_sha256:
+                return "golden sidecar hash mismatch", GOLDEN_ADMISSION_SCHEMA, {}
+            sidecar = read_golden_sidecar(root)
+            if sidecar["package_id"] != self.package_id:
+                return "golden sidecar names another package", GOLDEN_ADMISSION_SCHEMA, {}
+            if sidecar["mode"] != "serve":
+                return (
+                    "a candidate golden bundle is not servable until its platform row lands "
+                    "and the root is promoted",
+                    GOLDEN_CANDIDATE_SCHEMA,
+                    {},
+                )
+            record = load_record(self.package_id)
+            if package_sha256(record) != sidecar["package_sha256"]:
+                return (
+                    "golden record digest does not match the sidecar",
+                    GOLDEN_ADMISSION_SCHEMA,
+                    {},
+                )
+            if record.certification.level != self.certification_level:
+                return (
+                    "golden record certification level does not match the manifest",
+                    GOLDEN_ADMISSION_SCHEMA,
+                    {},
+                )
+            rows = [
+                row
+                for row in record.admission_rows
+                if row["row_sha256"] == sidecar["platform_row_sha256"]
+            ]
+            if not rows:
+                return (
+                    "the admitting platform row is no longer in the golden record",
+                    GOLDEN_ADMISSION_SCHEMA,
+                    {},
+                )
+            if not envelope_matches(rows[0]["envelope"], runtime_envelope_identity(runtime)):
+                return (
+                    "the runtime does not fall inside the admitting platform row's envelope",
+                    GOLDEN_ADMISSION_SCHEMA,
+                    {},
+                )
+        except (GoldenRecordError, OSError, ValueError, TypeError, KeyError) as error:
+            return f"golden admission: {error}", GOLDEN_ADMISSION_SCHEMA, {}
+        schema, policy = golden_validation_policy_for(contract, record, rows[0])
+        return None, schema, policy
+
+    def _gate_evidence_failure(
+        self, root: Path, receipt: Mapping[str, Any], *, cond_kv_freeze: bool
+    ) -> str | None:
+        """Re-verify and recompute the quantized bundle's gate evidence (never trust its booleans)."""
+        expected_schema, expected_policy_sha256 = gate_evidence_policy_for(cond_kv_freeze)
+        record = receipt.get("gate_evidence")
+        if not isinstance(record, Mapping):
+            return "receipt has no gate_evidence record"
+        if record.get("policy_sha256") != expected_policy_sha256:
+            return "gate evidence policy digest does not match runtime"
+        if record.get("relative_path") != GATE_EVIDENCE_FILENAME:
+            return f"gate evidence must be the bundle's {GATE_EVIDENCE_FILENAME}"
+        path = (root / GATE_EVIDENCE_FILENAME).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError:
+            return "gate evidence path escapes artifact root"
+        if not path.is_file():
+            return "gate evidence file is missing"
+        if sha256_file(path) != record.get("sha256"):
+            return "gate evidence hash mismatch"
+        try:
+            evidence = GateEvidence.read(path)
+            if evidence.schema != expected_schema:
+                return (
+                    f"gate evidence schema {evidence.schema!r} does not match the bundle "
+                    f"contract (expected {expected_schema!r})"
+                )
+            evidence.require(
+                engine_sha256={engine.role: engine.sha256 for engine in self.engines},
+                checkpoint_sha256=self.checkpoint_sha256,
+                contract_sha256=self.contract_sha256,
+            )
+        except (GateEvidenceError, ValueError, TypeError, OSError) as error:
+            return str(error)
+        return None
 
 
 def _artifact_record_from_payload(payload: dict[str, Any]) -> ArtifactRecord:
@@ -779,20 +1186,23 @@ def _build_receipt_failure(path: Path, manifest: EngineManifest) -> str | dict[s
         return "receipt must be an object"
     if receipt.get("schema") != BUILD_SCHEMA:
         return f"unsupported receipt schema: {receipt.get('schema')!r}"
-    if receipt.get("quantize_mode") != "none":
-        return "quantize_mode must be 'none'"
+    quantized = contract_payload_is_quantized(manifest.contract)
+    if (receipt.get("quantize_mode") == "none") == quantized:
+        return "quantize_mode contradicts the manifest contract's transformer precisions"
     if receipt.get("tensorrt") != manifest.runtime.tensorrt:
         return "TensorRT version does not match manifest runtime"
     expected_runtime = asdict(manifest.runtime)
     expected_runtime["compute_capability"] = list(manifest.runtime.compute_capability)
     if receipt.get("runtime") != expected_runtime:
         return "build runtime identity does not match manifest"
-    if receipt.get("settings") != asdict(manifest.build_settings):
+    settings = receipt.get("settings")
+    if not isinstance(settings, dict):
+        return "build settings must be an object"
+    if normalize_build_settings_payload(settings) != asdict(manifest.build_settings):
         return "build settings do not match manifest"
     validation_samples = receipt.get("validation_samples")
-    if not isinstance(validation_samples, dict) or set(validation_samples) != set(
-        VALIDATION_SAMPLE_PATHS
-    ):
+    expected_samples = validation_sample_paths(bool(manifest.contract.get("cond_kv_freeze", False)))
+    if not isinstance(validation_samples, dict) or set(validation_samples) != set(expected_samples):
         return "validation_samples must contain every required validation sample"
     if any(
         not isinstance(digest, str) or len(digest) != 64 for digest in validation_samples.values()
@@ -846,11 +1256,13 @@ def _build_receipt_failure(path: Path, manifest: EngineManifest) -> str | dict[s
     return None
 
 
-def _validation_gate_semantic_failures(gates: Any) -> dict[str, str]:
+def _validation_gate_semantic_failures(
+    gates: Any, *, cond_kv_freeze: bool = False
+) -> dict[str, str]:
     if not isinstance(gates, dict):
         return {"gates": "must be an object"}
     failures: dict[str, str] = {}
-    for gate, profile in VALIDATION_GATE_PROFILES.items():
+    for gate, profile in validation_gate_profiles(cond_kv_freeze).items():
         result = gates.get(gate)
         if not isinstance(result, dict):
             failures[gate] = "must be an object"

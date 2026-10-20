@@ -11,9 +11,8 @@
 # OSS CI images.
 
 include:
-  - local: ci/image.base.minimal.gitlab-ci.yml
-  - local: ci/image.minimal.gitlab-ci.yml
   - local: ci/image.train.gitlab-ci.yml
+  - local: ci/image.oss.gitlab-ci.yml
 
 .image_build_retry:
   retry:
@@ -57,34 +56,3 @@ include:
   variables:
     DOCKER_HOST: unix:///var/run/docker.sock
     DOCKER_TLS_CERTDIR: ""
-
-.minimal:
-  image:
-    name: nvcr.io/nvidian/groot-ci-minimal:${CI_COMMIT_SHORT_SHA}
-    entrypoint: [""]
-  tags:
-    - ipp-group-gear
-  variables:
-    IPP_RUNNER_QUEUE_NAME: user-queue-cpu
-  before_script:
-    - cd "$CI_PROJECT_DIR/$OSS_PACKAGE_DIR"
-    - uv pip install .[dev]
-  retry:
-    max: 2
-    when: runner_system_failure
-
-.base_minimal:
-  image:
-    name: nvcr.io/nvidian/groot-ci-base-minimal:${CI_COMMIT_SHORT_SHA}
-    entrypoint: [""]
-  tags:
-    - ipp-group-gear
-  variables:
-    IPP_RUNNER_QUEUE_NAME: user-queue-cpu
-  before_script:
-    - export AWS_ACCESS_KEY_ID=$BUCKET_ACCESS_KEY_ID
-    - export AWS_SECRET_ACCESS_KEY=$BUCKET_SECRET_ACCESS_KEY
-    - export AWS_REGION=$BUCKET_REGION
-  retry:
-    max: 2
-    when: runner_system_failure

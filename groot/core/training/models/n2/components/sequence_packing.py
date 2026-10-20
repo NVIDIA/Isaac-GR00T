@@ -68,6 +68,11 @@ class AttentionMaskPattern(str, Enum):
     Action tokens attend to all video + state + action.
     Action tokens can exploit future info from denoising tokens."""
 
+    BIDIRECTIONAL_VIDEO_TACTILE_ACTION_FULL = "bidirectional_video_tactile_action_full"
+    """Saved by tactile future-force checkpoints; the same table as
+    BIDIRECTIONAL_VIDEO_ACTION_FULL. The tactile token groups' edges come from the
+    attention rules in models/n2/tactile/attention.py."""
+
     FULL = "full"
     """All tokens attend to all tokens. No restricted attention."""
 
@@ -100,7 +105,10 @@ class AttentionMaskPattern(str, Enum):
                 [False, False, True, False],  # q: state
                 [True, False, True, True],  # q: action (no video_denoise)
             ]
-        elif self == AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL:
+        elif self in (
+            AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL,
+            AttentionMaskPattern.BIDIRECTIONAL_VIDEO_TACTILE_ACTION_FULL,
+        ):
             return [
                 # kv:  v_cond  v_denoise  state  action
                 [True, True, False, False],  # q: video_cond (sees all video)
@@ -171,6 +179,8 @@ class PackedSequence:
     kv_cacheable_modalities: tuple[int, ...] = ()
     # Reuse the extension's semantics when building a reduced token-merge mask.
     attention_rule: AttentionRule | None = None
+    # Appended groups are contiguous; retain their slice bounds without a GPU lookup.
+    additional_token_ranges: dict[int, tuple[int, int]] | None = None
 
     def unpack(self, packed_output: Tensor, modality: int | tuple[int, ...]) -> Tensor:
         """Extract contiguous modality tokens without building a boolean index mask."""
@@ -207,6 +217,10 @@ def unpack_contiguous(
     or modality combinations that do not have a dedicated routing index.
     """
     if isinstance(modality, int):
+        ranges = getattr(packed, "additional_token_ranges", None)
+        if ranges and modality in ranges:
+            start, length = ranges[modality]
+            return packed_output.narrow(1, start, length)
         indices = None
         if modality == MODALITY_STATE:
             indices = packed.state_token_indices
@@ -416,6 +430,7 @@ class ConcatPacker:
             )
 
         kv_cacheable_modalities: tuple[int, ...] = ()
+        additional_token_ranges = {}
         if additional_token_groups:
             if attention_rule is None:
                 raise ValueError("Additional modalities require an explicit attention_rule")
@@ -434,6 +449,7 @@ class ConcatPacker:
             elif token_valid_mask.shape != (B, original_length):
                 raise ValueError("Token-valid mask must match the ordinary packed sequence")
             all_valid = [token_valid_mask.to(device=device, dtype=torch.bool)]
+            group_start = original_length
             for group in additional_token_groups:
                 if group.modality_id <= MODALITY_ACTION:
                     raise ValueError("Additional groups must use a distinct non-video modality")
@@ -451,6 +467,8 @@ class ConcatPacker:
                     valid = torch.ones(group.tokens.shape[:2], dtype=torch.bool, device=device)
                 elif valid.shape != group.tokens.shape[:2]:
                     raise ValueError("Additional token validity has the wrong shape")
+                additional_token_ranges[group.modality_id] = (group_start, group.tokens.shape[1])
+                group_start += group.tokens.shape[1]
                 all_tokens.append(group.tokens)
                 all_timesteps.append(group.timesteps)
                 all_cos.append(group.rope_freqs[0])
@@ -525,4 +543,5 @@ class ConcatPacker:
             token_valid_mask=token_valid_mask,
             kv_cacheable_modalities=kv_cacheable_modalities,
             attention_rule=attention_rule,
+            additional_token_ranges=additional_token_ranges or None,
         )

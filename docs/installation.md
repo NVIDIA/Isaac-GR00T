@@ -31,10 +31,11 @@ of memory and at least 200 GB of free local disk. Inference memory and storage
 requirements depend on the checkpoint and workload.
 
 For a new container, a known-good public starting point is
-`nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04`. An equivalent x86_64 Linux
-environment with CUDA 12.8 development tools also works. This repository does
-not export a training Dockerfile; the frozen uv environment is the software
-contract.
+`nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04`. An equivalent x86_64 Linux
+environment with CUDA 12.8 development tools also works. To build the training
+environment below as an image from that base, see
+[docker/README.md](../docker/README.md); the frozen uv environment remains the
+software contract.
 
 Apple Silicon Docker containers run as ARM64 Linux by default. They cannot run
 this x86 CUDA workflow; use an x86_64 NVIDIA Linux host. Jetson Thor has a

@@ -109,6 +109,9 @@ class TrainingConfig:
     # checkpoint tags (e.g. historical human/Sharpa-row G1 reproduction).
     # Does not override saved mappings or allow unknown tags / invalid row indices.
     allow_pretrained_projector_row_reuse: bool = False
+    # N2: allow an explicit model.action_cfg.action_clip_range / model.rope_fp32 that
+    # disagrees with the checkpoint's (groot/core/utils/n2_numerics.py).
+    allow_numerics_override: bool = False
     # Explicit async ZeRO-2 continuation; None preserves existing resume behavior.
     resume_from_checkpoint: str | None = None
 
@@ -133,6 +136,12 @@ class TrainingConfig:
         True  # Save model after training completes (disable for CI smoke tests)
     )
     save_vl_model: bool = False  # Control whether to save VL model and processor in callbacks
+
+    # Exponential moving average of the trainable weights, saved next to each
+    # checkpoint as ema_model.safetensors for inference-time use. 0 disables it
+    # (training is byte-identical when off). 0.999 averages over ~1k steps.
+    # See groot/core/training/experiment/callbacks/ema.py.
+    ema_decay: float = 0.0
 
     # Checkpoint uploading
     upload_checkpoints: bool = False

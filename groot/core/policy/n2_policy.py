@@ -20,9 +20,11 @@ Also supports saving generated videos.
 # a rollout; `options` and `video_texts` are kept for base-class / public-signature parity.
 # ruff: noqa: ARG002, BLE001, T201
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import json
+import logging
 import os
 import time
 from typing import Any
@@ -34,11 +36,16 @@ import transformers
 from groot.core.data import schema, types
 from groot.core.policy.benchmark_contract import resolve_policy_acceleration_state
 from groot.core.policy.env_utils import env_bool as _env_bool
+from groot.core.policy.env_utils import env_bool_optional as _env_bool_optional
 from groot.core.policy.gr00t_policy import Gr00tPolicy, _rec_to_dtype
 from groot.core.policy.n2_acceleration import N2AccelerationOptions
 from groot.core.policy.n2_codec import resolve_n2_codec_roundtrip
+from groot.core.utils.n2_numerics import N2Numerics, resolve_numerics
+from groot.core.utils.precision import cast_for_inference
 
 N2_VIEW_NAMES = ("top", "left", "right", "bottom")
+
+logger = logging.getLogger(__name__)
 
 # Codec used for the observation-video roundtrip at inference (see
 # Gr00tN2Policy._codec_roundtrip_views). "h264" matches purchased/h264-converted
@@ -146,7 +153,7 @@ def _resolve_constructor_env_int(name: str, *, constructor_value: int | None, de
     return _env_int(name, default=default)
 
 
-def _env_float(name: str, *, default: float) -> float:
+def _env_float(name: str, *, default: float | None) -> float | None:
     raw = os.environ.get(name)
     if raw is None:
         return default
@@ -154,6 +161,36 @@ def _env_float(name: str, *, default: float) -> float:
 
 
 _resolve_codec_roundtrip = resolve_n2_codec_roundtrip
+
+
+def _resolve_served_numerics(model_dir: str, model_config: Any) -> N2Numerics:
+    """action_clip_range and rope_fp32 from the checkpoint; the GROOT_N2_* env overrides them.
+
+    Writes rope_fp32 into the (actor) model config, so the model builds its RoPE tables to
+    match. An override that disagrees with the checkpoint needs
+    GROOT_N2_ALLOW_NUMERICS_OVERRIDE=1 (groot/core/utils/n2_numerics.py).
+    """
+    # GrootN2RL configs wrap the actor's (a dict until the model is built).
+    actor = getattr(model_config, "base_model_cfg", model_config)
+    action_cfg = actor.get("action_cfg") if isinstance(actor, dict) else actor.action_cfg
+    numerics = resolve_numerics(
+        model_dir,
+        has_action_head=action_cfg is not None,
+        action_clip_range=_env_float("GROOT_N2_ACTION_CLIP_RANGE", default=None),
+        rope_fp32=_env_bool_optional("GROOT_N2_ROPE_FP32"),
+        allow_override=_env_bool("GROOT_N2_ALLOW_NUMERICS_OVERRIDE", default=False),
+        hint=(
+            "GROOT_N2_ACTION_CLIP_RANGE / GROOT_N2_ROPE_FP32; force with "
+            "GROOT_N2_ALLOW_NUMERICS_OVERRIDE=1"
+        ),
+    )
+    if isinstance(actor, dict):
+        actor["rope_fp32"] = numerics.rope_fp32
+    else:
+        actor.rope_fp32 = numerics.rope_fp32
+    # WARNING, so it reaches server logs whose root level stays WARNING.
+    logger.warning("[Gr00tN2Policy] numerics: %s", numerics.describe())
+    return numerics
 
 
 def _normalize_n2rl_config_for_inference(config: Any) -> Any:
@@ -260,10 +297,15 @@ class Gr00tN2Policy(Gr00tPolicy):
         trt_engine_dir: str | None = None,
         use_cuda_graph: bool = False,
         codec_roundtrip: str = "mp4v",
+        trt_runtime_factory: Callable[..., Any] | None = None,
     ):
+        # ``trt_runtime_factory(contract, served_cond_kv_freeze)`` constructs the TensorRT
+        # runtime for engines without a manifest (never admitted) through the installer's
+        # runtime-factory seam; ``None`` serves the admitted bundle under ``trt_engine_dir``.
         # Import to register the N2 model (pipeline setup runs AutoModel
         # registration as a side effect).
         import groot.core.training.models.n2
+        from groot.core.training.models.n2.tactile import guards as tactile_guards
 
         # Internal builds include this package for GrootN2RL AutoModel registration,
         # while the curated OSS package intentionally excludes RL models. Suppress
@@ -289,7 +331,23 @@ class Gr00tN2Policy(Gr00tPolicy):
         self.action_guidance_scale = action_guidance_scale
         self.shift = _env_float("GROOT_N2_SHIFT", default=shift)
         self.seed = seed
+        # model.predict reseeds a local Generator from the seed it is given, so a constant seed
+        # made every chunk denoise from the same noise draw: no sampling diversity, and
+        # consecutive chunks correlated. Instead, request n of this process uses ``seed + n``,
+        # counting every request that reaches _run_predict: server warmup requests, benchmark
+        # warmups and the request that captures the CUDA graph (the capture's own passes use
+        # ``seed`` and do not count). reset() does not restart the count, so episodes do not
+        # replay each other's noise; a new process starts again at ``seed``, so the same request
+        # sequence reproduces. GROOT_N2_FIXED_SEED=1 restores the constant seed (bit-exact with
+        # servers that used it); benchmark target profiles require it ("noise_mode" below).
+        self.fixed_seed = _env_bool("GROOT_N2_FIXED_SEED", default=False)
+        self._noise_requests = 0
         self.kv_cache_cond = _env_bool("GROOT_N2_KV_CACHE_COND", default=True)
+        # Hold conditioning-video K/V at their first-joint-step values on later joint steps.
+        # Unset defers to the TensorRT bundle (on exactly when it carries the
+        # conditioning-cached joint engine); without TensorRT the eager emulation is opt-in.
+        served_cond_kv_freeze = _env_bool_optional("GROOT_N2_COND_KV_FREEZE")
+        self.cond_kv_freeze = bool(served_cond_kv_freeze)
         self.joint_denoise = _env_bool("GROOT_N2_JOINT_DENOISE", default=True)
         self.num_video_steps = _env_int("GROOT_N2_NUM_VIDEO_STEPS", default=2)
         self.codec_roundtrip = _resolve_codec_roundtrip(codec_roundtrip)
@@ -321,6 +379,14 @@ class Gr00tN2Policy(Gr00tPolicy):
         # Inference immediately unwraps the base actor. Normalize only the in-memory load config;
         # the checkpoint remains an immutable record of the training recipe that produced it.
         model_config = _normalize_n2rl_config_for_inference(model_config)
+        # Tactile/deform checkpoints serve eager only; refuse before loading.
+        tactile_guards.refuse_inference_acceleration(model_config, acceleration)
+        self.predict_freezes = _env_bool("GROOT_N2_PREDICT_FREEZES", default=False)
+        if self.predict_freezes:
+            from groot.core.policy.n2_predict_freezes import validate_predict_freezes_config
+
+            validate_predict_freezes_config(model_config)
+        numerics = _resolve_served_numerics(model_dir, model_config)
         model = transformers.AutoModel.from_pretrained(model_dir, config=model_config)
         # GrootN2RL actor checkpoints only wrap the base GrootN2 actor; inference
         # uses the inner model's predict/vae/decode_latents APIs directly.
@@ -333,20 +399,23 @@ class Gr00tN2Policy(Gr00tPolicy):
         if acceleration.use_tensorrt:
             # The eager transformer/VAE are replaced by TRT. Keep the text
             # tower on CPU until its serving residency policy is installed.
-            model.to(dtype=torch.bfloat16)
+            cast_for_inference(model, rope_fp32=numerics.rope_fp32, dtype=torch.bfloat16)
             for name, child in model.named_children():
                 if name not in {"text_encoder", "transformer", "vae"}:
                     child.to(device=device)
             if list(model.parameters(recurse=False)) or list(model.buffers(recurse=False)):
                 raise RuntimeError("N2 TRT placement requires module-owned parameters/buffers")
         else:
-            model.to(device=device, dtype=torch.bfloat16)
+            cast_for_inference(
+                model, rope_fp32=numerics.rope_fp32, device=device, dtype=torch.bfloat16
+            )
         self.model = model
         trt_runtime = None
         if acceleration.use_tensorrt:
             from groot.deployment.n2_trt.contract import N2TensorRTContract
             from groot.deployment.n2_trt.installer import install_n2_tensorrt
 
+            # The checkpoint contract; the engines resolve their roles and precisions on it.
             contract = N2TensorRTContract.from_checkpoint(
                 model_dir,
                 embodiment=embodiment_tag.value,
@@ -359,32 +428,73 @@ class Gr00tN2Policy(Gr00tPolicy):
                 model,
                 acceleration.trt_engine_dir,
                 contract=contract,
+                runtime_factory=(
+                    None
+                    if trt_runtime_factory is None
+                    else lambda: trt_runtime_factory(contract, served_cond_kv_freeze)
+                ),
+                # Serving a bundle with quantized transformer engines is opt-in.
+                allow_quantized=_env_bool("GROOT_N2_TRT_ALLOW_QUANTIZED", default=False),
+                # A golden package certified at the amplitude level only (no temporal row) is
+                # opt-in as well.
+                allow_amplitude_only=_env_bool("GROOT_N2_TRT_ALLOW_AMPLITUDE_ONLY", default=False),
+                # A served mode the platform row did not admit (the package passed only the other
+                # mode's gates on this platform) is opt-in as well.
+                allow_unadmitted_mode=_env_bool(
+                    "GROOT_N2_TRT_ALLOW_UNADMITTED_MODE", default=False
+                ),
                 expected_codec=self.codec_roundtrip,
+                served_cond_kv_freeze=served_cond_kv_freeze,
             )
+            # The served mode is the installed runtime's: the bundle's default unless selected.
+            self.cond_kv_freeze = bool(trt_runtime.served_cond_kv_freeze)
         _install_inference_acceleration(
             self,
             options=acceleration,
         )
+        # The served precision is the admitted bundle's, never a literal.
+        precision = trt_runtime.contract.precision_label if trt_runtime is not None else "bf16"
         print(
             f"[Gr00tN2Policy] acceleration: "
             f"trt_engines={'on' if acceleration.use_tensorrt else 'off'}, "
+            f"trt_precision={precision if trt_runtime is not None else 'n/a'}, "
             f"predict_cuda_graph={'on' if acceleration.use_cuda_graph else 'off'} "
             f"(typed constructor option), "
             f"torch_compile={'on' if acceleration.use_torch_compile else 'off'}"
         )
+        manifest = getattr(trt_runtime, "manifest", None) if trt_runtime is not None else None
+        if manifest is not None:
+            # The admission route the served bundle came through and its package, if golden.
+            print(
+                "[Gr00tN2Policy] admission: "
+                f"route={getattr(manifest, 'admission', 'gate_evidence')}, "
+                f"certification_level={getattr(manifest, 'certification_level', None)}, "
+                f"package_id={getattr(manifest, 'package_id', None)}"
+            )
 
         self.processor: types.BaseProcessor = transformers.AutoProcessor.from_pretrained(model_dir)
         self.processor.eval()
+        state_action_processor = getattr(self.processor, "state_action_processor", None)
+        if state_action_processor is not None and numerics.action_clip_range is not None:
+            state_action_processor.action_clip_range = numerics.action_clip_range
         if image_workers != 1:
             self.processor.set_inference_image_workers(image_workers)
 
         self.embodiment_tag = embodiment_tag
         self.modality_configs = self._load_modality_configs()
+        tactile_guards.check_policy_modalities(self.model.config, self.modality_configs)
         self.collate_fn = self.processor.collator
 
         language_keys = self.modality_configs["language"].modality_keys
         self.language_key = language_keys[0]
 
+        # Memoize per-predict-invariant constructions (BlockMask, RoPE geometry,
+        # cache-slice index) on this policy-owned model instance.
+        # Off by default; see n2_predict_freezes for the fixed-config contract.
+        if self.predict_freezes:
+            from groot.core.policy.n2_predict_freezes import install_predict_freezes
+
+            install_predict_freezes(self.model)
         print(
             f"[Gr00tN2Policy] inference config: "
             f"num_inference_timesteps={self.num_inference_steps}, "
@@ -392,7 +502,9 @@ class Gr00tN2Policy(Gr00tPolicy):
             f"shift={self.shift}, "
             f"joint_denoise={self.joint_denoise}, "
             f"kv_cache_cond={self.kv_cache_cond}, "
+            f"cond_kv_freeze={self.cond_kv_freeze}, "
             f"codec_roundtrip={self.codec_roundtrip}, "
+            f"predict_freezes={self.predict_freezes}, "
             f"image_preprocess_workers={image_workers}"
         )
         acceleration_state = resolve_policy_acceleration_state(
@@ -401,7 +513,7 @@ class Gr00tN2Policy(Gr00tPolicy):
         )
         self.benchmark_runtime_contract = {
             **acceleration_state,
-            "precision": "bf16",
+            "precision": precision,
             "policy_class": f"{type(self).__module__}.{type(self).__qualname__}",
             "codec": self.codec_roundtrip,
             "image_preprocess_workers": image_workers,
@@ -410,20 +522,31 @@ class Gr00tN2Policy(Gr00tPolicy):
             "shift": self.shift,
             "joint_denoise": self.joint_denoise,
             "kv_cache_cond": self.kv_cache_cond,
+            "cond_kv_freeze": getattr(self, "cond_kv_freeze", False),
             "video_guidance_scale": self.video_guidance_scale,
             "action_guidance_scale": self.action_guidance_scale,
             "seed": self.seed,
+            # "per_request": request n uses seed + n; "fixed": every request uses seed.
+            "noise_mode": "fixed" if self.fixed_seed else "per_request",
         }
         if trt_runtime is not None:
             self.benchmark_runtime_contract["text_encoder_offload"] = dict(
                 model.n2_text_encoder_diagnostics
             )
-            self.benchmark_runtime_contract["runtime_artifacts"] = (
-                trt_runtime.measurement_artifacts(
-                    backend=acceleration.backend,
-                    precision="bf16",
+            if getattr(trt_runtime, "manifest", None) is not None:
+                self.benchmark_runtime_contract["runtime_artifacts"] = (
+                    trt_runtime.measurement_artifacts(
+                        backend=acceleration.backend,
+                        precision=precision,
+                    )
                 )
-            )
+            else:
+                # Bare engines carry no manifest and are never admitted: publish their
+                # provenance under its own key instead of measurement artifacts.
+                self.benchmark_runtime_contract["bare_engines"] = trt_runtime.bare_engine_artifacts(
+                    backend=acceleration.backend,
+                    precision=precision,
+                )
         self._publish_cuda_graph_lifecycle()
 
         # Video buffer for save_video
@@ -437,6 +560,15 @@ class Gr00tN2Policy(Gr00tPolicy):
         # invalidated on language change and on reset().
         self._cached_prompt_embs: torch.Tensor | None = None
         self._cached_language_dict: str | None = None
+
+    def _next_seed(self) -> int:
+        """This request's denoising seed: ``seed`` advanced once per request, unless fixed."""
+        # Policies assembled without __init__ (in-process RL adapters) keep the constant seed.
+        if getattr(self, "fixed_seed", True):
+            return self.seed
+        seed = self.seed + self._noise_requests
+        self._noise_requests += 1
+        return seed
 
     def _run_predict(self, collated_inputs: Any, prompt_embs: Any) -> dict[str, Any]:
         """Run the admitted prediction strategy behind one stable policy seam.
@@ -459,10 +591,11 @@ class Gr00tN2Policy(Gr00tPolicy):
                 video_guidance_scale=self.video_guidance_scale,
                 action_guidance_scale=self.action_guidance_scale,
                 shift=self.shift,
-                seed=self.seed,
+                seed=self._next_seed(),
                 predict_video=self.save_video_dir is not None or self.enable_n2_pred_comparison,
                 joint_denoise=self.joint_denoise,
                 kv_cache_cond=self.kv_cache_cond,
+                cond_kv_freeze=getattr(self, "cond_kv_freeze", False),
                 prompt_embs=prompt_embs,
                 step_callback=getattr(self, "step_callback", None),
             )
@@ -506,6 +639,12 @@ class Gr00tN2Policy(Gr00tPolicy):
 
         if prompt_embs is None:
             captured, prompt_embs = make_steady_state_inputs(self.model, payload, device)
+            # A new prompt invalidates the TensorRT runtime's language-keyed action
+            # conditioning; the graph runner reconditions its static prompt buffer
+            # outside the captured graph before the next replay.
+            conditioner = getattr(getattr(self.model, "n2_trt_runtime", None), "conditioner", None)
+            if conditioner is not None:
+                conditioner.invalidate()
         else:
             captured = {k: v for k, v in payload.items() if k != "text_negative"}
 
@@ -525,6 +664,7 @@ class Gr00tN2Policy(Gr00tPolicy):
                         "predict_video": False,
                         "joint_denoise": self.joint_denoise,
                         "kv_cache_cond": self.kv_cache_cond,
+                        "cond_kv_freeze": getattr(self, "cond_kv_freeze", False),
                     },
                 )
                 previous_captures = getattr(self, "_graph_capture_count", 0)
@@ -542,7 +682,8 @@ class Gr00tN2Policy(Gr00tPolicy):
             # leave ``text_negative`` in its payload, but steady-state graph
             # execution consumes the already-materialized prompt embeddings
             # and deliberately excludes that source tensor.
-            result = self._graph_runner(captured, prompt_embs=prompt_embs)
+            seed = Gr00tN2Policy._next_seed(self)
+            result = self._graph_runner(captured, prompt_embs=prompt_embs, seed=seed)
             self._graph_replay_count = getattr(self, "_graph_replay_count", 0) + 1
             Gr00tN2Policy._publish_cuda_graph_lifecycle(self)
         except Exception as exc:
@@ -566,6 +707,10 @@ class Gr00tN2Policy(Gr00tPolicy):
             "recapture_count": getattr(self, "_graph_recapture_count", 0),
             "replay_count": getattr(self, "_graph_replay_count", 0),
         }
+        captured = getattr(getattr(self, "_graph_runner", None), "captured_engine_calls", None)
+        if captured is not None:
+            # The per-request TensorRT engine schedule the graph bakes (replays dispatch no Python).
+            contract["cuda_graph_captured_engine_calls"] = dict(captured)
 
     def server_readiness(self) -> dict[str, Any]:
         """Report whether this process is safe to arm for action serving.
@@ -785,6 +930,13 @@ class Gr00tN2Policy(Gr00tPolicy):
         # rollout resets independently of this single-request fast cache.
         self._cached_prompt_embs = None
         self._cached_language_dict = None
+        # The TensorRT runtime's action conditioning is keyed to the dropped prompt.
+        conditioner = getattr(
+            getattr(getattr(self, "model", None), "n2_trt_runtime", None), "conditioner", None
+        )
+        if conditioner is not None:
+            conditioner.invalidate()
+        # The noise seed keeps advancing across resets (see __init__).
         return super().reset(options)
 
     def save_video(

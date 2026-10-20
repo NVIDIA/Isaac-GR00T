@@ -7,6 +7,9 @@ output_json: ${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline/eval/results.json
 save_plot_dir: ${AUTORESEARCH_ROOT}/yam_stack_bowl/baseline/eval/plots
 traj_ids: [0]
 steps: 10
+# Pinned, not derived: train_config.yaml is editable and eval_config.yaml is not,
+# so a horizon that followed the checkpoint would let a study lower its own score
+# by post-training at a shorter one.
 action_horizon: 30
 denoising_steps: 4
 video_backend: decord

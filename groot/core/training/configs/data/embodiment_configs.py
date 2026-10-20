@@ -4748,17 +4748,6 @@ MODALITY_CONFIGS = {
                 "right_wrist_eef",
                 "left_hand_joints",
                 "right_hand_joints",
-                # tactile_f6: 10 fingers × 6-DoF (60 dims total)
-                "left_thumb_f6",
-                "left_index_f6",
-                "left_middle_f6",
-                "left_ring_f6",
-                "left_pinky_f6",
-                "right_thumb_f6",
-                "right_index_f6",
-                "right_middle_f6",
-                "right_ring_f6",
-                "right_pinky_f6",
             ],
             exclude_state=False,
         ),
@@ -4796,6 +4785,24 @@ MODALITY_CONFIGS = {
         ),
         "language": ModalityConfig(
             delta_indices=[0], modality_keys=["annotation.human.coarse_action"]
+        ),
+        # Deform-map conditioning: 10 per-fingertip deform videos, current step only,
+        # video-decoded like "video" but a SEPARATE modality (it does not go through the
+        # Wan VAE video path). Finger order is hand-major (left thumb..pinky, then right).
+        "deform": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=[
+                "tactile_deform_left_thumb_freq20",
+                "tactile_deform_left_index_freq20",
+                "tactile_deform_left_middle_freq20",
+                "tactile_deform_left_ring_freq20",
+                "tactile_deform_left_pinky_freq20",
+                "tactile_deform_right_thumb_freq20",
+                "tactile_deform_right_index_freq20",
+                "tactile_deform_right_middle_freq20",
+                "tactile_deform_right_ring_freq20",
+                "tactile_deform_right_pinky_freq20",
+            ],
         ),
     },
     "gripper_umi_4camera": {
@@ -5805,18 +5812,31 @@ MODALITY_CONFIGS = {
 # convert_recorder_session_tianji DEFAULTS to the `_with_tactile` tag, so every tianji
 # dataset carries it in meta/info.json -- and generate_rel_stats indexes MODALITY_CONFIGS
 # with a bare [tag] while merge_lerobot_datasets passes the dataset's own tag. Without an
-# entry here every tianji merge died with KeyError at the very last step, after the whole
-# dataset had already been written.
+# entry here every tianji merge died with KeyError at the very last step.
 #
-# The four groups below are DELIBERATELY the base tag's, unchanged: the ten fingertip F6
-# vectors are extra STATE COLUMNS on disk (136D parquet vs 76D), not extra selected state.
-# Tactile is consumed as its own "tactile" modality group feeding the frozen Tactile-VAE,
-# which additionally needs a loader/processor seam this file does not provide. Keep this an
-# alias so that the richer entry stays a clean superset, not a conflict; do NOT fold F6 into
-# "state" here, that would silently hand the state encoder 122D instead of 62D.
-MODALITY_CONFIGS["real_tianji_sharpa_relative_eef_with_tactile"] = dict(
-    MODALITY_CONFIGS["real_tianji_sharpa_relative_eef"]
-)
+# Deep-copy the base tag's four groups so later mutation of a ModalityConfig does not
+# affect the other tag. The ten fingertip F6 vectors are extra STATE COLUMNS on
+# disk, not extra selected state: tactile recipes add their own "tactile" group feeding the
+# frozen Tactile-VAE; do NOT fold F6 into "state", that hands the state encoder 122D
+# instead of 62D. The deform group is the ten per-fingertip deform videos, hand-major.
+MODALITY_CONFIGS["real_tianji_sharpa_relative_eef_with_tactile"] = {
+    **deepcopy(MODALITY_CONFIGS["real_tianji_sharpa_relative_eef"]),
+    "deform": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=[
+            "left_hand_tactile_deform_thumb",
+            "left_hand_tactile_deform_index",
+            "left_hand_tactile_deform_middle",
+            "left_hand_tactile_deform_ring",
+            "left_hand_tactile_deform_pinky",
+            "right_hand_tactile_deform_thumb",
+            "right_hand_tactile_deform_index",
+            "right_hand_tactile_deform_middle",
+            "right_hand_tactile_deform_ring",
+            "right_hand_tactile_deform_pinky",
+        ],
+    ),
+}
 
 
 # Projector selection does not change G1 SONIC's state/action layout or camera keys.
@@ -5824,10 +5844,56 @@ MODALITY_CONFIGS["real_tianji_sharpa_relative_eef_with_tactile"] = dict(
 for _tag in (
     "unitree_g1_whole_body_teleop_latent_gripper_new_emb",
     "unitree_g1_whole_body_teleop_latent_gripper_wrist",
+    # Legacy checkpoint/config compatibility only; do not use for new N2 runs.
+    "unitree_g1_whole_body_teleop_latent_gripper_new_proj",
 ):
     MODALITY_CONFIGS[_tag] = deepcopy(
         MODALITY_CONFIGS["unitree_g1_whole_body_teleop_latent_gripper"]
     )
+
+
+# Moving-neck Tianji Sharpa: the fixed-neck groups with neck_joints APPENDED to state and
+# action (65D; dims 0:62 keep the fixed-neck layout, the neck is 62:65). The neck IS
+# selected, unlike F6: a moving ego camera is the reason the tag exists. neck_joints is
+# ABSOLUTE/NON_EEF like the hands, so it needs no relative-stats key. The _with_tactile twin
+# adds the fixed-neck _with_tactile tag's "deform" group by design, so tactile neck recipes
+# read the fixed-neck tactile inputs; recipes without tactile input use the bare neck tag.
+# Groups are deep-copied so a yaml override of one tag never mutates another tag's registered
+# ModalityConfig.
+_TIANJI_NECK_BASE = MODALITY_CONFIGS["real_tianji_sharpa_relative_eef"]
+MODALITY_CONFIGS["real_tianji_sharpa_neck_relative_eef"] = {
+    "video": deepcopy(_TIANJI_NECK_BASE["video"]),
+    "state": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=[*_TIANJI_NECK_BASE["state"].modality_keys, "neck_joints"],
+        exclude_state=False,
+    ),
+    "action": ModalityConfig(
+        delta_indices=list(range(0, 48)),
+        modality_keys=[*_TIANJI_NECK_BASE["action"].modality_keys, "neck_joints"],
+        normalize_rotation=True,
+        action_configs=[
+            *deepcopy(_TIANJI_NECK_BASE["action"].action_configs),
+            ActionConfig(
+                rep=ActionRepresentation.ABSOLUTE,
+                type=ActionType.NON_EEF,
+                format=ActionFormat.DEFAULT,
+            ),
+        ],
+    ),
+    "language": deepcopy(_TIANJI_NECK_BASE["language"]),
+}
+del _TIANJI_NECK_BASE
+MODALITY_CONFIGS["real_tianji_sharpa_neck_relative_eef_with_tactile"] = {
+    **deepcopy(MODALITY_CONFIGS["real_tianji_sharpa_neck_relative_eef"]),
+    "deform": deepcopy(MODALITY_CONFIGS["real_tianji_sharpa_relative_eef_with_tactile"]["deform"]),
+}
+
+# Same key names and cameras as the tianji Sharpa rig; per-key widths come from each
+# dataset's meta/modality.json, so the copies need no dim edits. Separate tags give each
+# corpus its own normalization statistics.
+for _tag in ("tianji_wuji_relative_eef", "sharpa_north_human_relative_eef"):
+    MODALITY_CONFIGS[_tag] = deepcopy(MODALITY_CONFIGS["real_tianji_sharpa_relative_eef"])
 
 
 def register_modality_config(embodiment_tag: str, config: dict):

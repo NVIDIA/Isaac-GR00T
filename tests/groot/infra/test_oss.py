@@ -850,7 +850,8 @@ def test_oss_train_rejects_experiment_positional() -> None:
 
 
 def test_onboarding_skill_uses_supported_cli_shape() -> None:
-    skill = (_package_root() / "skills/onboarding/SKILL.md").read_text(encoding="utf-8")
+    skill_root = _package_root() / "skills/onboarding"
+    skill = "\n".join(path.read_text(encoding="utf-8") for path in sorted(skill_root.rglob("*.md")))
 
     for line in skill.splitlines():
         if not line.startswith("uv run ") or "python -m groot.infra.oss" not in line:
@@ -1783,22 +1784,59 @@ def test_oss_gpu_ci_job_runs_gpu_marked_package_tests() -> None:
     assert "-vv" in gpu_job
     assert "-ra" in gpu_job
     assert "tensorrt-cu13==10.16.1.11" in gpu_job
+    # The standalone OSS repository keeps its lock at the root.
+    assert "\n        - uv.lock\n" in _job_block(ci_config, "test.oss.cpu")
     assert '-m "not gpu"' in ci_config
+
+
+def test_oss_cpu_ci_job_runs_the_dockerfile_tests_in_the_x86_image() -> None:
+    """Catch the image checks in tests/test_dockerfile.py silently not running in OSS CI."""
+    ci_config = (_package_root() / "ci/test.oss.gitlab-ci.yml").read_text(encoding="utf-8")
+    cpu_job = _job_block(ci_config, "test.oss.cpu")
+
+    assert "- image.oss.amd64" in cpu_job
+    assert "groot-ci-oss:${CI_COMMIT_SHORT_SHA}-amd64" in cpu_job
+    assert 'GR00T_DOCKER_IMAGE_TESTS: "1"' in cpu_job
+    pytest_call = cpu_job[cpu_job.index("python -m pytest") :]
+    assert '"$OSS_PACKAGE_ROOT/tests/test_dockerfile.py"' in pytest_call
+    assert "uv run python -" not in cpu_job
+
+
+def test_oss_ci_images_build_the_user_dockerfile_with_its_defaults() -> None:
+    """Catch the OSS test images drifting from what `docker/build.sh` builds."""
+    image_ci = (_package_root() / "ci/image.oss.gitlab-ci.yml").read_text(encoding="utf-8")
+    build = _job_block(image_ci, ".image.oss")
+
+    assert "--dockerfile docker/Dockerfile" in build
+    assert "--build-arg" not in image_ci
+    assert "--export-oss-for-tests" in build
+    assert '--platform "linux/${OSS_IMAGE_ARCH}"' in build
+    assert "OSS_IMAGE_ARCH: amd64" in _job_block(image_ci, "image.oss.amd64")
+
+
+def test_oss_test_job_change_triggers_are_covered_by_their_image_jobs() -> None:
+    """Catch a test job selected by a change whose required image job is not in the pipeline."""
+    jobs = {}
+    for path in sorted((_package_root() / "ci").glob("*.gitlab-ci.yml")):
+        jobs.update(yaml.load(path.read_text(encoding="utf-8"), Loader=_GitLabCiLoader) or {})
+
+    for name in ("test.oss.cpu", "test.oss.gpu", "build.oss.dependencies"):
+        test_paths, _ = _merge_request_change_paths(jobs, name)
+        for need in jobs[name]["needs"]:
+            image_paths, always = _merge_request_change_paths(jobs, need)
+            if not always:
+                assert test_paths <= image_paths, (name, need, sorted(test_paths - image_paths))
 
 
 def test_oss_ci_variable_trigger_does_not_force_image_jobs() -> None:
     package_root = _package_root()
-    oss_base_minimal_ci = (package_root / "ci/image.base.minimal.gitlab-ci.yml").read_text(
-        encoding="utf-8"
-    )
-    oss_minimal_ci = (package_root / "ci/image.minimal.gitlab-ci.yml").read_text(encoding="utf-8")
     oss_train_ci = (package_root / "ci/image.train.gitlab-ci.yml").read_text(encoding="utf-8")
+    oss_image_ci = (package_root / "ci/image.oss.gitlab-ci.yml").read_text(encoding="utf-8")
 
-    _assert_job_does_not_run_for_oss_tests(oss_base_minimal_ci, "image.base.minimal")
-    _assert_job_does_not_run_for_oss_tests(oss_minimal_ci, "image.minimal")
     _assert_job_does_not_run_for_oss_tests(oss_train_ci, "image.train.arm64")
     _assert_job_does_not_run_for_oss_tests(oss_train_ci, "image.train.amd64")
     _assert_job_does_not_run_for_oss_tests(oss_train_ci, "image.train")
+    _assert_job_does_not_run_for_oss_tests(oss_image_ci, ".image.oss")
 
     monorepo_root = _monorepo_root()
     internal_base_minimal_ci = (
@@ -1858,6 +1896,34 @@ def _assert_config_contains_dataset(
     body = yaml.safe_load(data_config.read_text(encoding="utf-8"))
     assert body["data"]["datasets"][0]["dataset_paths"] == [str(dataset_path)]
     assert body["data"]["datasets"][0]["embodiment_tag"] == embodiment_tag
+
+
+class _GitLabCiLoader(yaml.SafeLoader):
+    pass
+
+
+_GitLabCiLoader.add_constructor("!reference", lambda loader, node: loader.construct_sequence(node))
+
+
+def _merge_request_change_paths(jobs: dict, job_name: str) -> tuple[set[str], bool]:
+    """Return a job's merge-request `changes` paths, and whether it runs on every MR."""
+    job = jobs[job_name]
+    while "rules" not in job:
+        extends = job.get("extends", [])
+        extends = [extends] if isinstance(extends, str) else extends
+        parents = [jobs[parent] for parent in extends if "rules" in jobs[parent]]
+        if not parents:
+            return set(), True
+        job = parents[-1]
+    paths: set[str] = set()
+    for rule in job["rules"]:
+        if "merge_request_event" not in rule.get("if", ""):
+            continue
+        if "changes" not in rule:
+            return set(), True
+        changes = rule["changes"]
+        paths.update(changes["paths"] if isinstance(changes, dict) else changes)
+    return paths, False
 
 
 def _job_block(ci_config: str, job_name: str) -> str:
