@@ -406,6 +406,12 @@ def install_n2_tensorrt(
         raise RuntimeError("N2 TensorRT is already installed on this model")
     contract.validate()
     _require_model_contract(model, contract)
+    text_keys = getattr(model.config, "dit_text_keys", "all")
+    if text_keys != "all":
+        raise RuntimeError(
+            f"N2 TensorRT does not support dit_text_keys={text_keys!r}: its engines cross-attend "
+            "every prompt slot, pads included"
+        )
     if model.tiled:
         raise RuntimeError("N2 TensorRT does not support tiled VAE execution")
     expected_pattern = AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL

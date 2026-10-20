@@ -12,12 +12,10 @@ Run every command below from the package root, the directory containing
 ## 1. Install the training environment
 
 Follow the [x86 training installation](installation.md#x86-training), including
-its prerequisites and dependency checks. On Linux aarch64 GB300 or DGX Station,
-follow the [GB300 training installation](installation.md#gb300-training)
-instead; the commands below are the same. This walkthrough was qualified on one
-H100-class GPU with at least 80 GB of memory. It requires at least 200 GB of
-free local disk and a Hugging Face token with access to the selected
-experiment's model repositories.
+its prerequisites and dependency checks. This walkthrough requires one
+H100-class GPU with at least 80 GB of memory, at least 200 GB of free local
+disk, and a Hugging Face token with access to the selected experiment's model
+repositories.
 
 The walkthrough uses PyTorch inference with two denoising steps. TensorRT is
 optional for other inference workflows; its setup and checkpoint requirements

@@ -114,7 +114,7 @@ def _resolve_fixture_training(
                 "--set",
                 "training.save_total_limit=1",
                 "--set",
-                f"training.optim={_train_optim()}",
+                "training.optim=adamw_torch_fused",
                 "--set",
                 "training.use_wandb=false",
                 "--set",
@@ -134,11 +134,6 @@ def _resolve_fixture_training(
             ]
         )
     )
-
-
-def _train_optim() -> str:
-    # The default AdamW foreach path runs out of memory on a 48 GB L40S.
-    return os.environ.get("OSS_GPU_TRAIN_OPTIM") or "adamw_torch_fused"
 
 
 def _run_training_in_process(
@@ -248,8 +243,7 @@ def _assert_resolved_training_command(
     assert "--training.max_steps" in command
     assert command[command.index("--training.max_steps") + 1] == max_steps
     assert "--training.optim" in command
-    assert command.count("--training.optim") == 1
-    assert command[command.index("--training.optim") + 1] == _train_optim()
+    assert command[command.index("--training.optim") + 1] == "adamw_torch_fused"
     assert "--data.datasets.0.dataset_paths" not in command
     assert "--load_config_path" in command
     data_config = Path(command[command.index("--load_config_path") + 1])

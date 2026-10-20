@@ -9,7 +9,6 @@ and workflow:
 | x86_64 Linux: post-training or the full smoke test | [Training](#x86-training) | [Minimal end-to-end example](minimal_example.md) or the README training commands |
 | x86_64 Linux: PyTorch evaluation or policy serving | [Inference](#x86-inference) | The README evaluation and serving commands |
 | x86_64 Linux: TensorRT evaluation or policy serving | [Optional TensorRT](#optional-tensorrt-on-x86) | [TensorRT deployment guide](../scripts/deployment/README.md) |
-| Linux aarch64 GB300 / DGX Station: post-training, PyTorch evaluation, or policy serving | [GB300 training](#gb300-training) | [Minimal end-to-end example](minimal_example.md) or the README training commands |
 | Jetson AGX Thor: TensorRT export, build, validation, and serving | [Thor](#jetson-thor) | [TensorRT deployment guide](../scripts/deployment/README.md) |
 
 The training environment also supports PyTorch evaluation and policy serving.
@@ -21,17 +20,15 @@ install the separate inference extra.
 - x86_64 Linux with an NVIDIA GPU and a current NVIDIA driver
 - CUDA 12.8 development tools
 - FFmpeg 4, 5, 6, or 7 with shared libraries
-- Python 3.11 or 3.12
+- Python 3.10, 3.11, or 3.12
 - Access to the model repositories referenced by your checkpoint or experiment;
   set `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`, or `HUGGINGFACE_TOKEN` when
   authentication is required
 - Writable local storage for model caches and outputs
 
 The full N2 training smoke test requires an H100-class GPU with at least 80 GB
-of memory and at least 200 GB of free local disk. On 48 GB GPUs such as L40S,
-training the full N2 model with the default AdamW optimizer runs out of memory.
-Inference memory and storage requirements depend on the checkpoint and
-workload.
+of memory and at least 200 GB of free local disk. Inference memory and storage
+requirements depend on the checkpoint and workload.
 
 For a new container, a known-good public starting point is
 `nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04`. An equivalent x86_64 Linux
@@ -41,8 +38,8 @@ environment below as an image from that base, see
 software contract.
 
 Apple Silicon Docker containers run as ARM64 Linux by default. They cannot run
-this x86 CUDA workflow; use an x86_64 NVIDIA Linux host. GB300 and Jetson Thor
-have separate AArch64/CUDA 13 setups described below.
+this x86 CUDA workflow; use an x86_64 NVIDIA Linux host. Jetson Thor has a
+separate AArch64/CUDA 13 environment described below.
 
 On Ubuntu or Debian, install the build tools and shared libraries needed by the
 locked packages. FlashAttention and, for training, DeepSpeed are built from
@@ -141,65 +138,6 @@ or failed validation stop the command without a PyTorch fallback. See the
 [deployment guide](../scripts/deployment/README.md) for qualified configurations,
 checkpoint constraints, bundle caching, and explicit engine builds. TensorRT
 accelerates inference; training continues to use PyTorch.
-
-## GB300 prerequisites
-
-Linux aarch64 GB300 and DGX Station use the same lock and the same commands as
-x86_64. The lock selects the platform's stack:
-
-| Platform | Locked training stack |
-| --- | --- |
-| x86_64 Linux | PyTorch 2.7.1+cu128, torchvision 0.22.1, torchcodec 0.5, FlashAttention 2.8.0.post2, TensorRT cu12 10.16.1.11 |
-| Linux aarch64 (GB300, DGX Station) | PyTorch 2.11.0 CUDA 13, torchvision 0.26.0, torchcodec 0.15.0, Triton 3.6.0, FlashAttention 2.8.0.post2 (built from source), TensorRT cu13 10.16.1.11 |
-
-Before installing:
-
-- Install a current NVIDIA driver. Driver 595 open was verified on GB300
-  (compute capability 10.3). Grace GPU memory must be onlined as movable
-  before that driver loads, or `nvidia-smi` reports no device. Persist
-  `memhp_default_state=online_movable` on the kernel command line.
-- Install CUDA 13 `nvcc` so that `/usr/local/cuda` exists. uv compiles
-  FlashAttention with it, since no aarch64 wheel is published, and DeepSpeed
-  checks it on import. On Ubuntu 24.04 sbsa, `cuda-nvcc-13-0` from the NVIDIA
-  CUDA apt repository provides that path. For a new container, a known-good
-  public starting point is `nvidia/cuda:13.0.2-devel-ubuntu24.04`; to build the
-  training environment below as an image from it, see
-  [docker/README.md](../docker/README.md).
-- Install the apt packages and uv from the [x86 prerequisites](#x86-prerequisites),
-  including `python3-dev`. Triton JIT-compiles attention kernels and needs
-  `Python.h`.
-
-Not supported on Linux aarch64:
-
-- Closed-loop RoboDojo. Its supported Isaac Sim version, **5.1.0**, runs on
-  x86_64 Linux only; `isaacsim-kernel==5.1.0.0` publishes no aarch64 artifact.
-- A validated TensorRT path for a real N2 checkpoint. GB300 CI builds small
-  synthetic bf16 ONNX models into engines with
-  `groot.deployment.n2_trt.tools.build_engines` and executes them through
-  open-loop eval, CUDA graphs, the policy server, and the `closed-loop-eval`
-  entrypoint with a fixture backend (no simulator). Exporting a real N2
-  checkpoint to ONNX, building full-size engines, the numeric validation step,
-  and the end-to-end `build-trt` / `--enable-trt` path are not yet validated.
-
-## GB300 training
-
-Complete the [GB300 prerequisites](#gb300-prerequisites), then install and
-verify the locked training environment with the same commands as
-[x86 training](#x86-training). `FLASH_ATTN_CUDA_ARCHS=100` builds only the
-FlashAttention kernels GB300 runs; the build takes about six minutes on 72
-Grace cores and is cached for later syncs. uv does not rebuild the cached
-FlashAttention when `FLASH_ATTN_CUDA_ARCHS` changes, so after changing it run
-`uv cache clean flash-attn` and sync with `--reinstall-package flash-attn`. If
-the compiler runs out of memory, limit the parallel jobs with `MAX_JOBS`, for
-example `MAX_JOBS=8`.
-
-```bash
-export FLASH_ATTN_CUDA_ARCHS=100
-uv sync --frozen --extra training
-uv run python -c 'import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name())'
-uv run python -c 'import torchcodec; import torchcodec.decoders; print(torchcodec.__version__)'
-uv run python -c 'import deepspeed, lance; print(deepspeed.__version__, lance.__version__)'
-```
 
 ## Jetson Thor
 

@@ -405,6 +405,14 @@ class Gr00tN2Policy(Gr00tPolicy):
                     child.to(device=device)
             if list(model.parameters(recurse=False)) or list(model.buffers(recurse=False)):
                 raise RuntimeError("N2 TRT placement requires module-owned parameters/buffers")
+        elif getattr(model.config, "dit_text_keys", "all") == "real":
+            # Parameters to bf16, buffers at their dtype (fp32 RoPE tables, Qwen inv_freq, VAE
+            # mean/inv_std): how "real" checkpoints were trained and are served on the branch that
+            # trains them. Every other checkpoint keeps the whole-module cast below.
+            model.to(device=device)
+            for param in model.parameters():
+                if param.is_floating_point() and param.dtype != torch.bfloat16:
+                    param.data = param.data.to(torch.bfloat16)
         else:
             cast_for_inference(
                 model, rope_fp32=numerics.rope_fp32, device=device, dtype=torch.bfloat16

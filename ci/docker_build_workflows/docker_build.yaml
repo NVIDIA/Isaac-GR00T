@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+default-values:
+  EXEC_TIMEOUT: 300m
+  CPU_COUNT: 8
+  GPU_COUNT: 0
+  MEMORY: 64Gi
+  REGISTRY: nvcr.io/nvidian
+  IMAGE_NAME: groot-ci-train
+  DOCKERFILE: ci/images/train.Dockerfile
+  TAG: latest
+  PLATFORM: linux/arm64
+  OSMO_PLATFORM: gb200
+  BUILD_ARGS: ""
+  DOCKER_AUTH_CONFIG_B64: ""
+  GITLAB_TOKEN: ""
+  GITLAB_AUTH_HEADER: ""
+  GITLAB_PROJECT_PATH: ""
+  GROOT_COMMIT_BRANCH: main
+  CACHE_REPO: nvcr.io/nvidian/groot-ci-train-build-cache-main
+
+workflow:
+  timeout:
+    queue_timeout: 30m
+    exec_timeout: {{ EXEC_TIMEOUT }}
+  name: groot-docker-build-{{ IMAGE_NAME }}
+  resources:
+    default:
+      cpu: {{ CPU_COUNT }}
+      gpu: {{ GPU_COUNT }}
+      memory: {{ MEMORY }}
+      {% if OSMO_PLATFORM %}
+      platform: {{ OSMO_PLATFORM }}
+      {% endif %}
+      storage: 100Gi
+  tasks:
+    - name: master
+      image: gcr.io/kaniko-project/executor:debug@sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd
+      lead: true
+      command: ["sh"]
+      exitActions:
+        RESCHEDULE: '3001'
+      args: ["/tmp/build.sh"]
+      files:
+      - path: /tmp/build.sh
+        contents: |
+          #!/bin/sh
+          set -eu
+
+          echo "=== groot Docker build (kaniko) ==="
+          echo "Image: {{ REGISTRY }}/{{ IMAGE_NAME }}:{{ TAG }}"
+          echo "Dockerfile: {{ DOCKERFILE }}"
+          echo "Platform: {{ PLATFORM }}"
+          echo "Project: {{ GITLAB_PROJECT_PATH }}"
+          echo "Branch: {{ GROOT_COMMIT_BRANCH }}"
+
+          # Set up NGC registry auth (kaniko reads from /kaniko/.docker/config.json)
+          mkdir -p /kaniko/.docker
+          printf '%s' '{{ DOCKER_AUTH_CONFIG_B64 }}' | base64 -d > /kaniko/.docker/config.json
+
+          # Download only the specific files needed for the build context.
+          # Fetching individual files via the raw-file API is seconds vs ~7 min for
+          # a full archive download. Dockerfiles are always small text files;
+          # pyproject.toml / uv.lock are needed by train.Dockerfile COPY steps.
+          echo "=== Downloading build context from GitLab (branch: {{ GROOT_COMMIT_BRANCH }}) ==="
+          BRANCH_ENC=$(printf '%s' '{{ GROOT_COMMIT_BRANCH }}' | sed 's|/|%2F|g')
+          PROJECT_ENC=$(printf '%s' '{{ GITLAB_PROJECT_PATH }}' | sed 's|/|%2F|g')
+
+          # Helper: download one file from the repo to a local path.
+          fetch_file() {
+            SRC_PATH="$1"
+            DST_PATH="$2"
+            SRC_ENC=$(printf '%s' "${SRC_PATH}" | sed 's|/|%2F|g')
+            mkdir -p "$(dirname "${DST_PATH}")"
+            if [ -n '{{ GITLAB_AUTH_HEADER }}' ]; then
+              wget -qO "${DST_PATH}" \
+                --header '{{ GITLAB_AUTH_HEADER }}' \
+                "https://gitlab-master.nvidia.com/api/v4/projects/${PROJECT_ENC}/repository/files/${SRC_ENC}/raw?ref=${BRANCH_ENC}"
+            else
+              wget -qO "${DST_PATH}" \
+                "https://gitlab-master.nvidia.com/api/v4/projects/${PROJECT_ENC}/repository/files/${SRC_ENC}/raw?ref=${BRANCH_ENC}"
+            fi
+          }
+
+          # Always fetch the Dockerfile.
+          fetch_file "{{ DOCKERFILE }}" /tmp/context/Dockerfile
+
+          # Fetch files needed by train.Dockerfile COPY steps.
+          fetch_file pyproject.toml /tmp/context/pyproject.toml
+          fetch_file uv.lock /tmp/context/uv.lock
+          if grep -q 'external_dependencies/gear_cli' /tmp/context/pyproject.toml; then
+            fetch_file external_dependencies/gear_cli/pyproject.toml \
+              /tmp/context/external_dependencies/gear_cli/pyproject.toml
+          fi
+          echo "Download complete."
+
+          echo "=== kaniko build + push ==="
+
+          # --cache-repo: where this build writes (and reads) layer cache.
+          # Computed per-branch by osmo_docker_build.sh so MR builds never
+          # write to the stable main-branch cache.  This pinned kaniko version
+          # does not support --cache-from, so no cross-branch read fallback.
+          /kaniko/executor \
+            --dockerfile "/tmp/context/Dockerfile" \
+            --context "dir:///tmp/context" \
+            --destination "{{ REGISTRY }}/{{ IMAGE_NAME }}:{{ TAG }}" \
+            {{ BUILD_ARGS }} \
+            --build-arg GITLAB_TOKEN="{{ GITLAB_TOKEN }}" \
+            --cache=true \
+            --cache-repo="{{ CACHE_REPO }}" \
+            --snapshot-mode=redo \
+            --verbosity=info
+
+          echo "=== Build complete: {{ REGISTRY }}/{{ IMAGE_NAME }}:{{ TAG }} ==="

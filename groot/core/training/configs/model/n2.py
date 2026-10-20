@@ -165,6 +165,23 @@ def _normalize_action_cfg(action_cfg: ActionConfig | None) -> ActionConfig | Non
     return normalized
 
 
+def _rename_legacy_text_keys(fields: dict) -> None:
+    """Map the bool ``dit_text_pad_mask`` of configs written before 2026-10-13 to ``dit_text_keys``.
+
+    load-bearing: the config.json and pickled config of a checkpoint trained on real text keys hold
+    only the old key; left as a stray attribute, dit_text_keys would read "all" and the model would
+    attend the pads it was trained without.
+    """
+    if "dit_text_pad_mask" not in fields:
+        return
+    legacy = "real" if fields.pop("dit_text_pad_mask") else "all"
+    if fields.setdefault("dit_text_keys", legacy) != legacy:
+        raise ValueError(
+            f"dit_text_pad_mask (now dit_text_keys) means {legacy!r}, but dit_text_keys is "
+            f"{fields['dit_text_keys']!r}"
+        )
+
+
 @dataclass
 class GrootN2Config(PretrainedConfig):
     model_type: str = "GrootN2"
@@ -239,6 +256,17 @@ class GrootN2Config(PretrainedConfig):
     # path; local smoke can override these explicitly for smaller GPUs.
     flex_attention_block_size: int = 128
     compile_flex_attention: bool = True
+    # The prompt tokens the DiT cross-attention reads as keys. Every prompt is padded to
+    # max_language_length with <|endoftext|>, and the causal text encoder runs those pads after the
+    # prompt, so their embeddings carry the prompt. "all" (default; Cosmos Predict 2.5 and every
+    # checkpoint saved without this key): every slot, pads included. "real": each sample's real
+    # prompt tokens only, in training and inference (components/text_pad_mask.py); checkpoints
+    # trained that way save it, and with it dit_attention_backend: "cudnn" there runs their
+    # unmasked inference attention on cuDNN SDPA, as the branch that trained them does. Switching
+    # a checkpoint trained on one to the other changes the model's input. Named
+    # dit_text_pad_mask (bool, True = "real") in configs written before 2026-10-13;
+    # _rename_legacy_text_keys reads it.
+    dit_text_keys: str = "all"
 
     # Image processing
     image_target_size: list[int] | None = None
@@ -278,6 +306,7 @@ class GrootN2Config(PretrainedConfig):
     deform_cfg: DeformConfigArg = None  # None = no deform-map conditioning
 
     def __init__(self, **kwargs):
+        _rename_legacy_text_keys(kwargs)  # config.json (from_pretrained calls cls(**config_dict))
         if "action_cfg" in kwargs:
             kwargs["action_cfg"] = _normalize_action_cfg(kwargs["action_cfg"])
         bottleneck_kernel = kwargs.get("vae_bottleneck_kernel")
@@ -367,6 +396,8 @@ class GrootN2Config(PretrainedConfig):
             if kwargs.get("tiled", False):
                 raise ValueError("vae_type='wan22' does not support tiled VAE encode/decode")
             self.tiled = False
+        if self.dit_text_keys not in ("all", "real"):
+            raise ValueError(f"dit_text_keys must be 'all' or 'real', got {self.dit_text_keys!r}")
 
         if self.rope_fp32 is not None and not isinstance(self.rope_fp32, bool):
             raise TypeError("rope_fp32 must be a bool or None")
@@ -392,6 +423,11 @@ class GrootN2Config(PretrainedConfig):
         config = super().to_dict()
         identities = config.pop("model_dependency_identities", None)
         return portable_model_dependency_config(config, identities)
+
+    def __setstate__(self, state: dict) -> None:
+        # pickle and the experiment_cfg/config.yaml (yaml.Loader) restore state without __init__
+        _rename_legacy_text_keys(state)
+        self.__dict__.update(state)
 
 
 register_model_config("GrootN2", GrootN2Config)
