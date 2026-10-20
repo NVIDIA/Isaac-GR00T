@@ -106,7 +106,7 @@ def extract_step_data_batch(
             # One gather for all steps × all deltas.
             gathered = col.gather(flat_indices)
 
-            if modality in ["state", "action", "rl_info", "tactile"]:
+            if modality in ["state", "action", "rl_info"]:
                 # Array column: .to_numpy() gives (n_steps * horizon, width).
                 all_np = gathered.to_numpy().astype(np.float32)
                 # Reshape to (n_steps, horizon, width), then assign per step.
@@ -139,8 +139,6 @@ def extract_step_data_batch(
                 states=r.get("state", {}),
                 actions=r.get("action", {}),
                 languages=language_data,
-                tactile=r.get("tactile", {}),
-                deform=r.get("deform", {}),
                 text=text,
                 rl_info=r.get("rl_info"),
                 embodiment=embodiment_tag,
@@ -257,13 +255,7 @@ class ShardedSingleStepDataset(types.ShardedDataset):
             **episode_loader_kwargs,
         )
 
-        # A LanceDS loader serves its view as the filter; a store refuses data.load_step_filter
-        # (factory._create_sharded_dataset).
-        self.step_indices_filter = (
-            step_indices_filter
-            if step_indices_filter is not None
-            else getattr(self.episode_loader, "step_indices_filter", None)
-        )
+        self.step_indices_filter = step_indices_filter
         if self.step_indices_filter is None and load_step_filter:
             self.step_indices_filter = load_step_indices_filter(dataset_path, self.episode_loader)
         self.dataset_index = -1  # Set by ShardedMixtureDataset after construction

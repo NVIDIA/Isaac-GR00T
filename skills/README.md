@@ -25,19 +25,10 @@ requests also work when they clearly match a skill's purpose.
 
 | What you want to do | What to call | Type | What to provide | Sample prompt |
 | --- | --- | --- | --- | --- |
-| Browse the current CLI in a chat menu | [`onboarding`](onboarding/SKILL.md) | Skill | No hardware required | `$onboarding` |
-| Explain the repo and choose a first workflow | [`onboarding`](onboarding/SKILL.md) | Skill | Your goal or questions; no hardware required | `Give me a tour of GR00T 2 and help me choose what to try first.` |
-| Set up GR00T; train, evaluate, benchmark, serve, or deploy a policy | [`onboarding`](onboarding/SKILL.md) | Skill | Local paths for data, caches, and outputs; Hugging Face access; GPU details | `Use the onboarding skill to validate my setup, then dry-run training on <dataset>.` |
+| Set up GR00T; train, evaluate, or serve a policy locally | [`onboarding`](onboarding/SKILL.md) | Skill | Local paths for data, caches, and outputs; Hugging Face access; GPU details | `Use the onboarding skill to validate my setup, then dry-run training on <dataset>.` |
 | Automatically search for a better post-training recipe | [`autoresearch`](../.agents/autoresearch.md) | Agent | An `autoresearch.yaml`, working train/eval wrappers, and an existing baseline result | `Use the autoresearch agent to validate <config> and summarize the plan without launching.` |
 | Render an AutoResearch study | [`visualize-autoresearch`](visualize-autoresearch/SKILL.md) | Skill | The study's `state.json` | `Use the visualize-autoresearch skill to render <state.json>.` |
 | Diagnose a failure and defend the root cause with evidence | [`autodebug`](../.agents/autodebug.md) | Agent | Bug report, clean checkout, available evidence, and any granted compute targets | `Use the autodebug agent to investigate <report> without implementing a fix.` |
-
-The onboarding menu also exposes `debug` (AutoDebug) and `research`
-(AutoResearch) under **Agent workflows**, separate from the generated `oss.py`
-commands. Both selections reuse existing conversation inputs. `research` starts
-preparation or validation; launching a study still requires an explicit run,
-resume, or smoke-test request. `help debug` and `help research` explain these
-workflows without executing them.
 
 ## Agents versus skills
 
@@ -69,11 +60,8 @@ cause or an inconclusive evidence record.
 
 ## Onboarding, training, evaluation, and serving
 
-Use the `onboarding` skill to explain the repo, choose a workflow, or help use a
-documented feature. A tour needs no GPU, dataset, or credentials and does not
-launch an installation or training run. For hands-on help, the skill reads the
-selected guide from the [feature checklist](../docs/agentification.md). It starts
-with a dry run when supported and setup is unclear and uses `python -m groot.infra.oss` for training,
+Use the `onboarding` skill for the supported local GR00T workflow. It starts with a
+dry run when setup is unclear and uses `python -m groot.infra.oss` for training,
 open-loop evaluation, combined train/eval, and policy serving. It does not
 substitute internal GitLab, OSMO, or golden-run infrastructure.
 
@@ -157,8 +145,7 @@ record, compute targets, outcomes, and optional fix-verification flow.
 - AutoDebug may prepare an immutable fix package, but diagnosis and
   implementation remain separate so the fix can be independently verified.
 - The `onboarding` skill is the execution surface for supported local onboarding,
-  training, evaluation, and policy-serving workflows, plus routing to benchmark
-  and deployment guides.
+  training, evaluation, and policy-serving workflows.
 
 The canonical definitions live in this directory and under
 [`../.agents/`](../.agents/). Read the linked `SKILL.md` or agent file when you

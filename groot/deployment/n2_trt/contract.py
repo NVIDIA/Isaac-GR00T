@@ -12,18 +12,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import Enum
 import json
 from pathlib import Path
 from typing import Any
 
 from groot.core.utils.storage.checkpoint import checkpoint_source_path
-
-# One camera-aware format covers all supported precision and VAE variants.
-# Feature fields describe the workload; only format changes advance this version.
-# Schema 7 and earlier use the former camera fields and require rebuilding.
-_CONTRACT_SCHEMA_VERSION = 8
 
 
 class N2ModelVariant(str, Enum):
@@ -32,39 +27,18 @@ class N2ModelVariant(str, Enum):
     CORE = "n2-core"
     TURBO = "n2-turbo"
     TURBO2 = "n2-turbo2"
-    TURBO3 = "n2-turbo-v3"
 
 
 class TransformerPrecision(str, Enum):
-    """Promoted transformer precision contract, per transformer engine role.
+    """Promoted unquantized transformer precision contract.
 
-    BF16: weights, activations, and exported SDPA inputs use BF16. Numerical
-    behavior is admitted by the immutable parity policy and decoded-action gates
-    rather than by forcing an FP32 attention island into the strongly typed graph.
-    FP8: a ModelOpt Q/DQ export (per-tensor FP8 linears; the attention core stays
-    BF16). An FP8 engine is not a BF16 transcription, so it is admitted by the
-    checkpoint-specific gate-evidence receipt, never by transcription parity.
+    Weights, activations, and exported SDPA inputs use BF16. Numerical behavior
+    is admitted by the immutable parity policy and decoded-action gates rather
+    than by forcing an FP32 attention island into the strongly typed graph.
+    Quantized transformer execution is outside this contract.
     """
 
     BF16 = "bf16"
-    FP8 = "fp8"
-
-
-# Numeric formats the VAE encoder engine may carry. ``bf16`` is the transcription of
-# the eager encoder; ``fp8`` is a ModelOpt-calibrated Q/DQ export of its convolutions
-# (attention core BF16), admitted like a quantized transformer role by gate evidence
-# while its parity gate against the unchanged BF16 eager encoder keeps gating.
-VAE_PRECISIONS = ("bf16", "fp8")
-
-
-# How the cached-action engine receives its language conditioning. ``raw`` feeds the
-# text embeddings and projects them inside the engine on every call; ``projected``
-# feeds the transformer's BF16 ``crossattn_proj`` output, computed once per prompt by
-# the runtime conditioner (``conditioner.py``); ``kv`` additionally feeds every
-# block's normalized cross-attention keys and values, so the engine keeps only the
-# query, softmax, and output projections of cross-attention. Recorded in the bundle
-# build settings; the runtime never infers it from binding names alone.
-ACTION_CONTEXT_MODES = ("raw", "projected", "kv")
 
 
 def resolve_checkpoint_actor_config(model_config: dict[str, Any]) -> dict[str, Any]:
@@ -119,11 +93,6 @@ class N2TensorRTContract:
     canonical payload. The manifest binds content hashes, so identical admitted
     artifacts remain portable between machines without pretending two different
     checkpoint payloads are interchangeable.
-
-    ``input_camera_names`` lists the real camera inputs in processor order.
-    ``total_camera_slot_count`` is the engine capacity, including trailing slots
-    filled with masked padding. The input and padded counts are derived from
-    those fields, so a three-input, four-slot model has one padded slot.
     """
 
     schema_version: int
@@ -134,8 +103,7 @@ class N2TensorRTContract:
     vae_type: str
     model_dtype: str
     embodiment: str
-    input_camera_names: tuple[str, ...]
-    total_camera_slot_count: int
+    camera_names: tuple[str, ...]
     video_indices: tuple[int, ...]
     history_indices: tuple[int, ...]
     image_height: int
@@ -151,107 +119,10 @@ class N2TensorRTContract:
     token_merge_layers: tuple[int, int] | None
     transformer_precision: TransformerPrecision
     vae_precision: str
-    # Precision of the cached-action engine when it differs from the joint
-    # engine's (a mixed bundle); None resolves to ``transformer_precision``.
-    action_cache_precision: TransformerPrecision | None = None
-    # The bundle also carries the conditioning-cached joint engine (cond_kv_freeze serving).
-    cond_kv_freeze: bool = False
-    vae_bottleneck_kernel: tuple[int, int, int] | None = None
 
     @property
-    def patch_size(self) -> tuple[int, int, int]:
-        """Projection patches; the bottleneck does not resize VAE latents."""
-        kernel = self.vae_bottleneck_kernel or (1, 1, 1)
-        return (kernel[0], 2 * kernel[1], 2 * kernel[2])
-
-    def __post_init__(self) -> None:
-        if self.action_cache_precision is None:
-            object.__setattr__(self, "action_cache_precision", self.transformer_precision)
-
-    @property
-    def input_camera_count(self) -> int:
-        """Number of real camera inputs required by the selected embodiment."""
-        return len(self.input_camera_names)
-
-    @property
-    def padded_camera_slot_count(self) -> int:
-        """Number of trailing camera slots filled with masked padding."""
-        return self.total_camera_slot_count - self.input_camera_count
-
-    @property
-    def is_quantized(self) -> bool:
-        return (
-            self.transformer_precision is not TransformerPrecision.BF16
-            or self.action_cache_precision is not TransformerPrecision.BF16
-            or self.vae_precision != "bf16"
-        )
-
-    @property
-    def precision_label(self) -> str:
-        """One string naming the engine precisions (``bf16``, ``fp8``, or per role).
-
-        A quantized VAE appends its own role (``.../fp8-vae``); bundles with a BF16 VAE
-        keep the transformer-only labels byte-identical.
-        """
-        joint = self.transformer_precision.value
-        action = self.action_cache_precision.value
-        label = joint if joint == action else f"{joint}-joint/{action}-action"
-        if self.vae_precision != "bf16":
-            label = f"{label}/{self.vae_precision}-vae"
-        return label
-
-    @property
-    def engine_precisions(self) -> dict[str, str]:
-        """Numeric format per manifest engine role."""
-        precisions = {
-            "transformer_joint": self.transformer_precision.value,
-            "transformer_action_cache": self.action_cache_precision.value,
-            "vae_encoder": self.vae_precision,
-        }
-        if self.cond_kv_freeze:
-            # The conditioning-cached joint graph shares the joint engine's precision.
-            precisions["transformer_joint_condcached"] = self.transformer_precision.value
-        return precisions
-
-    def with_transformer_precisions(
-        self,
-        transformer_precision: TransformerPrecision | str,
-        action_cache_precision: TransformerPrecision | str | None = None,
-    ) -> N2TensorRTContract:
-        """The same checkpoint contract resolved for the given transformer precisions."""
-        joint = TransformerPrecision(transformer_precision)
-        action = (
-            TransformerPrecision(action_cache_precision)
-            if action_cache_precision is not None
-            else joint
-        )
-        contract = replace(
-            self,
-            transformer_precision=joint,
-            action_cache_precision=action,
-        )
-        contract.validate()
-        return contract
-
-    def with_vae_precision(self, vae_precision: str) -> N2TensorRTContract:
-        """The same checkpoint contract resolved for the given VAE engine precision."""
-        if vae_precision not in VAE_PRECISIONS:
-            raise ValueError(
-                f"unsupported VAE precision {vae_precision!r}; expected one of {VAE_PRECISIONS}"
-            )
-        contract = replace(self, vae_precision=vae_precision)
-        contract.validate()
-        return contract
-
-    def with_cond_kv_freeze(self, cond_kv_freeze: bool) -> N2TensorRTContract:
-        """The same checkpoint contract resolved for a bundle's engine roles.
-
-        ``cond_kv_freeze`` is a bundle property: whether it carries the conditioning-cached
-        joint engine. The mode a runtime serves is selected separately at serve time.
-        """
-        contract = replace(self, cond_kv_freeze=bool(cond_kv_freeze))
-        contract.validate()
-        return contract
+    def camera_count(self) -> int:
+        return len(self.camera_names)
 
     @property
     def conditioning_frames(self) -> int:
@@ -295,7 +166,7 @@ class N2TensorRTContract:
 
     def to_dict(self) -> dict[str, Any]:
         """Return the deterministic, path-independent engine contract."""
-        payload = {
+        return {
             "schema_version": self.schema_version,
             "model_type": self.model_type,
             "model_size": self.model_size,
@@ -303,10 +174,8 @@ class N2TensorRTContract:
             "vae_type": self.vae_type,
             "model_dtype": self.model_dtype,
             "embodiment": self.embodiment,
-            "input_camera_names": list(self.input_camera_names),
-            "input_camera_count": self.input_camera_count,
-            "total_camera_slot_count": self.total_camera_slot_count,
-            "padded_camera_slot_count": self.padded_camera_slot_count,
+            "camera_names": list(self.camera_names),
+            "camera_count": self.camera_count,
             "conditioning_frames": self.conditioning_frames,
             "total_video_frames": self.total_video_frames,
             "video_indices": list(self.video_indices),
@@ -329,15 +198,6 @@ class N2TensorRTContract:
             "transformer_precision": self.transformer_precision.value,
             "vae_precision": self.vae_precision,
         }
-        # Only bottleneck variants carry the VAE projection geometry.
-        if self.vae_bottleneck_kernel is not None:
-            payload["vae_bottleneck_kernel"] = list(self.vae_bottleneck_kernel)
-            payload["patch_size"] = list(self.patch_size)
-        if self.is_quantized:
-            payload["action_cache_precision"] = self.action_cache_precision.value
-        if self.cond_kv_freeze:
-            payload["cond_kv_freeze"] = True
-        return payload
 
     @classmethod
     def from_checkpoint(
@@ -349,38 +209,14 @@ class N2TensorRTContract:
         action_denoising_steps: int,
         joint_denoise: bool,
         conditional_kv_cache: bool,
-        transformer_precision: TransformerPrecision | str = TransformerPrecision.BF16,
-        action_cache_precision: TransformerPrecision | str | None = None,
-        vae_precision: str = "bf16",
-        cond_kv_freeze: bool = False,
     ) -> N2TensorRTContract:
-        """Resolve the promoted fixed-shape contract without Torch/TensorRT.
-
-        The engine precisions are bundle properties, not checkpoint properties:
-        callers admitting a quantized bundle pass what its receipt declares (per
-        transformer role and for the VAE encoder); the default is the unquantized
-        BF16 contract.
-        """
-        joint_precision = TransformerPrecision(transformer_precision)
-        action_precision = (
-            TransformerPrecision(action_cache_precision)
-            if action_cache_precision is not None
-            else joint_precision
-        )
-        if vae_precision not in VAE_PRECISIONS:
-            raise ValueError(
-                f"unsupported VAE precision {vae_precision!r}; expected one of {VAE_PRECISIONS}"
-            )
+        """Resolve the promoted fixed-shape contract without Torch/TensorRT."""
         checkpoint_path = checkpoint_source_path(Path(checkpoint).expanduser()).resolve(strict=True)
         model = resolve_checkpoint_actor_config(_read_json(checkpoint_path / "config.json"))
         processor = _read_json(checkpoint_path / "processor_config.json")
         model_type = _require_string(model, "model_type")
         if model_type != "GrootN2":
             raise ValueError(f"checkpoint is not GrootN2: {model_type!r}")
-        # The engines have no inputs for the tactile/deform token groups.
-        tactile = [name for name in ("tactile_cfg", "deform_cfg") if model.get(name) is not None]
-        if tactile:
-            raise ValueError(f"TensorRT does not support tactile/deform checkpoints ({tactile})")
         model_size = _require_string(model, "model_size")
         model_dtype = _require_string(model, "model_dtype")
         vae_type = resolve_checkpoint_vae_type(model)
@@ -398,7 +234,7 @@ class N2TensorRTContract:
 
         video = _require_mapping(modality, "video")
         action = _require_mapping(modality, "action")
-        input_camera_names = _require_unique_strings(video, "modality_keys")
+        camera_names = _require_unique_strings(video, "modality_keys")
         video_deltas = _require_ints(video, "delta_indices")
         history_indices = tuple(delta for delta in video_deltas if delta <= 0)
         image_size = processor_kwargs.get("image_target_size", model.get("image_target_size"))
@@ -419,16 +255,14 @@ class N2TensorRTContract:
             raise ValueError(
                 f"model and processor action horizons disagree: {configured_horizon} != {action_horizon}"
             )
-        total_camera_slot_count = _require_positive_int(model, "max_n_cameras")
-        if total_camera_slot_count < len(input_camera_names):
+        max_n_cameras = _require_positive_int(model, "max_n_cameras")
+        if max_n_cameras != len(camera_names):
             raise ValueError(
-                "processor camera count exceeds model capacity: "
-                f"{len(input_camera_names)} input cameras > {total_camera_slot_count} total camera slots"
+                "unsupported N2 TensorRT contract: padded camera views are not supported yet; "
+                "model max_n_cameras must equal the processor camera count "
+                f"({max_n_cameras} != {len(camera_names)})"
             )
 
-        bottleneck = _optional_int_tuple(
-            model.get("vae_bottleneck_kernel"), "vae_bottleneck_kernel", 3
-        )
         kernel = _optional_int_tuple(model.get("token_merge_kernel"), "token_merge_kernel", 3)
         layers = _optional_int_tuple(model.get("token_merge_layers"), "token_merge_layers", 2)
         if kernel is None:
@@ -448,11 +282,8 @@ class N2TensorRTContract:
                 f"unsupported N2 architecture/token-merge combination: {vae_type!r}, {kernel!r}"
             ) from error
 
-        if bottleneck is not None:
-            model_variant = N2ModelVariant.TURBO3
         contract = cls(
-            schema_version=_CONTRACT_SCHEMA_VERSION,
-            vae_bottleneck_kernel=bottleneck,
+            schema_version=3,
             checkpoint=str(checkpoint_path),
             model_type=model_type,
             model_size=model_size,
@@ -460,8 +291,7 @@ class N2TensorRTContract:
             vae_type=vae_type,
             model_dtype=model_dtype,
             embodiment=resolved_embodiment,
-            input_camera_names=input_camera_names,
-            total_camera_slot_count=total_camera_slot_count,
+            camera_names=camera_names,
             video_indices=video_deltas,
             history_indices=history_indices,
             image_height=image_size[0],
@@ -475,10 +305,8 @@ class N2TensorRTContract:
             conditional_kv_cache=conditional_kv_cache,
             token_merge_kernel=kernel,
             token_merge_layers=layers,
-            transformer_precision=joint_precision,
-            vae_precision=vae_precision,
-            action_cache_precision=action_precision,
-            cond_kv_freeze=cond_kv_freeze,
+            transformer_precision=TransformerPrecision.BF16,
+            vae_precision="bf16",
         )
         contract.validate()
         return contract
@@ -486,24 +314,16 @@ class N2TensorRTContract:
     def validate(self) -> None:
         """Admit checkpoint-derived shapes while failing closed on other features."""
         failures: dict[str, Any] = {}
-        if self.schema_version != _CONTRACT_SCHEMA_VERSION:
-            failures["schema_version"] = {
-                "actual": self.schema_version,
-                "supported": [_CONTRACT_SCHEMA_VERSION],
-            }
+        if self.schema_version != 3:
+            failures["schema_version"] = {"actual": self.schema_version, "supported": [3]}
         if self.model_type != "GrootN2":
             failures["model_type"] = {"actual": self.model_type, "supported": ["GrootN2"]}
         if self.model_size != "2B":
             failures["model_size"] = {"actual": self.model_size, "supported": ["2B"]}
-        if (
-            not isinstance(self.total_camera_slot_count, int)
-            or isinstance(self.total_camera_slot_count, bool)
-            or not 0 < self.input_camera_count <= self.total_camera_slot_count
-        ):
-            failures["total_camera_slot_count"] = {
-                "actual": self.total_camera_slot_count,
-                "input_camera_count": self.input_camera_count,
-                "requirement": "a positive integer slot count covering at least one input camera",
+        if self.camera_count <= 0:
+            failures["camera_count"] = {
+                "actual": self.camera_count,
+                "requirement": "at least one configured camera",
             }
         steps_are_positive_integers = all(
             isinstance(steps, int) and not isinstance(steps, bool) and steps > 0
@@ -522,11 +342,6 @@ class N2TensorRTContract:
             }
         if self.model_dtype != "bfloat16":
             failures["model_dtype"] = {"actual": self.model_dtype, "supported": ["bfloat16"]}
-        if self.vae_precision not in VAE_PRECISIONS:
-            failures["vae_precision"] = {
-                "actual": self.vae_precision,
-                "supported": list(VAE_PRECISIONS),
-            }
         if (
             len(set(self.history_indices)) != len(self.history_indices)
             or tuple(sorted(self.history_indices)) != self.history_indices
@@ -558,21 +373,8 @@ class N2TensorRTContract:
         patch_multiple = spatial_ratio * 2
         merge_height = self.token_merge_kernel[1] if self.token_merge_kernel is not None else 1
         merge_width = self.token_merge_kernel[2] if self.token_merge_kernel is not None else 1
-        bottleneck = self.vae_bottleneck_kernel
-        if bottleneck is not None and (
-            bottleneck != (1, 2, 2)
-            or self.vae_type != "wan21"
-            or self.token_merge_kernel is not None
-        ):
-            failures["vae_bottleneck_kernel"] = (
-                "Turbo-v3 requires Wan2.1, (1, 2, 2), and no token merge"
-            )
-        required_height_multiple = (
-            patch_multiple * merge_height * (2 if bottleneck is not None else 1)
-        )
-        required_width_multiple = (
-            patch_multiple * merge_width * (2 if bottleneck is not None else 1)
-        )
+        required_height_multiple = patch_multiple * merge_height
+        required_width_multiple = patch_multiple * merge_width
         if (
             self.image_height <= 0
             or self.image_width <= 0
@@ -586,19 +388,10 @@ class N2TensorRTContract:
                     f"{required_height_multiple}/{required_width_multiple}"
                 ),
             }
-        if bottleneck is not None:
-            supported_dimensions = [(256, 256)]
-        elif self.token_merge_kernel is None:
-            # Wan2.2 Turbo-v1 and Wan2.1 Core checkpoints may keep native 256-wide state/action
-            # heads without a V3 bottleneck. Token-merge (Turbo2) engines are qualified at
-            # 128/128 only.
-            supported_dimensions = [(128, 128), (256, 256)]
-        else:
-            supported_dimensions = [(128, 128)]
-        if (self.max_state_dim, self.max_action_dim) not in supported_dimensions:
+        if (self.max_state_dim, self.max_action_dim) != (128, 128):
             failures["state_action_dimensions"] = {
                 "actual": (self.max_state_dim, self.max_action_dim),
-                "supported": supported_dimensions,
+                "supported": [(128, 128)],
             }
         if not self.joint_denoise or not self.conditional_kv_cache:
             failures["denoising_mode"] = {
@@ -614,17 +407,11 @@ class N2TensorRTContract:
                     "actual": [self.token_merge_kernel, self.token_merge_layers],
                     "supported": [[(1, 2, 2), (2, 23)]],
                 }
-        if self.cond_kv_freeze and self.token_merge_kernel is not None:
-            failures["cond_kv_freeze"] = (
-                "the conditioning-cached joint engine is not qualified with token merge"
-            )
         expected_variant = {
             ("wan21", False): N2ModelVariant.CORE,
             ("wan21", True): N2ModelVariant.TURBO2,
             ("wan22", False): N2ModelVariant.TURBO,
         }.get((self.vae_type, self.token_merge_kernel is not None))
-        if bottleneck is not None:
-            expected_variant = N2ModelVariant.TURBO3
         if self.model_variant is not expected_variant:
             failures["model_variant"] = {
                 "actual": self.model_variant.value,

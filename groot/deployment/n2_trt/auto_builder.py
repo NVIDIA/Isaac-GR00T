@@ -119,8 +119,8 @@ def resolve_or_build_engine_bundle(
                     runtime=runtime,
                     codec=codec,
                 )
-            except (OSError, RuntimeError, TypeError, ValueError) as exc:
-                _emit(f"Cached TensorRT bundle failed validation; rebuilding: {bundle}: {exc}")
+            except (OSError, RuntimeError, TypeError, ValueError):
+                pass
             else:
                 _emit(f"Reusing validated TensorRT bundle: {bundle}")
                 return bundle

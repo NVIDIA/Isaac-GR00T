@@ -24,7 +24,6 @@ from groot.infra.launcher.one_launcher.automodel_training_experiment import (
     AutoModelTrainingExperiment,
 )
 from groot.infra.launcher.one_launcher.experiment_paths import DEFAULT_EXPERIMENT_DIR
-from groot.infra.launcher.one_launcher.n2_tactile_recipe_resolver import N2TactileRecipeResolver
 from groot.infra.launcher.one_launcher.resolved_automodel_training_experiment import (
     ResolvedAutoModelTrainingExperiment,
 )
@@ -66,13 +65,10 @@ class TrainingExperimentResolver:
             compute_type=compute_type,
             compute_profile=compute_profile,
         )
-        resolved = resolved.with_overrides(
+        return resolved.with_overrides(
             config_overrides,
             compute_profile=compute_profile,
         )
-        if isinstance(resolved, ResolvedTrainingExperiment):
-            resolved = N2TactileRecipeResolver().apply(resolved, config_overrides=config_overrides)
-        return resolved
 
     def load(self, name: str) -> TrainingExperimentDefinition:
         module_path = self.experiment_dir / f"{name}.py"

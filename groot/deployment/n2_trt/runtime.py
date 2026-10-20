@@ -12,35 +12,22 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import torch
 
-from groot.core.training.models.n2.components.kv_cache import CondKVCache, FrozenPrefixKVCache
+from groot.core.training.models.n2.components.kv_cache import CondKVCache
 from groot.core.training.models.n2.components.sequence_packing import (
     AttentionMaskPattern,
     PackedSequence,
 )
-from groot.deployment.n2_trt.conditioner import ACTION_CONTEXT_INPUT_NAMES
-from groot.deployment.n2_trt.contract import (
-    ACTION_CONTEXT_MODES,
-    N2TensorRTContract,
-    TransformerPrecision,
-)
-from groot.deployment.n2_trt.golden import admitted_served_modes, served_mode_name
+from groot.deployment.n2_trt.contract import N2TensorRTContract
 from groot.deployment.n2_trt.manifest import (
-    ADMISSION_GATE_EVIDENCE,
-    ADMISSION_GOLDEN,
     BUILD_FILENAME,
-    COND_CACHED_ENGINE_ROLE,
     MANIFEST_FILENAME,
     EngineManifest,
     RuntimeIdentity,
-    declared_transformer_precisions,
-    declared_vae_precision,
-    required_engine_roles,
     required_serving_files,
     sha256_file,
 )
@@ -49,20 +36,12 @@ _MEASUREMENT_ENGINE_ROLES = {
     "transformer_joint": "transformer_joint_capture",
     "transformer_action_cache": "transformer_action_cached",
     "vae_encoder": "vae_encode",
-    COND_CACHED_ENGINE_ROLE: "transformer_joint_condcached",
 }
 _MEASUREMENT_CHECKPOINT_FILES = {
     "config.json",
     "processor_config.json",
     "statistics.json",
     "model.safetensors.index.json",
-}
-# Manifest engine role -> the runtime constructor's ``engine_paths`` key.
-ENGINE_ROLE_RUNTIME_KEYS = {
-    "transformer_joint": "joint",
-    "transformer_action_cache": "action",
-    "vae_encoder": "vae",
-    COND_CACHED_ENGINE_ROLE: "joint_cond",
 }
 
 
@@ -85,32 +64,24 @@ def _torch_dtype_for_trt(trt_module: Any, dtype: Any) -> torch.dtype:
 # which is a different token count and a different engine shape, so callers that
 # know their model pass its geometry instead of inheriting this default.
 _BASE_LATENT_SHAPE = (16, 2, 28, 40)
+_PATCH_SIZE = 2
 _STATE_TOKENS = 1
 
 
 def video_tokens_per_camera(
-    latent_shape: tuple[int, int, int, int],
-    total_latent_frames: int,
-    patch_size: tuple[int, int, int] = (1, 2, 2),
+    latent_shape: tuple[int, int, int, int], total_latent_frames: int
 ) -> int:
     """Video tokens one camera contributes for the configured full video window."""
     _, _conditioning_frames, height, width = latent_shape
-    if (
-        len(patch_size) != 3
-        or patch_size[0] != 1
-        or any(type(value) is not int or value <= 0 for value in patch_size)
-    ):
-        raise ValueError(f"unsupported patch size: {patch_size!r}")
-    _, patch_height, patch_width = patch_size
-    if height % patch_height or width % patch_width:
+    if height % _PATCH_SIZE or width % _PATCH_SIZE:
         raise ValueError(
-            f"latent {height}x{width} is not divisible by the {patch_height}x{patch_width} patch"
+            f"latent {height}x{width} is not divisible by the {_PATCH_SIZE}x{_PATCH_SIZE} patch"
         )
     if not isinstance(total_latent_frames, int) or isinstance(total_latent_frames, bool):
         raise TypeError(f"total_latent_frames must be an int, got {total_latent_frames!r}")
     if total_latent_frames <= 0:
         raise ValueError(f"total_latent_frames must be positive, got {total_latent_frames}")
-    return (height // patch_height) * (width // patch_width) * total_latent_frames
+    return (height // _PATCH_SIZE) * (width // _PATCH_SIZE) * total_latent_frames
 
 
 def _require_positive_camera_count(num_cameras: int) -> None:
@@ -123,7 +94,6 @@ def n2_segment_token_counts(
     action_horizon: int,
     latent_shape: tuple[int, int, int, int] = _BASE_LATENT_SHAPE,
     total_latent_frames: int = 4,
-    patch_size: tuple[int, int, int] = (1, 2, 2),
 ) -> tuple[int, int, int]:
     """Fixed (video, state, action) layout derived from checkpoint dimensions."""
     _require_positive_camera_count(num_cameras)
@@ -131,7 +101,7 @@ def n2_segment_token_counts(
         raise TypeError(f"action_horizon must be an int, got {action_horizon!r}")
     if action_horizon <= 0:
         raise ValueError(f"action_horizon must be positive, got {action_horizon}")
-    tokens = video_tokens_per_camera(latent_shape, total_latent_frames, patch_size)
+    tokens = video_tokens_per_camera(latent_shape, total_latent_frames)
     return (tokens * num_cameras, _STATE_TOKENS, action_horizon)
 
 
@@ -152,30 +122,17 @@ def _vae_trt_shapes(
 
 
 def n2_trt_runtime_contract(
-    total_camera_slot_count: int,
+    num_cameras: int,
     num_video_steps: int = 2,
     num_action_steps: int = 4,
-    *,
-    input_camera_count: int,
 ) -> str:
-    """Identify the real camera inputs, total engine slots, and schedule.
+    """Return the complete runtime contract string.
 
     The denoising schedule changes how many times each engine is called without
-    changing engine shapes, so it is part of the runtime identity. Both camera
-    counts distinguish a padded three-input/four-slot layout from four inputs
-    using every slot, even though their engine tensor shapes are identical.
+    changing engine shapes, so it is part of the runtime identity.
     """
-    _require_positive_camera_count(total_camera_slot_count)
-    _require_positive_camera_count(input_camera_count)
-    if input_camera_count > total_camera_slot_count:
-        raise ValueError(
-            f"input_camera_count ({input_camera_count}) exceeds "
-            f"total_camera_slot_count ({total_camera_slot_count})"
-        )
-    return (
-        f"gr00t2_{input_camera_count}input_{total_camera_slot_count}slots_"
-        f"{num_video_steps}v{num_action_steps}a_tensorrt"
-    )
+    _require_positive_camera_count(num_cameras)
+    return f"gr00t2_{num_cameras}cam_{num_video_steps}v{num_action_steps}a_tensorrt"
 
 
 def _require_n2_runtime_contract(
@@ -191,15 +148,10 @@ def _require_n2_runtime_contract(
     cfg_on: bool,
     attention_pattern: AttentionMaskPattern,
     video_padded_mask: Any,
-    expected_configured_cameras: int | None = None,
-    expected_cond_kv_freeze: bool = False,
-    cond_kv_freeze: bool = False,
 ) -> None:
     """Fail closed unless inference matches the selected exported TRT workload."""
     _require_positive_camera_count(expected_num_cameras)
     reasons: list[str] = []
-    if cond_kv_freeze != expected_cond_kv_freeze:
-        reasons.append(f"cond_kv_freeze:{cond_kv_freeze}!={expected_cond_kv_freeze}")
     if (batch_size, num_cameras) != (1, expected_num_cameras):
         reasons.append(f"batch_cameras:{(batch_size, num_cameras)}!=(1, {expected_num_cameras})")
     expected_schedule = (expected_num_video_steps, expected_num_action_steps)
@@ -212,27 +164,12 @@ def _require_n2_runtime_contract(
     expected_pattern = AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL
     if attention_pattern != expected_pattern:
         reasons.append(f"attention_pattern:{attention_pattern.value}!={expected_pattern.value}")
-    if _host_checks_allowed():
-        configured = (
-            expected_num_cameras
-            if expected_configured_cameras is None
-            else expected_configured_cameras
-        )
-        expected_views = torch.arange(expected_num_cameras) >= configured
-        if video_padded_mask is None:
-            if configured != expected_num_cameras:
-                reasons.append("missing_camera_padding")
-        else:
-            padded = torch.as_tensor(video_padded_mask).detach().to(device="cpu", dtype=torch.bool)
-            if padded.numel() == 0 or padded.numel() % expected_num_cameras:
-                reasons.append("camera_padding_shape")
-            elif not torch.equal(
-                padded.reshape(expected_num_cameras, -1),
-                expected_views[:, None].expand(
-                    expected_num_cameras, padded.numel() // expected_num_cameras
-                ),
-            ):
-                reasons.append("camera_padding_layout")
+    if (
+        video_padded_mask is not None
+        and _host_checks_allowed()
+        and bool(torch.as_tensor(video_padded_mask).any().item())
+    ):
+        reasons.append("padded_camera")
     if reasons:
         raise RuntimeError(
             f"strict GR00T2 {expected_num_cameras}-camera TensorRT contract violation: "
@@ -254,10 +191,9 @@ def _require_segment_layout(
     action_horizon: int,
     latent_shape: tuple[int, int, int, int] = _BASE_LATENT_SHAPE,
     total_latent_frames: int = 4,
-    patch_size: tuple[int, int, int] = (1, 2, 2),
 ) -> None:
     expected = n2_segment_token_counts(
-        num_cameras, action_horizon, latent_shape, total_latent_frames, patch_size
+        num_cameras, action_horizon, latent_shape, total_latent_frames
     )
     if segment_counts != expected:
         raise RuntimeError(
@@ -408,16 +344,12 @@ _TRANSFORMER_TRT_COMMON_INPUT_NAMES = {
 }
 _TRANSFORMER_TRT_INPUT_NAMES = {
     "joint": _TRANSFORMER_TRT_COMMON_INPUT_NAMES | {"modality_ids"},
-    # joint_cond: query tokens only, plus the frozen conditioning-video K/V prefix
-    "joint_cond": _TRANSFORMER_TRT_COMMON_INPUT_NAMES | {"modality_ids", "cond_key", "cond_value"},
     "action": _TRANSFORMER_TRT_COMMON_INPUT_NAMES
     | {"modality_ids", "kv_cache_key", "kv_cache_value"},
 }
 _TRANSFORMER_TRT_OUTPUT_NAMES = {
     # joint: denoised tokens, conditioning-cache keys, conditioning-cache values
     "joint": {"output", "output2", "output3"},
-    # joint_cond: query-token outputs and their fresh cache keys and values
-    "joint_cond": {"output", "kv_key", "kv_value"},
     # action: denoised tokens
     "action": {"output1"},
 }
@@ -429,20 +361,20 @@ _TOKEN_MERGE_CACHE_NAMES = {
 }
 
 
-def _cache_layer_slab(layers: list[torch.Tensor]) -> torch.Tensor | None:
-    """Return a zero-copy [layer, batch, head, token, channel] view when proven safe."""
-    if not layers:
-        return None
+def _stack_cache_layers(layers: list[torch.Tensor]) -> torch.Tensor:
+    """Compact layer views from one engine output slab with a single copy.
+
+    A joint engine returns [layer, batch, head, token, channel] storage. The
+    graph's prefix slices retain that owner and its layer stride, including
+    the skipped action suffix in each head. Prove the shared layout before
+    rebuilding the stacked view; independent or reordered caches retain the
+    ordinary stack path. No tensor values or arithmetic are changed.
+    """
+    if len(layers) < 2:
+        return torch.stack(layers, dim=0)
     first = layers[0]
-    if (
-        first.layout != torch.strided
-        or first.ndim != 4
-        or first.device.type == "meta"
-        or first.requires_grad
-    ):
-        return None
-    if len(layers) == 1:
-        return first.unsqueeze(0)
+    if first.layout != torch.strided or first.ndim != 4 or first.device.type == "meta":
+        return torch.stack(layers, dim=0)
     stride = first.stride()
     offset = first.storage_offset()
     layer_stride = layers[1].storage_offset() - offset
@@ -458,38 +390,12 @@ def _cache_layer_slab(layers: list[torch.Tensor]) -> torch.Tensor | None:
         or layer.untyped_storage().data_ptr() != storage
         for index, layer in enumerate(layers)
     ):
-        return None
+        return torch.stack(layers, dim=0)
     # as_strided inherits the first view's storage offset. Every addressed
     # layer above already exists in this storage, so the combined view cannot
-    # introduce an out-of-bounds access.
-    return first.as_strided((len(layers), *first.shape), (layer_stride, *stride))
-
-
-def _stack_cache_layers(layers: list[torch.Tensor]) -> torch.Tensor:
-    """Prepare a dense engine binding, reusing an already gathered slab.
-
-    Prefix views of a joint engine's output require one compaction copy when
-    they omit the action suffix. Views of a bulk-gathered padded cache already
-    form a dense slab and need no further copy. Independent or reordered
-    caches retain the ordinary stack path.
-    """
-    slab = _cache_layer_slab(layers)
-    return torch.stack(layers, dim=0) if slab is None else slab.contiguous()
-
-
-def _gather_cache_layers(
-    layers: list[torch.Tensor], keep_indices: torch.Tensor
-) -> list[torch.Tensor]:
-    """Gather static tokens across a shared engine slab in one allocation.
-
-    Returned layer views share the gathered allocation and remain independent
-    of reusable joint-engine output storage. The action binding can reuse that
-    dense allocation directly, including for a single-layer fine/coarse group.
-    """
-    slab = _cache_layer_slab(layers)
-    if slab is None:
-        return [layer.index_select(2, keep_indices) for layer in layers]
-    return list(slab.index_select(3, keep_indices).unbind(0))
+    # introduce an out-of-bounds access. Keep the dense engine binding owned
+    # independently when the prefix omits the joint action suffix.
+    return first.as_strided((len(layers), *first.shape), (layer_stride, *stride)).contiguous()
 
 
 def _stack_token_merge_cache(
@@ -544,26 +450,17 @@ def _require_transformer_bindings(
     output_names: list[str],
     *,
     token_merge_layers: tuple[int, int] | None = None,
-    action_context_mode: str = "raw",
 ) -> None:
     """Require the exact private ABI, with one documented ONNX optimization.
 
     Static-routing exports bake routing indices into the graph, so ONNX may
     remove the otherwise unused ``modality_ids`` input. That is the only
     accepted omission. Every other missing, renamed, or additional binding is
-    fatal; this function does not implement an eager fallback. The action
-    engine's language input follows the bundle's recorded ``action_context_mode``.
+    fatal; this function does not implement an eager fallback.
     """
     expected_inputs = set(_TRANSFORMER_TRT_INPUT_NAMES[mode])
     expected_outputs = set(_TRANSFORMER_TRT_OUTPUT_NAMES[mode])
-    if mode == "action":
-        if action_context_mode not in ACTION_CONTEXT_INPUT_NAMES:
-            raise ValueError(f"unsupported action context mode {action_context_mode!r}")
-        expected_inputs -= {"context"}
-        expected_inputs |= ACTION_CONTEXT_INPUT_NAMES[action_context_mode]
     if token_merge_layers is not None:
-        if mode == "joint_cond":
-            raise ValueError("the conditioning-cached joint engine does not support token merge")
         if mode == "action":
             expected_inputs -= {"kv_cache_key", "kv_cache_value"}
             expected_inputs |= _TOKEN_MERGE_CACHE_NAMES
@@ -593,18 +490,15 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
         *,
         mode: str,
         token_merge_layers: tuple[int, int] | None = None,
-        action_context_mode: str = "raw",
     ):
         super().__init__(engine_path)
         self.mode = mode
         self.token_merge_layers = token_merge_layers
-        self.action_context_mode = action_context_mode
         _require_transformer_bindings(
             mode,
             set(self.inputs),
             self.output_names,
             token_merge_layers=token_merge_layers,
-            action_context_mode=action_context_mode,
         )
 
     @staticmethod
@@ -614,20 +508,15 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
         prompt_embs: torch.Tensor,
         kv_cache: CondKVCache | None,
         token_merge_layers: tuple[int, int] | None = None,
-        context_tensors: dict[str, torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor]:
         tensors = {
             "latents": packed.tokens,
             "timesteps": packed.timesteps,
             "rope_cos": packed.rope_freqs[0],
             "rope_sin": packed.rope_freqs[1],
+            "context": prompt_embs,
             "modality_ids": packed.modality_ids,
         }
-        if context_tensors is None:
-            tensors["context"] = prompt_embs
-        else:
-            # Conditioned language inputs (runtime-owned buffers) replace raw context.
-            tensors.update(context_tensors)
         if packed.extra_pos_emb is not None:
             tensors["extra_pos_emb"] = packed.extra_pos_emb
         if kv_cache is not None and len(kv_cache) > 0:
@@ -655,14 +544,12 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
         packed: PackedSequence,
         prompt_embs: torch.Tensor,
         kv_cache: CondKVCache | None,
-        context_tensors: dict[str, torch.Tensor] | None = None,
     ) -> str | None:
         tensors = self._candidate_tensors(
             packed=packed,
             prompt_embs=prompt_embs,
             kv_cache=kv_cache,
             token_merge_layers=self.token_merge_layers,
-            context_tensors=context_tensors,
         )
         return self._prepared_tensors_skip_reason(tensors)
 
@@ -677,14 +564,12 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
         packed: PackedSequence,
         prompt_embs: torch.Tensor,
         kv_cache: CondKVCache | None,
-        context_tensors: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor:
         tensors = self._candidate_tensors(
             packed=packed,
             prompt_embs=prompt_embs,
             kv_cache=kv_cache,
             token_merge_layers=self.token_merge_layers,
-            context_tensors=context_tensors,
         )
         skip_reason = self._prepared_tensors_skip_reason(tensors)
         if skip_reason is not None:
@@ -698,122 +583,6 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
             )
             return self.outputs["output"]
         return self.outputs["output1"]
-
-    def _conditioning_cached_layout(
-        self, kv_cache: FrozenPrefixKVCache, total_tokens: int
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """(frozen, query) positions of the full joint layout, resolved once off the capture path."""
-        layout = getattr(self, "_cond_layout", None)
-        if layout is None:
-            if not _host_checks_allowed():
-                raise RuntimeError(
-                    "the conditioning-cached layout must be resolved before CUDA graph capture"
-                )
-            frozen = kv_cache.frozen_index.to(device=self.device).clone()
-            query = _conditioning_query_index(frozen, total_tokens)
-            expected_query = int(self.inputs["latents"]["shape"][1])
-            if (
-                int(query.numel()) != expected_query
-                or int(frozen.numel()) + expected_query != total_tokens
-            ):
-                raise RuntimeError(
-                    f"conditioning-cached layout ({int(frozen.numel())} frozen + {int(query.numel())} "
-                    f"query of {total_tokens} tokens) does not match the engine's {expected_query} "
-                    "query tokens"
-                )
-            layout = self._cond_layout = (frozen, query)
-        return layout
-
-    def run_conditioning_cached(
-        self,
-        *,
-        packed: PackedSequence,
-        prompt_embs: torch.Tensor,
-        kv_cache: FrozenPrefixKVCache,
-    ) -> torch.Tensor:
-        """Serve one joint step whose conditioning-video K/V are the cached prefix.
-
-        Only the query tokens reach the engine; the output is scattered back into the
-        full layout and the cache is rebuilt as ``[frozen prefix | fresh]`` in the
-        original positions, so the model's unpacking and cached action steps are unchanged.
-        """
-        if self.mode != "joint_cond":
-            raise RuntimeError(
-                f"{self.mode!r} engine cannot serve a conditioning-cached joint call"
-            )
-        if not isinstance(kv_cache, FrozenPrefixKVCache) or not kv_cache.frozen_key:
-            raise RuntimeError(
-                "the conditioning-cached joint engine requires a frozen-prefix cache"
-            )
-        if packed.extra_pos_emb is not None:
-            raise RuntimeError(
-                "fixed-shape N2 TensorRT joint_cond call rejected: extra_pos_emb_present"
-            )
-        total_tokens = int(packed.tokens.shape[1])
-        frozen, query = self._conditioning_cached_layout(kv_cache, total_tokens)
-        tensors = {
-            "latents": packed.tokens.index_select(1, query),
-            "timesteps": packed.timesteps.index_select(1, query),
-            "rope_cos": packed.rope_freqs[0].index_select(0, query),
-            "rope_sin": packed.rope_freqs[1].index_select(0, query),
-            "modality_ids": packed.modality_ids.index_select(1, query),
-            "context": prompt_embs,
-            "cond_key": torch.stack(kv_cache.frozen_key, dim=0),
-            "cond_value": torch.stack(kv_cache.frozen_value, dim=0),
-        }
-        skip_reason = N2TensorTrtRunner.skip_reason(self, tensors)
-        if skip_reason is not None:
-            raise RuntimeError(f"fixed-shape N2 TensorRT joint_cond call rejected: {skip_reason}")
-        self._execute(tensors)
-        return _store_conditioning_cached_outputs(
-            kv_cache,
-            self.outputs,
-            frozen=frozen,
-            query=query,
-            total_tokens=total_tokens,
-            cond_key=tensors["cond_key"],
-            cond_value=tensors["cond_value"],
-        )
-
-
-def _conditioning_query_index(frozen_index: torch.Tensor, total_tokens: int) -> torch.Tensor:
-    """Positions of the query tokens: every position the frozen prefix does not hold."""
-    keep = torch.ones(total_tokens, dtype=torch.bool, device=frozen_index.device)
-    keep[frozen_index] = False
-    return torch.nonzero(keep).flatten()
-
-
-def _store_conditioning_cached_outputs(
-    kv_cache: FrozenPrefixKVCache,
-    outputs: dict[str, torch.Tensor],
-    *,
-    frozen: torch.Tensor,
-    query: torch.Tensor,
-    total_tokens: int,
-    cond_key: torch.Tensor,
-    cond_value: torch.Tensor,
-) -> torch.Tensor:
-    """Scatter query outputs into the full layout and rebuild the full-layout cache.
-
-    The model discards the conditioning tokens' velocity, so their output rows are zero
-    (finite). The per-layer cache holds the frozen prefix and the fresh K/V in their
-    original positions, which is exactly what the frozen eager cache holds after a capture.
-    """
-    output = outputs["output"]
-    full = output.new_zeros((output.shape[0], total_tokens, output.shape[2]))
-    full.index_copy_(1, query, output)
-    key = outputs["kv_key"]
-    value = outputs["kv_value"]
-    layers, batch, heads, _fresh, head_dim = key.shape
-    full_key = key.new_empty((layers, batch, heads, total_tokens, head_dim))
-    full_value = value.new_empty((layers, batch, heads, total_tokens, head_dim))
-    full_key.index_copy_(3, query, key)
-    full_key.index_copy_(3, frozen, cond_key.to(dtype=key.dtype))
-    full_value.index_copy_(3, query, value)
-    full_value.index_copy_(3, frozen, cond_value.to(dtype=value.dtype))
-    kv_cache.key_cache = list(full_key.unbind(0))
-    kv_cache.value_cache = list(full_value.unbind(0))
-    return full
 
 
 def _store_joint_kv_outputs(
@@ -852,39 +621,26 @@ class N2TensorRTRuntime:
         contract: N2TensorRTContract,
         manifest: EngineManifest | None = None,
         artifact_root: str | Path | None = None,
-        action_context_mode: str = "raw",
-        served_cond_kv_freeze: bool | None = None,
     ):
         contract.validate()
-        if action_context_mode not in ACTION_CONTEXT_MODES:
-            raise ValueError(
-                f"unsupported action context mode {action_context_mode!r}; "
-                f"expected one of {ACTION_CONTEXT_MODES}"
-            )
         self.contract = contract
         self.manifest = manifest
-        self.action_context_mode = action_context_mode
-        # Attached by the installer for non-raw modes; never created implicitly.
-        self.conditioner: Any = None
-        # Served engine calls per role: the backend proof for measurement rows.
-        self.engine_calls = {"joint": 0, "joint_cond": 0, "action": 0, "vae": 0}
         self.artifact_root = (
             Path(artifact_root).expanduser().resolve(strict=True)
             if artifact_root is not None
             else None
         )
-        self.total_camera_slot_count = contract.total_camera_slot_count
+        self.num_cameras = contract.camera_count
         self.action_horizon = contract.action_horizon
         self.latent_shape = contract.latent_shape
         self.num_video_steps = contract.video_denoising_steps
         self.num_action_steps = contract.action_denoising_steps
         self.token_merge_layers = contract.token_merge_layers
         self.segment_token_counts = n2_segment_token_counts(
-            self.total_camera_slot_count,
+            self.num_cameras,
             self.action_horizon,
             self.latent_shape,
             contract.total_latent_frames,
-            contract.patch_size,
         )
         # With the conditioning KV cache on, the action steps are split across the
         # joint calls, so the schedule must divide evenly.
@@ -892,23 +648,6 @@ class N2TensorRTRuntime:
             raise ValueError(
                 f"num_action_steps ({self.num_action_steps}) must be a positive multiple of "
                 f"num_video_steps ({self.num_video_steps})"
-            )
-        if contract.cond_kv_freeze != ("joint_cond" in engine_paths):
-            raise RuntimeError(
-                "the conditioning-cached joint engine must be present exactly when the contract "
-                f"declares cond_kv_freeze (contract={contract.cond_kv_freeze}, "
-                f"engine={'joint_cond' in engine_paths})"
-            )
-        # The contract says what the bundle carries; the served mode is selected per
-        # runtime (default: on exactly when the conditioning-cached joint engine is present).
-        self.served_cond_kv_freeze = (
-            contract.cond_kv_freeze
-            if served_cond_kv_freeze is None
-            else bool(served_cond_kv_freeze)
-        )
-        if self.served_cond_kv_freeze and "joint_cond" not in engine_paths:
-            raise RuntimeError(
-                "served cond_kv_freeze requires the conditioning-cached joint engine"
             )
         self.transformer_runners = {
             "joint": _N2TransformerTrtRunner(
@@ -920,19 +659,12 @@ class N2TensorRTRuntime:
                 engine_paths["action"],
                 mode="action",
                 token_merge_layers=self.token_merge_layers,
-                action_context_mode=action_context_mode,
             ),
         }
-        if "joint_cond" in engine_paths:
-            self.transformer_runners["joint_cond"] = _N2TransformerTrtRunner(
-                engine_paths["joint_cond"],
-                mode="joint_cond",
-                token_merge_layers=self.token_merge_layers,
-            )
         self.vae_runner = N2TensorTrtRunner(engine_paths["vae"])
         contract_reason = _vae_trt_contract_skip_reason(
             self.vae_runner,
-            num_cameras=self.total_camera_slot_count,
+            num_cameras=self.num_cameras,
             latent_shape=self.latent_shape,
             conditioning_frames=contract.conditioning_frames,
             image_size=contract.image_size,
@@ -947,88 +679,16 @@ class N2TensorRTRuntime:
         *,
         contract: N2TensorRTContract,
         runtime_identity: RuntimeIdentity | None = None,
-        allow_quantized: bool = False,
-        allow_amplitude_only: bool = False,
-        allow_unadmitted_mode: bool = False,
         expected_codec: str | None = None,
-        served_cond_kv_freeze: bool | None = None,
     ) -> N2TensorRTRuntime:
-        """Validate the complete artifact bundle before deserializing plans.
-
-        A bundle whose manifest declares quantized transformer engines is refused
-        unless the caller opted in; when allowed, the caller's checkpoint contract
-        is resolved for the declared precisions before the manifest, its receipts
-        and its gate evidence are validated against it. The contract is likewise
-        resolved for the bundle's engine roles (``cond_kv_freeze``); the served
-        conditioning-cache mode defaults to the bundle's and may be selected off. A bundle
-        built from a golden package certified at the amplitude level only (no temporal row
-        exists for it yet) is refused unless ``allow_amplitude_only`` acknowledges it, and a
-        served mode the admitting platform row does not admit (its ``admitted_modes``: the
-        package passed only the other mode's gates on this platform) is refused unless
-        ``allow_unadmitted_mode`` acknowledges it.
-        """
+        """Validate the complete artifact bundle before deserializing plans."""
         root = Path(engine_dir).expanduser().resolve(strict=True)
         manifest = EngineManifest.read(root / MANIFEST_FILENAME)
-        declared_payload = getattr(manifest, "contract", None) or {}
-        declared_joint, declared_action = declared_transformer_precisions(declared_payload)
-        declared_vae = declared_vae_precision(declared_payload)
-        if (declared_joint, declared_action, declared_vae) != (
-            TransformerPrecision.BF16.value,
-            TransformerPrecision.BF16.value,
-            "bf16",
-        ):
-            if not allow_quantized:
-                raise RuntimeError(
-                    f"bundle {root} declares quantized engines "
-                    f"({declared_joint} joint / {declared_action} action_cache / "
-                    f"{declared_vae} vae_encoder); quantized serving is opt-in (allow_quantized)"
-                )
-            contract = contract.with_transformer_precisions(
-                declared_joint, declared_action
-            ).with_vae_precision(declared_vae)
-        if (
-            getattr(manifest, "admission", ADMISSION_GATE_EVIDENCE) == ADMISSION_GOLDEN
-            and getattr(manifest, "certification_level", None) == "amplitude"
-            and not allow_amplitude_only
-        ):
-            raise RuntimeError(
-                f"bundle {root} is built from golden package {manifest.package_id!r}, certified "
-                "at the amplitude level only (no temporal row exists for it yet); serving it is "
-                "opt-in (allow_amplitude_only, GROOT_N2_TRT_ALLOW_AMPLITUDE_ONLY=1)"
-            )
-        declared_cond = bool(
-            getattr(getattr(manifest, "build_settings", None), "cond_kv_freeze", False)
+        manifest.validate(
+            artifact_root=root,
+            contract=contract,
+            runtime=runtime_identity or RuntimeIdentity.capture(),
         )
-        if declared_cond != bool(getattr(contract, "cond_kv_freeze", False)):
-            contract = contract.with_cond_kv_freeze(declared_cond)
-        served_cond = (
-            declared_cond if served_cond_kv_freeze is None else bool(served_cond_kv_freeze)
-        )
-        if served_cond and not declared_cond:
-            raise RuntimeError(
-                f"bundle {root} has no conditioning-cached joint engine, but the policy runs with "
-                "cond_kv_freeze=True (GROOT_N2_COND_KV_FREEZE): served cond_kv_freeze requires "
-                "the conditioning-cached joint engine"
-            )
-        identity = runtime_identity or RuntimeIdentity.capture()
-        manifest.validate(artifact_root=root, contract=contract, runtime=identity)
-        admitted: tuple[str, ...] | None = None
-        admitting_row = getattr(manifest, "admitting_row", None)
-        if getattr(manifest, "admission", ADMISSION_GATE_EVIDENCE) == ADMISSION_GOLDEN and callable(
-            admitting_row
-        ):
-            row = admitting_row(root, identity)
-            if row is not None:
-                admitted = admitted_served_modes(row)
-                served_name = served_mode_name(served_cond)
-                if served_name not in admitted and not allow_unadmitted_mode:
-                    raise RuntimeError(
-                        f"bundle {root}: its platform row admits served mode(s) {list(admitted)} "
-                        f"on this platform, not {served_name!r} (cond_kv_freeze={served_cond}); "
-                        "select an admitted mode with GROOT_N2_COND_KV_FREEZE, or serving the "
-                        "uncertified mode is opt-in (allow_unadmitted_mode, "
-                        "GROOT_N2_TRT_ALLOW_UNADMITTED_MODE=1)"
-                    )
         if expected_codec is not None and manifest.build_settings.codec != expected_codec:
             raise RuntimeError(
                 "N2 TensorRT bundle codec does not match the serving policy: "
@@ -1037,74 +697,27 @@ class N2TensorRTRuntime:
         missing = [name for name in required_serving_files(manifest) if not (root / name).is_file()]
         if missing:
             raise FileNotFoundError(f"incomplete N2 TensorRT serving bundle; missing {missing}")
+        role_to_name = {
+            "transformer_joint": "joint",
+            "transformer_action_cache": "action",
+            "vae_encoder": "vae",
+        }
         engine_paths = {
-            ENGINE_ROLE_RUNTIME_KEYS[record.role]: str(
-                (root / record.relative_path).resolve(strict=True)
-            )
+            role_to_name[record.role]: str((root / record.relative_path).resolve(strict=True))
             for record in manifest.engines
         }
-        instance = cls(
+        return cls(
             engine_paths,
             contract=contract,
             manifest=manifest,
             artifact_root=root,
-            action_context_mode=manifest.build_settings.action_context_mode,
-            served_cond_kv_freeze=served_cond,
         )
-        instance.admitted_served_modes = admitted
-        return instance
-
-    def attach_conditioner(self, conditioner: Any) -> None:
-        """Bind the language conditioner a non-raw action engine requires.
-
-        The conditioner's output buffers must match the action engine's language
-        bindings exactly; the runtime refuses to serve a non-raw action engine
-        without one rather than falling back to the raw path.
-        """
-        if self.action_context_mode == "raw":
-            raise RuntimeError("the raw action context mode takes no conditioner")
-        if self.conditioner is not None:
-            raise RuntimeError("an action context conditioner is already attached")
-        action_inputs = self.transformer_runners["action"].inputs
-        expected_names = ACTION_CONTEXT_INPUT_NAMES[self.action_context_mode]
-        if frozenset(conditioner.input_names) != expected_names:
-            raise RuntimeError(
-                f"conditioner provides {sorted(conditioner.input_names)}, action engine "
-                f"expects {sorted(expected_names)}"
-            )
-        for name, buffer in conditioner.buffers().items():
-            spec = action_inputs[name]
-            if tuple(buffer.shape) != spec["shape"] or buffer.dtype != spec["dtype"]:
-                raise RuntimeError(
-                    f"conditioner buffer {name!r} {tuple(buffer.shape)}/{buffer.dtype} does not "
-                    f"match the action engine binding {spec['shape']}/{spec['dtype']}"
-                )
-        self.conditioner = conditioner
-
-    def prompt_input_dtype(self, mode: str) -> torch.dtype:
-        """Return the dtype the runtime expects for the raw prompt embeddings of one call."""
-        inputs = self.transformer_input_dtypes(mode)
-        if "context" in inputs:
-            return inputs["context"]
-        # The conditioner consumes BF16 prompt embeddings and owns the engine's language inputs.
-        return torch.bfloat16
-
-    def conditioner_state(self) -> dict[str, Any] | None:
-        """JSON-safe conditioner counters for measurement receipts (None for raw bundles)."""
-        return None if self.conditioner is None else self.conditioner.state()
 
     @property
     def runtime_contract(self) -> str:
-        label = n2_trt_runtime_contract(
-            self.total_camera_slot_count,
-            self.num_video_steps,
-            self.num_action_steps,
-            input_camera_count=self.contract.input_camera_count,
+        return n2_trt_runtime_contract(
+            self.num_cameras, self.num_video_steps, self.num_action_steps
         )
-        if self.contract.cond_kv_freeze:
-            # A bundle carrying the conditioning-cached joint engine names the served mode.
-            label += f", cond_kv_freeze={'on' if self.served_cond_kv_freeze else 'off'}"
-        return label
 
     def measurement_artifacts(self, *, backend: str, precision: str) -> dict[str, Any]:
         """Describe the admitted live bundle using the shared measurement schema."""
@@ -1114,21 +727,6 @@ class N2TensorRTRuntime:
         build_path = root / BUILD_FILENAME
         if not build_path.is_file():
             raise FileNotFoundError(f"TensorRT build receipt is missing: {build_path}")
-        # Precision and quantize_mode describe the admitted bundle, never a literal:
-        # the caller's label must be the contract's, and the receipt must agree.
-        quantize_mode = json.loads(build_path.read_text()).get("quantize_mode")
-        if not isinstance(quantize_mode, str) or not quantize_mode:
-            raise RuntimeError(f"TensorRT build receipt has no quantize_mode: {build_path}")
-        if precision != self.contract.precision_label:
-            raise RuntimeError(
-                f"measurement precision {precision!r} does not match the admitted bundle "
-                f"precision {self.contract.precision_label!r}"
-            )
-        if (quantize_mode == "none") == self.contract.is_quantized:
-            raise RuntimeError(
-                f"build receipt quantize_mode {quantize_mode!r} contradicts the admitted "
-                f"precision {self.contract.precision_label!r}"
-            )
 
         def identity(path: Path, *, digest: str | None = None) -> dict[str, Any]:
             resolved = path.resolve(strict=True)
@@ -1164,18 +762,14 @@ class N2TensorRTRuntime:
             )
             for record in self.manifest.engines
         }
-        expected_engines = {
-            _MEASUREMENT_ENGINE_ROLES[role]
-            for role in required_engine_roles(self.contract.cond_kv_freeze)
-        }
-        if set(engines) != expected_engines:
+        if set(engines) != set(_MEASUREMENT_ENGINE_ROLES.values()):
             raise RuntimeError(f"N2 TensorRT runtime loaded an incomplete engine bundle: {engines}")
 
-        payload = {
+        return {
             "schema_version": "n2-runtime-artifacts-v1",
             "backend": backend,
             "precision": precision,
-            "quantize_mode": quantize_mode,
+            "quantize_mode": "none",
             "tensorrt_version": self.manifest.runtime.tensorrt,
             "checkpoint": {
                 "path": str(checkpoint_root),
@@ -1189,82 +783,6 @@ class N2TensorRTRuntime:
             },
             "build_manifest": identity(build_path, digest=self.manifest.build.sha256),
             "loaded_engines": engines,
-            "action_context_mode": self.manifest.build_settings.action_context_mode,
-            # The bundle's capability and the mode this runtime serves, separately.
-            "served_cond_kv_freeze": getattr(
-                self, "served_cond_kv_freeze", self.contract.cond_kv_freeze
-            ),
-            "bundle_cond_kv_freeze": self.contract.cond_kv_freeze,
-            # The admission route the bundle came through and, for a golden package, its identity.
-            "admission": getattr(self.manifest, "admission", ADMISSION_GATE_EVIDENCE),
-            "certification_level": getattr(self.manifest, "certification_level", None),
-            "package_id": getattr(self.manifest, "package_id", None),
-        }
-        if self.contract.is_quantized:
-            # A quantized bundle names each loaded engine's precision so the
-            # measurement contract can cross-check the build manifest per role.
-            payload["schema_version"] = "n2-runtime-artifacts-v2"
-            payload["engine_precisions"] = {
-                _MEASUREMENT_ENGINE_ROLES[record.role]: record.numeric_format
-                for record in self.manifest.engines
-            }
-        return payload
-
-    def bare_engine_artifacts(self, *, backend: str, precision: str) -> dict[str, Any]:
-        """Describe a runtime built from bare engine paths: no manifest, never admitted.
-
-        The live engine bytes and the build receipt beside them are hashed so a
-        measurement receipt can later be bound to exactly these files.
-        """
-        if self.manifest is not None:
-            raise RuntimeError("bare engine provenance describes a runtime without a manifest")
-        if precision != self.contract.precision_label:
-            raise RuntimeError(
-                f"measurement precision {precision!r} does not match the served engines' "
-                f"precision {self.contract.precision_label!r}"
-            )
-        runners = {**self.transformer_runners, "vae": self.vae_runner}
-        engine_paths = {
-            role: Path(runners[name].engine_path).resolve(strict=True)
-            for role, name in ENGINE_ROLE_RUNTIME_KEYS.items()
-            if name in runners
-        }
-        build_path = engine_paths["transformer_joint"].parent / BUILD_FILENAME
-        if not build_path.is_file():
-            raise FileNotFoundError(f"TensorRT build receipt is missing: {build_path}")
-        build = json.loads(build_path.read_text())
-        quantize_mode = build.get("quantize_mode")
-        if not isinstance(quantize_mode, str) or not quantize_mode:
-            raise RuntimeError(f"TensorRT build receipt has no quantize_mode: {build_path}")
-        if (quantize_mode == "none") == self.contract.is_quantized:
-            raise RuntimeError(
-                f"build receipt quantize_mode {quantize_mode!r} contradicts the served "
-                f"precision {self.contract.precision_label!r}"
-            )
-        return {
-            "schema_version": "n2-bare-engines-v1",
-            "backend": backend,
-            "precision": precision,
-            "admitted": False,
-            "quantize_mode": quantize_mode,
-            "build_receipt": {
-                "path": str(build_path),
-                "size_bytes": build_path.stat().st_size,
-                "sha256": sha256_file(build_path),
-                "quantize_mode": quantize_mode,
-                "settings": build.get("settings"),
-            },
-            "engines": {
-                role: {
-                    "path": str(path),
-                    "size_bytes": path.stat().st_size,
-                    "sha256": sha256_file(path),
-                }
-                for role, path in engine_paths.items()
-            },
-            "action_context_mode": self.action_context_mode,
-            "served_cond_kv_freeze": self.served_cond_kv_freeze,
-            "bundle_cond_kv_freeze": self.contract.cond_kv_freeze,
         }
 
     def transformer_input_dtypes(self, mode: str) -> dict[str, torch.dtype]:
@@ -1293,33 +811,7 @@ class N2TensorRTRuntime:
         if mode == "joint" and kv_cache is None and self.num_action_steps > self.num_video_steps:
             raise RuntimeError("joint TensorRT call requires a KV-cache destination")
         runner = self.transformer_runners[mode]
-        if mode == "joint_cond":
-            if not isinstance(kv_cache, FrozenPrefixKVCache):
-                raise RuntimeError(
-                    "joint_cond TensorRT call requires a frozen-prefix KV-cache destination"
-                )
-            self.engine_calls[mode] += 1
-            return runner.run_conditioning_cached(
-                packed=packed, prompt_embs=prompt_embs, kv_cache=kv_cache
-            )
-        context_tensors = None
-        if mode == "action" and self.action_context_mode != "raw":
-            if self.conditioner is None:
-                raise RuntimeError(
-                    f"{self.action_context_mode!r} action engine requires an attached "
-                    "action context conditioner; refusing to serve without one"
-                )
-            context_tensors = self.conditioner.condition(prompt_embs)
-        # The runner rejects a shape/binding mismatch before executing; only served
-        # calls are counted (the backend proof for measurement rows).
-        output = runner(
-            packed=packed,
-            prompt_embs=prompt_embs,
-            kv_cache=kv_cache,
-            context_tensors=context_tensors,
-        )
-        self.engine_calls[mode] += 1
-        return output
+        return runner(packed=packed, prompt_embs=prompt_embs, kv_cache=kv_cache)
 
     def encode_video(self, videos: torch.Tensor, *, tiled: bool) -> torch.Tensor:
         if self.vae_runner is None:
@@ -1330,7 +822,6 @@ class N2TensorRTRuntime:
         skip_reason = self.vae_runner.skip_reason(tensors)
         if skip_reason is not None:
             raise RuntimeError(f"fixed-shape N2 TensorRT VAE call rejected: {skip_reason}")
-        self.engine_calls["vae"] += 1
         latents = self.vae_runner(tensors)
         if _host_checks_allowed() and not bool(torch.isfinite(latents).all().item()):
             raise RuntimeError("fixed-shape N2 TensorRT VAE produced non-finite output")
@@ -1338,20 +829,17 @@ class N2TensorRTRuntime:
 
     def validate_runtime(self, **kwargs: Any) -> None:
         _require_n2_runtime_contract(
-            expected_num_cameras=self.total_camera_slot_count,
-            expected_configured_cameras=self.contract.input_camera_count,
+            expected_num_cameras=self.num_cameras,
             expected_num_video_steps=self.num_video_steps,
             expected_num_action_steps=self.num_action_steps,
-            expected_cond_kv_freeze=self.served_cond_kv_freeze,
             **kwargs,
         )
 
     def validate_segment_layout(self, segment_counts: tuple[int, int, int]) -> None:
         _require_segment_layout(
             segment_counts,
-            num_cameras=self.total_camera_slot_count,
+            num_cameras=self.num_cameras,
             action_horizon=self.action_horizon,
             latent_shape=self.latent_shape,
             total_latent_frames=self.contract.total_latent_frames,
-            patch_size=self.contract.patch_size,
         )

@@ -35,8 +35,7 @@ from transformers import AutoConfig, AutoModel, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 
 from groot.core.training.configs.model.n2 import VAE_LATENT_CHANNELS, GrootN2Config
-from groot.core.training.models.n2 import tactile as n2_tactile
-from groot.core.training.models.n2.components.kv_cache import CondKVCache, FrozenPrefixKVCache
+from groot.core.training.models.n2.components.kv_cache import CondKVCache
 from groot.core.training.models.n2.components.scheduler import (
     BetaFlowMatchEulerScheduler,
     BetaSchedulerConfig,
@@ -55,10 +54,6 @@ from groot.core.training.models.n2.components.sequence_packing import (
     unpack_contiguous,
 )
 from groot.core.training.models.n2.components.text_encoder import CosmosTextEncoder
-from groot.core.training.models.n2.components.training_rtc import (
-    build_rtc_training_tensors,
-    sample_rtc_delays,
-)
 from groot.core.training.models.n2.components.transformer_cosmos import (
     COSMOS_2B_CONFIG,
     COSMOS_14B_CONFIG,
@@ -68,21 +63,6 @@ from groot.core.training.models.n2.components.transformer_cosmos import (
 from groot.core.training.models.n2.components.video_tokenizer import VideoTokenizer
 from groot.core.training.models.n2.components.wan22_video_vae import WanVideoVAE38
 from groot.core.training.models.n2.components.wan_video_vae import WanVideoVAE
-from groot.core.training.models.n2.predict_profiler import (
-    _PredictProfiler,
-    attach_profile,
-    begin_predict_profile,
-)
-
-
-def conditioning_token_index(modality_ids: torch.Tensor) -> torch.Tensor:
-    """Positions of the conditioning-video tokens in a packed joint sequence (batch item 0).
-
-    The packer gives every batch item the same modality layout, which the KV-cache
-    slicing already relies on.
-    """
-    return (modality_ids[0] == MODALITY_VIDEO_COND).nonzero(as_tuple=True)[0]
-
 
 # Key prefixes for routing checkpoint weights to sub-modules.
 VIDEO_TOKENIZER_PREFIXES = (
@@ -93,10 +73,6 @@ VIDEO_TOKENIZER_PREFIXES = (
 )
 VIDEO_ROPE_PREFIXES = ("rope.",)
 ACTION_ROPE_SEQ_KEYS = frozenset(("action_rope.seq", "state_rope.seq"))
-# The action/state RoPE tables legacy checkpoints store; a rope_fp32 model recomputes them.
-LEGACY_ROPE_BUFFER_KEYS = frozenset(
-    f"{module}_rope.{name}" for module in ("action", "state") for name in ("freqs", "seq")
-)
 ACTION_TEMPORAL_POS_EMB_KEY = "action_encoder.temporal_pos_emb"
 
 VAE_TEMPORAL_FACTOR = 4  # Wan VAE temporal compression ratio
@@ -232,12 +208,6 @@ class GrootN2(PreTrainedModel):
 
     config_class = GrootN2Config
     supports_gradient_checkpointing = True
-    # The loss is a per-batch mean that never reads num_items_in_batch. Without this, HF infers
-    # the opposite from forward's **kwargs and skips its 1/gradient_accumulation_steps scaling;
-    # DeepSpeed (scale_wrt_gas=False) skips it too, so accumulated gradients were summed.
-    accepts_loss_kwargs = False
-    # Set by n2_tactile.attach when the config has tactile_cfg / deform_cfg.
-    tactile_spec = None
 
     def __init__(self, config: GrootN2Config):
         super().__init__(config)
@@ -253,11 +223,7 @@ class GrootN2(PreTrainedModel):
             in_channels=latent_channels + 1,  # +1 for the cond_mask channel
             out_channels=latent_channels,
         )
-        self.video_tokenizer = VideoTokenizer(
-            dit_config, bottleneck_kernel=config.vae_bottleneck_kernel
-        )
-        # RoPE and the transformer must use the tokenizer's enlarged patch grid.
-        dit_config = self.video_tokenizer.config
+        self.video_tokenizer = VideoTokenizer(dit_config)
         # RoPE lives here (sibling to video_tokenizer), not inside it
         self.video_rope = MultiViewRoPE(
             dit_config.attention_head_dim,
@@ -302,23 +268,16 @@ class GrootN2(PreTrainedModel):
             self.state_encoder = StateEncoder(ac.get("max_state_dim", 64), hidden_size, n_emb)
             self.state_dropout_prob = ac.get("state_dropout_prob", 0.0)
             self.action_decoder = ActionDecoder(hidden_size, ac.get("max_action_dim", 32), n_emb)
-            rope_persistent = not config.rope_fp32
             self.action_rope = ActionRoPE1D(
-                dit_config.attention_head_dim,
-                max_len=ac.get("action_horizon", 48),
-                persistent=rope_persistent,
+                dit_config.attention_head_dim, max_len=ac.get("action_horizon", 48)
             )
             self.state_rope = ActionRoPE1D(
-                dit_config.attention_head_dim,
-                max_len=ac.get("action_horizon", 48),
-                persistent=rope_persistent,
+                dit_config.attention_head_dim, max_len=ac.get("action_horizon", 48)
             )
             self.attention_mask_pattern = ac.get("attention_mask_pattern", None)
         # 2. Frozen components
         self.text_encoder = CosmosTextEncoder(**config.text_encoder_cfg)
         self.vae = self.build_vae(config)
-        # 2b. Tactile-force / deform-map conditioning modules (None when not configured).
-        self.tactile_spec = n2_tactile.attach(self, config, dit_config)
 
         # 3. Schedulers
         self.video_scheduler = self._make_video_scheduler(config)
@@ -597,21 +556,25 @@ class GrootN2(PreTrainedModel):
         denoising_step: int,
         total_denoising_steps: int,
     ) -> dict:
-        """Supply project tokens at the selected joint solver step before packing.
-
-        Base N2 supplies its tactile/deform conditioning groups, if configured.
-        """
-        del video_timesteps, action_tokens, denoising_step, total_denoising_steps
-        return n2_tactile.inference_pack_kwargs(self, data, video_tokens=video_tokens)
+        """Supply project tokens at the selected joint solver step before packing."""
+        del (
+            data,
+            video_tokens,
+            video_timesteps,
+            action_tokens,
+            denoising_step,
+            total_denoising_steps,
+        )
+        return {}
 
     def _static_inference_packing_kwargs(self, *, data: dict, video_tokens: torch.Tensor) -> dict:
         """Supply project conditioning groups for the disjoint (_denoise_action) path.
 
         Returned groups are packed into the cached static prefix and every uncached
-        action step, so every group must be kv_cacheable. Base N2 supplies its
-        tactile/deform conditioning groups, if configured.
+        action step, so every group must be kv_cacheable. Base N2 has none.
         """
-        return n2_tactile.inference_pack_kwargs(self, data, video_tokens=video_tokens)
+        del data, video_tokens
+        return {}
 
     def _build_token_merge_attention_mask(
         self,
@@ -840,17 +803,6 @@ class GrootN2(PreTrainedModel):
 
         B, C, T, H, W = latents.shape
 
-        # 3b. Tactile/deform inputs (None without tactile configs). Before step 5: the
-        # future-force noise is drawn before the video/action noise.
-        tactile_inputs = n2_tactile.prepare_training_inputs(
-            self,
-            data,
-            batch_size=B,
-            device=device,
-            has_action=has_action,
-            action_loss_details=return_action_loss_details,
-        )
-
         # 4. Determine conditioning frames
         # num_cond_frames = number of pixel frames with delta_indices <= 0
         # VAE temporal compression: (n_pixel - 1) // 4 + 1 latent frames
@@ -949,34 +901,14 @@ class GrootN2(PreTrainedModel):
                 )
 
                 T_action = actions.shape[1]
+                action_ts_per_step = action_ts.expand(B, T_action)
+                action_sigmas_per_step = action_sigmas.expand(B, T_action)
+                noisy_actions = self.action_scheduler.add_noise(
+                    actions.flatten(0, 1),
+                    action_noise.flatten(0, 1),
+                    action_ts_per_step.flatten(0, 1),
+                ).unflatten(0, (B, T_action))
                 action_target = self.action_scheduler.training_target(actions, action_noise)
-                if self.training and self.config.use_training_rtc:
-                    delays = sample_rtc_delays(
-                        B,
-                        self.config.training_rtc_max_delay,
-                        device,
-                    )
-                    (
-                        noisy_actions,
-                        action_ts_per_step,
-                        action_sigmas_per_step,
-                        action_mask,
-                    ) = build_rtc_training_tensors(
-                        actions,
-                        action_noise,
-                        action_mask,
-                        delays,
-                        action_ts,
-                        cond_sigma=self.cond_timestep,
-                    )
-                else:
-                    action_ts_per_step = action_ts.expand(B, T_action)
-                    action_sigmas_per_step = action_sigmas.expand(B, T_action)
-                    noisy_actions = self.action_scheduler.add_noise(
-                        actions.flatten(0, 1),
-                        action_noise.flatten(0, 1),
-                        action_ts_per_step.flatten(0, 1),
-                    ).unflatten(0, (B, T_action))
 
                 # ActionEncoder uses t (N1.7 convention); transformer AdaLN uses sigma
                 action_tokens = self.action_encoder(
@@ -1032,7 +964,6 @@ class GrootN2(PreTrainedModel):
                 state_rope=state_rope_freqs,
                 attention_mask_pattern=getattr(self, "attention_mask_pattern", None),
                 token_valid_mask=token_valid_mask,
-                **n2_tactile.training_pack_kwargs(self, tactile_inputs, dtype=video_tokens.dtype),
                 **self._training_packing_kwargs(
                     data=data,
                     video_tokens=video_tokens,
@@ -1140,15 +1071,6 @@ class GrootN2(PreTrainedModel):
                     "video_padded_mask sum=%s",
                     padded_sum,
                 )
-
-        additional_loss, additional_metrics = n2_tactile.add_training_loss(
-            self,
-            tactile_inputs,
-            packed=packed,
-            out_tokens=out_tokens,
-            additional_loss=additional_loss,
-            additional_metrics=additional_metrics,
-        )
 
         # 11. Action loss
         # action_cfg is None for video-only recipes, which still scale the video loss.
@@ -1445,7 +1367,6 @@ class GrootN2(PreTrainedModel):
         Returns:
             (B, T_action, max_action_dim) denoised action latents.
         """
-        n2_tactile.check_future_inference(self, data, joint_denoise=False)
         device = self.device
         dtype = torch.bfloat16
         n_cameras = self.max_n_cameras
@@ -1927,14 +1848,9 @@ class GrootN2(PreTrainedModel):
         seed: int,
         num_action_steps: int | None = None,
         use_kv_cache: bool = False,
-        cond_kv_freeze: bool = False,
         step_callback=None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Joint video-action denoising, including future force when trained.
-
-        Future force advances once per video step; tactile CFG uses
-        video_guidance_scale. Cached action substeps retain the video/force
-        snapshot from that joint forward, refreshed at the next outer iteration.
+        """Joint video-action denoising.
 
         Symmetric legacy mode (``num_action_steps is None`` or equal to
         ``num_steps``, or ``use_kv_cache=False``): one joint forward per step,
@@ -1956,7 +1872,6 @@ class GrootN2(PreTrainedModel):
             (video_latents, action_pred): video latents (B, C, T_full, H, W)
             and denoised actions (B, T_action, max_action_dim).
         """
-        n2_tactile.check_future_inference(self, data, joint_denoise=True)
         device = self.device
         dtype = torch.bfloat16
         n_cameras = self.max_n_cameras
@@ -1972,13 +1887,6 @@ class GrootN2(PreTrainedModel):
                 f"use_kv_cache is set"
             )
         k = num_action_steps // num_video_steps
-        if cond_kv_freeze and not (use_kv_cache and k > 1):
-            raise ValueError(
-                "cond_kv_freeze requires the conditioning KV cache with more action "
-                "steps than video steps (the step-0 capture is what gets frozen)"
-            )
-        # Conditioning-video K/V captured on step 0, held for the later joint steps.
-        frozen_cond: FrozenPrefixKVCache | None = None
 
         B, C, T_cond_total, H, W = cond_latent.shape
         assert T_cond_total % n_cameras == 0
@@ -2006,15 +1914,6 @@ class GrootN2(PreTrainedModel):
         max_action_dim = ac.get("max_action_dim", 32)
         action_latents = torch.randn(
             B, T_action, max_action_dim, device=device, dtype=dtype, generator=noise_gen
-        )
-
-        future_tactile = n2_tactile.prepare_future_inference(
-            self,
-            batch_size=B,
-            device=device,
-            num_steps=num_video_steps,
-            shift=shift,
-            generator=noise_gen,
         )
 
         # ── Encode state (constant across steps) ─────────────────────
@@ -2055,9 +1954,6 @@ class GrootN2(PreTrainedModel):
         action_cfg_on = neg_prompt_embs is not None and action_guidance_scale != 1.0
         video_cfg_on = neg_prompt_embs is not None and video_guidance_scale != 1.0
         cfg_on = action_cfg_on or video_cfg_on
-        if cond_kv_freeze and cfg_on:
-            raise ValueError("cond_kv_freeze does not support classifier-free guidance")
-        observed_tactile_kwargs = None  # local to this prediction, never a model cache
 
         for i in range(num_video_steps):
             video_sigma = vid_sched.sigmas[i].to(dtype)
@@ -2105,29 +2001,6 @@ class GrootN2(PreTrainedModel):
                     device=device,
                 )
 
-                if observed_tactile_kwargs is None:
-                    packing_kwargs = self._joint_inference_packing_kwargs(
-                        data=data,
-                        video_tokens=video_tokens,
-                        video_timesteps=video_token_sigmas,
-                        action_tokens=action_tokens,
-                        denoising_step=i,
-                        total_denoising_steps=num_video_steps,
-                    )
-                    # Tactile is supported only on exact GrootN2. Its observed
-                    # inputs are constant; other project hooks remain per-step.
-                    if getattr(self, "tactile_spec", None) is not None:
-                        observed_tactile_kwargs = packing_kwargs
-                else:
-                    packing_kwargs = observed_tactile_kwargs
-                if future_tactile is not None:
-                    packing_kwargs = future_tactile.pack(
-                        self,
-                        packing_kwargs,
-                        step=i,
-                        dtype=video_tokens.dtype,
-                    )
-
                 # Pack all modalities together
                 packed = self.packer.pack(
                     video_tokens=video_tokens,
@@ -2143,7 +2016,14 @@ class GrootN2(PreTrainedModel):
                     state_rope=state_rope_freqs,
                     attention_mask_pattern=getattr(self, "attention_mask_pattern", None),
                     token_valid_mask=token_valid_mask,
-                    **packing_kwargs,
+                    **self._joint_inference_packing_kwargs(
+                        data=data,
+                        video_tokens=video_tokens,
+                        video_timesteps=video_token_sigmas,
+                        action_tokens=action_tokens,
+                        denoising_step=i,
+                        total_denoising_steps=num_video_steps,
+                    ),
                 )
 
                 tm_kwargs = {}
@@ -2155,14 +2035,6 @@ class GrootN2(PreTrainedModel):
                 # Joint forward (captures K/V when we have cached sub-steps to
                 # run this iteration).
                 pos_cache = CondKVCache() if (use_kv_cache and k > 1) else None
-                if cond_kv_freeze and token_merge is not None:
-                    raise ValueError("cond_kv_freeze does not support token merge")
-                if cond_kv_freeze and i > 0:
-                    # Hold the conditioning-video K/V at their step-0 values: the
-                    # transformer captures this step's K/V as usual, with those
-                    # positions overwritten (see FrozenPrefixKVCache).
-                    assert frozen_cond is not None
-                    pos_cache = frozen_cond.fresh()
                 out_tokens = self._call_transformer(
                     packed,
                     prompt_embs,
@@ -2179,9 +2051,6 @@ class GrootN2(PreTrainedModel):
 
                 action_out = unpack_contiguous(out_tokens, packed, MODALITY_ACTION)
                 action_noise_pred = self.action_decoder(action_out, embodiment_id)
-
-            if future_tactile is not None:
-                tactile_velocity = future_tactile.decode_velocity(self, out_tokens, packed)
 
             # Apply conditioning mask to video prediction
             video_noise_pred = gt_velocity + video_noise_pred * (1 - cond_mask)
@@ -2210,14 +2079,6 @@ class GrootN2(PreTrainedModel):
                     action_out_neg = unpack_contiguous(out_tokens_neg, packed, MODALITY_ACTION)
                     action_noise_pred_neg = self.action_decoder(action_out_neg, embodiment_id)
 
-                if future_tactile is not None:
-                    tactile_velocity_neg = future_tactile.decode_velocity(
-                        self, out_tokens_neg, packed
-                    )
-                    tactile_velocity = tactile_velocity_neg + video_guidance_scale * (
-                        tactile_velocity - tactile_velocity_neg
-                    )
-
                 video_noise_pred_neg = gt_velocity + video_noise_pred_neg * (1 - cond_mask)
                 video_noise_pred = video_noise_pred_neg + video_guidance_scale * (
                     video_noise_pred - video_noise_pred_neg
@@ -2237,8 +2098,6 @@ class GrootN2(PreTrainedModel):
                 step_index=act_step,
             )[0]
             act_step += 1
-            if future_tactile is not None:
-                future_tactile.advance(tactile_velocity, i)
 
             # k-1 cached action sub-steps — action-only forwards against the
             # captured static-prefix K/V. Drops every key action doesn't
@@ -2246,10 +2105,6 @@ class GrootN2(PreTrainedModel):
             # itself; often v_denoise too).
             if pos_cache is None:
                 continue
-            if cond_kv_freeze and i == 0:
-                frozen_cond = FrozenPrefixKVCache.from_captured(
-                    pos_cache, conditioning_token_index(packed.modality_ids)
-                )
             # Conditional kwargs — see _build_token_merge_plan's docstring.
             tm_slice_kwargs = {"token_merge": token_merge} if token_merge is not None else {}
             slice_valid_mask = token_valid_mask
@@ -2280,12 +2135,6 @@ class GrootN2(PreTrainedModel):
                     action_tokens = self.action_encoder(
                         action_latents, action_t_per_step, embodiment_id
                     )
-                    if future_tactile is not None:
-                        # The solver can promote action latents/tokens to FP32.
-                        # Keep the joint snapshot's input precision: Cosmos's
-                        # timestep embedding uses the token dtype even under
-                        # autocast, so changing it alters the cached forward.
-                        action_tokens = action_tokens.to(packed.tokens.dtype)
                     action_rope_freqs = self.action_rope(action_tokens)
 
                     action_noise_pred = self._run_action_step(
@@ -2416,42 +2265,6 @@ class GrootN2(PreTrainedModel):
             sliced.value_cache.append(v_layer.index_select(2, keep_idx).clone())
         return sliced
 
-    def _resolve_negative_prompt_embs(
-        self,
-        data: dict,
-        device: torch.device,
-        video_guidance_scale: float,
-        action_guidance_scale: float,
-        profiler: _PredictProfiler,
-    ) -> torch.Tensor | None:
-        """Encode ``data["text_negative"]``, cached across predicts while unchanged.
-
-        Skipped entirely when both guidance scales are 1.0: CFG is off, so the
-        embedding would be computed and never read.
-        """
-        needs_negative_prompt = "text_negative" in data and (
-            video_guidance_scale != 1.0 or action_guidance_scale != 1.0
-        )
-        if not needs_negative_prompt:
-            return None
-        negative_text = data["text_negative"]
-        negative_text_cache_key = negative_text.detach().cpu()
-        cached_negative_text_key = getattr(self, "_cached_negative_text_key", None)
-        cached_negative_prompt_embs = getattr(self, "_cached_negative_prompt_embs", None)
-        negative_prompt_cache_hit = (
-            isinstance(cached_negative_text_key, torch.Tensor)
-            and cached_negative_prompt_embs is not None
-            and torch.equal(cached_negative_text_key, negative_text_cache_key)
-        )
-        profiler.metadata["negative_prompt_cache_hit"] = negative_prompt_cache_hit
-        if negative_prompt_cache_hit:
-            return cached_negative_prompt_embs.to(device=device)
-        with profiler.section("negative_text_encode_ms"):
-            neg_prompt_embs = self.encode_text(negative_text.to(device))
-        self._cached_negative_text_key = negative_text_cache_key.clone()
-        self._cached_negative_prompt_embs = neg_prompt_embs.detach()
-        return neg_prompt_embs
-
     @torch.no_grad()
     def predict(
         self,
@@ -2467,7 +2280,6 @@ class GrootN2(PreTrainedModel):
         joint_denoise: bool = True,
         prompt_embs: torch.Tensor | None = None,
         kv_cache_cond: bool = False,
-        cond_kv_freeze: bool = False,
         step_callback=None,
     ) -> dict:
         """Predict actions and optionally video via diffusion denoising.
@@ -2497,13 +2309,6 @@ class GrootN2(PreTrainedModel):
                 update, where ``k = num_action_steps // num_video_steps``.
                 Unsupported with the ``FULL`` attention pattern (video not
                 self-contained).
-            cond_kv_freeze: Approximation for joint denoising with ``kv_cache_cond``:
-                hold the conditioning-video tokens' per-layer self-attention K/V at
-                the values captured on the first joint step for every later joint
-                step. Those tokens' inputs are identical across steps and their
-                predicted velocity is discarded, so only the drift of their K/V is
-                approximated. Not supported with classifier-free guidance, token
-                merge, or disjoint denoising.
             step_callback: Optional callback invoked after each completed joint
                 video denoising step with ``(completed_steps, total_steps)``.
 
@@ -2517,145 +2322,107 @@ class GrootN2(PreTrainedModel):
         if "inputs" in data:
             data = data["inputs"]
 
-        n2_tactile.check_future_inference(self, data, joint_denoise=joint_denoise)
         device = self.device
-        profiler = begin_predict_profile(
-            device,
-            predict_video=predict_video,
-            joint_denoise=joint_denoise,
-            kv_cache_cond=kv_cache_cond,
-            requested_num_video_steps=num_video_steps,
-            requested_num_action_steps=num_action_steps,
-            video_guidance_scale=video_guidance_scale,
-            action_guidance_scale=action_guidance_scale,
-            shift=shift,
-        )
 
         # ── Shared encoding ──────────────────────────────────────────────
-        with profiler.section("input_to_device_ms"):
-            images = data["images"].to(device)
-        with profiler.section("video_preprocess_ms"):
-            videos = self._preprocess_video(images)
-        with profiler.section("vae_video_encode_ms"):
-            latents = self.encode_video(videos)
+        images = data["images"].to(device)
+        videos = self._preprocess_video(images)
+        latents = self.encode_video(videos)
 
-        prompt_cache_hit = prompt_embs is not None
-        profiler.metadata["prompt_cache_hit"] = prompt_cache_hit
         if prompt_embs is None:
-            with profiler.section("text_encode_ms"):
-                text_ids = data["text"].to(device)
-                prompt_embs = self.encode_text(text_ids)
+            text_ids = data["text"].to(device)
+            prompt_embs = self.encode_text(text_ids)
 
-        with profiler.section("cond_extract_ms"):
-            num_cond_pixel = data.get("num_cond_frames", torch.zeros(1, dtype=torch.long))
-            if isinstance(num_cond_pixel, torch.Tensor):
-                assert torch.all(
-                    num_cond_pixel == num_cond_pixel[0]
-                ), f"num_cond_frames must be uniform across batch, got {num_cond_pixel}"
-                num_cond_pixel = num_cond_pixel[0].item()
-            num_cond_latent = self._pixel_to_latent_frames(int(num_cond_pixel))
-            cond_latent = self._extract_cond_latents(latents, num_cond_latent)
+        num_cond_pixel = data.get("num_cond_frames", torch.zeros(1, dtype=torch.long))
+        if isinstance(num_cond_pixel, torch.Tensor):
+            assert torch.all(
+                num_cond_pixel == num_cond_pixel[0]
+            ), f"num_cond_frames must be uniform across batch, got {num_cond_pixel}"
+            num_cond_pixel = num_cond_pixel[0].item()
+        num_cond_latent = self._pixel_to_latent_frames(int(num_cond_pixel))
+        cond_latent = self._extract_cond_latents(latents, num_cond_latent)
 
         result = {"prompt_embs": prompt_embs}
         has_action = self.has_action_head and "state" in data
 
         # ── Shared: num_gen_latent + negative prompt ─────────────────────
-        neg_prompt_embs = self._resolve_negative_prompt_embs(
-            data, device, video_guidance_scale, action_guidance_scale, profiler
-        )
+        neg_prompt_embs = None
+        if "text_negative" in data:
+            neg_prompt_embs = self.encode_text(data["text_negative"].to(device))
 
-        with profiler.section("num_frames_resolve_ms"):
-            num_total_pixel = data.get("num_total_frames", None)
-            if num_total_pixel is not None:
-                if isinstance(num_total_pixel, torch.Tensor):
-                    assert torch.all(
-                        num_total_pixel == num_total_pixel[0]
-                    ), f"num_total_frames must be uniform across batch, got {num_total_pixel}"
-                    num_total_pixel = num_total_pixel[0].item()
-                num_total_latent = self._pixel_to_latent_frames(int(num_total_pixel))
-            else:
-                num_total_latent = latents.shape[2] // self.max_n_cameras
-            num_gen_latent = num_total_latent - num_cond_latent
+        num_total_pixel = data.get("num_total_frames", None)
+        if num_total_pixel is not None:
+            if isinstance(num_total_pixel, torch.Tensor):
+                assert torch.all(
+                    num_total_pixel == num_total_pixel[0]
+                ), f"num_total_frames must be uniform across batch, got {num_total_pixel}"
+                num_total_pixel = num_total_pixel[0].item()
+            num_total_latent = self._pixel_to_latent_frames(int(num_total_pixel))
+        else:
+            num_total_latent = latents.shape[2] // self.max_n_cameras
+        num_gen_latent = num_total_latent - num_cond_latent
 
         # ── Resolve joint vs disjoint denoising ────────────────────────
         if joint_denoise and has_action:
             assert num_gen_latent > 0, f"No frames to generate: num_gen_latent={num_gen_latent}"
-            with profiler.section("denoise_joint_ms"):
-                video_latents, action_pred = self._denoise_joint(
-                    data=data,
-                    cond_latent=cond_latent,
-                    prompt_embs=prompt_embs,
-                    neg_prompt_embs=neg_prompt_embs,
-                    num_gen_latent=num_gen_latent,
-                    num_steps=num_video_steps,
-                    video_guidance_scale=video_guidance_scale,
-                    action_guidance_scale=action_guidance_scale,
-                    shift=shift,
-                    seed=seed,
-                    # Only honor num_action_steps in joint mode when caching the
-                    # static prefix; otherwise keep legacy behavior where both
-                    # schedulers use num_video_steps.
-                    num_action_steps=num_action_steps if kv_cache_cond else None,
-                    use_kv_cache=kv_cache_cond,
-                    cond_kv_freeze=cond_kv_freeze,
-                    step_callback=step_callback,
-                )
-            result["action_pred"] = action_pred
-            if predict_video:
-                result["video_latents"] = video_latents
-            return attach_profile(profiler, result)
-
-        # ── Decoupled denoising (disjoint attention mode) ────────────────
-        if cond_kv_freeze:
-            raise ValueError("cond_kv_freeze applies to joint denoising only")
-        if has_action:
-            with profiler.section("denoise_action_ms"):
-                result["action_pred"] = self._denoise_action(
-                    data=data,
-                    cond_latent=cond_latent,
-                    prompt_embs=prompt_embs,
-                    neg_prompt_embs=neg_prompt_embs,
-                    num_steps=num_action_steps,
-                    guidance_scale=action_guidance_scale,
-                    seed=seed,
-                    use_kv_cache=kv_cache_cond,
-                )
-
-        if not predict_video:
-            return attach_profile(profiler, result)
-
-        assert num_gen_latent > 0, f"No frames to generate: num_gen_latent={num_gen_latent}"
-
-        with profiler.section("denoise_video_ms"):
-            result["video_latents"] = self._denoise_video(
+            video_latents, action_pred = self._denoise_joint(
+                data=data,
                 cond_latent=cond_latent,
                 prompt_embs=prompt_embs,
                 neg_prompt_embs=neg_prompt_embs,
                 num_gen_latent=num_gen_latent,
                 num_steps=num_video_steps,
-                guidance_scale=video_guidance_scale,
+                video_guidance_scale=video_guidance_scale,
+                action_guidance_scale=action_guidance_scale,
                 shift=shift,
                 seed=seed,
-                video_padded_mask=data.get("video_padded_mask"),
+                # Only honor num_action_steps in joint mode when caching the
+                # static prefix; otherwise keep legacy behavior where both
+                # schedulers use num_video_steps.
+                num_action_steps=num_action_steps if kv_cache_cond else None,
+                use_kv_cache=kv_cache_cond,
+                step_callback=step_callback,
+            )
+            result["action_pred"] = action_pred
+            if predict_video:
+                result["video_latents"] = video_latents
+            return result
+
+        # ── Decoupled denoising (disjoint attention mode) ────────────────
+        if has_action:
+            result["action_pred"] = self._denoise_action(
+                data=data,
+                cond_latent=cond_latent,
+                prompt_embs=prompt_embs,
+                neg_prompt_embs=neg_prompt_embs,
+                num_steps=num_action_steps,
+                guidance_scale=action_guidance_scale,
+                seed=seed,
+                use_kv_cache=kv_cache_cond,
             )
 
-        return attach_profile(profiler, result)
+        if not predict_video:
+            return result
+
+        assert num_gen_latent > 0, f"No frames to generate: num_gen_latent={num_gen_latent}"
+
+        result["video_latents"] = self._denoise_video(
+            cond_latent=cond_latent,
+            prompt_embs=prompt_embs,
+            neg_prompt_embs=neg_prompt_embs,
+            num_gen_latent=num_gen_latent,
+            num_steps=num_video_steps,
+            guidance_scale=video_guidance_scale,
+            shift=shift,
+            seed=seed,
+            video_padded_mask=data.get("video_padded_mask"),
+        )
+
+        return result
 
     @property
     def device(self):
         return next(iter(self.parameters())).device
-
-    @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        """Validate frozen tactile encoders after HF has loaded all checkpoint shards."""
-        output_loading_info = kwargs.pop("output_loading_info", False)
-        model, info = super().from_pretrained(*args, output_loading_info=True, **kwargs)
-        # HF versions report mismatches either as keys or as (key, old_shape, new_shape).
-        mismatched = [k if isinstance(k, str) else k[0] for k in info["mismatched_keys"]]
-        n2_tactile.complete_encoder_load(
-            model, [*info["missing_keys"], *mismatched], from_pretrained=True
-        )
-        return (model, info) if output_loading_info else model
 
     def load_state_dict(self, state_dict, strict=True, assign=False):
         """Override to remap legacy checkpoint keys.
@@ -2668,9 +2435,6 @@ class GrootN2(PreTrainedModel):
         ``_fix_state_dict_key_on_load`` (the same hook HF runs on every
         internal load path including ``from_pretrained``), so direct callers
         and ``from_pretrained`` produce equivalent post-load weights.
-
-        A ``rope_fp32`` model drops the stored action/state RoPE tables
-        (``LEGACY_ROPE_BUFFER_KEYS``), strict or not, and keeps its fp32 ones.
         """
         from groot.core.training.models.n2.utils.checkpoint_compat import (
             remap_n2_vae_key,
@@ -2678,7 +2442,6 @@ class GrootN2(PreTrainedModel):
         )
 
         current_state = self.state_dict() if not strict else {}
-        drop_rope_tables = bool(getattr(getattr(self, "config", None), "rope_fp32", False))
         remapped = {}
         for key, val in state_dict.items():
             new_key = key
@@ -2690,8 +2453,6 @@ class GrootN2(PreTrainedModel):
                     new_key = f"video_tokenizer.{suffix}"
             new_key = remap_n2_vae_key(new_key)
             new_key, _ = self._fix_state_dict_key_on_load(new_key)
-            if drop_rope_tables and new_key in LEGACY_ROPE_BUFFER_KEYS:
-                continue
             if (
                 not strict
                 and new_key in ACTION_ROPE_SEQ_KEYS
@@ -2721,9 +2482,7 @@ class GrootN2(PreTrainedModel):
                 remapped[new_key] = resized_val
                 continue
             remapped[new_key] = val
-        result = super().load_state_dict(remapped, strict=strict, assign=assign)
-        n2_tactile.record_encoder_load(self, remapped.keys())
-        return result
+        return super().load_state_dict(remapped, strict=strict, assign=assign)
 
     @staticmethod
     def _fix_state_dict_key_on_load(key):
@@ -2793,15 +2552,12 @@ class GrootN2(PreTrainedModel):
         if pe_key in sd:
             ckpt_shape = sd[pe_key].shape
             model_shape = self.video_tokenizer.patch_embed.proj.weight.shape
-            # Pad base Cosmos weights before the tokenizer's bottleneck expansion.
-            k_t, k_h, k_w = self.video_tokenizer.bottleneck_kernel or (1, 1, 1)
-            load_shape = torch.Size((model_shape[0], model_shape[1] // (k_t * k_h * k_w)))
-            if ckpt_shape not in (model_shape, load_shape) and ckpt_shape[0] == load_shape[0]:
+            if ckpt_shape != model_shape and ckpt_shape[0] == model_shape[0]:
                 logging.info(
                     f"[GrootN2] patch_embed shape mismatch: ckpt={ckpt_shape} "
-                    f"load={load_shape}, zero-padding"
+                    f"model={model_shape}, zero-padding"
                 )
-                padded = torch.zeros(load_shape, dtype=sd[pe_key].dtype, device=sd[pe_key].device)
+                padded = torch.zeros(model_shape, dtype=sd[pe_key].dtype, device=sd[pe_key].device)
                 padded[:, : ckpt_shape[1]] = sd[pe_key]
                 sd[pe_key] = padded
 

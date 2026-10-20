@@ -8,7 +8,10 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# The build context is the package root. The image installs only the lock.
-*
-!pyproject.toml
-!uv.lock
+"""Robot-agnostic chain-of-thought (System-2) policy wrappers.
+
+A remote VLM planner translates a high-level goal plus current camera frames
+into a simplified next-step instruction, which is written into the observation
+before the wrapped (System-1) policy computes actions. Camera-frame extraction
+and the instruction key are injected so any embodiment can reuse these wrappers.
+"""

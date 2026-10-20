@@ -15,11 +15,6 @@ from typing import Any, TypedDict
 from transformers import PretrainedConfig
 
 from groot.core.training.configs.model import register_model_config
-from groot.core.training.configs.model.n2_tactile import (
-    DeformConfigArg,
-    TactileConfigArg,
-    validate_tactile_model_config,
-)
 
 # The DiT's patch_embed/proj_out shapes derive from this, so the transformer and
 # the VAE cannot disagree.
@@ -126,11 +121,6 @@ class ActionConfig(TypedDict, total=False):
     # clip_outliers=False when the outputs are meant to exceed the q01/q99 band. Absent
     # from checkpoints saved before this key existed, so those keep clamping.
     skip_inference_clip: bool
-    # Bound for normalized ACTIONS, for both the clip_outliers label clip and the decode clamp:
-    # [-action_clip_range, action_clip_range] (default 1.0). State stays [-1, 1]. With q01/q99
-    # normalization, 2.0 keeps most of the 1% tails per side that [-1, 1] cuts. Absent from
-    # checkpoints saved before this key existed, so those keep [-1, 1].
-    action_clip_range: float
     state_dropout_prob: float  # probability of zeroing out state during training (default 0.0)
     # Beta flow matching noise schedule (N1.7-style)
     noise_beta_alpha: float  # Beta distribution alpha (default 1.5)
@@ -182,9 +172,6 @@ class GrootN2Config(PretrainedConfig):
     # Owns the DiT's patch_embed/proj_out widths and the VAE class, so the two
     # latent spaces are not checkpoint-compatible in either direction.
     vae_type: str = "wan21"
-    # Spatial projection bottleneck: enlarges patch_embed/proj_out without
-    # changing VAE latents or supervision. Incompatible with token merging.
-    vae_bottleneck_kernel: tuple[int, int, int] | None = None
     # Token merge: spatially mean-pool video tokens by (1, kh, kw) for layers
     # [token_merge_layers[0], token_merge_layers[1]), then broadcast-upsample with
     # an additive detail skip before the remaining fine layers. Zero new
@@ -203,10 +190,6 @@ class GrootN2Config(PretrainedConfig):
     train_video_sigma_shift: float = 5.0
     cond_timestep: float = 0.1  # matches Cosmos Predict 2.5 convention
     num_timestep_buckets: int = 1000
-
-    # Train on exact clean action prefixes so hard-prefix RTC is in-distribution.
-    use_training_rtc: bool = False
-    training_rtc_max_delay: int = 0
 
     # Video flow-matching scheduler. "unipc" (default — shifted sigma + UniPC
     # solver, many-step inference) or "beta" (Beta-distribution timesteps
@@ -264,35 +247,10 @@ class GrootN2Config(PretrainedConfig):
     text_encoder_cfg: TextEncoderConfig | None = None
     vae_cfg: VAEConfig | None = None
     action_cfg: ActionConfig | None = None  # None = video-only (no action modules)
-    # True: the action/state RoPE tables are fp32 constants that checkpoints do not store,
-    # and training (DeepSpeed) and serving cast parameters only to bf16, so every fp32 buffer
-    # (RoPE tables, Qwen inv_freq, VAE mean/inv_std) stays fp32. None/False: the legacy
-    # stored tables and whole-model bf16 casts. Training and serving resolve it from the
-    # checkpoint (groot/core/utils/n2_numerics.py); new checkpoints record it.
-    rope_fp32: bool | None = None
-    # Legacy posttraining checkpoints may also persist their mapping on the model.
-    embodiment_id_mapping: dict[str, int] | None = None
-    # Tactile conditioning (plain GrootN2 only); JSON flags on the command line, see
-    # n2_tactile.py.
-    tactile_cfg: TactileConfigArg = None  # None = no tactile-force conditioning
-    deform_cfg: DeformConfigArg = None  # None = no deform-map conditioning
 
     def __init__(self, **kwargs):
         if "action_cfg" in kwargs:
             kwargs["action_cfg"] = _normalize_action_cfg(kwargs["action_cfg"])
-        bottleneck_kernel = kwargs.get("vae_bottleneck_kernel")
-        if bottleneck_kernel is not None:
-            if (
-                not isinstance(bottleneck_kernel, list | tuple)
-                or len(bottleneck_kernel) != 3
-                or any(type(size) is not int or size < 1 for size in bottleneck_kernel)
-            ):
-                raise ValueError("vae_bottleneck_kernel must contain three positive integers")
-            if bottleneck_kernel[0] != 1:
-                raise ValueError("vae_bottleneck_kernel must be spatial-only: (1, kh, kw)")
-            if kwargs.get("token_merge_kernel") is not None:
-                raise ValueError("vae_bottleneck_kernel and token merging are mutually exclusive")
-            kwargs["vae_bottleneck_kernel"] = tuple(bottleneck_kernel)
         token_merge_kernel = kwargs.get("token_merge_kernel")
         if token_merge_kernel is not None:
             if (
@@ -323,26 +281,9 @@ class GrootN2Config(PretrainedConfig):
                     f"token_merge_layers must satisfy 0 <= start < end, got {token_merge_layers}"
                 )
             kwargs["token_merge_layers"] = (int(start), int(end))
-        validate_tactile_model_config(kwargs, exact_groot_n2=type(self) is GrootN2Config)
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
-        if self.embodiment_id_mapping is not None:
-            if not isinstance(self.embodiment_id_mapping, dict) or any(
-                not isinstance(tag, str) or type(index) is not int
-                for tag, index in self.embodiment_id_mapping.items()
-            ):
-                raise ValueError("embodiment_id_mapping must map string tags to integer IDs")
-            if self.action_cfg is not None:
-                num_embodiments = self.action_cfg.get("num_embodiments", 1)
-                if any(
-                    not 0 <= index < num_embodiments
-                    for index in self.embodiment_id_mapping.values()
-                ):
-                    raise ValueError(
-                        "embodiment_id_mapping IDs must satisfy "
-                        f"0 <= ID < num_embodiments ({num_embodiments})"
-                    )
         if self.pretrained_view_indices is not None:
             indices = self.pretrained_view_indices
             if (
@@ -367,25 +308,6 @@ class GrootN2Config(PretrainedConfig):
             if kwargs.get("tiled", False):
                 raise ValueError("vae_type='wan22' does not support tiled VAE encode/decode")
             self.tiled = False
-
-        if self.rope_fp32 is not None and not isinstance(self.rope_fp32, bool):
-            raise TypeError("rope_fp32 must be a bool or None")
-        if not isinstance(self.use_training_rtc, bool):
-            raise TypeError("use_training_rtc must be a bool")
-        if isinstance(self.training_rtc_max_delay, bool) or not isinstance(
-            self.training_rtc_max_delay, int
-        ):
-            raise TypeError("training_rtc_max_delay must be an int")
-        if self.training_rtc_max_delay < 0:
-            raise ValueError("training_rtc_max_delay must be non-negative")
-        if self.use_training_rtc:
-            if self.action_cfg is None:
-                raise ValueError("use_training_rtc requires action_cfg")
-            action_horizon = self.action_cfg.get("action_horizon", 48)
-            if self.training_rtc_max_delay >= action_horizon:
-                raise ValueError(
-                    f"training_rtc_max_delay must be smaller than action_horizon ({action_horizon})"
-                )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize external model assets by durable identity, not cluster-local cache path."""

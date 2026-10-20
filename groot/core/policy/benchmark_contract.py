@@ -40,26 +40,16 @@ FORMAL_MEASURED_REQUESTS = 500
 MEASUREMENT_VALIDATOR_SCHEMA_VERSION = "n2-measurement-validator-v1"
 REFERENCE_APPROVAL_SCHEMA_VERSION = "n2-reference-approval-v1"
 RUNTIME_ARTIFACT_SCHEMA_VERSION = "n2-runtime-artifacts-v1"
-# A bundle with quantized transformer engines additionally declares every loaded
-# engine's precision so the build manifest is cross-checked per role.
-RUNTIME_ARTIFACT_SCHEMA_VERSION_QUANTIZED = "n2-runtime-artifacts-v2"
-# The admission route a manifest-backed runtime reports (absent on payloads written before
-# golden packages existed) and the certification levels a golden package may carry.
-RUNTIME_ARTIFACT_ADMISSIONS = ("gate_evidence", "golden")
-RUNTIME_ARTIFACT_CERTIFICATION_LEVELS = ("amplitude", "temporal")
 CUDA_GRAPH_LIFECYCLE_SCHEMA_VERSION = "n2-cuda-graph-lifecycle-v1"
 REQUIRED_TRT_ENGINE_ROLES = (
     "transformer_joint_capture",
     "transformer_action_cached",
     "vae_encode",
 )
-# The optional fourth role a bundle carries when built with cond_kv_freeze.
-COND_TRT_ENGINE_ROLE = "transformer_joint_condcached"
 
 PROFILE_WORKLOAD_FIELDS = (
     "embodiment",
     "camera_count",
-    "camera_slot_count",
     "camera_keys",
     "history_frames_per_camera",
     "history_delta_indices",
@@ -85,9 +75,6 @@ PROFILE_RUNTIME_FIELDS = (
     "video_guidance_scale",
     "action_guidance_scale",
     "seed",
-    # Every registered profile measures fixed noise (each request reuses ``seed``), the regime
-    # its recorded results were measured in; per-request noise needs a profile of its own.
-    "noise_mode",
 )
 
 MEASUREMENT_RUN_ROLES = ("reference", "candidate", "diagnostic")
@@ -121,7 +108,6 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
     "G1-H80-2V5F-THOR": {
         "embodiment": "unitree_g1_whole_body_teleop_latent_gripper",
         "camera_count": 2,
-        "camera_slot_count": 2,
         "camera_keys": ["ego_view", "right_wrist"],
         "history_frames_per_camera": 5,
         "history_delta_indices": [-40, -30, -20, -10, 0],
@@ -144,14 +130,12 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "video_guidance_scale": 1.0,
         "action_guidance_scale": 1.0,
         "seed": 42,
-        "noise_mode": "fixed",
         "gpu_name_contains": "Thor",
         "hardware_family": "thor",
     },
     "G1-H80-3V5F-THOR": {
         "embodiment": "unitree_g1_whole_body_teleop_latent_gripper",
         "camera_count": 3,
-        "camera_slot_count": 3,
         "camera_keys": ["left_wrist", "ego_view", "right_wrist"],
         "history_frames_per_camera": 5,
         "history_delta_indices": [-40, -30, -20, -10, 0],
@@ -174,14 +158,12 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "video_guidance_scale": 1.0,
         "action_guidance_scale": 1.0,
         "seed": 42,
-        "noise_mode": "fixed",
         "gpu_name_contains": "Thor",
         "hardware_family": "thor",
     },
     "G1-H80-3V5F-5090": {
         "embodiment": "unitree_g1_whole_body_teleop_latent_gripper",
         "camera_count": 3,
-        "camera_slot_count": 3,
         "camera_keys": ["left_wrist", "ego_view", "right_wrist"],
         "history_frames_per_camera": 5,
         "history_delta_indices": [-40, -30, -20, -10, 0],
@@ -204,61 +186,15 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "video_guidance_scale": 1.0,
         "action_guidance_scale": 1.0,
         "seed": 42,
-        "noise_mode": "fixed",
         "gpu_name_contains": "RTX 5090",
         "hardware_family": "rtx5090",
     },
 }
 
-
-def _g1_h80_3v5f_thor_profile(
-    *,
-    precision: str,
-    vae_type: str,
-    token_merge_kernel: list[int] | None,
-    token_merge_layers: list[int] | None,
-) -> dict[str, Any]:
-    """One G1 H80, 3-view, 5-frame workload/precision combination on Thor."""
-    profile = dict(G1_TARGET_PROFILES["G1-H80-3V5F-THOR"])
-    profile.update(
-        precision=precision,
-        vae_type=vae_type,
-        token_merge_enabled=token_merge_kernel is not None,
-        token_merge_kernel=token_merge_kernel,
-        token_merge_layers=token_merge_layers,
-    )
-    return profile
-
-
-G1_TARGET_PROFILES.update(
-    {
-        "G1-H80-3V5F-THOR-FP8J": _g1_h80_3v5f_thor_profile(
-            precision="fp8-joint/bf16-action",
-            vae_type="wan22",
-            token_merge_kernel=None,
-            token_merge_layers=None,
-        ),
-        "G1-H80-3V5F-WAN21-TM-THOR": _g1_h80_3v5f_thor_profile(
-            precision="bf16",
-            vae_type="wan21",
-            token_merge_kernel=[1, 2, 2],
-            token_merge_layers=[2, 23],
-        ),
-        "G1-H80-3V5F-WAN21-TM-THOR-FP8J": _g1_h80_3v5f_thor_profile(
-            precision="fp8-joint/bf16-action",
-            vae_type="wan21",
-            token_merge_kernel=[1, 2, 2],
-            token_merge_layers=[2, 23],
-        ),
-    }
-)
-
-
 YAM_TARGET_PROFILES: dict[str, dict[str, Any]] = {
     "YAM-H48-4V5F-5090": {
         "embodiment": "xdof_relative_eef_relative_joint_umi_keys_4views",
         "camera_count": 4,
-        "camera_slot_count": 4,
         "camera_keys": [
             "top_camera-images-rgb_320_240",
             "left_camera-images-rgb_320_240",
@@ -286,128 +222,10 @@ YAM_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "video_guidance_scale": 1.0,
         "action_guidance_scale": 1.0,
         "seed": 42,
-        "noise_mode": "fixed",
         "gpu_name_contains": "RTX 5090",
         "hardware_family": "rtx5090",
     },
 }
-
-
-def _yam_wan21_h48_profile(
-    *, precision: str, gpu_name_contains: str, hardware_family: str
-) -> dict[str, Any]:
-    """The YAM N2 Core (Wan2.1, 4 views x 5 frames, H48) workload on one GPU at one precision."""
-    return {
-        "embodiment": "xdof_relative_eef_relative_joint_umi_keys_4views",
-        "camera_count": 4,
-        "camera_slot_count": 4,
-        "camera_keys": [
-            "top_camera-images-rgb_320_240",
-            "left_camera-images-rgb_320_240",
-            "right_camera-images-rgb_320_240",
-            "bottom_camera-images-rgb_320_240",
-        ],
-        "history_frames_per_camera": 5,
-        "history_delta_indices": [-24, -18, -12, -6, 0],
-        "image_target_size": [224, 320],
-        "action_horizon": 48,
-        "model_type": "GrootN2",
-        "model_dtype": "bfloat16",
-        "model_size": "2B",
-        "vae_type": "wan21",
-        "token_merge_enabled": False,
-        "token_merge_kernel": None,
-        "token_merge_layers": None,
-        "precision": precision,
-        "codec": "mp4v",
-        "num_video_steps": 2,
-        "num_action_steps": 4,
-        "shift": 5.0,
-        "joint_denoise": True,
-        "kv_cache_cond": True,
-        "video_guidance_scale": 1.0,
-        "action_guidance_scale": 1.0,
-        "seed": 42,
-        "noise_mode": "fixed",
-        "gpu_name_contains": gpu_name_contains,
-        "hardware_family": hardware_family,
-    }
-
-
-# The FP8J profiles measure an admitted mixed bundle: FP8 joint engine, BF16
-# cached-action engine (the precision label the runtime contract declares).
-YAM_TARGET_PROFILES.update(
-    {
-        "YAM-H48-4V5F-WAN21-PRO6000": _yam_wan21_h48_profile(
-            precision="bf16", gpu_name_contains="RTX PRO 6000", hardware_family="rtxpro6000"
-        ),
-        "YAM-H48-4V5F-WAN21-5090": _yam_wan21_h48_profile(
-            precision="bf16", gpu_name_contains="RTX 5090", hardware_family="rtx5090"
-        ),
-        "YAM-H48-4V5F-WAN21-PRO6000-FP8J": _yam_wan21_h48_profile(
-            precision="fp8-joint/bf16-action",
-            gpu_name_contains="RTX PRO 6000",
-            hardware_family="rtxpro6000",
-        ),
-        "YAM-H48-4V5F-WAN21-5090-FP8J": _yam_wan21_h48_profile(
-            precision="fp8-joint/bf16-action",
-            gpu_name_contains="RTX 5090",
-            hardware_family="rtx5090",
-        ),
-    }
-)
-
-# The golden packages' all-on bundles: FP8 joint (and conditioning-cached) engines, BF16
-# cached-action engine, FP8 VAE encoder -- the precision label the runtime contract declares.
-# The served conditioning-cache mode is a runtime attribute recorded per measurement row,
-# not a profile field.
-ALL_ON_PRECISION = "fp8-joint/bf16-action/fp8-vae"
-
-
-def _g1_h80_3v5f_profile(
-    *, precision: str, gpu_name_contains: str, hardware_family: str
-) -> dict[str, Any]:
-    """The G1 Turbo (Wan2.2, 3 views x 5 frames, H80, dense) workload on one GPU at one precision."""
-    profile = dict(G1_TARGET_PROFILES["G1-H80-3V5F-5090"])
-    profile.update(
-        precision=precision, gpu_name_contains=gpu_name_contains, hardware_family=hardware_family
-    )
-    return profile
-
-
-G1_TARGET_PROFILES.update(
-    {
-        "G1-H80-3V5F-PRO6000": _g1_h80_3v5f_profile(
-            precision="bf16", gpu_name_contains="RTX PRO 6000", hardware_family="rtxpro6000"
-        ),
-        "G1-H80-3V5F-PRO6000-FP8JV": _g1_h80_3v5f_profile(
-            precision=ALL_ON_PRECISION,
-            gpu_name_contains="RTX PRO 6000",
-            hardware_family="rtxpro6000",
-        ),
-        "G1-H80-3V5F-5090-FP8JV": _g1_h80_3v5f_profile(
-            precision=ALL_ON_PRECISION, gpu_name_contains="RTX 5090", hardware_family="rtx5090"
-        ),
-        "G1-H80-3V5F-THOR-FP8JV": _g1_h80_3v5f_thor_profile(
-            precision=ALL_ON_PRECISION,
-            vae_type="wan22",
-            token_merge_kernel=None,
-            token_merge_layers=None,
-        ),
-    }
-)
-YAM_TARGET_PROFILES.update(
-    {
-        "YAM-H48-4V5F-WAN21-PRO6000-FP8JV": _yam_wan21_h48_profile(
-            precision=ALL_ON_PRECISION,
-            gpu_name_contains="RTX PRO 6000",
-            hardware_family="rtxpro6000",
-        ),
-        "YAM-H48-4V5F-WAN21-5090-FP8JV": _yam_wan21_h48_profile(
-            precision=ALL_ON_PRECISION, gpu_name_contains="RTX 5090", hardware_family="rtx5090"
-        ),
-    }
-)
 
 
 def summarize_ms(values: Sequence[float]) -> dict[str, float | int]:
@@ -757,12 +575,9 @@ def _validate_target_profile(
     workload: Mapping[str, Any],
     gpu: Mapping[str, Any],
     runtime_contract: Mapping[str, Any],
-    role: str = "candidate",
 ) -> dict[str, Any]:
     if target_profile not in profiles:
         raise ValueError(f"unknown target profile: {target_profile!r}")
-    if role not in MEASUREMENT_RUN_ROLES:
-        raise ValueError(f"unknown measurement run role: {role!r}")
     profile = profiles[target_profile]
     for field in PROFILE_WORKLOAD_FIELDS:
         if workload.get(field) != profile[field]:
@@ -770,14 +585,9 @@ def _validate_target_profile(
                 f"target profile {target_profile!r} requires {field}={profile[field]}, got {workload.get(field)!r}"
             )
     for field in PROFILE_RUNTIME_FIELDS:
-        expected = profile[field]
-        if field == "precision" and role == "reference":
-            # The reference arm is the eager BF16 regime under every profile; only the
-            # candidate arm must carry the profile's declared precision.
-            expected = "bf16"
-        if runtime_contract.get(field) != expected:
+        if runtime_contract.get(field) != profile[field]:
             raise RuntimeError(
-                f"target profile {target_profile!r} requires {field}={expected!r}, "
+                f"target profile {target_profile!r} requires {field}={profile[field]!r}, "
                 f"got {runtime_contract.get(field)!r}"
             )
     gpu_name = str(gpu.get("torch_name", ""))
@@ -795,7 +605,6 @@ def validate_g1_target_profile(
     workload: Mapping[str, Any],
     server_process: Mapping[str, Any],
     runtime_contract: Mapping[str, Any],
-    role: str = "candidate",
 ) -> dict[str, Any]:
     """Bind a formal G1 run to one hardware and workload profile."""
     gpu = server_process.get("gpu")
@@ -807,7 +616,6 @@ def validate_g1_target_profile(
         workload=workload,
         gpu=gpu,
         runtime_contract=runtime_contract,
-        role=role,
     )
 
 
@@ -817,7 +625,6 @@ def validate_yam_target_profile(
     workload: Mapping[str, Any],
     gpu: Mapping[str, Any],
     runtime_contract: Mapping[str, Any],
-    role: str = "candidate",
 ) -> dict[str, Any]:
     """Bind a formal YAM run to one hardware and workload profile."""
     return _validate_target_profile(
@@ -826,7 +633,6 @@ def validate_yam_target_profile(
         workload=workload,
         gpu=gpu,
         runtime_contract=runtime_contract,
-        role=role,
     )
 
 
@@ -1169,89 +975,15 @@ def validate_candidate_runtime_artifacts(
     """Authenticate the engine bundle used by a formal accelerated candidate."""
     if role != "candidate" or target_profile is None or runtime_contract["trt_engines"] is False:
         return None
-    return validate_runtime_artifacts(
-        runtime_contract=runtime_contract, checkpoint=checkpoint, gpu=gpu
-    )
-
-
-def _validate_admission_fields(artifacts: Mapping[str, Any]) -> None:
-    """The admission route a runtime reports, when it reports one: golden names its package."""
-    admission = artifacts.get("admission")
-    if admission is None:
-        return
-    if admission not in RUNTIME_ARTIFACT_ADMISSIONS:
-        raise ValueError(
-            f"runtime_artifacts admission must be one of {list(RUNTIME_ARTIFACT_ADMISSIONS)}"
-        )
-    if admission == "golden":
-        if not isinstance(artifacts.get("package_id"), str) or not artifacts["package_id"]:
-            raise ValueError("golden runtime_artifacts must name their package_id")
-        if artifacts.get("certification_level") not in RUNTIME_ARTIFACT_CERTIFICATION_LEVELS:
-            raise ValueError(
-                "golden runtime_artifacts must carry a certification_level in "
-                f"{list(RUNTIME_ARTIFACT_CERTIFICATION_LEVELS)}"
-            )
-
-
-def _runtime_artifact_engine_roles(
-    artifacts: Mapping[str, Any], runtime_contract: Mapping[str, Any]
-) -> tuple[str, ...]:
-    """The engine roles ``runtime_artifacts`` must identify, from its conditioning-cache flags.
-
-    A payload carries ``bundle_cond_kv_freeze`` (the bundle has the conditioning-cached
-    joint engine) and ``served_cond_kv_freeze`` (the runtime serves it) together; one
-    written before the flags existed describes the three-role bundle served without it.
-    """
-    served = artifacts.get("served_cond_kv_freeze")
-    bundle = artifacts.get("bundle_cond_kv_freeze")
-    live_served = bool(runtime_contract.get("cond_kv_freeze", False))
-    if served is None and bundle is None:
-        if live_served:
-            raise ValueError(
-                "runtime_artifacts carry no cond_kv_freeze flags but the live runtime contract "
-                "serves cond_kv_freeze"
-            )
-        return REQUIRED_TRT_ENGINE_ROLES
-    if not isinstance(served, bool) or not isinstance(bundle, bool):
-        raise TypeError(
-            "runtime_artifacts must carry both served_cond_kv_freeze and bundle_cond_kv_freeze "
-            "as booleans"
-        )
-    if served and not bundle:
-        raise ValueError(
-            "runtime_artifacts serve cond_kv_freeze on a bundle without the conditioning-cached "
-            "joint engine"
-        )
-    if served != live_served:
-        raise ValueError(
-            "runtime_artifacts served_cond_kv_freeze does not match the live runtime contract"
-        )
-    return REQUIRED_TRT_ENGINE_ROLES + ((COND_TRT_ENGINE_ROLE,) if bundle else ())
-
-
-def validate_runtime_artifacts(
-    *,
-    runtime_contract: Mapping[str, Any],
-    checkpoint: Mapping[str, Any],
-    gpu: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Authenticate a live TensorRT runtime's engine bundle against the checkpoint and GPU."""
     artifacts = runtime_contract.get("runtime_artifacts")
     if not isinstance(artifacts, Mapping):
         raise TypeError(
             "formal TensorRT candidates must report runtime_artifacts in the live runtime contract"
         )
-    schema_version = artifacts.get("schema_version")
-    if schema_version not in (
-        RUNTIME_ARTIFACT_SCHEMA_VERSION,
-        RUNTIME_ARTIFACT_SCHEMA_VERSION_QUANTIZED,
-    ):
+    if artifacts.get("schema_version") != RUNTIME_ARTIFACT_SCHEMA_VERSION:
         raise ValueError(
-            "runtime_artifacts uses an unsupported schema; expected "
-            f"{RUNTIME_ARTIFACT_SCHEMA_VERSION!r} or {RUNTIME_ARTIFACT_SCHEMA_VERSION_QUANTIZED!r}"
+            f"runtime_artifacts uses an unsupported schema; expected {RUNTIME_ARTIFACT_SCHEMA_VERSION!r}"
         )
-    roles = _runtime_artifact_engine_roles(artifacts, runtime_contract)
-    _validate_admission_fields(artifacts)
     for field in ("backend", "precision", "quantize_mode", "tensorrt_version"):
         if not isinstance(artifacts.get(field), str) or not artifacts[field]:
             raise ValueError(f"runtime_artifacts has no {field}")
@@ -1259,26 +991,6 @@ def validate_runtime_artifacts(
         raise ValueError("runtime_artifacts backend does not match the live runtime contract")
     if artifacts["precision"].lower() != str(runtime_contract["precision"]).lower():
         raise ValueError("runtime_artifacts precision does not match the live runtime contract")
-    declared_engine_precisions: Mapping[str, Any] | None = None
-    if schema_version == RUNTIME_ARTIFACT_SCHEMA_VERSION_QUANTIZED:
-        declared_engine_precisions = artifacts.get("engine_precisions")
-        if (
-            not isinstance(declared_engine_precisions, Mapping)
-            or set(declared_engine_precisions) != set(roles)
-            or not all(
-                isinstance(value, str) and value for value in declared_engine_precisions.values()
-            )
-        ):
-            raise ValueError(
-                "declared quantized runtime_artifacts must name engine_precisions for exactly "
-                f"{list(roles)}"
-            )
-        if artifacts["quantize_mode"] == "none":
-            raise ValueError("declared quantized runtime_artifacts require quantize_mode != 'none'")
-        if str(runtime_contract["precision"]).lower() == "bf16":
-            raise ValueError(
-                "declared quantized runtime_artifacts cannot serve a bf16 runtime contract"
-            )
 
     recorded_checkpoint = artifacts.get("checkpoint")
     if not isinstance(recorded_checkpoint, Mapping):
@@ -1324,21 +1036,22 @@ def validate_runtime_artifacts(
     engine_records = artifacts.get("loaded_engines")
     if not isinstance(engine_records, Mapping):
         raise TypeError("runtime_artifacts must identify the loaded engine bundle by role")
-    if set(engine_records) != set(roles):
-        raise ValueError(f"runtime_artifacts loaded_engines must contain exactly {list(roles)}")
+    if set(engine_records) != set(REQUIRED_TRT_ENGINE_ROLES):
+        raise ValueError(
+            f"runtime_artifacts loaded_engines must contain exactly {list(REQUIRED_TRT_ENGINE_ROLES)}"
+        )
     loaded_engines = {
         role: _validate_artifact_record(engine_records[role], label=f"loaded {role} engine")
-        for role in roles
+        for role in REQUIRED_TRT_ENGINE_ROLES
     }
 
     manifest_engines = build_contents.get("engines")
     if not isinstance(manifest_engines, list):
         raise TypeError("TensorRT build manifest has no engine list")
-    if len(manifest_engines) != len(roles):
+    if len(manifest_engines) != len(REQUIRED_TRT_ENGINE_ROLES):
         raise ValueError("TensorRT build manifest does not describe the complete fixed bundle")
     build_root = Path(build_manifest["path"]).resolve().parent
     manifest_by_path = {}
-    role_by_loaded_path = {record["path"]: role for role, record in loaded_engines.items()}
     for index, record in enumerate(manifest_engines):
         if not isinstance(record, Mapping):
             raise TypeError(f"TensorRT build manifest engine {index} is not an object")
@@ -1362,16 +1075,7 @@ def validate_runtime_artifacts(
         if record.get("size_bytes") != resolved_engine.stat().st_size:
             raise ValueError(f"TensorRT build manifest engine size is stale: {resolved_engine}")
         precision = str(record.get("precision", "")).lower()
-        if declared_engine_precisions is not None:
-            # Every built engine must carry exactly the precision the live runtime declares for it.
-            role = role_by_loaded_path.get(resolved_path)
-            expected = str(declared_engine_precisions[role]).lower() if role is not None else None
-            if expected is None or precision != expected:
-                raise ValueError(
-                    f"TensorRT build manifest engine precision {precision!r} does not match the "
-                    f"declared {expected!r}: {resolved_engine}"
-                )
-        elif not precision.startswith("bf16") or "fp8" in precision:
+        if not precision.startswith("bf16") or "fp8" in precision:
             raise ValueError(f"TensorRT build manifest engine is not BF16-only: {resolved_engine}")
         manifest_by_path[resolved_path] = record
 
@@ -1910,11 +1614,7 @@ def server_process_identity(
 
 def checkpoint_workload(checkpoint: Path, embodiment: str) -> dict[str, Any]:
     """Return the shape and architecture fields that define an N2 workload."""
-    from groot.deployment.n2_trt.contract import resolve_checkpoint_actor_config
-
-    model_config = resolve_checkpoint_actor_config(
-        json.loads((checkpoint / "config.json").read_text())
-    )
+    model_config = json.loads((checkpoint / "config.json").read_text())
     processor = json.loads((checkpoint / "processor_config.json").read_text())
     processor_kwargs = processor["processor_kwargs"]
     modality_configs = processor_kwargs["modality_configs"]
@@ -1928,10 +1628,9 @@ def checkpoint_workload(checkpoint: Path, embodiment: str) -> dict[str, Any]:
     action_deltas = tuple(modality["action"]["delta_indices"])
     if len(video_keys) != len(set(video_keys)):
         raise ValueError(f"camera keys are not unique: {video_keys}")
-    capacity = model_config.get("max_n_cameras")
-    if not isinstance(capacity, int) or isinstance(capacity, bool) or capacity < len(video_keys):
+    if model_config.get("max_n_cameras") != len(video_keys):
         raise ValueError(
-            "model camera capacity is smaller than processor workload: "
+            "model camera count does not match processor workload: "
             f"model={model_config.get('max_n_cameras')}, processor={len(video_keys)}"
         )
     if not history_deltas or history_deltas[-1] != 0:
@@ -1944,7 +1643,6 @@ def checkpoint_workload(checkpoint: Path, embodiment: str) -> dict[str, Any]:
     return {
         "embodiment": key,
         "camera_count": len(video_keys),
-        "camera_slot_count": capacity,
         "camera_keys": list(video_keys),
         "history_frames_per_camera": len(history_deltas),
         "history_delta_indices": list(history_deltas),

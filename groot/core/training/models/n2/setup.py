@@ -14,8 +14,6 @@ import json
 import logging
 from pathlib import Path
 
-from transformers.trainer_callback import TrainerCallback
-
 from groot.core.data.dataset.build_artifacts import DatasetBuildArtifacts
 from groot.core.data.dataset.factory import DatasetFactory
 from groot.core.training.configs.base_config import Config
@@ -25,52 +23,10 @@ from groot.core.training.models.base.model_pipeline import ModelPipeline
 from groot.core.training.models.n2.model import GrootN2
 from groot.core.training.models.n2.processor import (
     EMBODIMENT_TAG_TO_PROJECTOR_INDEX,
-    PROJECTOR_ROW_ALIASES,
     GrootN2Processor,
-    apply_projector_row_aliases,
 )
-from groot.core.training.models.n2.tactile import complete_encoder_load
-from groot.core.training.models.n2.tactile.callbacks import trainer_callbacks
-from groot.core.training.models.n2.tactile.processing import required_batch_keys
 from groot.core.training.models.registry import register_model
-from groot.core.utils.n2_numerics import resolve_numerics
-from groot.core.utils.precision import install_params_only_bf16_cast
 from groot.core.utils.storage.msc import resolve_model_path
-
-
-class _CompleteEncoderLoadCallback(TrainerCallback):
-    """Validate after Trainer (including its DeepSpeed/DCP path) restores all shards."""
-
-    def __init__(self, model):
-        self.model = model
-
-    def on_train_begin(self, args, state, control, **kwargs):
-        del args, state, control, kwargs
-        # Only tracked loads prove restoration. A native loader that copies frozen
-        # fragments without load_state_dict must leave unresolved keys pending and
-        # fail here, even if the tensors happen to be finite.
-        complete_encoder_load(self.model, self.model.tactile_spec.pending_encoder_keys)
-
-
-class _RopeFp32CheckCallback(TrainerCallback):
-    """A rope_fp32 run must start with fp32 RoPE tables, after the DeepSpeed bf16 cast."""
-
-    def __init__(self, model):
-        self.model = model
-
-    def on_train_begin(self, args, state, control, **kwargs):
-        del args, state, control, kwargs
-        import torch
-
-        rounded = {
-            name: buffer.dtype
-            for name, buffer in self.model.named_buffers()
-            if name.endswith(("_rope.freqs", "_rope.seq")) and buffer.dtype != torch.float32
-        }
-        if rounded:
-            raise RuntimeError(
-                f"[GrootN2] rope_fp32, but the bf16 cast rounded the RoPE tables: {rounded}"
-            )
 
 
 class GrootN2Pipeline(ModelPipeline):
@@ -95,67 +51,9 @@ class GrootN2Pipeline(ModelPipeline):
         return self.config.model
 
     def setup(self):
-        self._resolve_numerics()
-        # Process-wide: DeepSpeed < 0.19.7's bf16 module cast would round the fp32 RoPE tables.
-        if self.model_config.rope_fp32 and install_params_only_bf16_cast():
-            logging.warning("[GrootN2] DeepSpeed < 0.19.7: bf16 cast patched to parameters only")
         self.model = self._create_model()
         self.train_dataset, self.eval_dataset = self._create_dataset()
         self.data_collator = self.processor.collator
-        self.data_collator.required_tactile_keys = required_batch_keys(self.model_config)
-
-    def create_trainer_callbacks(self, trainer) -> list:
-        callbacks = super().create_trainer_callbacks(trainer)
-        if (
-            getattr(self, "resume_checkpoint", None) is not None
-            and getattr(self.model, "tactile_spec", None) is not None
-        ):
-            callbacks.append(_CompleteEncoderLoadCallback(self.model))
-        config = getattr(self.model, "config", None)
-        # GrootN2RL nests the actor's config under base_model_cfg.
-        if getattr(getattr(config, "base_model_cfg", config), "rope_fp32", False):
-            callbacks.append(_RopeFp32CheckCallback(self.model))
-        return [*callbacks, *trainer_callbacks(self.model)]
-
-    def _numerics_hint(self) -> str:
-        """How this pipeline's config sets and forces the numerics, for resolve_numerics' errors."""
-        # GrootN2RL pipelines configure the actor under model.base_model_cfg.
-        cfg = "--model." if self.model_config is self.config.model else "--model.base-model-cfg."
-        return (
-            f"{cfg}action-cfg.action-clip-range / {cfg}rope-fp32; force with "
-            "--training.allow-numerics-override"
-        )
-
-    def _resolve_numerics(self):
-        """Take action_clip_range and rope_fp32 from the checkpoint this run loads.
-
-        Explicit config values must agree with the checkpoint unless
-        training.allow_numerics_override. The resolved values are written into the model
-        config, so the model, the processor and every new checkpoint carry them.
-        """
-        mc = self.model_config
-        ckpt = getattr(self, "resume_checkpoint", None)
-        if ckpt is None and self.config.training.start_from_checkpoint is not None:
-            ckpt = resolve_model_path(
-                self.config.training.start_from_checkpoint, "training.start_from_checkpoint"
-            )
-        if ckpt is None:
-            # GrootN2RL pipelines load the actor from a plain N2 base without either.
-            ckpt = getattr(self.config.model, "pretrained_base_model_path", None)
-        action_cfg = mc.action_cfg
-        numerics = resolve_numerics(
-            ckpt,
-            has_action_head=action_cfg is not None,
-            action_clip_range=action_cfg.get("action_clip_range") if action_cfg else None,
-            rope_fp32=mc.rope_fp32,
-            allow_override=self.config.training.allow_numerics_override,
-            hint=self._numerics_hint(),
-        )
-        if action_cfg is not None:
-            mc.action_cfg = {**action_cfg, "action_clip_range": numerics.action_clip_range}
-        mc.rope_fp32 = numerics.rope_fp32
-        # WARNING, so it reaches job logs whose root level stays WARNING (Ray actors).
-        logging.warning(f"[GrootN2] numerics: {numerics.describe()}; checkpoint: {ckpt}")
 
     def _create_model(self):
         import glob
@@ -250,13 +148,6 @@ class GrootN2Pipeline(ModelPipeline):
                     assign=True,
                 )
 
-        spec = getattr(model, "tactile_spec", None)
-        if spec is not None and getattr(self, "resume_checkpoint", None) is None:
-            # With no resume, the initial checkpoint/external assets are final.
-            # Otherwise Trainer will load the authoritative checkpoint later; its
-            # on_train_begin callback validates completeness before the first step.
-            complete_encoder_load(model, spec.pending_encoder_keys)
-
         total = sum(p.numel() for p in model.parameters())
         trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
         logging.info(
@@ -325,8 +216,6 @@ class GrootN2Pipeline(ModelPipeline):
         Saved mappings take precedence over the code table; resume_checkpoint takes
         precedence over start_from_checkpoint. New tags need an explicit code-table
         row, and reserved-row reuse requires training.allow_pretrained_projector_row_reuse.
-        A PROJECTOR_ROW_ALIASES tag always takes its base tag's row; when the checkpoint saved
-        the base tag, that row is the checkpoint's own and is not re-guarded.
         Returns None for fresh pretraining, single-row heads, or legacy checkpoints
         without mappings. Legacy selected rows are validated, but reservations are unknown.
         """
@@ -359,12 +248,7 @@ class GrootN2Pipeline(ModelPipeline):
         ):
             raise ValueError(f"[GrootN2] {source} {ckpt} has an invalid embodiment_id_mapping")
         saved_mapping = ckpt_mapping or {}
-        # Alias the saved rows before the code table fills gaps: only a neck row the checkpoint
-        # itself listed can be overridden (and warned about).
-        mapping = {
-            **EMBODIMENT_TAG_TO_PROJECTOR_INDEX,
-            **apply_projector_row_aliases(saved_mapping),
-        }
+        mapping = {**EMBODIMENT_TAG_TO_PROJECTOR_INDEX, **saved_mapping}
         allow_reuse = (
             getattr(self.config.training, "allow_pretrained_projector_row_reuse", False) is True
         )
@@ -381,8 +265,6 @@ class GrootN2Pipeline(ModelPipeline):
                     f"[GrootN2] {tag}: invalid projector row {row!r} for "
                     f"num_embodiments={action_cfg['num_embodiments']} ({source} {ckpt})"
                 )
-            if PROJECTOR_ROW_ALIASES.get(tag) in saved_mapping:
-                continue  # the checkpoint's own row for the base tag
             code_row = EMBODIMENT_TAG_TO_PROJECTOR_INDEX.get(tag)
             if tag in saved_mapping:
                 if code_row is not None and code_row != row:

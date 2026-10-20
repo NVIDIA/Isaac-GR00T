@@ -128,9 +128,7 @@ def normalize_values_minmax(values, params):
     return normalized
 
 
-def unnormalize_values_minmax(
-    normalized_values, params, clip: bool = True, clip_range: float = 1.0
-):
+def unnormalize_values_minmax(normalized_values, params, clip: bool = True):
     """Min-max unnormalization from [-1, 1] range back to original range.
 
     Args:
@@ -144,10 +142,8 @@ def unnormalize_values_minmax(
             - params["max"]: Original maximum values used for normalization
                 * Case 1 - 1D bounds: Shape (D,) - same min/max for all steps
                 * Case 2 - 2D bounds: Shape (T, D) - different min/max per step
-        clip: Clamp ``normalized_values`` to [-clip_range, clip_range] before the affine
-            inverse (default True). With False, values past the bound decode past it as-is.
-        clip_range: Clamp bound (default 1.0, i.e. [-1, 1]). A model trained on labels
-            clipped to [-r, r] decodes with clip_range=r, which can reach past [min, max].
+        clip: Clamp ``normalized_values`` to [-1, 1] before the affine inverse (default True).
+            With False, values past +/-1 decode past the [min, max] band.
 
     Returns:
         Unnormalized values in original range [min, max]
@@ -169,7 +165,7 @@ def unnormalize_values_minmax(
     # Unnormalize from [-1, 1]. With clip=False the affine inverse is applied as-is, so a
     # value past +/-1 decodes past the min/max (or q01/q99) band instead of being cut to it.
     if clip:
-        normalized_values = np.clip(normalized_values, -clip_range, clip_range)
+        normalized_values = np.clip(normalized_values, -1.0, 1.0)
     unnormalized = (normalized_values + 1.0) / 2.0 * range_vals + min_vals
     return unnormalized
 

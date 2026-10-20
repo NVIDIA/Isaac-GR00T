@@ -62,7 +62,6 @@ from groot.core.policy.n2_policy import (
 # entry point reaches the live path before any other model-loading code.
 import groot.core.training.models
 import groot.core.training.models.n2  # noqa: F401  (registers N2 with HF AutoModel)
-from groot.core.training.models.n2.tactile import guards as tactile_guards
 
 _Restorer = Callable[[], None]
 _MAX_UNWRAP_DEPTH = 4
@@ -356,7 +355,6 @@ def _make_n2_concrete(
     policy.processor = processor
     policy.embodiment_tag = embodiment_tag
     policy.modality_configs = policy._load_modality_configs()  # noqa: SLF001
-    tactile_guards.check_policy_modalities(inner_module, policy.modality_configs)
     policy.collate_fn = processor.collator
     if hasattr(inner_module, "_ttt_states"):
         # TTT is not exported by the OSS N2 package. Import it only for a TTT

@@ -23,8 +23,11 @@ import logging
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from groot.core.data.state_action.action_chunking import JointActionChunk
-from groot.core.data.state_action.pose import EndEffectorPose, JointPose, invert_transformation
+from groot.core.data.state_action.action_chunking import (
+    EndEffectorActionChunk,
+    JointActionChunk,
+)
+from groot.core.data.state_action.pose import EndEffectorPose, JointPose
 from groot.core.data.utils import (
     apply_sin_cos_encoding,
     nested_dict_to_numpy,
@@ -69,7 +72,6 @@ class StateActionProcessor:
         use_relative_action: bool = False,
         use_q99_for_rel_action: bool | None = None,
         skip_inference_clip: bool = False,
-        action_clip_range: float = 1.0,
     ):
         """Initialize unified state and action processor.
 
@@ -94,17 +96,12 @@ class StateActionProcessor:
                 Off by default, so decoding always clamps regardless of clip_outliers. Set
                 (via action_cfg in the checkpoint's processor config) for models trained
                 with clip_outliers off whose outputs are meant to exceed the q01/q99 band.
-            action_clip_range: Bound for normalized ACTIONS: clip_outliers clips training
-                labels to [-action_clip_range, action_clip_range], and decoding clamps to the
-                same bound (unless skip_inference_clip). Default 1.0 = [-1, 1]. State
-                clipping stays at [-1, 1].
         """
         self.modality_configs = parse_modality_configs(modality_configs)
         self.statistics: dict[str, dict[str, dict[str, dict[str, list[float]]]]] = {}
         self.use_percentiles = use_percentiles
         self.clip_outliers = clip_outliers
         self.skip_inference_clip = skip_inference_clip
-        self.action_clip_range = action_clip_range
         self.apply_sincos_state_encoding = apply_sincos_state_encoding
         self.use_relative_action = use_relative_action
         self.use_q99_for_rel_action = (
@@ -441,7 +438,7 @@ class StateActionProcessor:
                 normalized = normalize_values_minmax(group_values, params)
 
             if self.clip_outliers:
-                normalized = np.clip(normalized, -self.action_clip_range, self.action_clip_range)
+                normalized = np.clip(normalized, -1.0, 1.0)
 
             normalized_values[joint_group] = normalized
 
@@ -495,10 +492,7 @@ class StateActionProcessor:
                 unnormalized = unnormalize_values_meanstd(group_values, params)
             else:
                 unnormalized = unnormalize_values_minmax(
-                    group_values,
-                    params,
-                    clip=not self.skip_inference_clip,
-                    clip_range=self.action_clip_range,
+                    group_values, params, clip=not self.skip_inference_clip
                 )
 
             unnormalized_values[joint_group] = unnormalized
@@ -681,50 +675,19 @@ class StateActionProcessor:
                 action.shape[1] == 9
             ), f"Expected action dim 9 (xyz + rot6d) for EEF, got {action.shape[1]}"
 
-            # Batched mirror of the per-step EndEffectorPose object path (a dataloader
-            # hotspot): the same scipy/numpy ops run once at N=T instead of T times at N=1.
-            # The copy is load-bearing: gram-schmidt writeback below must not mutate the
-            # caller's action array.
-            rot_6d = np.array(action[:, 3:]).reshape(-1, 2, 3)
-            dots = np.sum(rot_6d[:, 0] * rot_6d[:, 1], axis=-1)
-            # The object path selects gram-schmidt independently per row.
-            non_orthogonal = ~np.isclose(dots, 0.0)
-            if non_orthogonal.any():
-                rot_6d[non_orthogonal] = gram_schmidt(rot_6d[non_orthogonal])
-            rot_mat = np.zeros((rot_6d.shape[0], 3, 3))
-            rot_mat[:, :2, :] = rot_6d
-            rot_mat[:, 2, :] = np.cross(rot_6d[:, 0], rot_6d[:, 1])
-            # from_matrix normalizes via quaternion and the object path rebuilds every
-            # matrix from the normalized rotation, so as_matrix() is not a no-op here.
-            homogeneous_actions = np.tile(np.eye(4), (action.shape[0], 1, 1))
-            homogeneous_actions[:, :3, :3] = Rotation.from_matrix(rot_mat).as_matrix()
-            homogeneous_actions[:, :3, 3] = action[:, :3]
-
-            reference_pose = EndEffectorPose(
+            action_chunking = EndEffectorActionChunk(
+                [
+                    EndEffectorPose(translation=m[:3], rotation=m[3:], rotation_type="rot6d")
+                    for m in action
+                ]
+            )
+            reference_frame = EndEffectorPose(
                 translation=reference_state[:3],
                 rotation=reference_state[3:],
                 rotation_type="rot6d",
             )
-            relative_transforms = (
-                invert_transformation(reference_pose.homogeneous) @ homogeneous_actions
-            )
-            relative_rotations = Rotation.from_matrix(relative_transforms[:, :3, :3])
-            translations = relative_transforms[:, :3, 3]
 
-            if action_format == ActionFormat.XYZ_ROT6D:
-                return np.concatenate(
-                    [translations, rot_mat_to_rot_6d(relative_rotations.as_matrix())], axis=1
-                )
-            if action_format == ActionFormat.XYZ_ROTVEC:
-                return np.concatenate([translations, relative_rotations.as_rotvec()], axis=1)
-            if action_format == ActionFormat.DEFAULT:
-                relative_homogeneous = np.tile(np.eye(4), (action.shape[0], 1, 1))
-                relative_homogeneous[:, :3, :3] = relative_rotations.as_matrix()
-                relative_homogeneous[:, :3, 3] = translations
-                return relative_homogeneous
-            raise ValueError(f"Unsupported action format: {action_format}")
-
-        if action_type == ActionType.NON_EEF:
+        elif action_type == ActionType.NON_EEF:
             action_chunking = JointActionChunk([JointPose(m) for m in action])
             reference_frame = JointPose(reference_state)
 
@@ -814,7 +777,6 @@ class StateActionProcessor:
             f"use_percentiles={self.use_percentiles}, "
             f"clip_outliers={self.clip_outliers}, "
             f"skip_inference_clip={self.skip_inference_clip}, "
-            f"action_clip_range={self.action_clip_range}, "
             f"apply_sincos_state_encoding={self.apply_sincos_state_encoding}, "
             f"use_relative_action={self.use_relative_action})"
         )

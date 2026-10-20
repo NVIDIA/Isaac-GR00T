@@ -18,7 +18,6 @@ to the video-only processor.
 from concurrent.futures import ThreadPoolExecutor
 import copy
 import json
-import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -49,10 +48,6 @@ from groot.core.training.models.n2.components.text_processor import (
     process_text,
     process_text_negative,
 )
-from groot.core.training.models.n2.tactile.processing import (
-    TACTILE_BATCH_KEYS,
-    process_tactile_modalities,
-)
 from groot.core.utils.storage.msc import resolve_model_path
 
 ### Mapping from embodiment tag to projector index.
@@ -74,9 +69,6 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "unitree_g1_whole_body_teleop_latent_gripper_new_emb": 15,
     # New pretraining (09/30) uses row 7; original pretraining/resumes retain their saved row.
     "unitree_g1_whole_body_teleop_latent_gripper_wrist": 7,
-    # Legacy checkpoint compatibility only, not for new N2 runs. Saved mappings
-    # take precedence; sharing the row-7 fallback does not make this a wrist alias.
-    "unitree_g1_whole_body_teleop_latent_gripper_new_proj": 7,
     "real_r1_pro_sharpa_relative_joint": 2,
     "oxe_droid_relative_eef_relative_joint": 1,
     "xdof_relative_eef_relative_joint": 0,
@@ -87,16 +79,8 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     # RoboDojo ARX X5 shares the XDOF joint-space projector.
     "arx_x5": 0,
     "real_dexmate_sharpa_relative_eef": 2,
-    "real_dexmate_sharpa_relative_eef_with_tactile": 2,  # Same projector as base dexmate tag
     "real_tianji_sharpa_relative_eef": 2,  # Shares the Sharpa projector
     "real_tianji_sharpa_relative_eef_with_tactile": 2,  # Same projector as base tianji tag
-    # Moving neck: dims 0:62 are the fixed-neck layout, so the same row as base tianji.
-    "real_tianji_sharpa_neck_relative_eef": 2,
-    "real_tianji_sharpa_neck_relative_eef_with_tactile": 2,
-    # Sharpa North human rig: the tianji Sharpa schema dim for dim.
-    "sharpa_north_human_relative_eef": 2,
-    # Wuji hands (20-DoF) differ from Sharpa: own row.
-    "tianji_wuji_relative_eef": 9,
     "real_dexmate_sharpa_relative_eef_relative_joint": 2,
     # New controller has a substantially different action distribution from the
     # old controller, so it gets its own projector index instead of sharing 2.
@@ -110,36 +94,6 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "single_dexumi_teleop_wo_tac": 0,
     "single_dexumi_teleop_wo_tac_abs_hand": 0,
 }
-
-# Tags that always share another tag's projector row, whatever row a mapping lists for them:
-# the moving-neck tags extend the fixed-neck tianji layout (dims 0:62). Every checkpoint saves
-# every tag's row, so a saved neck row can disagree with the same checkpoint's tianji row (a
-# checkpoint trained with a code table that listed the neck tags on row 2 saved that row next
-# to a tianji row 8 it kept from its start checkpoint).
-PROJECTOR_ROW_ALIASES = {
-    "real_tianji_sharpa_neck_relative_eef": "real_tianji_sharpa_relative_eef",
-    "real_tianji_sharpa_neck_relative_eef_with_tactile": "real_tianji_sharpa_relative_eef",
-}
-
-
-def apply_projector_row_aliases(mapping: dict[str, int]) -> dict[str, int]:
-    """Return a copy of ``mapping`` with each PROJECTOR_ROW_ALIASES tag on its base tag's row.
-
-    Warns when that overrides a row the mapping listed; an absent alias tag is added silently
-    (checkpoints saved before the neck tags existed).
-    """
-    mapping = dict(mapping)
-    for tag, base in PROJECTOR_ROW_ALIASES.items():
-        if base not in mapping:
-            continue
-        if tag in mapping and mapping[tag] != mapping[base]:
-            logging.warning(
-                f"[GrootN2] {tag}: uses {base}'s projector row {mapping[base]} instead of "
-                f"listed row {mapping[tag]}"
-            )
-        mapping[tag] = mapping[base]
-    return mapping
-
 
 _BATCH_UNIFORM_SCALAR_KEYS = frozenset(
     {
@@ -208,10 +162,6 @@ def _can_parallelize_eval_images(transform: Any) -> bool:
 class GrootN2DataCollator:
     """Collator: stack images, tokenize text, stack action/state tensors."""
 
-    # Tactile batch keys the model consumes; the training pipeline sets them from the model
-    # config. Such a key must be present for every sample of a batch.
-    required_tactile_keys: frozenset[str] = frozenset()
-
     def __init__(self, tokenizer: HuggingfaceTokenizer):
         self.tokenizer = tokenizer
 
@@ -225,14 +175,6 @@ class GrootN2DataCollator:
                     f"GrootN2DataCollator requires stable action/state key `{key}` "
                     "across the whole batch when action/state metadata is present"
                 )
-        for key in TACTILE_BATCH_KEYS:
-            if key in keys and any(key not in elem for elem in features):
-                if key in self.required_tactile_keys:
-                    raise ValueError(
-                        f"GrootN2DataCollator requires tactile key `{key}` for every sample; "
-                        "the model consumes it but part of the batch lacks it"
-                    )
-                keys.remove(key)  # unused here: never stack a shorter batch
         for key in keys:
             values = [elem[key] for elem in features if key in elem]
             if key == "text":
@@ -323,7 +265,7 @@ class GrootN2Processor(BaseProcessor):
 
         # Action/state processing
         if embodiment_id_mapping is not None:
-            self.embodiment_id_mapping = apply_projector_row_aliases(embodiment_id_mapping)
+            self.embodiment_id_mapping = embodiment_id_mapping
         elif action_cfg is not None and action_cfg.get("num_embodiments", 1) == 1:
             # A single-embodiment action head has only projector row 0. Keep
             # globally reserved IDs for multi-embodiment checkpoints only.
@@ -346,7 +288,6 @@ class GrootN2Processor(BaseProcessor):
                 use_relative_action=True,
                 use_q99_for_rel_action=use_q99_for_rel_action,
                 skip_inference_clip=action_cfg.get("skip_inference_clip", False),
-                action_clip_range=action_cfg.get("action_clip_range", 1.0),
             )
             self.state_dropout_prob = action_cfg.get("state_dropout_prob", 0.0)
         else:
@@ -683,13 +624,6 @@ class GrootN2Processor(BaseProcessor):
 
         if "reward" in getattr(content, "metadata", {}):
             result["reward"] = self._format_reward(content.metadata["reward"])
-
-        # 5b. Tactile force windows and deform maps (only for tags that declare them).
-        result.update(
-            process_tactile_modalities(
-                self.modality_configs[embodiment_tag.value], content, training=self.training
-            )
-        )
 
         # 6. Precompute per-latent-frame validity mask for attention masking.
         # This avoids computing it inside the compiled forward (which breaks CUDA graphs).

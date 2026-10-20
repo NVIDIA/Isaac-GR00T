@@ -8,32 +8,13 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-# OSS package CPU unit and GPU functional tests. The CPU suite runs in the image
-# built from the user-facing docker/Dockerfile (ci/image.oss.gitlab-ci.yml).
-
-.oss_image_job:
-  stage: premerge
-  retry:
-    max: 2
-    when:
-      - runner_system_failure
-      - script_failure
-  allow_failure: false
+# OSS package CPU unit and GPU functional tests.
 
 test.oss.cpu:
-  extends: .oss_image_job
+  extends: .minimal
+  stage: premerge
   needs:
-    - image.oss.amd64
-  image:
-    name: nvcr.io/nvidian/groot-ci-oss:${CI_COMMIT_SHORT_SHA}-amd64
-    entrypoint: [""]
-  tags:
-    - ipp-group-gear
-  variables:
-    IPP_RUNNER_QUEUE_NAME: user-queue-cpu
-    GIT_LFS_SKIP_SMUDGE: "1"
-    # Runs the image checks in tests/test_dockerfile.py.
-    GR00T_DOCKER_IMAGE_TESTS: "1"
+    - image.minimal
   rules: &oss_test_rules
     # premerge rules
     - if: "$CI_COMMIT_MESSAGE =~ /OSS_TESTS=true/"
@@ -45,14 +26,10 @@ test.oss.cpu:
         - groot/infra/**/*
         - docker/**/*
         - pyproject.toml
-        - uv.lock
-        - scripts/deployment/oss/installation.md
-        - tests/oss/test_dockerfile.py
         - ci/sync/copybara_sync.py
         - ci/test.oss.gitlab-ci.yml
-        - ci/image.gitlab-ci.yml
-        - ci/image.oss.gitlab-ci.yml
-        - ci/scripts/docker_buildx_push.sh
+        - ci/image.minimal.gitlab-ci.yml
+        - ci/images/minimal.Dockerfile
         - ci/image.train.gitlab-ci.yml
         - ci/images/train.Dockerfile
     # postmerge rules
@@ -73,14 +50,12 @@ test.oss.cpu:
       cd "$OSS_PACKAGE_ROOT"
       uv pip install --no-deps -e .
       python -c 'import os, pathlib, groot; package = pathlib.Path(groot.__file__).resolve(); root = pathlib.Path(os.environ["OSS_PACKAGE_ROOT"]).resolve(); assert package.is_relative_to(root), f"groot imported outside OSS export: {package}"'
-    - uv sync --frozen --inexact --extra training --extra dev
 
   script:
     - |
       python -m pytest \
         "$OSS_PACKAGE_ROOT/tests/groot" \
         "$OSS_PACKAGE_ROOT/tests/skills" \
-        "$OSS_PACKAGE_ROOT/tests/test_dockerfile.py" \
         -m "not gpu" \
         -vv \
         --tb=short \
@@ -92,55 +67,48 @@ test.oss.cpu:
     when: always
     reports:
       junit: $CI_PROJECT_DIR/junit.oss.cpu.xml
-  timeout: 60m
+
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - script_failure
+  allow_failure: false
+  timeout: 30m
 
 test.oss.gpu:
   stage: premerge
   needs:
-    - image.train.amd64
+    - image.train
   image:
-    name: nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}-amd64
+    name: nvcr.io/nvidian/groot-ci-train:${CI_COMMIT_SHORT_SHA}
     entrypoint: [""]
   tags:
-    - ipp-group-gear
+    - cpu/arm64
+    - gpu/gb300
   variables:
-    IPP_RUNNER_QUEUE_NAME: user-queue-gpu
-    IPP_RUNNER_GPU_REQUEST: "1"
-    IPP_RUNNER_GPU_LIMIT: "1"
-    IPP_RUNNER_GPU_TYPE: NVIDIA-L40S
-    IPP_RUNNER_MEMORY_REQUEST: "32Gi"
-    IPP_RUNNER_MEMORY_LIMIT: "32Gi"
-    GIT_LFS_SKIP_SMUDGE: "1"
-    OSS_GPU_COMPUTE_TYPE: "h100"
+    OSS_GPU_COMPUTE_TYPE: "gb300"
     OSS_GPU_TRAIN_NUM_GPUS: "1"
     OSS_GPU_TRAIN_BATCH_SIZE: "1"
     OSS_GPU_TRAIN_MAX_STEPS: "2"
     OSS_GPU_EVAL_STEPS: "1"
     OSS_GPU_EVAL_ACTION_HORIZON: "2"
     OSS_GPU_EVAL_DENOISING_STEPS: "2"
-  # image.train only builds for these paths, so test.oss.gpu must not trigger on
-  # the CPU-only paths in oss_test_rules.
-  rules:
-    # premerge rules
-    - if: "$CI_COMMIT_MESSAGE =~ /OSS_TESTS=true/"
-    - if: '$OSS_TESTS == "true"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      changes:
-        - oss/**/*
-        - groot/core/**/*
-        - groot/infra/**/*
-        - docker/**/*
-        - pyproject.toml
-        - uv.lock
-        - ci/sync/copybara_sync.py
-        - ci/test.oss.gitlab-ci.yml
-        - ci/image.train.gitlab-ci.yml
-        - ci/images/train.Dockerfile
-    # postmerge rules
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-    - if: '$POSTMERGE_TESTS == "true"'
+  rules: *oss_test_rules
 
   before_script:
+    - |
+      unset OPENSSL_FORCE_FIPS_MODE OPENSSL_FIPS_MODE_SWITCH_PATH
+      if [ "$(head -c 1 /proc/sys/crypto/fips_enabled 2>/dev/null || true)" = "1" ]; then
+        echo "Masking runner host FIPS mode for the non-FIPS OSS training image"
+        printf '0\n' > /tmp/groot-ci-fips-disabled
+        chmod 0444 /tmp/groot-ci-fips-disabled
+        if ! mount --bind /tmp/groot-ci-fips-disabled /proc/sys/crypto/fips_enabled; then
+          echo "Failed to mask inherited runner FIPS mode" >&2
+          exit 1
+        fi
+        test "$(head -c 1 /proc/sys/crypto/fips_enabled)" = "0"
+      fi
     - *oss_package_before_script
     - uv pip install "onnx>=1.20.0" "tensorrt-cu13==10.16.1.11"
 
@@ -169,17 +137,10 @@ test.oss.gpu:
   timeout: 120m
 
 build.oss.dependencies:
+  extends: .minimal
   stage: premerge
   needs:
-    - image.oss.amd64
-  image:
-    name: nvcr.io/nvidian/groot-ci-oss:${CI_COMMIT_SHORT_SHA}-amd64
-    entrypoint: [""]
-  tags:
-    - ipp-group-gear
-  variables:
-    IPP_RUNNER_QUEUE_NAME: user-queue-cpu
-    GIT_LFS_SKIP_SMUDGE: "1"
+    - image.minimal
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
@@ -189,14 +150,8 @@ build.oss.dependencies:
   script:
     - uv lock --locked --project .
     - |
-      # The image pins uv to its system Python; deployment projects such as Thor
-      # declare their own Python, which uv downloads to resolve their locks.
       for lockfile in scripts/deployment/*/uv.lock; do
         [ -f "$lockfile" ] || continue
-        env -u UV_PYTHON UV_PYTHON_DOWNLOADS=automatic \
-          uv lock --locked --project "${lockfile%/uv.lock}" || exit 1
+        uv lock --locked --project "${lockfile%/uv.lock}" || exit 1
       done
-  retry:
-    max: 2
-    when: runner_system_failure
   timeout: 10m
