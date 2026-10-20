@@ -318,6 +318,22 @@ def complete_encoder_load(model: nn.Module, missing_keys, *, from_pretrained=Fal
     model.tactile_spec = replace(spec, pending_encoder_keys=frozenset(), **updated)
 
 
+@torch.compiler.disable
+def pin_tactile_vae(model: nn.Module, device: torch.device) -> None:
+    """Pin the frozen Tactile-VAE to fp32 on ``device``, outside any compiled graph.
+
+    DeepSpeed bf16 casts the whole model, this frozen encoder included. If ``encode_tactile``
+    casts it back inside a compiled training forward, Dynamo recompiles encode_tactile one step
+    later on the parameter-dtype guard. Under reduce-overhead, CUDA-graph trees then record that
+    late graph mid-path by restoring a checkpointed allocator state, which asserts with
+    expandable segments ("Expected curr_block->next == nullptr"). Pinning here first leaves
+    encode_tactile nothing to convert, so it traces once. Same cast, one call earlier.
+    """
+    param = next(model.tactile_vae.parameters())
+    if param.device != device or param.dtype != torch.float32:
+        model.tactile_vae.to(device=device, dtype=torch.float32)
+
+
 def encode_tactile(model: nn.Module, tactile_raw: torch.Tensor) -> torch.Tensor:
     """Encode a present/future F6 window into clean tactile latent tokens.
 

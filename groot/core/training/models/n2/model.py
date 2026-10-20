@@ -55,6 +55,7 @@ from groot.core.training.models.n2.components.sequence_packing import (
     unpack_contiguous,
 )
 from groot.core.training.models.n2.components.text_encoder import CosmosTextEncoder
+from groot.core.training.models.n2.components.text_pad_mask import TextPadMask, text_seq_len
 from groot.core.training.models.n2.components.training_rtc import (
     build_rtc_training_tensors,
     sample_rtc_delays,
@@ -62,6 +63,7 @@ from groot.core.training.models.n2.components.training_rtc import (
 from groot.core.training.models.n2.components.transformer_cosmos import (
     COSMOS_2B_CONFIG,
     COSMOS_14B_CONFIG,
+    Attention,
     CosmosTransformer3DModel,
     MultiViewRoPE,
 )
@@ -93,6 +95,10 @@ VIDEO_TOKENIZER_PREFIXES = (
 )
 VIDEO_ROPE_PREFIXES = ("rope.",)
 ACTION_ROPE_SEQ_KEYS = frozenset(("action_rope.seq", "state_rope.seq"))
+# The action/state RoPE tables legacy checkpoints store; a rope_fp32 model recomputes them.
+LEGACY_ROPE_BUFFER_KEYS = frozenset(
+    f"{module}_rope.{name}" for module in ("action", "state") for name in ("freqs", "seq")
+)
 ACTION_TEMPORAL_POS_EMB_KEY = "action_encoder.temporal_pos_emb"
 
 VAE_TEMPORAL_FACTOR = 4  # Wan VAE temporal compression ratio
@@ -120,6 +126,15 @@ def apply_state_keep(state_tokens: torch.Tensor, data: dict) -> torch.Tensor:
         return state_tokens
     keep = torch.as_tensor(state_keep, device=state_tokens.device, dtype=state_tokens.dtype)
     return state_tokens * keep.reshape(-1, 1, 1)
+
+
+def _text_mask_kwargs(text_pad_mask: TextPadMask | None) -> dict:
+    """The ``_call_transformer`` kwargs carrying ``text_pad_mask``.
+
+    None (dit_text_keys "all") adds none, so the call, and every subclass hook it reaches, is the
+    one made before text masks existed.
+    """
+    return {} if text_pad_mask is None else {"text_pad_mask": text_pad_mask}
 
 
 def _assert_uniform_cache_mask(mask: torch.Tensor) -> None:
@@ -228,6 +243,10 @@ class GrootN2(PreTrainedModel):
 
     config_class = GrootN2Config
     supports_gradient_checkpointing = True
+    # The loss is a per-batch mean that never reads num_items_in_batch. Without this, HF infers
+    # the opposite from forward's **kwargs and skips its 1/gradient_accumulation_steps scaling;
+    # DeepSpeed (scale_wrt_gas=False) skips it too, so accumulated gradients were summed.
+    accepts_loss_kwargs = False
     # Set by n2_tactile.attach when the config has tactile_cfg / deform_cfg.
     tactile_spec = None
 
@@ -269,6 +288,17 @@ class GrootN2(PreTrainedModel):
         self.transformer = self._create_transformer(transformer_config)
         self.transformer.compile_flex_attention = config.compile_flex_attention
         self.transformer.requires_sequence_transform = token_merge_kernel is not None
+        # dit_text_keys "real": the DiT cross-attends each prompt's real tokens only. The transformer
+        # then refuses a forward without a text mask, so no training or inference path drops it.
+        self.text_keys = config.dit_text_keys
+        self.transformer.require_text_pad_mask = self.text_keys == "real"
+        # "real" checkpoints come from the branch whose configs save dit_attention_backend and
+        # whose inference runs the unmasked attention on it (cuDNN SDPA); main does not read the
+        # key otherwise. Training keeps flash_attn either way (Attention.inference_backend).
+        if self.text_keys == "real" and getattr(config, "dit_attention_backend", None) == "cudnn":
+            for module in self.transformer.modules():
+                if isinstance(module, Attention):
+                    module.inference_backend = "cudnn"
         self.packer = ConcatPacker(flex_attention_block_size=config.flex_attention_block_size)
 
         # 1b. Action modules (conditional on action_cfg)
@@ -294,11 +324,16 @@ class GrootN2(PreTrainedModel):
             self.state_encoder = StateEncoder(ac.get("max_state_dim", 64), hidden_size, n_emb)
             self.state_dropout_prob = ac.get("state_dropout_prob", 0.0)
             self.action_decoder = ActionDecoder(hidden_size, ac.get("max_action_dim", 32), n_emb)
+            rope_persistent = not config.rope_fp32
             self.action_rope = ActionRoPE1D(
-                dit_config.attention_head_dim, max_len=ac.get("action_horizon", 48)
+                dit_config.attention_head_dim,
+                max_len=ac.get("action_horizon", 48),
+                persistent=rope_persistent,
             )
             self.state_rope = ActionRoPE1D(
-                dit_config.attention_head_dim, max_len=ac.get("action_horizon", 48)
+                dit_config.attention_head_dim,
+                max_len=ac.get("action_horizon", 48),
+                persistent=rope_persistent,
             )
             self.attention_mask_pattern = ac.get("attention_mask_pattern", None)
         # 2. Frozen components
@@ -325,6 +360,10 @@ class GrootN2(PreTrainedModel):
         # 4. Freeze text encoder + VAE
         self.text_encoder.requires_grad_(False)
         self.vae.requires_grad_(False)
+        if self.text_keys == "real":
+            # the pad id the processor's tokenizer right-pads every prompt with (<|endoftext|>)
+            tokenizer = self.text_encoder.tokenizer
+            self.text_pad_token_id = getattr(tokenizer, "tokenizer", tokenizer).pad_token_id
 
         # 5. Optionally freeze transformer
         if not config.tune_dit:
@@ -541,6 +580,17 @@ class GrootN2(PreTrainedModel):
             non_video_token_indices=packed.non_video_token_indices,
             **transformer_kwargs,
         )
+
+    def _text_pad_mask(self, text_ids: torch.Tensor, device: torch.device) -> TextPadMask | None:
+        """The cross-attention mask of the right-padded prompts ``text_ids`` (B, N) on ``device``.
+
+        None under dit_text_keys "all" (every slot is attended). The prompt lengths come from the
+        token ids, not the embeddings, so a caller that hands in precomputed ``prompt_embs`` still
+        passes ``text``.
+        """
+        if self.text_keys != "real":
+            return None
+        return TextPadMask(text_seq_len(text_ids.to(device), self.text_pad_token_id))
 
     def _compute_additional_training_loss(
         self,
@@ -820,6 +870,7 @@ class GrootN2(PreTrainedModel):
             prompt_embs = self.text_encoder(text_ids.to(device)).to(
                 device=device, dtype=torch.bfloat16
             )
+        text_pad_mask = self._text_pad_mask(text_ids, device)
 
         # 3. Encode video to latents (frozen), per-view for multiview
         n_cameras = self.max_n_cameras
@@ -1030,7 +1081,9 @@ class GrootN2(PreTrainedModel):
             token_merge = self._build_token_merge_plan(packed, shape_info, token_valid_mask)
             if token_merge is not None:
                 transformer_kwargs = {**transformer_kwargs, "sequence_transform": token_merge}
-            out_tokens = self._call_transformer(packed, prompt_embs, **transformer_kwargs)
+            out_tokens = self._call_transformer(
+                packed, prompt_embs, **_text_mask_kwargs(text_pad_mask), **transformer_kwargs
+            )
             additional_loss, additional_metrics = self._compute_additional_training_loss(
                 data=data,
                 packed=packed,
@@ -1409,6 +1462,8 @@ class GrootN2(PreTrainedModel):
         guidance_scale: float,
         seed: int,
         use_kv_cache: bool = False,
+        text_pad_mask: TextPadMask | None = None,
+        neg_text_pad_mask: TextPadMask | None = None,
     ) -> torch.Tensor:
         """Denoise action latents using conditioning frames + state.
 
@@ -1519,9 +1574,13 @@ class GrootN2(PreTrainedModel):
         pos_cache = neg_cache = None
         if use_kv_cache:
             with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda"):
-                pos_cache = self._precompute_cond_kv_cache(static_inputs, prompt_embs)
+                pos_cache = self._precompute_cond_kv_cache(
+                    static_inputs, prompt_embs, text_pad_mask
+                )
                 if needs_neg_cache:
-                    neg_cache = self._precompute_cond_kv_cache(static_inputs, neg_prompt_embs)
+                    neg_cache = self._precompute_cond_kv_cache(
+                        static_inputs, neg_prompt_embs, neg_text_pad_mask
+                    )
 
         # Denoising loop
         for i in range(len(act_sched.timesteps)):
@@ -1547,6 +1606,7 @@ class GrootN2(PreTrainedModel):
                     embodiment_id=embodiment_id,
                     kv_cache=pos_cache,
                     denoising_step=i,
+                    text_pad_mask=text_pad_mask,
                 )
 
             # CFG for action
@@ -1562,6 +1622,7 @@ class GrootN2(PreTrainedModel):
                         kv_cache=neg_cache,
                         denoising_step=i,
                         is_cfg=True,
+                        text_pad_mask=neg_text_pad_mask,
                     )
                 action_noise_pred = action_noise_pred_neg + guidance_scale * (
                     action_noise_pred - action_noise_pred_neg
@@ -1593,7 +1654,10 @@ class GrootN2(PreTrainedModel):
         return AttentionMaskPattern(name)
 
     def _precompute_cond_kv_cache(
-        self, static_inputs: dict, prompt_embs: torch.Tensor
+        self,
+        static_inputs: dict,
+        prompt_embs: torch.Tensor,
+        text_pad_mask: TextPadMask | None = None,
     ) -> CondKVCache:
         """Capture per-layer self-attention K/V for a static token prefix.
 
@@ -1648,7 +1712,9 @@ class GrootN2(PreTrainedModel):
         token_merge = self._build_token_merge_plan(packed, static_inputs.get("shape_info"), tvm)
         cache = CondKVCache()
         tm_kwargs = {"sequence_transform": token_merge} if token_merge is not None else {}
-        self._call_transformer(packed, prompt_embs, kv_cache=cache, **tm_kwargs)
+        self._call_transformer(
+            packed, prompt_embs, kv_cache=cache, **_text_mask_kwargs(text_pad_mask), **tm_kwargs
+        )
 
         # Drop padded-view K/V from the cache. The cached fast path in
         # `_run_action_step` consumes this cache with `attention_mask=None`
@@ -1693,6 +1759,7 @@ class GrootN2(PreTrainedModel):
         kv_cache: CondKVCache | None,
         denoising_step: int = 0,
         is_cfg: bool = False,
+        text_pad_mask: TextPadMask | None = None,
     ) -> torch.Tensor:
         """One transformer forward producing the action noise prediction.
 
@@ -1731,6 +1798,7 @@ class GrootN2(PreTrainedModel):
                 prompt_embs,
                 denoising_step=denoising_step,
                 is_cfg=is_cfg,
+                **_text_mask_kwargs(text_pad_mask),
                 **tm_kwargs,
             )
             action_out = unpack_contiguous(out_tokens, packed, MODALITY_ACTION)
@@ -1762,6 +1830,7 @@ class GrootN2(PreTrainedModel):
                 store_kv=False,
                 denoising_step=denoising_step,
                 is_cfg=is_cfg,
+                **_text_mask_kwargs(text_pad_mask),
             )
         return self.action_decoder(action_out, embodiment_id)
 
@@ -1776,6 +1845,8 @@ class GrootN2(PreTrainedModel):
         shift: float,
         seed: int,
         video_padded_mask=None,
+        text_pad_mask: TextPadMask | None = None,
+        neg_text_pad_mask: TextPadMask | None = None,
     ) -> torch.Tensor:
         """Denoise video latents using conditioning frames.
 
@@ -1866,6 +1937,7 @@ class GrootN2(PreTrainedModel):
                     packed,
                     prompt_embs,
                     denoising_step=i,
+                    **_text_mask_kwargs(text_pad_mask),
                     **tm_kwargs,
                 )
                 video_out = unpack_contiguous(
@@ -1883,6 +1955,7 @@ class GrootN2(PreTrainedModel):
                         neg_prompt_embs,
                         denoising_step=i,
                         is_cfg=True,
+                        **_text_mask_kwargs(neg_text_pad_mask),
                         **tm_kwargs,
                     )
                     video_out_neg = unpack_contiguous(
@@ -1916,6 +1989,8 @@ class GrootN2(PreTrainedModel):
         use_kv_cache: bool = False,
         cond_kv_freeze: bool = False,
         step_callback=None,
+        text_pad_mask: TextPadMask | None = None,
+        neg_text_pad_mask: TextPadMask | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Joint video-action denoising, including future force when trained.
 
@@ -2155,6 +2230,7 @@ class GrootN2(PreTrainedModel):
                     prompt_embs,
                     denoising_step=i,
                     kv_cache=pos_cache,
+                    **_text_mask_kwargs(text_pad_mask),
                     **tm_kwargs,
                 )
 
@@ -2184,6 +2260,7 @@ class GrootN2(PreTrainedModel):
                         denoising_step=i,
                         is_cfg=True,
                         kv_cache=neg_cache,
+                        **_text_mask_kwargs(neg_text_pad_mask),
                         **tm_kwargs,
                     )
                     video_out_neg = unpack_contiguous(
@@ -2267,6 +2344,12 @@ class GrootN2(PreTrainedModel):
                     action_tokens = self.action_encoder(
                         action_latents, action_t_per_step, embodiment_id
                     )
+                    if future_tactile is not None:
+                        # The solver can promote action latents/tokens to FP32.
+                        # Keep the joint snapshot's input precision: Cosmos's
+                        # timestep embedding uses the token dtype even under
+                        # autocast, so changing it alters the cached forward.
+                        action_tokens = action_tokens.to(packed.tokens.dtype)
                     action_rope_freqs = self.action_rope(action_tokens)
 
                     action_noise_pred = self._run_action_step(
@@ -2278,6 +2361,7 @@ class GrootN2(PreTrainedModel):
                         embodiment_id=embodiment_id,
                         kv_cache=pos_cache,
                         denoising_step=act_step,
+                        text_pad_mask=text_pad_mask,
                     )
 
                 if neg_cache is not None and action_cfg_on:
@@ -2292,6 +2376,7 @@ class GrootN2(PreTrainedModel):
                             kv_cache=neg_cache,
                             denoising_step=act_step,
                             is_cfg=True,
+                            text_pad_mask=neg_text_pad_mask,
                         )
                     action_noise_pred = action_noise_pred_neg + action_guidance_scale * (
                         action_noise_pred - action_noise_pred_neg
@@ -2544,6 +2629,17 @@ class GrootN2(PreTrainedModel):
         neg_prompt_embs = self._resolve_negative_prompt_embs(
             data, device, video_guidance_scale, action_guidance_scale, profiler
         )
+        text_pad_mask = neg_text_pad_mask = None
+        if self.text_keys == "real":
+            # lengths from the token ids: callers that pass prompt_embs keep "text"
+            if "text" not in data:
+                raise ValueError(
+                    "dit_text_keys 'real' reads each prompt's length from data['text'] (the token "
+                    "ids); prompt_embs alone does not say which slots are pads"
+                )
+            text_pad_mask = self._text_pad_mask(data["text"], device)
+            if neg_prompt_embs is not None:
+                neg_text_pad_mask = self._text_pad_mask(data["text_negative"], device)
 
         with profiler.section("num_frames_resolve_ms"):
             num_total_pixel = data.get("num_total_frames", None)
@@ -2580,6 +2676,8 @@ class GrootN2(PreTrainedModel):
                     use_kv_cache=kv_cache_cond,
                     cond_kv_freeze=cond_kv_freeze,
                     step_callback=step_callback,
+                    text_pad_mask=text_pad_mask,
+                    neg_text_pad_mask=neg_text_pad_mask,
                 )
             result["action_pred"] = action_pred
             if predict_video:
@@ -2600,6 +2698,8 @@ class GrootN2(PreTrainedModel):
                     guidance_scale=action_guidance_scale,
                     seed=seed,
                     use_kv_cache=kv_cache_cond,
+                    text_pad_mask=text_pad_mask,
+                    neg_text_pad_mask=neg_text_pad_mask,
                 )
 
         if not predict_video:
@@ -2618,6 +2718,8 @@ class GrootN2(PreTrainedModel):
                 shift=shift,
                 seed=seed,
                 video_padded_mask=data.get("video_padded_mask"),
+                text_pad_mask=text_pad_mask,
+                neg_text_pad_mask=neg_text_pad_mask,
             )
 
         return attach_profile(profiler, result)
@@ -2649,6 +2751,9 @@ class GrootN2(PreTrainedModel):
         ``_fix_state_dict_key_on_load`` (the same hook HF runs on every
         internal load path including ``from_pretrained``), so direct callers
         and ``from_pretrained`` produce equivalent post-load weights.
+
+        A ``rope_fp32`` model drops the stored action/state RoPE tables
+        (``LEGACY_ROPE_BUFFER_KEYS``), strict or not, and keeps its fp32 ones.
         """
         from groot.core.training.models.n2.utils.checkpoint_compat import (
             remap_n2_vae_key,
@@ -2656,6 +2761,7 @@ class GrootN2(PreTrainedModel):
         )
 
         current_state = self.state_dict() if not strict else {}
+        drop_rope_tables = bool(getattr(getattr(self, "config", None), "rope_fp32", False))
         remapped = {}
         for key, val in state_dict.items():
             new_key = key
@@ -2667,6 +2773,8 @@ class GrootN2(PreTrainedModel):
                     new_key = f"video_tokenizer.{suffix}"
             new_key = remap_n2_vae_key(new_key)
             new_key, _ = self._fix_state_dict_key_on_load(new_key)
+            if drop_rope_tables and new_key in LEGACY_ROPE_BUFFER_KEYS:
+                continue
             if (
                 not strict
                 and new_key in ACTION_ROPE_SEQ_KEYS

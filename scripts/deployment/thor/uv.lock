@@ -758,15 +758,22 @@ requires-dist = [
     { name = "structlog", marker = "extra == 'deployment'" },
     { name = "structlog", marker = "extra == 'training'" },
     { name = "tach", marker = "extra == 'dev'", specifier = ">=0.35.0" },
-    { name = "tensorrt-cu12", marker = "extra == 'tensorrt'", specifier = "==10.16.1.11" },
+    { name = "tensorrt-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'tensorrt'", specifier = "==10.16.1.11" },
+    { name = "tensorrt-cu13", marker = "platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'tensorrt'", specifier = "==10.16.1.11" },
     { name = "tianshou", marker = "extra == 'training'", specifier = "==0.5.1" },
     { name = "tiktoken", marker = "extra == 'training'" },
-    { name = "torch", marker = "extra == 'deployment'", specifier = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torch", marker = "extra == 'training'", specifier = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchcodec", marker = "extra == 'deployment'", specifier = ">=0.5,<0.6", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchcodec", marker = "extra == 'training'", specifier = ">=0.5,<0.6", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchvision", marker = "extra == 'deployment'", specifier = "==0.22.1", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchvision", marker = "extra == 'training'", specifier = "==0.22.1", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torch", marker = "platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'deployment'", specifier = "==2.11.0", index = "https://pypi.python.org/simple" },
+    { name = "torch", marker = "platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'training'", specifier = "==2.11.0", index = "https://pypi.python.org/simple" },
+    { name = "torch", marker = "(platform_machine != 'aarch64' and extra == 'deployment') or (sys_platform != 'linux' and extra == 'deployment')", specifier = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torch", marker = "(platform_machine != 'aarch64' and extra == 'training') or (sys_platform != 'linux' and extra == 'training')", specifier = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchcodec", marker = "platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'deployment'", specifier = "==0.15.0", index = "https://pypi.python.org/simple" },
+    { name = "torchcodec", marker = "platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'training'", specifier = "==0.15.0", index = "https://pypi.python.org/simple" },
+    { name = "torchcodec", marker = "(platform_machine != 'aarch64' and extra == 'deployment') or (sys_platform != 'linux' and extra == 'deployment')", specifier = ">=0.5,<0.6", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchcodec", marker = "(platform_machine != 'aarch64' and extra == 'training') or (sys_platform != 'linux' and extra == 'training')", specifier = ">=0.5,<0.6", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchvision", marker = "platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'deployment'", specifier = "==0.26.0", index = "https://pypi.python.org/simple" },
+    { name = "torchvision", marker = "platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'training'", specifier = "==0.26.0", index = "https://pypi.python.org/simple" },
+    { name = "torchvision", marker = "(platform_machine != 'aarch64' and extra == 'deployment') or (sys_platform != 'linux' and extra == 'deployment')", specifier = "==0.22.1", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchvision", marker = "(platform_machine != 'aarch64' and extra == 'training') or (sys_platform != 'linux' and extra == 'training')", specifier = "==0.22.1", index = "https://download.pytorch.org/whl/cu128" },
     { name = "tqdm", marker = "extra == 'deployment'" },
     { name = "transformers", marker = "extra == 'deployment'", specifier = "==4.57.6" },
     { name = "transformers", marker = "extra == 'training'", specifier = "==4.57.6" },
@@ -1180,7 +1187,7 @@ resolution-markers = [
     "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
 ]
 dependencies = [
-    { name = "nvidia-cuda-nvrtc" },
+    { name = "nvidia-cuda-nvrtc", marker = "sys_platform != 'darwin' and sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/22/7c08d8e93f6a2e4879ac83c12696aecaf17a0fc2c9e8d204caceaa3b8426/nvidia_cublas-13.6.0.2-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:946f6a252b1cc72d8de912c75975fd6d8ba44f67d4e5044fe764ddb909f4a688", size = 518599300, upload-time = "2026-06-29T16:54:56.859Z" },
@@ -1197,7 +1204,7 @@ resolution-markers = [
     "sys_platform == 'darwin'",
 ]
 dependencies = [
-    { name = "nvidia-cuda-nvrtc" },
+    { name = "nvidia-cuda-nvrtc", marker = "sys_platform == 'darwin' or sys_platform == 'emscripten'" },
 ]
 
 [[package]]

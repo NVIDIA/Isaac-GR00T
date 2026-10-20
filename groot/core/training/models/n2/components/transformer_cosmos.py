@@ -24,6 +24,7 @@ from typing import Any, Protocol
 import numpy as np
 import torch
 from torch import nn
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.flex_attention import BlockMask
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
@@ -31,6 +32,7 @@ from torch.utils.checkpoint import checkpoint as torch_checkpoint
 from groot.core.training.models.dream_cosmos.attention_utils.flex_attention import flex_attention_op
 from groot.core.training.models.n2.components.flash_attention import flash_attn_func_v23
 from groot.core.training.models.n2.components.kv_cache import CondKVCache
+from groot.core.training.models.n2.components.text_pad_mask import TextPadMask
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -174,6 +176,15 @@ def apply_rotary_emb(x: torch.Tensor, freqs: tuple[torch.Tensor, torch.Tensor]) 
 
 # ─── Attention ────────────────────────────────────────────────────────────────
 
+# Attention.inference_backend "cudnn": cuDNN first; sdpa_kernel enables only the listed
+# backends, so inputs cuDNN declines fall through to the default chain.
+_CUDNN_FIRST_SDPA_BACKENDS = [
+    SDPBackend.CUDNN_ATTENTION,
+    SDPBackend.FLASH_ATTENTION,
+    SDPBackend.EFFICIENT_ATTENTION,
+    SDPBackend.MATH,
+]
+
 
 class Attention(nn.Module):
     """Self-attention or cross-attention with QK-norm and RoPE support."""
@@ -200,13 +211,17 @@ class Attention(nn.Module):
         # Match diffusers Cosmos attention q/k RMSNorm epsilon.
         self.norm_q = RMSNorm(dim_head, eps=1e-5) if qk_norm == "rms_norm" else nn.Identity()
         self.norm_k = RMSNorm(dim_head, eps=1e-5) if qk_norm == "rms_norm" else nn.Identity()
+        # The unmasked attention kernel in eval mode: "flash_attn" or "cudnn" (torch SDPA, cuDNN
+        # first). GrootN2 sets "cudnn" only for a dit_text_keys "real" checkpoint whose config
+        # names it, the kernel the branch that trains those runs at inference.
+        self.inference_backend = "flash_attn"
 
     def forward(
         self,
         hidden_states: torch.Tensor,
         encoder_hidden_states: torch.Tensor | None = None,
         image_rotary_emb: tuple | None = None,
-        attention_mask: BlockMask | None = None,
+        attention_mask: BlockMask | TextPadMask | None = None,
         pad: int = 0,
         compile_flex_attention: bool = True,
         kv_cache: CondKVCache | None = None,
@@ -219,7 +234,8 @@ class Attention(nn.Module):
         QK-norm and RoPE. On the first call (capture), K/V are stored.
         On subsequent calls (splice), cached prefix K/V are prepended.
         Set ``store_kv=False`` during diffusion reuse to leave the cache
-        unchanged across action denoising steps.
+        unchanged across action denoising steps. A ``TextPadMask`` masks the
+        cross-attention to each sample's real prompt tokens.
         """
         context = encoder_hidden_states if encoder_hidden_states is not None else hidden_states
 
@@ -246,7 +262,12 @@ class Attention(nn.Module):
         if kv_cache is not None:
             k, v = kv_cache.update(k, v, layer_idx, store=store_kv)
 
-        if attention_mask is not None:
+        if isinstance(attention_mask, TextPadMask):
+            # (B, H, S, D) -> (B, S, H, D), the layout the mask takes
+            out = attention_mask.cross_attention(
+                q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+            )
+        elif attention_mask is not None:
             # flex_attention expects (B, S, H, D) input
             q = q.transpose(1, 2)  # (B, S, H, D)
             k = k.transpose(1, 2)
@@ -260,6 +281,10 @@ class Attention(nn.Module):
                 flatten_heads=False,
                 compile_attention=compile_flex_attention,
             )
+        elif self.inference_backend == "cudnn" and not self.training:
+            with sdpa_kernel(_CUDNN_FIRST_SDPA_BACKENDS, set_priority=True):
+                out = F.scaled_dot_product_attention(q, k, v)
+            out = out.transpose(1, 2)  # (B, S_q, H, D)
         else:
             # (B, H, S, D) → (B, S, H, D) for flash attention
             q = q.transpose(1, 2)
@@ -281,6 +306,8 @@ class MultiViewCrossAttention(Attention):
     - Non-video tokens (action/state) cross-attend to a single text copy
     - encoder_hidden_states is (B, V*M, D) — text repeated V times
     - video_idx / non_video_idx are precomputed integer indices from modality_ids
+    - text_pad_mask (dit_text_keys "real"): every query attends its sample's real prompt tokens
+      only; None attends all M slots, pads included (Cosmos Predict 2.5)
     """
 
     def forward(
@@ -291,12 +318,14 @@ class MultiViewCrossAttention(Attention):
         n_cameras: int = 1,
         video_idx: torch.Tensor | None = None,
         non_video_idx: torch.Tensor | None = None,
+        text_pad_mask: TextPadMask | None = None,
     ) -> torch.Tensor:
         if n_cameras <= 1 or encoder_hidden_states is None:
             return super().forward(
                 hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
                 image_rotary_emb=image_rotary_emb,
+                attention_mask=text_pad_mask,
             )
 
         V = n_cameras
@@ -311,6 +340,7 @@ class MultiViewCrossAttention(Attention):
                 hidden_states,
                 encoder_hidden_states=encoder_hidden_states[:, :M],
                 image_rotary_emb=image_rotary_emb,
+                attention_mask=text_pad_mask,
             )
 
         # Video tokens: per-view cross-attention
@@ -319,7 +349,12 @@ class MultiViewCrossAttention(Attention):
 
         x = video_hs.view(B, V, L_video, -1).permute(1, 0, 2, 3).reshape(V * B, L_video, -1)
         ctx = encoder_hidden_states.view(B, V, M, -1).permute(1, 0, 2, 3).reshape(V * B, M, -1)
-        x = super().forward(x, encoder_hidden_states=ctx, image_rotary_emb=None)
+        x = super().forward(
+            x,
+            encoder_hidden_states=ctx,
+            image_rotary_emb=None,
+            attention_mask=None if text_pad_mask is None else text_pad_mask.repeat(V),
+        )
         x = x.view(V, B, L_video, -1).permute(1, 0, 2, 3).reshape(B, V * L_video, -1)
 
         # Video-only: no scatter needed
@@ -333,6 +368,7 @@ class MultiViewCrossAttention(Attention):
             hidden_states[:, non_video_idx],
             encoder_hidden_states=encoder_hidden_states[:, :M],
             image_rotary_emb=None,
+            attention_mask=text_pad_mask,
         )
 
         return out
@@ -639,6 +675,7 @@ class CosmosTransformerBlock(nn.Module):
         kv_cache: CondKVCache | None = None,
         layer_idx: int = 0,
         store_kv: bool = True,
+        text_pad_mask: TextPadMask | None = None,
     ) -> torch.Tensor:
         if extra_pos_emb is not None:
             hidden_states = hidden_states + extra_pos_emb
@@ -656,12 +693,15 @@ class CosmosTransformerBlock(nn.Module):
         )
 
         norm_hs, gate = self.norm2(hidden_states, embedded_timestep, temb)
+        # Unmasked export adapters retain their original cross-attention call signature.
+        text_mask_kwargs = {} if text_pad_mask is None else {"text_pad_mask": text_pad_mask}
         hidden_states = hidden_states + gate * self.attn2(
             norm_hs,
             encoder_hidden_states=encoder_hidden_states,
             n_cameras=n_cameras,
             video_idx=video_idx,
             non_video_idx=non_video_idx,
+            **text_mask_kwargs,
         )
 
         norm_hs, gate = self.norm3(hidden_states, embedded_timestep, temb)
@@ -780,6 +820,9 @@ class CosmosTransformer3DModel(nn.Module):
         self.gradient_checkpointing = False
         self.compile_flex_attention = True
         self.requires_sequence_transform = False
+        # dit_text_keys "real" (GrootN2 sets it): a forward must carry the text mask, so no caller
+        # attends the prompt's padding unnoticed
+        self.require_text_pad_mask = False
 
     def forward(
         self,
@@ -851,14 +894,25 @@ class CosmosTransformer3DModel(nn.Module):
         video_token_indices: torch.Tensor | None = None,
         non_video_token_indices: torch.Tensor | None = None,
         sequence_transform: LayerwiseSequenceTransform | None = None,
+        text_pad_mask: TextPadMask | None = None,
     ) -> torch.Tensor:
         """Forward path with optional packer-derived routing indices.
 
         Public callers keep ``modality_ids`` as the source of truth. N2 packed
         training passes the derived indices here to avoid data-dependent
-        nonzero()/any() in the compiled training graph.
+        nonzero()/any() in the compiled training graph. ``text_pad_mask``: the
+        cross-attention to each sample's real prompt tokens (dit_text_keys "real").
         """
         B, L, D = latents.shape
+        if text_pad_mask is not None and self.per_view_text:
+            raise ValueError(
+                "text_pad_mask masks one prompt per sample; per_view_text has one per view"
+            )
+        if self.require_text_pad_mask and text_pad_mask is None:
+            raise ValueError(
+                "dit_text_keys is 'real' but this forward carries no text mask: the caller would "
+                "cross-attend the prompt's padding (pass text_pad_mask)"
+            )
 
         # 1. Timestep embeddings from raw sigmas
         temb, embedded_timestep = self.time_embed(latents, timesteps.reshape(-1))
@@ -955,6 +1009,7 @@ class CosmosTransformer3DModel(nn.Module):
                     attention_mask,
                     pad,
                     self.compile_flex_attention,
+                    text_pad_mask=text_pad_mask,
                     use_reentrant=False,
                 )
             else:
@@ -974,6 +1029,7 @@ class CosmosTransformer3DModel(nn.Module):
                     kv_cache,
                     layer_idx,
                     store_kv,
+                    text_pad_mask=text_pad_mask,
                 )
 
         if sequence_transform is not None and sequence_transform.end_layer == len(

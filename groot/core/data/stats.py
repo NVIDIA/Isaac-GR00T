@@ -36,7 +36,7 @@ from groot.core.data.types import (
 )
 from groot.core.data.utils import to_json_serializable
 from groot.core.training.configs.data.embodiment_configs import MODALITY_CONFIGS
-from groot.core.utils.state_action.rotation import compute_se3_relative
+from groot.core.utils.state_action.rotation import compute_se3_relative, gram_schmidt
 
 LE_ROBOT_DATA_FILENAME = "data/*/*.parquet"
 
@@ -72,6 +72,67 @@ def compute_relative_action(
         return compute_se3_relative(actions, ref_state)
     else:
         raise ValueError(f"Unknown ActionType: {action_type}")
+
+
+def _rot_6d_rows_to_rot_mat(rot_6d: np.ndarray) -> np.ndarray:
+    """rot_6d_to_rot_mat's matrix construction for (N, 2, 3) rows, without its gram-schmidt check."""
+    rot_mat = np.zeros((rot_6d.shape[0], 3, 3))
+    rot_mat[:, :2, :] = rot_6d
+    rot_mat[:, 2, :] = np.cross(rot_6d[:, 0], rot_6d[:, 1])
+    return rot_mat
+
+
+def _rot_6d_row_candidates(rot_6d: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per (N, 6) row: whether rot_6d_to_rot_mat's orthogonality check fails, and both matrices.
+
+    rot_6d_to_rot_mat gram-schmidts its WHOLE input when any row fails the check, so a row's matrix
+    depends on the call it is part of. Both versions are built once here and chosen per call.
+    """
+    rot_6d = rot_6d.reshape(-1, 2, 3)
+    fails = ~np.isclose(np.sum(rot_6d[:, 0] * rot_6d[:, 1], axis=-1), 0)
+    return (
+        fails,
+        _rot_6d_rows_to_rot_mat(rot_6d),
+        _rot_6d_rows_to_rot_mat(gram_schmidt(rot_6d.copy())),
+    )
+
+
+def compute_relative_action_windows(
+    actions: np.ndarray,
+    refs: np.ndarray,
+    windows: np.ndarray,
+    action_type: ActionType,
+) -> np.ndarray:
+    """compute_relative_action(actions[windows[n]], refs[n], action_type) for every n, at once.
+
+    Args:
+        actions: One episode's absolute actions, shape ``(T, dim)``.
+        refs: One reference state per window, shape ``(N, dim)``.
+        windows: Row indices into ``actions`` per window, shape ``(N, horizon)``.
+        action_type: As in :func:`compute_relative_action`.
+
+    Returns:
+        ``(N, horizon, dim)`` float32, byte-identical to stacking the per-window calls: the same
+        numpy ops run batched, and every per-call branch (rot_6d_to_rot_mat's gram-schmidt) is
+        resolved per window.
+    """
+    if action_type == ActionType.NON_EEF:
+        relative = actions[windows].astype(np.float64) - refs.astype(np.float64)[:, None, :]
+        return relative.astype(np.float32)
+    if action_type != ActionType.EEF:
+        raise ValueError(f"Unknown ActionType: {action_type}")
+    assert refs.shape[1] == 9  # xyz + rot6d
+    assert actions.shape[1] == 9  # xyz + rot6d
+    fails, plain, orthonormalized = _rot_6d_row_candidates(actions[:, 3:9])
+    window_fails = fails[windows].any(axis=1)[:, None, None, None]
+    act_rot = np.where(window_fails, orthonormalized[windows], plain[windows])  # (N, H, 3, 3)
+    ref_fails, ref_plain, ref_orthonormalized = _rot_6d_row_candidates(refs[:, 3:9])
+    ref_rot = np.where(ref_fails[:, None, None], ref_orthonormalized, ref_plain)  # (N, 3, 3)
+    ref_rot_inv = ref_rot.transpose(0, 2, 1)
+    delta_xyz = (actions[windows, :3] - refs[:, None, :3]) @ ref_rot  # == ref_rot_inv.T per window
+    delta_rot = np.einsum("nij,nhjk->nhik", ref_rot_inv, act_rot)
+    delta_rot6d = delta_rot[:, :, :2, :].reshape(*delta_rot.shape[:2], 6)
+    return np.concatenate([delta_xyz, delta_rot6d], axis=-1).astype(np.float32)
 
 
 LE_ROBOT_INFO_FILENAME = "meta/info.json"
@@ -312,13 +373,13 @@ class RelativeActionLoader:
             str(dataset_path), self.modality_configs, hydrator=hydrator
         )
 
-    def load_relative_actions(self, trajectory_id: int) -> list[np.ndarray]:
+    def load_relative_actions(self, trajectory_id: int) -> np.ndarray:
+        """The episode's relative action chunks, one per anchor: ``(anchors, horizon, dim)``."""
         trajectory_df = self.loader[trajectory_id]
 
         action_key_col = f"action.{self.action_key}"
         # pl.Array(pl.Float32, width) → 2D ndarray (episode_length, width).
         action_data = trajectory_df[action_key_col].to_numpy()
-        trajectories = []
         usable_length = trajectory_df.height - self.modality_configs["action"].delta_indices[-1]
         action_delta_indices = np.array(self.modality_configs["action"].delta_indices)
 
@@ -329,14 +390,26 @@ class RelativeActionLoader:
             else f"state.{self.action_key}"
         )
         state_data = trajectory_df[state_key].to_numpy()
-        for i in range(usable_length):
-            state_ind = self.modality_configs["state"].delta_indices[-1] + i
-            action_inds = action_delta_indices + i
-            last_state = np.array(state_data[state_ind])
-            actions = np.stack(action_data[action_inds])
-            trajectories.append(
-                compute_relative_action(actions, last_state, self.action_config.type)
+        if usable_length <= 0:
+            return np.zeros((0, len(action_delta_indices), action_data.shape[1]), dtype=np.float32)
+        anchors = np.arange(usable_length)
+        state_inds = self.modality_configs["state"].delta_indices[-1] + anchors
+        windows = action_delta_indices[None, :] + anchors[:, None]
+        trajectories = compute_relative_action_windows(
+            action_data, state_data[state_inds], windows, self.action_config.type
+        )
+        # The batched path must equal the per-anchor one byte for byte; check a few anchors.
+        for i in {0, usable_length // 2, usable_length - 1}:
+            expected = compute_relative_action(
+                np.stack(action_data[windows[i]]),
+                np.array(state_data[state_inds[i]]),
+                self.action_config.type,
             )
+            if expected.tobytes() != trajectories[i].tobytes():
+                raise AssertionError(
+                    f"batched relative actions differ from compute_relative_action at anchor {i} "
+                    f"of episode {trajectory_id} ({self.action_key})"
+                )
         return trajectories
 
     def __len__(self) -> int:
@@ -400,7 +473,7 @@ def calculate_stats_for_key(
     )
 
 
-def _load_episode_relative_actions(args: tuple) -> list[np.ndarray]:
+def _load_episode_relative_actions(args: tuple) -> np.ndarray:
     """Load and compute relative actions for a single episode. Designed for ray.util.multiprocessing.Pool."""
     dataset_path, embodiment_tag, group_key, episode_id, hydrator, max_action_chunk_size = args
     loader = RelativeActionLoader(
@@ -440,23 +513,8 @@ def _calculate_stats_for_key_reservoir(
         (dataset_path, embodiment_tag, group_key, ep_id, hydrator, max_action_chunk_size)
         for ep_id in range(num_episodes)
     ]
-    with RayPool() as pool:
-        all_episode_chunks = list(
-            tqdm(
-                pool.imap(
-                    _load_episode_relative_actions,
-                    pool_args,
-                ),
-                total=num_episodes,
-                desc=f"Loading trajectories for key {group_key}",
-            )
-        )
-
-    for result in all_episode_chunks:
-        if isinstance(result, PoolTaskError):
-            raise result.underlying
-
-    # Aggregate with reservoir sampling
+    # Aggregate with reservoir sampling as episodes arrive (imap keeps episode order), holding at
+    # most one batch of chunks rather than the whole dataset's.
     global_n = 0
     global_mean = None
     global_M2 = None
@@ -466,30 +524,40 @@ def _calculate_stats_for_key_reservoir(
     batch_chunks: list[np.ndarray] = []
     episodes_in_batch = 0
 
-    for episode_chunks in all_episode_chunks:
-        batch_chunks.extend(episode_chunks)
-        episodes_in_batch += 1
+    with RayPool() as pool:
+        for episode_chunks in tqdm(
+            pool.imap(
+                _load_episode_relative_actions,
+                pool_args,
+            ),
+            total=num_episodes,
+            desc=f"Loading trajectories for key {group_key}",
+        ):
+            if isinstance(episode_chunks, PoolTaskError):
+                raise episode_chunks.underlying
+            batch_chunks.extend(episode_chunks)
+            episodes_in_batch += 1
 
-        if episodes_in_batch >= batch_size_episodes:
-            (
-                global_n,
-                global_mean,
-                global_M2,
-                global_min,
-                global_max,
-                reservoir,
-            ) = merge_batch_stats_with_reservoir(
-                global_n,
-                global_mean,
-                global_M2,
-                global_min,
-                global_max,
-                reservoir,
-                batch_chunks,
-                reservoir_size=DEFAULT_RESERVOIR_SIZE,
-            )
-            batch_chunks = []
-            episodes_in_batch = 0
+            if episodes_in_batch >= batch_size_episodes:
+                (
+                    global_n,
+                    global_mean,
+                    global_M2,
+                    global_min,
+                    global_max,
+                    reservoir,
+                ) = merge_batch_stats_with_reservoir(
+                    global_n,
+                    global_mean,
+                    global_M2,
+                    global_min,
+                    global_max,
+                    reservoir,
+                    batch_chunks,
+                    reservoir_size=DEFAULT_RESERVOIR_SIZE,
+                )
+                batch_chunks = []
+                episodes_in_batch = 0
 
     if batch_chunks:
         (
@@ -580,6 +648,18 @@ def _calculate_stats_for_key_exact(
     return exact_stats_from_chunks(all_chunks)
 
 
+def relative_action_keys(embodiment_tag: str) -> list[str]:
+    """The action keys ``embodiment_tag`` trains RELATIVE: the keys its relative stats must hold."""
+    action_config = MODALITY_CONFIGS[embodiment_tag]["action"]
+    return [
+        key
+        for key, ac in zip(
+            action_config.modality_keys, action_config.action_configs or (), strict=False
+        )
+        if ac.rep == ActionRepresentation.RELATIVE
+    ]
+
+
 def generate_rel_stats(
     dataset_path: Path | str,
     embodiment_tag: EmbodimentTag,
@@ -599,11 +679,7 @@ def generate_rel_stats(
     action_config = MODALITY_CONFIGS[embodiment_tag.value]["action"]
     if action_config.action_configs is None:
         return None
-    action_keys = [
-        key
-        for key, ac in zip(action_config.modality_keys, action_config.action_configs, strict=False)
-        if ac.rep == ActionRepresentation.RELATIVE
-    ]
+    action_keys = relative_action_keys(embodiment_tag.value)
     if not action_keys:
         return None  # No relative actions for this embodiment
     if hydrator is not None:

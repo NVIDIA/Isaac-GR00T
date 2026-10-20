@@ -42,6 +42,10 @@ def instrument_policy_timing(
     Timing is returned in the policy ``info`` mapping. The function is opt-in
     because synchronization changes production scheduling and adds overhead;
     the benchmark server CLI enables it explicitly.
+
+    Requests with ``options={"return_raw_actions": True}`` copy the
+    pre-decoding prediction into ``info["action_pred"]``. Capture adds
+    policy/RPC overhead, but stays outside the model prediction timing span.
     """
     if getattr(policy, _INSTRUMENTED_ATTRIBUTE, False):
         raise RuntimeError("policy timing is already instrumented")
@@ -72,9 +76,11 @@ def instrument_policy_timing(
     original_predict = getattr(predict_owner, predict_attribute)
     active_timing: dict[str, float] | None = None
     predict_calls = 0
+    capture_raw_actions = False
+    raw_actions = None
 
     def timed_predict(*args, **kwargs):
-        nonlocal predict_calls
+        nonlocal predict_calls, raw_actions
         if active_timing is None:
             return original_predict(*args, **kwargs)
         predict_calls += 1
@@ -85,14 +91,25 @@ def instrument_policy_timing(
         result = original_predict(*args, **kwargs)
         synchronize()
         active_timing["model_predict_ms"] = (clock() - start) * 1000.0
+        if capture_raw_actions:
+            value = result.get("action_pred") if isinstance(result, dict) else None
+            if not torch.is_tensor(value):
+                raise RuntimeError("raw action capture requires a tensor action_pred")
+            value = value.detach().cpu()
+            if value.dtype == torch.bfloat16:
+                value = value.float()  # NumPy cannot represent BF16; FP32 is lossless here.
+            raw_actions = value.numpy().copy()  # Own storage before decoding or graph reuse.
         return result
 
     def timed_get_action(*args, **kwargs):
-        nonlocal active_timing, predict_calls
+        nonlocal active_timing, predict_calls, capture_raw_actions, raw_actions
         if active_timing is not None:
             raise RuntimeError("benchmark policy timing does not support reentrant requests")
+        options = kwargs.get("options", args[1] if len(args) > 1 else None)
+        capture_raw_actions = (options or {}).get("return_raw_actions") is True
         active_timing = {}
         predict_calls = 0
+        raw_actions = None
         synchronize()
         start = clock()
         try:
@@ -107,9 +124,13 @@ def instrument_policy_timing(
                 raise TypeError("policy info must be a dict to carry benchmark timing")
             timed_info = dict(info)
             timed_info[BENCHMARK_TIMING_INFO_KEY] = dict(active_timing)
+            if capture_raw_actions:
+                timed_info["action_pred"] = raw_actions
             return action, timed_info
         finally:
             active_timing = None
+            raw_actions = None
+            capture_raw_actions = False
 
     setattr(predict_owner, predict_attribute, timed_predict)
     policy.get_action = timed_get_action

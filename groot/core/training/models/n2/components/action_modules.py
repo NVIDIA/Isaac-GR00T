@@ -19,7 +19,10 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from groot.core.training.models.modules.flowmatching_modules import SinusoidalPositionalEncoding, swish
+from groot.core.training.models.modules.flowmatching_modules import (
+    SinusoidalPositionalEncoding,
+    swish,
+)
 
 
 class CategorySpecificLinear(nn.Module):
@@ -133,16 +136,21 @@ class ActionRoPE1D(nn.Module):
 
     Output format matches CosmosRotaryPosEmbed: (cos, sin) each (L, D_head).
     Uses the Cosmos "real_unbind" convention (freqs doubled before cos/sin).
+
+    ``persistent=False`` (GrootN2Config.rope_fp32) keeps ``freqs`` / ``seq`` out of checkpoints:
+    they are fp32 constants every load recomputes, exact while the bf16 casts leave buffers
+    alone (groot/core/utils/precision.py). The legacy persistent tables are loaded from the
+    checkpoint, bf16-rounded by DeepSpeed 0.18.8's ``module.bfloat16()``.
     """
 
-    def __init__(self, head_dim: int, max_len: int = 256):
+    def __init__(self, head_dim: int, max_len: int = 256, persistent: bool = True):
         super().__init__()
         self.head_dim = head_dim
         self.max_len = max_len
         half_dim = head_dim // 2
         freqs = 1.0 / (10000.0 ** (torch.arange(0, half_dim).float() / half_dim))
-        self.register_buffer("freqs", freqs)
-        self.register_buffer("seq", torch.arange(max_len, dtype=torch.float))
+        self.register_buffer("freqs", freqs, persistent=persistent)
+        self.register_buffer("seq", torch.arange(max_len, dtype=torch.float), persistent=persistent)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """x: (B, L, D) -> (cos, sin) each (L, D_head)."""

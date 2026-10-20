@@ -55,7 +55,10 @@ import wandb
 from groot.core.data.dataset import deltacat_sampled_stats
 from groot.core.data.dataset.build_artifacts import DatasetBuildArtifacts
 from groot.core.data.dataset.factory import DatasetFactory as _ValDatasetFactory
+from groot.core.data.dataset.path_detection import is_lance_dataset_path, uses_lance
+from groot.core.data.dataset.recipe_fields import LANCE_ENTRY_FIELDS
 from groot.core.training.configs.base_config import Config
+from groot.core.training.experiment.callbacks.ema import EMACallback
 from groot.core.training.experiment.callbacks.msc_checkpoint import MSCCheckpointCallback
 from groot.core.training.experiment.callbacks.save_steps import OverrideSaveStepsCallback
 from groot.core.training.experiment.callbacks.validation_loss import ValidationLossCallback
@@ -360,13 +363,23 @@ def _mark_training_attempt(output_dir: str, global_rank: int) -> None:
     _check_resume_failures(failure, context="Node-local startup failed")
 
 
+def resume_checkpoint_choice(config: Config) -> str | bool:
+    """The checkpoint this launch resumes from, before any is materialized.
+
+    training.resume_from_checkpoint when set, else the one launcher's decision: an exact checkpoint,
+    True (the output directory's latest, legacy resume) or False (none).
+    """
+    explicit = getattr(config.training, "resume_from_checkpoint", None)
+    return explicit if explicit is not None else one_launcher_resume_checkpoint()
+
+
 def _materialize_training_resume_checkpoint(
     config: Config, global_rank: int, *, output_dir: str | None = None
 ) -> str | bool:
     """Keep legacy shared resume or materialize an explicitly selected checkpoint."""
     output_dir = output_dir or config.training.output_dir
     explicit = getattr(config.training, "resume_from_checkpoint", None)
-    selected = explicit if explicit is not None else one_launcher_resume_checkpoint()
+    selected = resume_checkpoint_choice(config)
     failure = None
     local_output = None
     try:
@@ -678,6 +691,35 @@ def fetch_latest_checkpoint_from_remote_if_available(
             )
 
 
+def _refuse_lance_eval_paths(paths: list[str], data_cfg, route: str, remedy: str) -> None:
+    """Refuse open-loop eval on a LanceDS store: it reads every path with LeRobotEpisodeLoader.
+
+    A mapping source is no path here; it reaches the eval as on main. An ``s3://`` store is known by
+    its entry (path_detection.is_lance_source): an s3 path whose entry sets any lance field is
+    refused, one a {path: value} mapping leaves out too.
+    """
+    declared = {
+        str(path)
+        for ds in data_cfg.datasets
+        if any(getattr(ds, field) is not None for field in LANCE_ENTRY_FIELDS)
+        for path in ds.dataset_paths
+        if str(path).startswith("s3://")
+    }
+    stores = sorted(
+        {
+            str(path)
+            for path in paths
+            if isinstance(path, str | Path)
+            and (is_lance_dataset_path(path) or str(path) in declared)
+        }
+    )
+    if stores:
+        raise ValueError(
+            f"{route} reads its datasets as LeRobot, so it cannot evaluate the LanceDS stores "
+            f"{stores}: {remedy}."
+        )
+
+
 def _build_in_process_open_loop_callback(
     *,
     in_process_cfg,
@@ -748,6 +790,13 @@ def _build_in_process_open_loop_callback(
                 )
             )
 
+    _refuse_lance_eval_paths(
+        [spec.dataset_path for spec in in_proc_specs],
+        data_cfg,
+        "training.open_loop_eval_in_process",
+        "give the entry a LeRobot val_dataset_path with use_train_path off, leave it out of "
+        "dataset_indices, or disable it",
+    )
     if not in_proc_specs:
         logging.warning(
             "[in-process open-loop eval] enabled but no eval datasets resolved "
@@ -852,6 +901,12 @@ def _build_open_loop_eval_callback(
             {"dataset_path": val_dataset_path, "embodiment_tag": embodiment_tag, "eval_type": "val"}
         )
 
+    _refuse_lance_eval_paths(
+        [eval_config["dataset_path"] for eval_config in eval_configs],
+        data_cfg,
+        "training.open_loop_eval",
+        "set training.open_loop_eval.dataset_index to a LeRobot entry, or disable it",
+    )
     if not eval_configs:
         logging.warning(
             "[open-loop eval] enabled but no eval configs resolved "
@@ -878,6 +933,16 @@ def _build_open_loop_eval_callback(
         policy_type=legacy_cfg.policy_type,
         trainer=trainer,
     )
+
+
+def output_dir_of(config: Config) -> Path:
+    """The run's output directory, which holds its checkpoints.
+
+    training.output_dir, joined with training.experiment_name when that is set.
+    """
+    output_dir = Path(config.training.output_dir)
+    name = config.training.experiment_name
+    return output_dir if name is None else output_dir / name
 
 
 def run(
@@ -983,6 +1048,17 @@ def run(
                 requested_msc_checkpoint_url,
             )
             config.training.msc_checkpoint_url = requested_msc_checkpoint_url
+    # Lance code is imported only for a run that involves LanceDS: the OSS export ships none.
+    lance_run = uses_lance(config.data)
+    if lance_run:
+        from groot.core.data.dataset import lance_pins
+
+        # Every unpinned LanceDS path, and the registry, pinned at this launch's time (a resume: at
+        # the time its checkpoint recorded) before anything reads them; a config the Ray driver
+        # stamped is left as it is.
+        lance_pins.stamp_lance_pins(
+            config.data, config.data, output_dir_of(config), resume_checkpoint_choice(config)
+        )
     api_wandb_run_name = os.environ.get("GEAR_WANDB_RUN_NAME", "")
 
     # Create output directory and check if using remote MSC upload
@@ -1028,13 +1104,12 @@ def run(
     # absent (local runs, dashboard outage, backfill mode).
 
     # Setup output directory (always use local Lustre path, not ephemeral storage)
+    output_dir = output_dir_of(config)
     if config.training.experiment_name is None:
-        output_dir = Path(config.training.output_dir)
         # Server-supplied name beats output_dir basename so the W&B run name
         # is "my_job", not "00042_my_job".
         experiment_name = api_wandb_run_name or output_dir.name
     else:
-        output_dir = Path(config.training.output_dir) / config.training.experiment_name
         experiment_name = config.training.experiment_name
     # Write the resolved name back so it propagates to W&B config / saved YAML.
     config.training.experiment_name = experiment_name
@@ -1405,6 +1480,12 @@ def run(
                 "optimizer offload (num_gpus > 1, use_ddp off)"
             )
 
+        if lance_run:
+            from groot.core.data.dataset.lance.read.io_shim import lance_io_shim
+
+            # Checked here, in the actor: the driver's environment is not what the actor received.
+            lance_io_shim.warn_production_deviations()
+
         # Create trainer
         trainer_class = pipeline.get_trainer_class(GR00TTrainer)
         trainer = trainer_class(
@@ -1485,6 +1566,18 @@ def run(
         # Conditionally add SaveVlModelCallback based on config
         if config.training.save_vl_model:
             trainer.add_callback(SaveVlModelCallback(processor=processor))
+
+        # Registered before the upload callbacks: EMACallback.on_save writes
+        # ema_model.safetensors into the checkpoint dir synchronously, and
+        # callbacks fire in registration order, so the file is on disk before an
+        # upload of that directory is dispatched.
+        if config.training.ema_decay > 0:
+            trainer.add_callback(
+                EMACallback(
+                    decay=config.training.ema_decay,
+                    resume_checkpoint=pipeline.resume_checkpoint,
+                )
+            )
 
         trainer.add_callback(
             CheckpointFormatCallback(
@@ -1590,6 +1683,14 @@ def run(
         # (t, eps) draws. Re-seed here, after the model is built, so that random
         # init stays identical across ranks.
         set_seed(config.data.seed + global_rank)
+
+        if lance_run:
+            from groot.core.data.dataset.lance.read import parent_reads as lance_parent_reads
+
+            # The datasets exist, and trainer.train() builds the DataLoader.
+            lance_parent_reads.stop_before_fork(
+                config.training.dataloader_num_workers, config.data.multiprocessing_context
+            )
 
         # Train
         logging.info("🚀 Starting training...")
