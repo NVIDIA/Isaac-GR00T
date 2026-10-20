@@ -72,11 +72,11 @@ Our AI models are designed and/or optimized to run on NVIDIA GPU-accelerated sys
 
 ## Software Integration:
 
-**Runtime Engine(s):** PyTorch 2.7.1+cu128 with Hugging Face Transformers 4.57.6 <br>
+**Runtime Engine(s):** PyTorch 2.7.1+cu128 on x86_64 and PyTorch 2.11.0 with CUDA 13 on Linux aarch64, with Hugging Face Transformers 4.57.6 <br>
 
-**Supported Hardware Microarchitecture Compatibility:** NVIDIA Hopper (H100, 80 GB; documented integration smoke-test environment) <br>
+**Supported Hardware Microarchitecture Compatibility:** NVIDIA Hopper (H100, 80 GB; documented integration smoke-test environment). Linux aarch64 NVIDIA GB300 (compute capability 10.3) is an additional supported host for the locked training and open-loop path. Closed-loop Isaac Sim 5.1.0 stays on x86_64. <br>
 
-**Preferred/Supported Operating System(s):** x86_64 Linux <br>
+**Preferred/Supported Operating System(s):** x86_64 Linux and Linux aarch64 <br>
 
 The integration of foundation and fine-tuned models into AI systems requires additional testing using use-case-specific data to ensure safe and effective deployment. Following the V-model methodology, iterative testing and validation at both unit and system levels are essential to mitigate risks, meet technical and functional requirements, and ensure compliance with safety and ethical standards before deployment. <br>
 

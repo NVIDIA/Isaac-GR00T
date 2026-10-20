@@ -13,6 +13,7 @@
 import hashlib
 import os
 from pathlib import Path
+import platform
 import re
 import sys
 
@@ -38,9 +39,11 @@ def test_dockerfile_uses_the_documented_base_and_system_packages():
     dockerfile = DOCKERFILE.read_text()
     installation = INSTALLATION.read_text()
 
-    base = re.search(r"^ARG BASE_IMAGE=(\S+)$", dockerfile, re.MULTILINE)
-    assert base, "Dockerfile has no ARG BASE_IMAGE default"
-    assert f"`{base.group(1)}`" in installation
+    bases = dict(re.findall(r"^ARG BASE_IMAGE_(AMD64|ARM64)=(\S+)$", dockerfile, re.MULTILINE))
+    assert bases.keys() == {"AMD64", "ARM64"}, "Dockerfile needs one default base per architecture"
+    for base in bases.values():
+        assert f"`{base}`" in installation
+    assert "FROM base-${TARGETARCH}\n" in dockerfile
 
     dockerfile_commands = "\n".join(
         line for line in dockerfile.splitlines() if not line.lstrip().startswith("#")
@@ -112,6 +115,52 @@ def test_image_venv_holds_the_locked_x86_training_stack():
         assert path.is_relative_to(IMAGE_VENV), f"{module.__name__} imported from {path}"
     assert torch.__version__ == "2.7.1+cu128"
     assert flash_attention.FLASH_ATTN_2_AVAILABLE, "N2 cannot use FlashAttention on x86_64"
+
+
+TORCH_RELEASES = {"x86_64": "2.7.1+cu128", "aarch64": "2.11.0"}
+
+
+@pytest.mark.gpu
+@in_docker_image
+def test_image_gpu_stack_uses_the_venv_cuda_libraries_and_system_ffmpeg():
+    """The image uses the venv's CUDA libraries and the distribution FFmpeg on either GPU host."""
+    import importlib
+    import importlib.util
+
+    import flash_attn
+    import flash_attn_2_cuda
+    import torch
+    import torchcodec.decoders
+    import torchvision
+    import triton
+
+    modules = [torch, torchvision, torchcodec, triton, flash_attn, flash_attn_2_cuda]
+    # TensorRT is an optional extra: CI images sync it, the default image does not.
+    if importlib.util.find_spec("tensorrt") is not None:
+        modules.append(importlib.import_module("tensorrt"))
+    assert Path(sys.prefix).resolve() == IMAGE_VENV
+    for module in modules:
+        path = Path(module.__file__).resolve()
+        assert path.is_relative_to(IMAGE_VENV), f"{module.__name__} imported from {path}"
+    assert torch.__version__.startswith(TORCH_RELEASES[platform.machine()]), torch.__version__
+    assert torch.cuda.is_available()
+    (torch.ones(8, 8, device="cuda") @ torch.ones(8, 8, device="cuda")).sum().item()
+    # Fails with "no kernel image" unless flash-attn was compiled for this GPU.
+    q = torch.randn(1, 16, 2, 64, device="cuda", dtype=torch.bfloat16)
+    flash_attn.flash_attn_func(q, q, q, causal=True).sum().item()
+
+    mapped = {
+        Path(field).resolve()
+        for line in Path("/proc/self/maps").read_text().splitlines()
+        for field in line.split()[5:]
+        if field.startswith("/")
+    }
+    ffmpeg = sorted(str(p) for p in mapped if p.name.startswith("libavcodec.so"))
+    cublas = sorted(p for p in mapped if p.name.startswith("libcublas"))
+    assert ffmpeg, "TorchCodec loaded no FFmpeg"
+    assert all(p.startswith("/usr/lib/") for p in ffmpeg), f"FFmpeg from {ffmpeg}"
+    assert cublas, "torch loaded no cuBLAS"
+    assert all(p.is_relative_to(IMAGE_VENV) for p in cublas), f"cuBLAS from {cublas}"
 
 
 def _apt_install(text: str, source: str) -> list[str]:
