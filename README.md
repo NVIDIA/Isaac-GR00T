@@ -69,6 +69,8 @@ GR00T N1.7 is trained on a diverse mixture of robot data including bimanual, sem
 
 GR00T N1.7 is fully commercially licensable under Apache 2.0. It delivers comparable performance to N1.6, with improved generalization and language-following capabilities driven by the inclusion of 20K hours of EgoScale human video data in pretraining.
 
+**GR00T N1.7 runs at ~40 Hz on NVIDIA RTX PRO 6000 Blackwell Server Edition and ~28 Hz on Jetson AGX Thor** with TensorRT. [Benchmark details](scripts/deployment/README.md#benchmark-results) (batch-1 LIBERO; Thor MAXN + `jetson_clocks`).
+
 The neural network architecture of GR00T N1.7 is a combination of vision-language foundation model and diffusion transformer head that denoises continuous actions. Here is a schematic diagram of the architecture:
 
 <div align="center">
