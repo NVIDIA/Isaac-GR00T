@@ -25,6 +25,7 @@ Uses the split architecture:
 from collections.abc import Sequence
 import dataclasses
 import glob
+import importlib.util
 import logging
 
 from peft import LoraConfig, get_peft_model
@@ -37,6 +38,7 @@ from transformers.feature_extraction_utils import BatchFeature
 from groot.core.training.configs.model.n2 import VAE_LATENT_CHANNELS, GrootN2Config
 from groot.core.training.models.n2 import tactile as n2_tactile
 from groot.core.training.models.n2.components.kv_cache import CondKVCache, FrozenPrefixKVCache
+from groot.core.training.models.n2.components.masked_attention import normalize_kernel
 from groot.core.training.models.n2.components.scheduler import (
     BetaFlowMatchEulerScheduler,
     BetaSchedulerConfig,
@@ -52,6 +54,7 @@ from groot.core.training.models.n2.components.sequence_packing import (
     ConcatPacker,
     PackedSequence,
     _build_attention_mask,
+    segment_plan_serves,
     unpack_contiguous,
 )
 from groot.core.training.models.n2.components.text_encoder import CosmosTextEncoder
@@ -126,6 +129,11 @@ def apply_state_keep(state_tokens: torch.Tensor, data: dict) -> torch.Tensor:
         return state_tokens
     keep = torch.as_tensor(state_keep, device=state_tokens.device, dtype=state_tokens.dtype)
     return state_tokens * keep.reshape(-1, 1, 1)
+
+
+def _cudnn_frontend_available() -> bool:
+    """Whether dit_masked_attention="cudnn" can run: its kernel needs nvidia-cudnn-frontend."""
+    return importlib.util.find_spec("cudnn") is not None
 
 
 def _text_mask_kwargs(text_pad_mask: TextPadMask | None) -> dict:
@@ -341,6 +349,19 @@ class GrootN2(PreTrainedModel):
         self.vae = self.build_vae(config)
         # 2b. Tactile-force / deform-map conditioning modules (None when not configured).
         self.tactile_spec = n2_tactile.attach(self, config, dit_config)
+        # 2c. Training kernel of the masked video-action attention, resolved once here (never
+        # inside the compiled forward); only the training pack uses it, so a checkpoint's saved
+        # kernel does not follow its weights into eval or serving.
+        self.masked_attention_kernel = self._resolve_masked_attention_kernel(config)
+        # dit_text_keys "real" cross-attention: the cuDNN prefix kernel in training under
+        # dit_masked_attention="cudnn" (no segment plan involved), else the dense reference
+        self.text_mask_kernel = (
+            "cudnn"
+            if normalize_kernel(getattr(config, "dit_masked_attention", "flex")) == "cudnn"
+            and _cudnn_frontend_available()
+            else "dense"
+        )
+        self.adaln_grouped = self._resolve_adaln_grouped(config)
 
         # 3. Schedulers
         self.video_scheduler = self._make_video_scheduler(config)
@@ -549,6 +570,83 @@ class GrootN2(PreTrainedModel):
         """Construct the transformer module."""
         return CosmosTransformer3DModel(transformer_config)
 
+    def _resolve_masked_attention_kernel(self, config) -> str:
+        """``config.dit_masked_attention``, or "flex" where a segment plan cannot serve the model."""
+        kernel = normalize_kernel(getattr(config, "dit_masked_attention", "flex"))
+        if kernel == "flex":
+            return kernel
+        reasons = []
+        if not self.has_action_head:
+            reasons.append("no action head")
+        if not segment_plan_serves(getattr(self, "attention_mask_pattern", None)):
+            reasons.append(
+                f"attention_mask_pattern {getattr(self, 'attention_mask_pattern', None)!r} is not "
+                "one bidirectional_video_action_full pattern"
+            )
+        if getattr(config, "token_merge_kernel", None) is not None:
+            reasons.append("token merging")
+        if self.tactile_spec is not None:
+            reasons.append("tactile/deform token groups")
+        if type(self.transformer) is not CosmosTransformer3DModel:
+            reasons.append(f"transformer subclass {type(self.transformer).__name__}")
+        if not _cudnn_frontend_available():
+            # found here, not at the first compiled step minutes later
+            reasons.append("the nvidia-cudnn-frontend package (module cudnn) is not installed")
+        if reasons:
+            logging.warning(
+                "[GrootN2] dit_masked_attention=%r does not serve this model (%s); training keeps "
+                "the FlexAttention BlockMask",
+                kernel,
+                "; ".join(reasons),
+            )
+            return "flex"
+        return kernel
+
+    def _resolve_adaln_grouped(self, config) -> bool:
+        """``config.dit_adaln_grouped``, or False where the transformer cannot take the groups."""
+        if not getattr(config, "dit_adaln_grouped", False):
+            return False
+        reasons = []
+        if getattr(config, "token_merge_kernel", None) is not None:
+            reasons.append("token merging")
+        # TTT prepends register tokens and the online-PPO wrapper has its own routing signature
+        if type(self.transformer) is not CosmosTransformer3DModel:
+            reasons.append(f"transformer subclass {type(self.transformer).__name__}")
+        if reasons:
+            logging.warning(
+                "[GrootN2] dit_adaln_grouped does not serve this model (%s); training keeps "
+                "per-token AdaLN",
+                "; ".join(reasons),
+            )
+            return False
+        return True
+
+    def _timestep_segments(
+        self, packed: PackedSequence, shape_info: dict, token_merge
+    ) -> tuple[tuple[int, int], ...] | None:
+        """Grouped AdaLN rows (dit_adaln_grouped) for this training pack, or None for per-token.
+
+        One group per latent frame (all its tokens share a sigma), then one per state and per
+        action token (training-time RTC gives the action tokens their own sigmas). Token merging
+        and appended token groups keep the per-token path.
+        """
+        if not self.adaln_grouped:
+            return None
+        if token_merge is not None or packed.additional_token_ranges:
+            return None
+        segments = [(shape_info["post_T"], shape_info["post_H"] * shape_info["post_W"])]
+        n_state = (
+            packed.state_token_indices.numel() if packed.state_token_indices is not None else 0
+        )
+        n_action = (
+            packed.action_token_indices.numel() if packed.action_token_indices is not None else 0
+        )
+        if n_state:
+            segments.append((n_state, 1))
+        if n_action:
+            segments.append((n_action, 1))
+        return tuple(segments)
+
     # ─── Transformer call hook ────────────────────────────────────────────────
 
     def _call_transformer(
@@ -581,16 +679,19 @@ class GrootN2(PreTrainedModel):
             **transformer_kwargs,
         )
 
-    def _text_pad_mask(self, text_ids: torch.Tensor, device: torch.device) -> TextPadMask | None:
+    def _text_pad_mask(
+        self, text_ids: torch.Tensor, device: torch.device, kernel: str = "dense"
+    ) -> TextPadMask | None:
         """The cross-attention mask of the right-padded prompts ``text_ids`` (B, N) on ``device``.
 
         None under dit_text_keys "all" (every slot is attended). The prompt lengths come from the
         token ids, not the embeddings, so a caller that hands in precomputed ``prompt_embs`` still
-        passes ``text``.
+        passes ``text``. ``kernel``: "cudnn" in the training forward under
+        dit_masked_attention="cudnn", else the dense reference.
         """
         if self.text_keys != "real":
             return None
-        return TextPadMask(text_seq_len(text_ids.to(device), self.text_pad_token_id))
+        return TextPadMask(text_seq_len(text_ids.to(device), self.text_pad_token_id), kernel)
 
     def _compute_additional_training_loss(
         self,
@@ -870,7 +971,7 @@ class GrootN2(PreTrainedModel):
             prompt_embs = self.text_encoder(text_ids.to(device)).to(
                 device=device, dtype=torch.bfloat16
             )
-        text_pad_mask = self._text_pad_mask(text_ids, device)
+        text_pad_mask = self._text_pad_mask(text_ids, device, self.text_mask_kernel)
 
         # 3. Encode video to latents (frozen), per-view for multiview
         n_cameras = self.max_n_cameras
@@ -1070,6 +1171,7 @@ class GrootN2(PreTrainedModel):
                 state_rope=state_rope_freqs,
                 attention_mask_pattern=getattr(self, "attention_mask_pattern", None),
                 token_valid_mask=token_valid_mask,
+                masked_attention=self.masked_attention_kernel,
                 **n2_tactile.training_pack_kwargs(self, tactile_inputs, dtype=video_tokens.dtype),
                 **self._training_packing_kwargs(
                     data=data,
@@ -1081,6 +1183,9 @@ class GrootN2(PreTrainedModel):
             token_merge = self._build_token_merge_plan(packed, shape_info, token_valid_mask)
             if token_merge is not None:
                 transformer_kwargs = {**transformer_kwargs, "sequence_transform": token_merge}
+            timestep_segments = self._timestep_segments(packed, shape_info, token_merge)
+            if timestep_segments is not None:
+                transformer_kwargs = {**transformer_kwargs, "timestep_segments": timestep_segments}
             out_tokens = self._call_transformer(
                 packed, prompt_embs, **_text_mask_kwargs(text_pad_mask), **transformer_kwargs
             )

@@ -32,6 +32,11 @@ import torch
 from torch import Tensor
 from torch.nn.attention.flex_attention import BlockMask, create_block_mask
 
+from groot.core.training.models.n2.components.masked_attention import MaskedAttentionPlan
+from groot.core.training.models.n2.components.video_action_attention import (
+    build_video_action_attention_plan,
+)
+
 MODALITY_VIDEO = 0
 MODALITY_VIDEO_COND = 1
 MODALITY_STATE = 2
@@ -126,6 +131,23 @@ class AttentionMaskPattern(str, Enum):
         raise ValueError(f"Unknown pattern: {self}")
 
 
+#: Patterns a segment plan (video_action_attention) serves: video attends video, state attends
+#: state, action attends everything.
+SEGMENT_PLAN_PATTERNS = (
+    AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL.value,
+    AttentionMaskPattern.BIDIRECTIONAL_VIDEO_TACTILE_ACTION_FULL.value,
+)
+
+
+def segment_plan_serves(pattern_config: list[tuple[str, float]] | None) -> bool:
+    """Whether a segment plan reproduces ``pattern_config``: one pattern, of SEGMENT_PLAN_PATTERNS."""
+    return (
+        pattern_config is not None
+        and len(pattern_config) == 1
+        and pattern_config[0][0] in SEGMENT_PLAN_PATTERNS
+    )
+
+
 # Extension attention receives (batch, query modality, key modality, base table).
 AttentionRule = Callable[[Tensor, Tensor, Tensor, Tensor], Tensor]
 
@@ -163,7 +185,8 @@ class PackedSequence:
     timesteps: Tensor  # (B, L_total)   raw sigma per token
     rope_freqs: tuple[Tensor, Tensor]  # (cos, sin) each (L_total, D_head)
     modality_ids: Tensor  # (B, L_total)   int — 0=video, 1=video_cond, 2=state, 3=action
-    attention_mask: BlockMask | None  # flex attention mask (None = full attention)
+    # flex attention mask, or a segment plan (dit_masked_attention); None = full attention
+    attention_mask: BlockMask | MaskedAttentionPlan | None
     extra_pos_emb: Tensor | None  # (B, L_total, D) learnable pos embed, or None
     pad: int = 0  # padding added for BlockMask alignment
     # Packer-derived routing metadata. modality_ids remains the semantic source
@@ -383,6 +406,9 @@ class ConcatPacker:
         token_valid_mask: Tensor | None = None,  # ordinary [video | state | action] validity
         additional_token_groups: Sequence[AdditionalTokenGroup] = (),
         attention_rule: AttentionRule | None = None,
+        # GrootN2Config.dit_masked_attention, passed by the training forward only: "cudnn"
+        # builds a segment plan instead of the BlockMask where one serves the batch
+        masked_attention: str = "flex",
     ) -> PackedSequence:
         B = video_tokens.shape[0]
         device = video_tokens.device
@@ -509,7 +535,22 @@ class ConcatPacker:
 
         attention_mask = None
         pad = 0
-        if has_multimodal:
+        if (
+            has_multimodal
+            and masked_attention == "cudnn"
+            and not additional_token_groups
+            and attention_rule is None
+            and L_state <= 1
+            and segment_plan_serves(attention_mask_pattern)
+        ):
+            attention_mask = build_video_action_attention_plan(
+                modality_ids,
+                token_valid_mask,
+                layout=(L_video, L_state, L_action),
+                state_id=MODALITY_STATE,
+                action_id=MODALITY_ACTION,
+            )
+        elif has_multimodal:
             attention_mask, pad = _build_attention_mask(
                 modality_ids,
                 device,

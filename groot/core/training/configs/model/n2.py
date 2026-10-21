@@ -9,6 +9,7 @@
 # its affiliates is strictly prohibited.
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -182,6 +183,14 @@ def _rename_legacy_text_keys(fields: dict) -> None:
         )
 
 
+# Mirrors components/masked_attention.KERNELS (the config module stays free of model imports).
+_DIT_MASKED_ATTENTION = ("flex", "cudnn")
+_DIT_MASKED_ATTENTION_ALIASES = {"cudnn_varlen": "cudnn"}
+# Kernels the training branch also offered and main does not; checkpoints saved with them load as
+# "flex" (the field is training-only, so serving them is unaffected).
+_DIT_MASKED_ATTENTION_DROPPED = ("fa3", "fa3_varlen", "dense")
+
+
 @dataclass
 class GrootN2Config(PretrainedConfig):
     model_type: str = "GrootN2"
@@ -267,6 +276,21 @@ class GrootN2Config(PretrainedConfig):
     # dit_text_pad_mask (bool, True = "real") in configs written before 2026-10-13;
     # _rename_legacy_text_keys reads it.
     dit_text_keys: str = "all"
+
+    # Training-time DiT kernels; eval and serving keep the default kernels whatever these say.
+    # dit_masked_attention: the masked self-attention of video-action batches: "flex" (default,
+    #   the FlexAttention BlockMask) or "cudnn" (a per-sample segment plan on cuDNN fused
+    #   attention, components/masked_attention.py). The segment plan serves one
+    #   bidirectional_video_action_full pattern with at most one state token, no token merging
+    #   and no tactile/deform token groups; otherwise training keeps the BlockMask (warned at init).
+    #   "cudnn_varlen" is an alias earlier checkpoints saved. Under dit_text_keys="real", "cudnn"
+    #   also runs the text-pad cross-attention (components/text_pad_mask.py) on the cuDNN prefix
+    #   kernel in training instead of the dense boolean-mask SDPA.
+    # dit_adaln_grouped: one AdaLN modulation row per group of tokens sharing a sigma (a latent
+    #   frame, each state and action token) broadcast to the tokens, instead of one per token.
+    #   Same values up to bf16 GEMM rounding; token merging and token groups keep per-token rows.
+    dit_masked_attention: str = "flex"
+    dit_adaln_grouped: bool = False
 
     # Image processing
     image_target_size: list[int] | None = None
@@ -401,6 +425,25 @@ class GrootN2Config(PretrainedConfig):
 
         if self.rope_fp32 is not None and not isinstance(self.rope_fp32, bool):
             raise TypeError("rope_fp32 must be a bool or None")
+        masked = str(self.dit_masked_attention).strip().lower()
+        masked = _DIT_MASKED_ATTENTION_ALIASES.get(masked, masked)
+        if masked in _DIT_MASKED_ATTENTION_DROPPED:
+            logging.warning(
+                "[GrootN2] dit_masked_attention=%r is not available on this branch; training "
+                "uses 'flex'",
+                self.dit_masked_attention,
+            )
+            masked = "flex"
+        if masked not in _DIT_MASKED_ATTENTION:
+            raise ValueError(
+                f"dit_masked_attention must be one of {_DIT_MASKED_ATTENTION} (or an alias "
+                f"{sorted(_DIT_MASKED_ATTENTION_ALIASES)}), got {self.dit_masked_attention!r}"
+            )
+        if masked != self.dit_masked_attention:  # unchanged defaults stay out of to_diff_dict
+            self.dit_masked_attention = masked
+        if not isinstance(self.dit_adaln_grouped, bool):
+            raise TypeError("dit_adaln_grouped must be a bool")
+
         if not isinstance(self.use_training_rtc, bool):
             raise TypeError("use_training_rtc must be a bool")
         if isinstance(self.training_rtc_max_delay, bool) or not isinstance(

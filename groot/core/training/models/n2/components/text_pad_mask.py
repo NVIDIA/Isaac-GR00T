@@ -76,12 +76,24 @@ class TextPadMask:
     """
 
     seq_len: torch.Tensor  # (B,) int32 real prompt tokens per sample
+    # "cudnn" (training under GrootN2Config.dit_masked_attention="cudnn") or "dense"
+    kernel: str = "dense"
+
+    def __post_init__(self) -> None:
+        if self.kernel not in ("dense", "cudnn"):
+            raise ValueError(f"TextPadMask kernel must be 'dense' or 'cudnn', got {self.kernel!r}")
 
     def cross_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
         """Masked cross-attention: q (B, S_q, H, D), k/v (B, N, H, D) -> (B, S_q, H, D)."""
         full = torch.full_like(self.seq_len, q.shape[1])
+        if self.kernel == "cudnn":
+            from groot.core.training.models.n2.components.cudnn_sdpa import cudnn_prefix_sdpa
+
+            # the fused kernel is bf16; fp32 callers round-trip
+            q16, k16, v16 = (t.to(torch.bfloat16) for t in (q, k, v))
+            return cudnn_prefix_sdpa(q16, k16, v16, full, self.seq_len).to(q.dtype)
         return dense_prefix_sdpa(q, k, v, full, self.seq_len)
 
     def repeat(self, n: int) -> TextPadMask:
         """The mask of ``n`` stacked copies of the batch, row ``i * B + b`` (the per-view fan-out)."""
-        return TextPadMask(self.seq_len.repeat(n))
+        return TextPadMask(self.seq_len.repeat(n), self.kernel)

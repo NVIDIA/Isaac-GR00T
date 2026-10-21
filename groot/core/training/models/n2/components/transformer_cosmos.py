@@ -32,6 +32,7 @@ from torch.utils.checkpoint import checkpoint as torch_checkpoint
 from groot.core.training.models.dream_cosmos.attention_utils.flex_attention import flex_attention_op
 from groot.core.training.models.n2.components.flash_attention import flash_attn_func_v23
 from groot.core.training.models.n2.components.kv_cache import CondKVCache
+from groot.core.training.models.n2.components.masked_attention import MaskedAttentionPlan
 from groot.core.training.models.n2.components.text_pad_mask import TextPadMask
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -221,7 +222,7 @@ class Attention(nn.Module):
         hidden_states: torch.Tensor,
         encoder_hidden_states: torch.Tensor | None = None,
         image_rotary_emb: tuple | None = None,
-        attention_mask: BlockMask | TextPadMask | None = None,
+        attention_mask: BlockMask | MaskedAttentionPlan | TextPadMask | None = None,
         pad: int = 0,
         compile_flex_attention: bool = True,
         kv_cache: CondKVCache | None = None,
@@ -265,6 +266,15 @@ class Attention(nn.Module):
         if isinstance(attention_mask, TextPadMask):
             # (B, H, S, D) -> (B, S, H, D), the layout the mask takes
             out = attention_mask.cross_attention(
+                q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+            )
+        elif isinstance(attention_mask, MaskedAttentionPlan):
+            # a segment plan (video_action_attention, cuDNN); it takes (B, S, H, D)
+            if kv_cache is not None:
+                # load-bearing: a spliced cache lengthens K/V past the plan's permutation and the
+                # gather would read wrong rows without any shape error
+                raise RuntimeError("the masked attention segment plan does not support kv_cache")
+            out = attention_mask.self_attention(
                 q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
             )
         elif attention_mask is not None:
@@ -442,6 +452,26 @@ class CosmosEmbedding(nn.Module):
         return temb, embedded_timestep
 
 
+# Consecutive segments of the token sequence, each ``groups`` groups of ``tokens`` tokens that
+# share one sigma, e.g. ((frames, tokens_per_frame), (state_tokens, 1), (action_tokens, 1)).
+TimestepSegments = tuple[tuple[int, int], ...]
+
+
+def _per_token(t: torch.Tensor, segments: TimestepSegments) -> torch.Tensor:
+    """(B, G, C) modulation rows -> (B, L, C), one row per group of ``segments``.
+
+    Under torch.compile the expands are fused into the consumer and their backward is a plain
+    sum over each group, so the per-token (B, L, C) modulation tensor never exists in memory.
+    """
+    B, _, C = t.shape
+    pieces, g0 = [], 0
+    for groups, tokens in segments:
+        rows = t[:, g0 : g0 + groups, None, :]
+        pieces.append(rows.expand(B, groups, tokens, C).reshape(B, groups * tokens, C))
+        g0 += groups
+    return torch.cat(pieces, dim=1)
+
+
 class CosmosAdaLayerNorm(nn.Module):
     def __init__(self, in_features: int, hidden_features: int):
         super().__init__()
@@ -456,6 +486,7 @@ class CosmosAdaLayerNorm(nn.Module):
         hidden_states: torch.Tensor,
         embedded_timestep: torch.Tensor,
         temb: torch.Tensor | None = None,
+        segments: TimestepSegments | None = None,
     ):
         et = self.linear_2(self.linear_1(self.activation(embedded_timestep)))
         if temb is not None:
@@ -464,6 +495,8 @@ class CosmosAdaLayerNorm(nn.Module):
         x = self.norm(hidden_states)
         if et.ndim == 2:
             shift, scale = shift.unsqueeze(1), scale.unsqueeze(1)
+        elif segments is not None:
+            shift, scale = (_per_token(t, segments) for t in (shift, scale))
         return x * (1 + scale) + shift
 
 
@@ -484,6 +517,7 @@ class CosmosAdaLayerNormZero(nn.Module):
         hidden_states: torch.Tensor,
         embedded_timestep: torch.Tensor,
         temb: torch.Tensor | None = None,
+        segments: TimestepSegments | None = None,
     ):
         et = self.linear_2(self.linear_1(self.activation(embedded_timestep)))
         if temb is not None:
@@ -492,6 +526,8 @@ class CosmosAdaLayerNormZero(nn.Module):
         x = self.norm(hidden_states)
         if et.ndim == 2:
             shift, scale, gate = (t.unsqueeze(1) for t in (shift, scale, gate))
+        elif segments is not None:
+            shift, scale, gate = (_per_token(t, segments) for t in (shift, scale, gate))
         return x * (1 + scale) + shift, gate
 
 
@@ -669,18 +705,19 @@ class CosmosTransformerBlock(nn.Module):
         n_cameras: int = 1,
         video_idx: torch.Tensor | None = None,
         non_video_idx: torch.Tensor | None = None,
-        attention_mask: BlockMask | None = None,
+        attention_mask: BlockMask | MaskedAttentionPlan | None = None,
         pad: int = 0,
         compile_flex_attention: bool = True,
         kv_cache: CondKVCache | None = None,
         layer_idx: int = 0,
         store_kv: bool = True,
         text_pad_mask: TextPadMask | None = None,
+        timestep_segments: TimestepSegments | None = None,
     ) -> torch.Tensor:
         if extra_pos_emb is not None:
             hidden_states = hidden_states + extra_pos_emb
 
-        norm_hs, gate = self.norm1(hidden_states, embedded_timestep, temb)
+        norm_hs, gate = self.norm1(hidden_states, embedded_timestep, temb, timestep_segments)
         hidden_states = hidden_states + gate * self.attn1(
             norm_hs,
             image_rotary_emb=image_rotary_emb,
@@ -692,7 +729,7 @@ class CosmosTransformerBlock(nn.Module):
             store_kv=store_kv,
         )
 
-        norm_hs, gate = self.norm2(hidden_states, embedded_timestep, temb)
+        norm_hs, gate = self.norm2(hidden_states, embedded_timestep, temb, timestep_segments)
         # Unmasked export adapters retain their original cross-attention call signature.
         text_mask_kwargs = {} if text_pad_mask is None else {"text_pad_mask": text_pad_mask}
         hidden_states = hidden_states + gate * self.attn2(
@@ -704,7 +741,7 @@ class CosmosTransformerBlock(nn.Module):
             **text_mask_kwargs,
         )
 
-        norm_hs, gate = self.norm3(hidden_states, embedded_timestep, temb)
+        norm_hs, gate = self.norm3(hidden_states, embedded_timestep, temb, timestep_segments)
         hidden_states = hidden_states + gate * self.ff(norm_hs)
 
         return hidden_states
@@ -832,7 +869,7 @@ class CosmosTransformer3DModel(nn.Module):
         context: torch.Tensor,
         modality_ids: torch.Tensor,
         extra_pos_emb: torch.Tensor | None = None,
-        attention_mask: BlockMask | None = None,
+        attention_mask: BlockMask | MaskedAttentionPlan | None = None,
         pad: int = 0,
         kv_cache: CondKVCache | None = None,
         store_kv: bool = True,
@@ -887,7 +924,7 @@ class CosmosTransformer3DModel(nn.Module):
         context: torch.Tensor,
         modality_ids: torch.Tensor,
         extra_pos_emb: torch.Tensor | None = None,
-        attention_mask: BlockMask | None = None,
+        attention_mask: BlockMask | MaskedAttentionPlan | None = None,
         pad: int = 0,
         kv_cache: CondKVCache | None = None,
         store_kv: bool = True,
@@ -895,6 +932,7 @@ class CosmosTransformer3DModel(nn.Module):
         non_video_token_indices: torch.Tensor | None = None,
         sequence_transform: LayerwiseSequenceTransform | None = None,
         text_pad_mask: TextPadMask | None = None,
+        timestep_segments: TimestepSegments | None = None,
     ) -> torch.Tensor:
         """Forward path with optional packer-derived routing indices.
 
@@ -902,6 +940,12 @@ class CosmosTransformer3DModel(nn.Module):
         training passes the derived indices here to avoid data-dependent
         nonzero()/any() in the compiled training graph. ``text_pad_mask``: the
         cross-attention to each sample's real prompt tokens (dit_text_keys "real").
+
+        ``timestep_segments`` (GrootN2Config.dit_adaln_grouped): consecutive groups of tokens
+        sharing one sigma, e.g. ((frames, tokens_per_frame), (state_tokens, 1), (action_tokens,
+        1)); the time embedding and every AdaLN modulation are computed once per group and
+        broadcast. Not combined with a sequence transform (token merging), whose bands index the
+        conditioning per token.
         """
         B, L, D = latents.shape
         if text_pad_mask is not None and self.per_view_text:
@@ -914,10 +958,29 @@ class CosmosTransformer3DModel(nn.Module):
                 "cross-attend the prompt's padding (pass text_pad_mask)"
             )
 
-        # 1. Timestep embeddings from raw sigmas
+        # 1. Timestep embeddings from raw sigmas, one row per group of tokens sharing a sigma
+        G = L
+        if timestep_segments is not None:
+            if sequence_transform is not None:
+                raise ValueError("timestep_segments does not combine with a sequence transform")
+            sizes = [
+                groups * tokens for groups, tokens in timestep_segments
+            ]  # split raises if != L
+            rows = []
+            for chunk, (groups, tokens) in zip(
+                timesteps.split(sizes, dim=1), timestep_segments, strict=True
+            ):
+                grouped = chunk.reshape(B, groups, tokens)
+                if not torch.compiler.is_compiling():  # eager steps check the contract
+                    assert torch.equal(
+                        grouped, grouped[:, :, :1].expand_as(grouped)
+                    ), "timesteps vary inside a group of timestep_segments"
+                rows.append(grouped[:, :, 0])
+            timesteps = torch.cat(rows, dim=1)
+            G = timesteps.shape[1]
         temb, embedded_timestep = self.time_embed(latents, timesteps.reshape(-1))
-        temb = temb.view(B, L, -1)
-        embedded_timestep = embedded_timestep.view(B, L, -1)
+        temb = temb.view(B, G, -1)
+        embedded_timestep = embedded_timestep.view(B, G, -1)
 
         # 2. Text projection. Unless text is view-specific, repeating the
         # identical context and splitting video queries per view is equivalent
@@ -1010,6 +1073,7 @@ class CosmosTransformer3DModel(nn.Module):
                     pad,
                     self.compile_flex_attention,
                     text_pad_mask=text_pad_mask,
+                    timestep_segments=timestep_segments,
                     use_reentrant=False,
                 )
             else:
@@ -1030,6 +1094,7 @@ class CosmosTransformer3DModel(nn.Module):
                     layer_idx,
                     store_kv,
                     text_pad_mask=text_pad_mask,
+                    timestep_segments=timestep_segments,
                 )
 
         if sequence_transform is not None and sequence_transform.end_layer == len(
@@ -1041,7 +1106,7 @@ class CosmosTransformer3DModel(nn.Module):
             temb, embedded_timestep = transform_saved[1], transform_saved[2]
 
         # 5. Final norm (AdaLN applied to all tokens)
-        latents = self.norm_out(latents, embedded_timestep, temb)
+        latents = self.norm_out(latents, embedded_timestep, temb, timestep_segments)
 
         return latents
 
