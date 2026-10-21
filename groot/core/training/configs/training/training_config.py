@@ -22,7 +22,8 @@ class StragglerConfig:
     """Straggler detection configuration (nvidia_resiliency_ext).
 
     Monitors per-rank performance in distributed training to identify slow ranks.
-    Enabled by default. Requires nvidia-resiliency-ext (declared in pyproject.toml).
+    Enabled by default. Requires nvidia-resiliency-ext (declared in pyproject.toml and
+    in the OSS `training` extra).
 
     Known incompatibility with CUDA graphs: under `--training.torch_compile`
     (reduce-overhead), the straggler report's NCCL collective raised "NCCL Error 1:

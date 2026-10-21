@@ -20,7 +20,7 @@
         # users check out, so its pyproject.toml carries the exported header.
         apk add --no-cache python3
         export OSS_PACKAGE_ROOT="$(mktemp -d)/package"
-        python3 -m ci.sync.copybara_sync \
+        python3 ci/sync/copybara_sync.py \
           --repo-root "$CI_PROJECT_DIR" \
           --export-oss-for-tests "$OSS_PACKAGE_ROOT"
         cd "$OSS_PACKAGE_ROOT"

@@ -8,9 +8,10 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""Check that the OSS Dockerfile runs the documented x86 training installation."""
+"""Check that the OSS Dockerfile runs the documented training installation."""
 
 import hashlib
+import importlib
 import os
 from pathlib import Path
 import platform
@@ -161,6 +162,21 @@ def test_image_gpu_stack_uses_the_venv_cuda_libraries_and_system_ffmpeg():
     assert all(p.startswith("/usr/lib/") for p in ffmpeg), f"FFmpeg from {ffmpeg}"
     assert cublas, "torch loaded no cuBLAS"
     assert all(p.is_relative_to(IMAGE_VENV) for p in cublas), f"cuBLAS from {cublas}"
+
+
+@pytest.mark.gpu
+@in_docker_image
+def test_training_extra_enables_straggler_detection():
+    """The training extra installs NVRx with a CUPTI build that matches torch on this host."""
+    from groot.core.training.experiment import trainer
+
+    assert trainer.STRAGGLER_AVAILABLE
+    # Detector.initialize loads the CUPTI extension, which fails when the wheel's
+    # CUPTI major differs from torch's; the trainer only logs that failure.
+    cupti = importlib.import_module(f"{trainer.straggler_module.__name__}.cupti")
+    manager = cupti.CuptiManager()
+    manager.initialize()
+    manager.shutdown()
 
 
 def _apt_install(text: str, source: str) -> list[str]:

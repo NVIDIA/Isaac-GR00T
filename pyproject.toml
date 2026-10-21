@@ -59,6 +59,11 @@ training = [
     "msal",
     "multi-storage-client[boto3]==0.46.0",
     "ninja",
+    # Straggler detection (training.straggler). NVRx wheels link one CUPTI major that
+    # must match torch's: 0.4.1 links CUDA 12 (x86_64 cu128 torch), 0.5+ links CUDA 13
+    # (aarch64 torch) and needs glibc 2.39. Recheck these pins when torch changes CUDA major.
+    "nvidia-resiliency-ext==0.4.1 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-resiliency-ext==0.6.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
     "omegaconf",
     "opentelemetry-exporter-otlp-proto-http",
     "peft",
