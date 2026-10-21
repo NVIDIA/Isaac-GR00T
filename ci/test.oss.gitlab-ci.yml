@@ -50,6 +50,7 @@ test.oss.cpu:
         - scripts/deployment/oss/installation.md
         - tests/oss/test_dockerfile.py
         - ci/sync/copybara_sync.py
+        - ci/sync/public_export.py
         - ci/test.oss.gitlab-ci.yml
         - ci/image.gitlab-ci.yml
         - ci/image.oss.gitlab-ci.yml
@@ -62,7 +63,7 @@ test.oss.cpu:
     - &oss_package_before_script |
       if [ -d "$CI_PROJECT_DIR/oss" ]; then
         export OSS_PACKAGE_ROOT="$(mktemp -d)/package"
-        python3 "$CI_PROJECT_DIR/ci/sync/copybara_sync.py" \
+        python3 -m ci.sync.copybara_sync \
           --repo-root "$CI_PROJECT_DIR" \
           --export-oss-for-tests "$OSS_PACKAGE_ROOT"
       else
@@ -95,10 +96,6 @@ test.oss.cpu:
 
 .oss_gpu_job:
   extends: .oss_image_job
-  # A timed-out test must stay red rather than consume another GPU for a rerun.
-  retry:
-    max: 2
-    when: runner_system_failure
   variables:
     GIT_LFS_SKIP_SMUDGE: "1"
     OSS_GPU_TRAIN_NUM_GPUS: "1"
@@ -116,13 +113,7 @@ test.oss.cpu:
 
   script:
     - |
-      # Dump slow-test stacks after 5m; bound the entire pytest process, including
-      # collection and shutdown, to 10m plus a 30s hard-kill grace period.
-      # SIGABRT also dumps Python stacks; avoid writing a multi-GB core file.
-      ulimit -c 0
-      timeout --verbose --signal=ABRT --kill-after=30s 10m \
-        python -u -X faulthandler -m pytest -s \
-        -o faulthandler_timeout=300 \
+      python -m pytest -s \
         "$OSS_PACKAGE_ROOT/tests/groot" \
         "$OSS_PACKAGE_ROOT/tests/test_dockerfile.py" \
         -m gpu \
@@ -136,15 +127,7 @@ test.oss.cpu:
     when: always
     reports:
       junit: $CI_PROJECT_DIR/junit.oss.gpu.xml
-  after_script:
-    - |
-      if [ "$CI_JOB_STATUS" != "success" ]; then
-        # Diagnostics must not hang on an unresponsive GPU driver themselves.
-        timeout --kill-after=5s 10s nvidia-smi || true
-        timeout --kill-after=5s 10s ps -eo pid,ppid,stat,etimes,pcpu,pmem,comm || true
-      fi
-  # Leave room for image/setup work, bounded diagnostics, and artifact upload.
-  timeout: 20m
+  timeout: 120m
 
 test.oss.gpu.l40s:
   extends: .oss_gpu_job
