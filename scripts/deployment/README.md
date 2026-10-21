@@ -175,19 +175,13 @@ precision from the selected engine directory's metadata; select it with
 
 ### Benchmark Results
 
-These refreshed measurements report the median synchronized complete local policy
-call, including preprocessing and action decoding, excluding RPC. Each run uses
-the full N1.7 LIBERO `libero_10` checkpoint (32 DiT blocks), `LIBERO_PANDA`, batch
-size 1, action horizon 40, four denoising steps, and the same episode-zero/step-zero
-observation: `image` and `wrist_image`, each 256×256, producing 156 VLM tokens.
-Each backend uses 10 untimed warmups and 20 timed calls per repetition, seed 42,
-and disabled cuDNN autotuning. All six devices report the median of 60 calls
-pooled across three independent repetitions for eager, compile and baseline TRT.
-Thor has a separate 20-call mixed NVFP4 series. `torch.compile` compiles the DiT
-action head with `max-autotune` on every device; the backbone remains eager.
+Median complete-policy-call latency for the `nvidia/GR00T-N1.7-LIBERO`
+`libero_10` checkpoint (32 DiT blocks): batch size 1, action horizon 40,
+four denoising steps, and two 256×256 camera inputs. Timings
+include preprocessing and action decoding, excluding RPC. `torch.compile` uses
+`max-autotune` on the action head; the backbone remains eager.
 
-Values below are milliseconds for the complete call. Previous numbers obtained
-by summing component timings have been removed from this comparison.
+Values are milliseconds; an em dash means the configuration was not measured.
 
 | Device | PyTorch eager | torch.compile | TensorRT full pipeline | TensorRT optimized + mixed NVFP4 |
 |--------|---------------|---------------|------------------------|---------------------------------|
@@ -195,19 +189,23 @@ by summing component timings have been removed from this comparison.
 | RTX Pro 6000 Blackwell Server Edition (96 GB) | 75.7 | 52.1 | 24.7 | — |
 | L40 | 123.7 | 66.8 | 35.0 | — |
 | DGX Spark | 200.8 | 183.1 | 116.6 | — |
-| AGX Thor (120 W) | 111.5 | 100.5 | 77.6 | 35.9 |
-| Jetson Orin (30 W) | 500.1 | 412.4 | 312.2 | — |
+| AGX Thor (MAXN) | 106.8 | 100.5 | 76.8 | 35.6 |
+| Jetson Orin (MAXN) | 357.9 | 224.3 | 149.0 | — |
 
-All devices use eight PyTorch CPU threads and one interop thread. Effective CPU
-quotas are 12 cores for H100/L40/Spark/Thor and 8 cores for RTX/Orin. Thor 120 W
-and Orin 30 W were measured with `jetson_clocks` enabled: CPU, GPU and memory
-clocks fixed at the maxima allowed by those power modes. MAXN was not compared.
-All TRT rows passed the existing 0.99 final-action cosine threshold; this does
-not measure closed-loop task success.
+#### Measurement details
 
-To select the same complete-policy-call measurement used above, benchmark the
-already-built, device-specific engines with `--flat-e2e` and replay the same
-frozen raw observation on every device:
+Each backend uses three repetitions of 10 warmup calls and 20 timed calls;
+the reported median pools all 60 timed calls. PyTorch uses eight CPU threads
+and one interop thread. Thor and Orin use MAXN with `jetson_clocks`
+enabled. Results use fixed inputs and platform-specific runtimes; they do not
+measure closed-loop task success. TensorRT outputs were checked against PyTorch.
+
+#### Reproduce these measurements
+
+Build the TensorRT engines on the target device, then use `--flat-e2e` to time
+complete policy calls. Set PyTorch intra-op/inter-op threads to 8/1 before model
+execution. On Jetson, select MAXN and enable `sudo jetson_clocks`; verify with
+`sudo nvpmodel -q` and `sudo jetson_clocks --show` before benchmarking.
 
 ```bash
 uv run python scripts/deployment/build_trt_pipeline.py \
@@ -217,26 +215,18 @@ uv run python scripts/deployment/build_trt_pipeline.py \
   --output-dir ./gr00t_trt_deployment \
   --steps benchmark \
   --flat-e2e \
-  --observation-path /absolute/path/to/canonical-observation.npz \
   --warmup 10 \
   --num-iterations 20
 ```
 
-`--observation-path` accepts a NumPy NPZ containing the raw observation arrays
-under `observation.video.<camera>`, `observation.state.<key>` and
-`observation.language.<key>`. Supply the same saved episode-zero/step-zero NPZ
-on each device; keys, shapes and dtypes must match the checkpoint's dataset
-modalities. Language arrays must use the matching NumPy string dtype, not
-pickled objects. Cached `processed.*` arrays are ignored: preprocessing runs
-inside each timed policy call. The frozen NPZ is a separately supplied input,
-not included in this repository. A newly decoded or different observation does
-not establish an identical-input reproduction of the published table.
-
-Repeat the command three times and pool the 60 raw complete-call samples per
-backend, with the model, runtime, CPU and power/clock configuration above.
-Without `--flat-e2e`, the benchmark retains its component-timing default and
-sums independently measured components; those results are not comparable to
-this table. `--observation-path` cannot be combined with trajectory timing.
+By default, the benchmark uses the first step of the first dataset episode.
+For comparisons across devices, pass the same raw observation NPZ with
+`--observation-path`; its keys, shapes and dtypes must match the dataset
+modalities. Repeat the benchmark and pool the raw samples to calculate the
+median. For Thor mixed NVFP4, build with `--execution-profile optimized
+--quantization mixed_nvfp4` and representative calibration data before timing.
+Without `--flat-e2e`, the default sums component timings and is not comparable
+to the table above.
 
 ### Standalone Inference with TRT
 
