@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 import logging
 from pathlib import Path
 import re
-import time
 from typing import Any, Literal
 import warnings
 
@@ -171,8 +170,6 @@ def evaluate_single_trajectory(
     action_horizon: int | None = 16,
     save_plot_path=None,
     save_plot: bool = True,
-    control_freq: int = 20,
-    use_rtc_wrapper: bool = False,
     save_video_path: str | None = None,
     start_step: int = 0,
     enable_frechet: bool = True,
@@ -305,8 +302,6 @@ def evaluate_single_trajectory(
                     axis=0,
                 )
                 pred_samples_across_time[m].append(concat_pred_action)
-                if use_rtc_wrapper:
-                    time.sleep(1 / control_freq)
 
     def extract_state_joints(traj: pl.DataFrame, columns: list[str]):
         np_dict = {}
@@ -605,13 +600,7 @@ class ArgsConfig:
     save_video_path: str | None = None
     """Path to save the video to."""
 
-    control_freq: int = 20
-    """Control frequency to use."""
-
-    use_rtc_wrapper: bool = False
-    """Whether to use the RTC wrapper."""
-
-    policy_type: Literal["gr00t", "gr00TTT", "dream0", "gr00t_n2"] = "gr00t"
+    policy_type: Literal["gr00t", "dream0", "gr00t_n2"] = "gr00t"
     """Policy type to use."""
 
     use_torch_compile: bool = False
@@ -724,11 +713,6 @@ def main(args: ArgsConfig):
 
         if args.policy_type == "gr00t":
             policy_cls = Gr00tPolicy
-        elif args.policy_type == "gr00TTT":
-            # Gr00TTTPolicy has not been migrated to groot.core yet — lazy import from vla.omni.
-            from groot.vla.omni.policy import Gr00TTTPolicy
-
-            policy_cls = Gr00TTTPolicy
         elif args.policy_type == "dream0":
             from groot.core.policy.dream0_policy import DreamZeroPolicy
 
@@ -763,18 +747,6 @@ def main(args: ArgsConfig):
     logging.info(f"Current modality config: \n{modality}")
     action_horizon = resolve_action_horizon(modality, args.action_horizon)
     logging.info(f"Action horizon: {action_horizon} (configured: {args.action_horizon})")
-
-    # Apply RTC wrapper if needed
-    if args.use_rtc_wrapper:
-        # Gr00tRTCPolicyWrapper has not been migrated to groot.core yet.
-        from groot.vla.omni.policy.rtc_wrapper import Gr00tRTCPolicyWrapper
-
-        policy = Gr00tRTCPolicyWrapper(
-            policy,
-            args.control_freq,
-            action_horizon=action_horizon,  # NOTE: this should be the max action horizon of the model
-            denoising_steps=args.denoising_steps,
-        )
 
     # Create the dataset
     dataset = LeRobotEpisodeLoader(
@@ -855,8 +827,6 @@ def main(args: ArgsConfig):
             steps=args.steps,
             action_horizon=action_horizon,
             save_plot_path=args.save_plot_path,
-            control_freq=args.control_freq,
-            use_rtc_wrapper=args.use_rtc_wrapper,
             save_video_path=args.save_video_path,
             enable_frechet=args.enable_frechet,
             enable_reverse_kl=args.enable_reverse_kl,
