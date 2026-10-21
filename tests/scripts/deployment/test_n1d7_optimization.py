@@ -265,15 +265,25 @@ def test_optimized_action_head_ignores_stale_vl_engine(
 
     def load_engine(path):
         loaded.append(path)
-        return SimpleNamespace(path=path)
+        return SimpleNamespace(path=path, in_meta=[("attention_mask", (), torch.bool)])
 
+    mask_validator = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_validate_vl_attention_engine"
+    )
     scope = {
         "os": os,
         "OptimizationArtifacts": OptimizationArtifacts,
         "ACTION_HEAD_FORMAT_VERSION": 1,
         "GraphSafeEngine": load_engine,
     }
-    exec(compile(ast.Module(body=[constructor], type_ignores=[]), str(source), "exec"), scope)
+    exec(
+        compile(
+            ast.Module(body=[mask_validator, constructor], type_ignores=[]), str(source), "exec"
+        ),
+        scope,
+    )
     runtime = SimpleNamespace(
         _validate_interfaces=lambda: None,
         _load_constants=lambda path: {},
