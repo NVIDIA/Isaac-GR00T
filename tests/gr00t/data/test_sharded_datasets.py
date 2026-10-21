@@ -165,6 +165,30 @@ class TestMergeStatistics:
         # weighted mean = (0*0.75 + 2*0.25) = 0.5
         np.testing.assert_allclose(merged["x"]["mean"], [0.5])
 
+    def test_constant_dimension_merges_to_zero_std(self):
+        """A dimension that is constant in every dataset has zero variance.
+        calculate_dataset_statistics reports std 0.0 for a constant column of
+        1.25, and with weights 1:2, E[x^2] - E[x]^2 rounds to about -2.2e-16,
+        which used to come back from np.sqrt as NaN."""
+
+        def stats():
+            return {
+                "x": {
+                    "min": [0.0, 1.25],
+                    "max": [1.0, 1.25],
+                    "mean": [0.5, 1.25],
+                    "std": [0.2, 0.0],
+                    "q01": [0.0, 1.25],
+                    "q99": [1.0, 1.25],
+                }
+            }
+
+        merged = merge_statistics([stats(), stats()], [1, 2])
+        std = np.array(merged["x"]["std"])
+        assert np.all(np.isfinite(std))
+        np.testing.assert_allclose(std, [0.2, 0.0])
+        assert std[1] == 0.0
+
     def test_sidecar_metadata_is_skipped(self):
         """merge_statistics treats only entries that look like stats dicts (i.e.
         carry a 'mean' field) as action keys. Any sibling metadata producers
