@@ -15,6 +15,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
+from groot.core.training.configs.training.open_loop_eval_config import (
+    migrate_legacy_open_loop_eval,
+)
 from groot.core.training.configs.training.training_config import TrainingConfig
 
 TRAINING_CONFIG_TYPES: dict[str, type[TrainingConfig]] = {}
@@ -33,6 +36,7 @@ def create_training_config(payload: Any) -> TrainingConfig:
     if not isinstance(payload, Mapping):
         raise TypeError("Training configuration must be a mapping")
     raw = dict(payload)
+    migrate_legacy_open_loop_eval(raw)
     shortname = str(raw.pop("_config", "Training"))
     try:
         config_type = TRAINING_CONFIG_TYPES[shortname]
