@@ -142,17 +142,6 @@ or failed validation stop the command without a PyTorch fallback. See the
 checkpoint constraints, bundle caching, and explicit engine builds. TensorRT
 accelerates inference; training continues to use PyTorch.
 
-## Straggler detection
-
-Multi-GPU and multi-node training reports ranks that run slower than the others
-through NVIDIA Resiliency Extension (NVRx), which the `training` extra installs.
-The lock installs NVRx 0.4.1 on x86_64, built for CUDA 12, and NVRx 0.6.0 on
-aarch64, built for CUDA 13 and requiring glibc 2.39 (see the
-[GB300 prerequisites](#gb300-prerequisites)). Training logs a report every 60 seconds; disable it
-with `--set training.straggler.enabled=false`. If a report's collective fails,
-training stops with `Straggler report failed in a collective` instead of hanging;
-rerun with detection disabled.
-
 ## GB300 prerequisites
 
 Linux aarch64 GB300 and DGX Station use the same lock and the same commands as
@@ -165,9 +154,6 @@ x86_64. The lock selects the platform's stack:
 
 Before installing:
 
-- Use Ubuntu 24.04 or another distribution with glibc 2.39 or newer. The training
-  extra fails to install on any older Linux aarch64 host, such as Ubuntu 22.04,
-  because the only aarch64 NVRx wheel requires glibc 2.39.
 - Install a current NVIDIA driver. Driver 595 open was verified on GB300
   (compute capability 10.3). Grace GPU memory must be onlined as movable
   before that driver loads, or `nvidia-smi` reports no device. Persist

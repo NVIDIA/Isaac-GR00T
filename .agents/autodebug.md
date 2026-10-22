@@ -126,7 +126,7 @@ Debug /absolute/path/to/clean/gr00t/oss with the repository workflow.
 The same workflow is available directly:
 
 ```bash
-uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py new \
+uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py new \
   --report /absolute/path/to/report.md \
   --workspace /absolute/path/to/clean/gr00t/oss
 ```
@@ -135,7 +135,7 @@ The command prints the incident path and next required action. Use `show` to res
 record:
 
 ```bash
-uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py show \
+uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py show \
   --incident /absolute/path/to/incident.json
 ```
 
@@ -276,7 +276,7 @@ change and must pass afterward without revealing the implementation.
 <summary><strong>Contributor validation and repository layout</strong></summary>
 
 ```bash
-uv run --no-project --python 3.10 --with pytest python -m pytest -q \
+uv run --no-project --python 3.12 --with pytest python -m pytest -q \
   tests/skills/autodebug/test_autodebug.py
 ```
 

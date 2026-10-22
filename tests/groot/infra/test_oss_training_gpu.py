@@ -130,7 +130,7 @@ def _resolve_fixture_training(
                 "--set",
                 "training.torch_compile=false",
                 "--set",
-                "training.straggler.report_time_interval_sec=1",
+                "training.straggler.enabled=false",
             ]
         )
     )

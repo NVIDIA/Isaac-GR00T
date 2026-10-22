@@ -11,24 +11,14 @@
 
 set -euo pipefail
 
-OSMO_CLI_VERSION="6.3.1"
-OSMO_CLI_SHA256="21d9622634ee3f854c90682ca93f618e624603c22be646338199a0a01f94dd6f"
-
 echo "Installing OSMO CLI and Runner..."
 
 # Check if osmo is already installed
 if command -v osmo &> /dev/null; then
-  echo "OSMO CLI already installed ($(osmo version 2> /dev/null || echo 'version unknown'))"
+  echo "OSMO CLI already installed ($(osmo --version 2> /dev/null || echo 'version unknown'))"
 else
   echo "Installing OSMO CLI..."
-  curl -fsSL \
-    "https://github.com/NVIDIA/OSMO/releases/download/${OSMO_CLI_VERSION}/osmo-client-installer-${OSMO_CLI_VERSION}-linux-x86_64.sh" \
-    -o /tmp/osmo-installer.sh
-  echo "${OSMO_CLI_SHA256}  /tmp/osmo-installer.sh" | sha256sum -c -
-  chmod +x /tmp/osmo-installer.sh
-  (cd /tmp && ./osmo-installer.sh)
-  rm /tmp/osmo-installer.sh
-  osmo version
+  (cd /tmp && curl -fsSL https://urm.nvidia.com/artifactory/sw-osmo-generic-local/rc/cli/2026.1.23/osmo-client-installer-2026.1.23-linux-x86_64.sh -o osmo-installer.sh && chmod +x osmo-installer.sh && ./osmo-installer.sh)
   echo "OSMO CLI installed successfully"
 fi
 

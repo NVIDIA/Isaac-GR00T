@@ -39,11 +39,7 @@ class _ConditionedNorm(nn.Module):
         self.register_buffer("base", torch.cat((poison, base)).detach())
         self.register_buffer("conditioned", torch.cat((poison, conditioned)).detach())
 
-    def forward(self, hidden_states, embedded_timestep, temb=None, segments=None):
-        if segments is not None:
-            raise ValueError(
-                "TensorRT conditioning export does not support grouped timestep segments"
-            )
+    def forward(self, hidden_states, embedded_timestep, temb=None):
         table = self.base if temb is None else self.conditioned
         et = table[embedded_timestep[..., 0]]
         values = et.chunk(self.parts, dim=-1)

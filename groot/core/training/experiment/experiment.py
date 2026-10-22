@@ -62,7 +62,6 @@ from groot.core.training.experiment.callbacks.ema import EMACallback
 from groot.core.training.experiment.callbacks.msc_checkpoint import MSCCheckpointCallback
 from groot.core.training.experiment.callbacks.save_steps import OverrideSaveStepsCallback
 from groot.core.training.experiment.callbacks.validation_loss import ValidationLossCallback
-from groot.core.training.experiment.extensions import load_training_extensions
 from groot.core.training.experiment.gear_registration import (
     append_training_run_status_event,
     dashboard_checkpoint_path_to_msc_url,
@@ -82,6 +81,7 @@ from groot.core.training.experiment.utils import (
     BestMetricCheckpointCallback,
     CheckpointFormatCallback,
     CheckpointUploadCallback,
+    OpenLoopEvalCallback,
     RLCallback,
     SaveVlModelCallback,
     StragglerDetectionCallback,
@@ -691,7 +691,7 @@ def fetch_latest_checkpoint_from_remote_if_available(
             )
 
 
-def refuse_lance_eval_paths(paths: list[str], data_cfg, route: str, remedy: str) -> None:
+def _refuse_lance_eval_paths(paths: list[str], data_cfg, route: str, remedy: str) -> None:
     """Refuse open-loop eval on a LanceDS store: it reads every path with LeRobotEpisodeLoader.
 
     A mapping source is no path here; it reaches the eval as on main. An ``s3://`` store is known by
@@ -790,7 +790,7 @@ def _build_in_process_open_loop_callback(
                 )
             )
 
-    refuse_lance_eval_paths(
+    _refuse_lance_eval_paths(
         [spec.dataset_path for spec in in_proc_specs],
         data_cfg,
         "training.open_loop_eval_in_process",
@@ -840,14 +840,99 @@ def _build_in_process_open_loop_callback(
     return cb
 
 
-def model_action_horizon(model_config) -> int | None:
-    """The model's action horizon.
+def _build_open_loop_eval_callback(
+    *,
+    legacy_cfg,
+    data_cfg,
+    action_horizon: int,
+    video_backend: str,
+    trainer,
+):
+    """Build the legacy on-checkpoint-save open-loop eval callback or return None.
 
-    N1.x keeps it at ``model.action_horizon``; N2 at ``model.action_cfg["action_horizon"]``.
+    Returns ``None`` when ``legacy_cfg.enabled`` is False or no eval configs
+    resolve (no dataset whose embodiment is in the hardcoded ``eval_embodiments``
+    set). Otherwise returns ``OpenLoopEvalCallback`` ready for
+    ``trainer.add_callback``.
     """
-    return getattr(model_config, "action_horizon", None) or (
-        getattr(model_config, "action_cfg", {}) or {}
-    ).get("action_horizon")
+    if not legacy_cfg.enabled:
+        return None
+
+    logging.info("Open-loop evaluation enabled")
+    logging.info(f"   Policy type: {legacy_cfg.policy_type}")
+
+    if not data_cfg.datasets:
+        raise ValueError("Cannot enable open-loop evaluation without training datasets.")
+
+    eval_embodiments = {
+        "agibot",
+        "xdof",
+        "xdof_dream",
+        "sim_behavior_r1_pro",
+        "agibot_dream",
+        "oxe_droid_dream",
+    }
+    logging.info(f"   Evaluating only on embodiments: {eval_embodiments}")
+
+    eval_configs: list[dict] = []
+    eval_dataset_index = legacy_cfg.dataset_index
+    if eval_dataset_index is not None:
+        logging.info(f"   Filtering to dataset index: {eval_dataset_index}")
+
+    for idx, dataset_config in enumerate(data_cfg.datasets):
+        embodiment_tag = dataset_config.embodiment_tag
+        if not embodiment_tag:
+            raise ValueError(f"Dataset {dataset_config.dataset_paths} missing embodiment_tag.")
+        if embodiment_tag not in eval_embodiments:
+            continue
+        if eval_dataset_index is not None and idx != eval_dataset_index:
+            continue
+
+        train_dataset_path = dataset_config.dataset_paths[0]
+        eval_configs.append(
+            {
+                "dataset_path": train_dataset_path,
+                "embodiment_tag": embodiment_tag,
+                "eval_type": "train",
+            }
+        )
+        val_dataset_path = dataset_config.val_dataset_path or train_dataset_path
+        eval_configs.append(
+            {"dataset_path": val_dataset_path, "embodiment_tag": embodiment_tag, "eval_type": "val"}
+        )
+
+    _refuse_lance_eval_paths(
+        [eval_config["dataset_path"] for eval_config in eval_configs],
+        data_cfg,
+        "training.open_loop_eval",
+        "set training.open_loop_eval.dataset_index to a LeRobot entry, or disable it",
+    )
+    if not eval_configs:
+        logging.warning(
+            "[open-loop eval] enabled but no eval configs resolved "
+            "(no dataset with embodiment_tag in the legacy eval_embodiments set)."
+        )
+        return None
+
+    logging.info(f"   Trajectory IDs: {legacy_cfg.traj_ids}")
+    logging.info(f"   Steps per trajectory: {legacy_cfg.steps_per_traj}")
+    logging.info(f"   Evaluation configs ({len(eval_configs)} total):")
+    for eval_config in eval_configs:
+        logging.info(
+            f"     - {eval_config['embodiment_tag']}/{eval_config['eval_type']}: "
+            f"{eval_config['dataset_path']}"
+        )
+
+    return OpenLoopEvalCallback(
+        eval_configs=eval_configs,
+        traj_ids=legacy_cfg.traj_ids,
+        action_horizon=action_horizon,
+        steps_per_traj=legacy_cfg.steps_per_traj,
+        plot_indices=legacy_cfg.plot_indices,
+        video_backend=video_backend,
+        policy_type=legacy_cfg.policy_type,
+        trainer=trainer,
+    )
 
 
 def output_dir_of(config: Config) -> Path:
@@ -1512,13 +1597,18 @@ def run(
             )
 
         # In-process open-loop evaluation (groot.core only — no checkpoint reload).
+        # action_horizon lives at different paths per model family:
+        #   N1.x: config.model.action_horizon (direct attr)
+        #   N2:   config.model.action_cfg["action_horizon"] (TypedDict on action_cfg)
+        _model_action_horizon = getattr(config.model, "action_horizon", None) or (
+            getattr(config.model, "action_cfg", {}) or {}
+        ).get("action_horizon")
         in_proc_cb = _build_in_process_open_loop_callback(
             in_process_cfg=config.training.open_loop_eval_in_process,
             data_cfg=config.data,
             processor=processor,
             action_horizon=(
-                config.training.open_loop_eval_in_process.action_horizon
-                or model_action_horizon(config.model)
+                config.training.open_loop_eval_in_process.action_horizon or _model_action_horizon
             ),
             video_backend=config.data.video_backend,
             trainer=trainer,
@@ -1526,13 +1616,20 @@ def run(
         if in_proc_cb is not None:
             trainer.add_callback(in_proc_cb)
 
-        for extension in load_training_extensions(config.training.extensions).values():
-            for callback in extension.checkpoint_callbacks(config=config, trainer=trainer):
-                trainer.add_callback(callback)
+        # Open-loop evaluation (requires groot.control at runtime — lazy imports)
+        legacy_cb = _build_open_loop_eval_callback(
+            legacy_cfg=config.training.open_loop_eval,
+            data_cfg=config.data,
+            action_horizon=_model_action_horizon,
+            video_backend=config.data.video_backend,
+            trainer=trainer,
+        )
+        if legacy_cb is not None:
+            trainer.add_callback(legacy_cb)
 
-        # Upload callbacks must follow all local checkpoint consumers. Extension
-        # checkpoint callbacks, such as the legacy open-loop eval, must finish on
-        # all ranks before upload can delete staging, even with async uploads.
+        # Upload callbacks must follow all local checkpoint consumers. Legacy
+        # open-loop eval waits for model writes and finishes on all ranks before
+        # upload can delete staging, even with async uploads.
         if msc_checkpoint_url:
             # Use MSC for direct remote storage upload
             # Note: MSCCheckpointCallback uploads every checkpoint (controlled by save_steps),

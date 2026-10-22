@@ -21,26 +21,25 @@ The factory ``DatasetFactoryGroupedSampling`` composes a grouper with the weight
 sampler, plus shared infrastructure (hydrator, dataset building, data filtering).
 """
 
-from abc import ABC, abstractmethod
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
 import json
-from pathlib import Path
 import time
-from typing import TYPE_CHECKING
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.dataset as pads
-import pyarrow.fs as pafs
 import pyarrow.parquet as pq
 import structlog
 import torch.distributed as dist
 from tqdm import tqdm
 
-from groot.core.data import enums, schema
+from groot.core.utils.distributed.worker_logging import get_unified_logger
+from groot.core.data import enums
+from groot.core.data import schema
+from groot.core.training.configs.data.data_config import DataConfig
+from groot.core.training.configs.data import filter_config
 from groot.core.data.dataset import (
     factory,
     sharded_mixture_dataset,
@@ -53,9 +52,6 @@ from groot.core.data.dataset import (
 from groot.core.data.dataset.filter import annotation_source, sys2_filter
 from groot.core.data.hydrator import service
 from groot.core.data.hydrator.config import HydratorConfig
-from groot.core.training.configs.data import filter_config
-from groot.core.training.configs.data.data_config import DataConfig
-from groot.core.utils.distributed.worker_logging import get_unified_logger
 
 if TYPE_CHECKING:
     from groot.core.data import types
@@ -65,12 +61,12 @@ HUMAN_ACTION_SOURCE = enums.ActionSourceEnum.HUMAN.value  # 2
 
 def _raise_unsupported_packds_path(dataset_path: object, *, factory_name: str) -> None:
     path = str(dataset_path)
-    if factory._is_deltacat_packds_path(path):  # noqa: SLF001 - shared factory helper
+    if factory._is_deltacat_packds_path(path):
         raise ValueError(
             f"{factory_name} does not support DeltaCAT dc:// datasets. "
             "Use dataset_factory_type='default' with data.mode='single_turn'."
         )
-    if factory._is_packds_path(path):  # noqa: SLF001 - shared factory helper
+    if factory._is_packds_path(path):
         raise ValueError(f"{factory_name} does not support PackDS datasets")
 
 
@@ -170,7 +166,8 @@ class DatasetGrouper(ABC):
 
 
 class DatasetFactoryGroupedSampling:
-    """Compose a :class:`DatasetGrouper` with :meth:`compute_sampling_weights`.
+    """Dataset factory that composes a :class:`DatasetGrouper` with
+    :meth:`compute_sampling_weights`.
 
     Usage::
 
@@ -190,7 +187,6 @@ class DatasetFactoryGroupedSampling:
         self.data_config = data_config
         self.grouper = grouper
         from groot.core.data.dataset.factory import _derive_experiment_name
-
         self.experiment_name = _derive_experiment_name(experiment_name)
         self.use_relative_action = use_relative_action
         self.eval_strategy = eval_strategy
@@ -200,9 +196,7 @@ class DatasetFactoryGroupedSampling:
     def compute_sampling_weights(
         self,
         groups: list[DatasetGroup],
-    ) -> tuple[
-        list, list[float], list[int], list[dict[int, float] | None], list[dict[int, int] | None]
-    ]:
+    ) -> tuple[list, list[float], list[int], list[dict[int, float] | None], list[dict[int, int] | None]]:
         """Compute per-dataset sampling weights from arbitrary groups.
 
         For each group the budget is distributed among its datasets
@@ -223,7 +217,9 @@ class DatasetFactoryGroupedSampling:
         all_group_histograms: list[dict[int, int] | None] = []
 
         for group_id, group in enumerate(groups):
-            weighted_total = sum(sum(ds.shard_lengths) * ratio for ds, ratio in group.datasets)
+            weighted_total = sum(
+                sum(ds.shard_lengths) * ratio for ds, ratio in group.datasets
+            )
             for ds_i, (ds, ratio) in enumerate(group.datasets):
                 ds_steps = sum(ds.shard_lengths)
                 if weighted_total > 0:
@@ -249,15 +245,15 @@ class DatasetFactoryGroupedSampling:
         sharded_mixture_dataset.ShardedMixtureDataset | None,
     ]:
         rank = dist.get_rank() if (dist.is_available() and dist.is_initialized()) else 0
-        assert self.eval_strategy == "no", "Sharded dataset does not support evaluation sets"
+        assert (
+            self.eval_strategy == "no"
+        ), "Sharded dataset does not support evaluation sets"
 
         hydrator_enabled = any(
-            factory._resolve_one_path(str(p)).startswith(  # noqa: SLF001 - shared factory helper
-                "s3://"
-            )
+            factory._resolve_one_path(str(p)).startswith("s3://")
             for spec in self.data_config.datasets
             for p in spec.dataset_paths
-            if not factory._is_packds_path(str(p))  # noqa: SLF001 - shared factory helper
+            if not factory._is_packds_path(str(p))
         )
         if hydrator_enabled:
             get_unified_logger().info(
@@ -271,9 +267,7 @@ class DatasetFactoryGroupedSampling:
             hydrator = None
             hydrator_client = None
 
-        factory._generate_all_stats(  # noqa: SLF001 - shared factory helper
-            self.data_config, hydrator, self.use_relative_action
-        )
+        factory._generate_all_stats(self.data_config, hydrator, self.use_relative_action)
         data_filter = self._build_data_filter()
 
         groups = self.grouper.build_groups(
@@ -297,32 +291,28 @@ class DatasetFactoryGroupedSampling:
             mode_str = "SPEEDUP (merge+rejection)"
         else:
             mode_str = "DEFAULT (per-priority datasets)"
-        print(f"[V2_SAMPLING] mode={mode_str}")  # noqa: T201 - live sampling diagnostics
-        print(  # noqa: T201 - live sampling diagnostics
-            f"[V2_SAMPLING] n_groups={len(groups)} n_datasets={len(all_datasets)}"
-        )
+        print(f"[V2_SAMPLING] mode={mode_str}")
+        print(f"[V2_SAMPLING] n_groups={len(groups)} n_datasets={len(all_datasets)}")
         for group in groups:
             total_steps = sum(sum(ds.shard_lengths) for ds, _ in group.datasets)
-            print(  # noqa: T201 - live sampling diagnostics
+            print(
                 f"[V2_SAMPLING] group='{group.name}' "
                 f"n_datasets={len(group.datasets)} total_steps={total_steps} "
                 f"budget={group.target_budget:.6f} "
                 f"weight_map={group.group_weight_map}"
             )
-        for i, (ds, w) in enumerate(zip(all_datasets, all_weights, strict=False)):
+        for i, (ds, w) in enumerate(zip(all_datasets, all_weights)):
             ds_path = getattr(ds, "dataset_path", f"idx={i}")
             ds_steps = sum(ds.shard_lengths)
             n_shards = len(ds)
-            print(  # noqa: T201 - live sampling diagnostics
+            print(
                 f"[V2_SAMPLING] ds[{i}] path={ds_path} "
                 f"steps={ds_steps} n_shards={n_shards} "
                 f"weight={w:.6f} group_id={all_group_ids[i]} "
                 f"weight_map={all_group_weight_maps[i]} "
                 f"histogram={all_group_histograms[i]}"
             )
-        print(  # noqa: T201 - live sampling diagnostics
-            f"[V2_SAMPLING] weights_sum={sum(all_weights):.6f}"
-        )
+        print(f"[V2_SAMPLING] weights_sum={sum(all_weights):.6f}")
 
         self.sampling_summary: dict[str, float | int] = {}
         for group in groups:
@@ -390,9 +380,7 @@ class DatasetFactoryGroupedSampling:
             if self.data_config.mode == "single_turn":
                 dataset_class = sharded_single_step_dataset_grouped.ShardedSingleStepDatasetGrouped
             elif self.data_config.mode == "single_turn_rl":
-                dataset_class = (
-                    sharded_single_step_rl_dataset_grouped.ShardedSingleStepRLDatasetGrouped
-                )
+                dataset_class = sharded_single_step_rl_dataset_grouped.ShardedSingleStepRLDatasetGrouped
             else:
                 raise ValueError(
                     f"Grouped sampling factory does not support mode: {self.data_config.mode}"
@@ -490,7 +478,7 @@ def _log_classifier_progress(
     rate = processed / elapsed if elapsed > 0 else 0.0
     remaining = max(0, total - processed)
     eta = remaining / rate if rate > 0 else float("inf")
-    print(  # noqa: T201 - live sampling diagnostics
+    print(
         f"[{grouper}] {dataset_path} {processed}/{total} ({pct:.1f}%) "
         f"elapsed={elapsed:.1f}s rate={rate:.2f} eps/s eta={eta:.1f}s",
         flush=True,
@@ -580,135 +568,15 @@ def _read_classifier_columns(
             if col_name not in present_set:
                 continue
             if table is not None:
-                raw = table[col_name].to_pandas().to_numpy()
+                raw = table[col_name].to_pandas().values
             else:
-                raw = raw_df[col_name].to_numpy()
+                raw = raw_df[col_name].values
             return _coerce_column_to_int64(raw)
         return None
 
     action_source = _extract(_ACTION_SOURCE_CANDIDATES) if want_source else None
     quality = _extract(_QUALITY_CANDIDATES) if want_quality else None
     return action_source, quality
-
-
-def _read_population_classifier_columns(dataset_path, info, episodes_meta, hydrator):
-    """Scan episode labels together, retaining file boundaries and frame order."""
-    if not episodes_meta:
-        return {}
-    total = len(episodes_meta)
-    progress_every = _classifier_progress_step(total)
-
-    def report(stage, processed, started):
-        if processed % progress_every == 0 or processed == total:
-            _log_classifier_progress(
-                f"QualityPriorityGrouper:{stage}", dataset_path, processed, total, started
-            )
-
-    started = time.perf_counter()
-    report("metadata", 0, started)
-    paths = [
-        str(
-            _resolve_parquet_path(
-                dataset_path,
-                info["data_path"].format(
-                    episode_chunk=episode["episode_index"] // info["chunks_size"],
-                    episode_index=episode["episode_index"],
-                ),
-            )
-        )
-        for episode in episodes_meta
-    ]
-    filesystem = pafs.LocalFileSystem()
-    if paths[0].startswith("s3://"):
-        if hydrator is None:
-            raise ValueError("Hydrator required to resolve S3 classifier storage")
-        from groot.core.data.hydrator import data_source_resolver as _dsr
-        from groot.core.data.hydrator.utils import aws as _aws
-        from groot.core.data.hydrator.utils import io as _io
-
-        profile = _dsr.default_resolver().get_profile_for_uri(paths[0]) or "default"
-        bucket, _ = _io.parse_s3_uri(paths[0])
-        filesystem = _aws.get_pyarrow_s3_fs(profile=profile, bucket=bucket)
-        paths = [path.removeprefix("s3://") for path in paths]
-
-    parquet = pads.ParquetFileFormat()
-    fragments = [parquet.make_fragment(path, filesystem=filesystem) for path in paths]
-    columns = (*_ACTION_SOURCE_CANDIDATES, *_QUALITY_CANDIDATES, "episode_index", "frame_index")
-
-    def label_schema(fragment):
-        # Retain each fragment's footer for the scan; later files may add labels.
-        return pa.schema([field for field in fragment.physical_schema if field.name in columns])
-
-    with ThreadPoolExecutor(max_workers=min(32, len(fragments))) as executor:
-        futures = {
-            executor.submit(label_schema, fragment): index
-            for index, fragment in enumerate(fragments)
-        }
-        schemas = [None] * total
-        for processed, future in enumerate(as_completed(futures), start=1):
-            schemas[futures[future]] = future.result()
-            report("metadata", processed, started)
-    if not any(schema.names for schema in schemas):
-        return {episode["episode_index"]: (None, None) for episode in episodes_meta}
-    try:
-        scan_groups = {pa.unify_schemas(schemas, promote_options="permissive"): fragments}
-    except pa.ArrowTypeError:
-        # Arrow cannot unify scalar and list labels. Batch matching schemas and
-        # normalize each episode's labels with the same coercion as the file reader.
-        scan_groups = {}
-        for schema, fragment in zip(schemas, fragments, strict=True):
-            scan_groups.setdefault(schema, []).append(fragment)
-    # Old datasets can omit episode/frame columns; their file membership and
-    # physical row order remain authoritative. Do not filter lookahead context.
-    batches = {}
-    remaining_rows = {
-        path: episode["length"] for path, episode in zip(paths, episodes_meta, strict=True)
-    }
-    completed = set()
-    started = time.perf_counter()
-    report("labels", 0, started)
-    for schema, group in scan_groups.items():
-        population = pads.FileSystemDataset(group, schema, parquet, filesystem)
-        for fragment in group:
-            batches[fragment.path] = (schema, [])
-        scanner = population.scanner(columns=schema.names, use_threads=True)
-        for tagged in scanner.scan_batches():
-            path = tagged.fragment.path
-            batches[path][1].append(tagged.record_batch)
-            remaining_rows[path] -= tagged.record_batch.num_rows
-            if remaining_rows[path] <= 0 and path not in completed:
-                completed.add(path)
-                report("labels", len(completed), started)
-
-    def extract(table, physical_schema, candidates):
-        for name in candidates:
-            if name in physical_schema.names:
-                return _coerce_column_to_int64(table[name].to_numpy())
-        return None
-
-    result = {}
-    for path, episode, physical_schema in zip(paths, episodes_meta, schemas, strict=True):
-        scan_schema, episode_batches = batches[path]
-        table = pa.Table.from_batches(episode_batches, schema=scan_schema)
-        if len(table) != episode["length"]:
-            raise ValueError(f"Classifier row count differs from episode metadata: {path}")
-        if "episode_index" in physical_schema.names and not np.all(
-            table["episode_index"].to_numpy() == episode["episode_index"]
-        ):
-            raise ValueError(f"Classifier episode identity differs from metadata: {path}")
-        if "frame_index" in physical_schema.names:
-            table = table.sort_by("frame_index")
-            frames = table["frame_index"].to_numpy()
-            # An episode cut from a longer recording keeps the recording's frame numbers
-            # (e.g. 6000..9219), so require consecutive frames from the first one.
-            if not np.array_equal(frames - frames[:1], np.arange(episode["length"])):
-                raise ValueError(f"Classifier frame indices differ from episode metadata: {path}")
-
-        result[episode["episode_index"]] = (
-            extract(table, physical_schema, _ACTION_SOURCE_CANDIDATES),
-            extract(table, physical_schema, _QUALITY_CANDIDATES),
-        )
-    return result
 
 
 def _load_dataset_meta(
@@ -725,7 +593,9 @@ def _load_dataset_meta(
     dataset_path_str = str(dataset_path)
     if dataset_path_str.startswith("s3://"):
         if hydrator is None:
-            raise ValueError(f"Hydrator required to read S3 dataset metadata: {dataset_path_str}")
+            raise ValueError(
+                f"Hydrator required to read S3 dataset metadata: {dataset_path_str}"
+            )
         info = hydrator.hydrate(service.Hydrator.join_path(dataset_path_str, "meta/info.json"))[0]
         episodes_meta = hydrator.hydrate(
             service.Hydrator.join_path(dataset_path_str, "meta/episodes.jsonl")
@@ -817,7 +687,9 @@ def _classify_steps_for_dataset(
             policy_indices[ep_idx] = np.array(policy_steps, dtype=np.int64)
 
         if processed % progress_every == 0 or processed == total:
-            _log_classifier_progress("HumanPolicyGrouper", dataset_path, processed, total, started)
+            _log_classifier_progress(
+                "HumanPolicyGrouper", dataset_path, processed, total, started
+            )
 
     return human_indices, policy_indices
 
@@ -871,25 +743,21 @@ class HumanPolicyGrouper(DatasetGrouper):
 
             if role in ("default", "clean_demo"):
                 for dataset_path in (
-                    factory._resolve_one_path(str(p))  # noqa: SLF001 - shared factory helper
-                    for p in dataset_spec.dataset_paths
+                    factory._resolve_one_path(str(p)) for p in dataset_spec.dataset_paths
                 ):
                     _raise_unsupported_packds_path(
                         dataset_path,
                         factory_name="HumanPolicyGrouper",
                     )
                     ds = build_dataset_fn(
-                        dataset_path,
-                        dataset_spec,
-                        data_filter,
+                        dataset_path, dataset_spec, data_filter,
                         hydrator_client=hydrator_client,
                     )
                     demo_datasets.append((ds, mix_ratio))
 
             elif role == "rollout":
                 for dataset_path in (
-                    factory._resolve_one_path(str(p))  # noqa: SLF001 - shared factory helper
-                    for p in dataset_spec.dataset_paths
+                    factory._resolve_one_path(str(p)) for p in dataset_spec.dataset_paths
                 ):
                     _raise_unsupported_packds_path(
                         dataset_path,
@@ -901,7 +769,7 @@ class HumanPolicyGrouper(DatasetGrouper):
                     min_delta = min(min(c.delta_indices) for c in modality_configs.values())
                     max_delta = max(max(c.delta_indices) for c in modality_configs.values())
 
-                    print(  # noqa: T201 - live sampling diagnostics
+                    print(
                         f"[HumanPolicyGrouper] Pre-scanning {dataset_path} "
                         f"for action source classification..."
                     )
@@ -916,16 +784,14 @@ class HumanPolicyGrouper(DatasetGrouper):
 
                     human_count = sum(len(v) for v in human_step_filter.values())
                     policy_count = sum(len(v) for v in policy_step_filter.values())
-                    print(  # noqa: T201 - live sampling diagnostics
+                    print(
                         f"[HumanPolicyGrouper]   -> human chunks: {human_count}, "
                         f"policy chunks: {policy_count}"
                     )
 
                     if human_count > 0:
                         ds_human = build_dataset_fn(
-                            dataset_path,
-                            dataset_spec,
-                            data_filter,
+                            dataset_path, dataset_spec, data_filter,
                             step_indices_filter=human_step_filter,
                             hydrator_client=hydrator_client,
                         )
@@ -933,9 +799,7 @@ class HumanPolicyGrouper(DatasetGrouper):
 
                     if policy_count > 0:
                         ds_policy = build_dataset_fn(
-                            dataset_path,
-                            dataset_spec,
-                            data_filter,
+                            dataset_path, dataset_spec, data_filter,
                             step_indices_filter=policy_step_filter,
                             hydrator_client=hydrator_client,
                         )
@@ -958,7 +822,7 @@ class HumanPolicyGrouper(DatasetGrouper):
         policy_budget = 1.0 - human_budget - demo_budget
 
         if policy_budget < 0:
-            print(  # noqa: T201 - live sampling diagnostics
+            print(
                 f"[HumanPolicyGrouper] WARNING: policy budget is negative "
                 f"({policy_budget:.4f}). Clamping to 0. "
                 f"demo_budget={demo_budget:.4f}, human_budget={human_budget:.4f}"
@@ -1080,21 +944,14 @@ def _classify_steps_by_priority(
     Returns ``{priority: {episode_index: np.ndarray_of_step_indices}}``.
     """
     info, episodes_meta = _load_dataset_meta(dataset_path, hydrator)
+    data_path_pattern = info["data_path"]
+    chunk_size = info["chunks_size"]
+
     priority_indices: dict[int, dict[int, np.ndarray]] = {}
 
     total = len(episodes_meta)
     progress_every = _classifier_progress_step(total)
     started = time.perf_counter()
-    eligible_episodes = [
-        episode
-        for episode in episodes_meta
-        if len(
-            _compute_valid_anchor_indices(
-                int(episode["length"]), min_delta_index, max_delta_index, allow_padding
-            )
-        )
-    ]
-    labels = _read_population_classifier_columns(dataset_path, info, eligible_episodes, hydrator)
     for processed, ep_meta in enumerate(episodes_meta, start=1):
         ep_idx = ep_meta["episode_index"]
         ep_len = int(ep_meta["length"])
@@ -1111,7 +968,13 @@ def _classify_steps_by_priority(
                 )
             continue
 
-        source, quality = labels.pop(ep_idx)
+        chunk_idx = ep_idx // chunk_size
+        parquet_filename = data_path_pattern.format(
+            episode_chunk=chunk_idx, episode_index=ep_idx
+        )
+        parquet_path = _resolve_parquet_path(dataset_path, parquet_filename)
+
+        source, quality = _read_classifier_columns(parquet_path, hydrator=hydrator)
         if quality is None:
             quality = np.zeros(ep_len, dtype=np.int64)
         if source is None:
@@ -1203,7 +1066,9 @@ class QualityPriorityGrouper(DatasetGrouper):
         demo_map = data_config.quality_weighted_demo_priority_map
         rollout_map = data_config.quality_weighted_rollout_priority_map
         lookahead = data_config.quality_weighted_lookahead
-        proportional_budget = getattr(data_config, "quality_weighted_proportional_budget", False)
+        proportional_budget = getattr(
+            data_config, "quality_weighted_proportional_budget", False
+        )
 
         # Collect (dataset, mix_ratio) per (family, priority).
         buckets: dict[tuple[str, int], list[tuple]] = {}
@@ -1218,8 +1083,7 @@ class QualityPriorityGrouper(DatasetGrouper):
             family = "demo" if role == "clean_demo" else "rollout"
 
             for dataset_path in (
-                factory._resolve_one_path(str(p))  # noqa: SLF001 - shared factory helper
-                for p in dataset_spec.dataset_paths
+                factory._resolve_one_path(str(p)) for p in dataset_spec.dataset_paths
             ):
                 _raise_unsupported_packds_path(
                     dataset_path,
@@ -1231,7 +1095,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                 min_delta = min(min(c.delta_indices) for c in modality_configs.values())
                 max_delta = max(max(c.delta_indices) for c in modality_configs.values())
 
-                print(  # noqa: T201 - live sampling diagnostics
+                print(
                     f"[QualityPriorityGrouper] Pre-scanning {dataset_path} "
                     f"(family={family}) for quality-priority classification..."
                 )
@@ -1249,7 +1113,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                     family_map = demo_map if family == "demo" else rollout_map
                     if family_map.get(priority, 0) <= 0:
                         skip_count = sum(len(v) for v in ep_step_map.values())
-                        print(  # noqa: T201 - live sampling diagnostics
+                        print(
                             f"[QualityPriorityGrouper]   -> {family}/P{priority}: "
                             f"{skip_count} steps (SKIPPED, weight=0)"
                         )
@@ -1269,7 +1133,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                         buckets[key] = []
                     buckets[key].append((ds, mix_ratio))
 
-                    print(  # noqa: T201 - live sampling diagnostics
+                    print(
                         f"[QualityPriorityGrouper]   -> {family}/P{priority}: "
                         f"{step_count} steps"
                     )
@@ -1278,9 +1142,7 @@ class QualityPriorityGrouper(DatasetGrouper):
         groups: list[DatasetGroup] = []
 
         budget_mode = "proportional" if proportional_budget else "fixed"
-        print(  # noqa: T201 - live sampling diagnostics
-            f"[QualityPriorityGrouper] Budget mode: {budget_mode}"
-        )
+        print(f"[QualityPriorityGrouper] Budget mode: {budget_mode}")
 
         for family, family_budget, priority_map in [
             ("demo", demo_budget_total, demo_map),
@@ -1294,7 +1156,9 @@ class QualityPriorityGrouper(DatasetGrouper):
                     datasets_in_bucket = buckets.get((family, priority), [])
                     if not datasets_in_bucket:
                         continue
-                    steps = sum(sum(ds.shard_lengths) for ds, _ in datasets_in_bucket)
+                    steps = sum(
+                        sum(ds.shard_lengths) for ds, _ in datasets_in_bucket
+                    )
                     weighted_step_total += weight * steps
                 if weighted_step_total <= 0:
                     continue
@@ -1303,7 +1167,9 @@ class QualityPriorityGrouper(DatasetGrouper):
                     datasets_in_bucket = buckets.get(key, [])
                     if not datasets_in_bucket or weight <= 0:
                         continue
-                    steps = sum(sum(ds.shard_lengths) for ds, _ in datasets_in_bucket)
+                    steps = sum(
+                        sum(ds.shard_lengths) for ds, _ in datasets_in_bucket
+                    )
                     budget = family_budget * (weight * steps / weighted_step_total)
                     groups.append(
                         DatasetGroup(
@@ -1338,7 +1204,7 @@ class QualityPriorityGrouper(DatasetGrouper):
 
         total_budget = sum(g.target_budget for g in groups)
         if total_budget > 0 and abs(total_budget - 1.0) > 1e-9:
-            print(  # noqa: T201 - live sampling diagnostics
+            print(
                 f"[QualityPriorityGrouper] Renormalizing budgets: "
                 f"{total_budget:.4f} -> 1.0 "
                 f"(some families/priorities had no eligible data)"
@@ -1366,7 +1232,9 @@ class QualityPriorityGrouper(DatasetGrouper):
         demo_map = data_config.quality_weighted_demo_priority_map
         rollout_map = data_config.quality_weighted_rollout_priority_map
         lookahead = data_config.quality_weighted_lookahead
-        proportional_budget = getattr(data_config, "quality_weighted_proportional_budget", False)
+        proportional_budget = getattr(
+            data_config, "quality_weighted_proportional_budget", False
+        )
         presample = getattr(data_config, "quality_weighted_presample", False)
 
         family_datasets: dict[str, list[tuple]] = {"demo": [], "rollout": []}
@@ -1382,8 +1250,7 @@ class QualityPriorityGrouper(DatasetGrouper):
             family = "demo" if role == "clean_demo" else "rollout"
 
             for dataset_path in (
-                factory._resolve_one_path(str(p))  # noqa: SLF001 - shared factory helper
-                for p in dataset_spec.dataset_paths
+                factory._resolve_one_path(str(p)) for p in dataset_spec.dataset_paths
             ):
                 _raise_unsupported_packds_path(
                     dataset_path,
@@ -1395,7 +1262,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                 min_delta = min(min(c.delta_indices) for c in modality_configs.values())
                 max_delta = max(max(c.delta_indices) for c in modality_configs.values())
 
-                print(  # noqa: T201 - live sampling diagnostics
+                print(
                     f"[QualityPriorityGrouper] Pre-scanning {dataset_path} "
                     f"(family={family}) for quality-priority classification..."
                 )
@@ -1423,7 +1290,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                     if not active_weights:
                         for priority, ep_step_map in priority_step_filters.items():
                             skip_count = sum(len(v) for v in ep_step_map.values())
-                            print(  # noqa: T201 - live sampling diagnostics
+                            print(
                                 f"[QualityPriorityGrouper]   -> {family}/P{priority}: "
                                 f"{skip_count} steps (SKIPPED, weight=0)"
                             )
@@ -1456,7 +1323,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                     for priority, ep_step_map in priority_step_filters.items():
                         if priority not in accept_probs:
                             skip_count = sum(len(v) for v in ep_step_map.values())
-                            print(  # noqa: T201 - live sampling diagnostics
+                            print(
                                 f"[QualityPriorityGrouper]   -> {family}/P{priority}: "
                                 f"{skip_count} steps (SKIPPED, weight=0)"
                             )
@@ -1474,7 +1341,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                                 rng = np.random.default_rng(
                                     seed=data_config.seed + ep_idx * 100 + priority
                                 )
-                                n_keep = max(1, round(len(steps) * ap))
+                                n_keep = max(1, int(round(len(steps) * ap)))
                                 if n_keep >= len(steps):
                                     selected = steps
                                 else:
@@ -1482,7 +1349,9 @@ class QualityPriorityGrouper(DatasetGrouper):
                                     selected = np.sort(selected)
 
                             if len(selected) > 0:
-                                priority_labels = np.full(len(selected), priority, dtype=np.int8)
+                                priority_labels = np.full(
+                                    len(selected), priority, dtype=np.int8
+                                )
                                 if ep_idx in merged_filter:
                                     merged_filter[ep_idx] = np.concatenate(
                                         [merged_filter[ep_idx], selected]
@@ -1496,7 +1365,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                                 kept += len(selected)
 
                         presample_histogram[priority] = kept
-                        print(  # noqa: T201 - live sampling diagnostics
+                        print(
                             f"[QualityPriorityGrouper]   -> {family}/P{priority}: "
                             f"{original_count} steps, kept {kept} "
                             f"(accept_prob={ap:.3f})"
@@ -1507,13 +1376,13 @@ class QualityPriorityGrouper(DatasetGrouper):
 
                     # Sort steps within each episode for sequential I/O; keep
                     # priority labels aligned with their step indices.
-                    for ep_idx, steps in merged_filter.items():
-                        order = np.argsort(steps)
-                        merged_filter[ep_idx] = steps[order]
+                    for ep_idx in merged_filter:
+                        order = np.argsort(merged_filter[ep_idx])
+                        merged_filter[ep_idx] = merged_filter[ep_idx][order]
                         merged_labels[ep_idx] = merged_labels[ep_idx][order]
 
                     total_merged = sum(len(v) for v in merged_filter.values())
-                    print(  # noqa: T201 - live sampling diagnostics
+                    print(
                         f"[PRESAMPLE_BUILD] family={family} path={dataset_path} "
                         f"total_steps={total_merged} "
                         f"original={dict(sorted(original_histogram.items()))} "
@@ -1530,7 +1399,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                             episode_id=int(ep_idx),
                             kept_step_ids=merged_filter[ep_idx].tolist(),
                             kept_priorities=merged_labels[ep_idx].tolist(),
-                            n_kept=len(merged_filter[ep_idx]),
+                            n_kept=int(len(merged_filter[ep_idx])),
                         )
 
                     ds = build_dataset_fn(
@@ -1551,7 +1420,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                     for priority, ep_step_map in priority_step_filters.items():
                         if family_map.get(priority, 0) <= 0:
                             skip_count = sum(len(v) for v in ep_step_map.values())
-                            print(  # noqa: T201 - live sampling diagnostics
+                            print(
                                 f"[QualityPriorityGrouper]   -> {family}/P{priority}: "
                                 f"{skip_count} steps (SKIPPED, weight=0)"
                             )
@@ -1566,17 +1435,13 @@ class QualityPriorityGrouper(DatasetGrouper):
                                 merged_filter[ep_idx] = steps
                                 merged_labels[ep_idx] = np.full(len(steps), priority, dtype=np.int8)
                             else:
-                                merged_filter[ep_idx] = np.concatenate(
-                                    [merged_filter[ep_idx], steps]
-                                )
-                                merged_labels[ep_idx] = np.concatenate(
-                                    [
-                                        merged_labels[ep_idx],
-                                        np.full(len(steps), priority, dtype=np.int8),
-                                    ]
-                                )
+                                merged_filter[ep_idx] = np.concatenate([merged_filter[ep_idx], steps])
+                                merged_labels[ep_idx] = np.concatenate([
+                                    merged_labels[ep_idx],
+                                    np.full(len(steps), priority, dtype=np.int8),
+                                ])
 
-                        print(  # noqa: T201 - live sampling diagnostics
+                        print(
                             f"[QualityPriorityGrouper]   -> {family}/P{priority}: "
                             f"{step_count} steps"
                         )
@@ -1591,7 +1456,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                         merged_labels[ep_idx] = merged_labels[ep_idx][order]
 
                     total_merged = sum(len(v) for v in merged_filter.values())
-                    print(  # noqa: T201 - live sampling diagnostics
+                    print(
                         f"[MERGED_BUILD] family={family} path={dataset_path} "
                         f"total_steps={total_merged} "
                         f"group_dist={dict(sorted(group_histogram.items()))}"
@@ -1607,7 +1472,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                             episode_id=int(ep_idx),
                             kept_step_ids=merged_filter[ep_idx].tolist(),
                             kept_priorities=merged_labels[ep_idx].tolist(),
-                            n_kept=len(merged_filter[ep_idx]),
+                            n_kept=int(len(merged_filter[ep_idx])),
                         )
 
                     ds = build_dataset_fn(
@@ -1625,13 +1490,13 @@ class QualityPriorityGrouper(DatasetGrouper):
         budget_mode = "proportional" if proportional_budget else "fixed"
 
         if presample:
-            print(  # noqa: T201 - live sampling diagnostics
+            print(
                 f"[QualityPriorityGrouper] Speedup mode: merge-then-build "
                 f"(pre-sampling active, zero I/O waste, budget_mode={budget_mode})"
             )
-            for family, family_budget in [
-                ("demo", demo_budget_total),
-                ("rollout", other_budget_total),
+            for family, family_budget, priority_map in [
+                ("demo", demo_budget_total, demo_map),
+                ("rollout", other_budget_total, rollout_map),
             ]:
                 ds_entries = family_datasets[family]
                 if not ds_entries:
@@ -1645,7 +1510,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                     )
                 )
         else:
-            print(  # noqa: T201 - live sampling diagnostics
+            print(
                 f"[QualityPriorityGrouper] Speedup mode: merge-then-build "
                 f"(rejection sampling active, budget_mode={budget_mode})"
             )
@@ -1675,7 +1540,7 @@ class QualityPriorityGrouper(DatasetGrouper):
                         if steps_g > 0:
                             group_weight_map[g] = w / steps_g
 
-                    print(  # noqa: T201 - live sampling diagnostics
+                    print(
                         f"[QualityPriorityGrouper] {family}: proportional_budget=False correction "
                         f"raw_map={active_map} "
                         f"step_counts={dict(sorted(aggregated_steps.items()))} "
@@ -1700,7 +1565,7 @@ class QualityPriorityGrouper(DatasetGrouper):
 
         total_budget = sum(g.target_budget for g in groups)
         if total_budget > 0 and abs(total_budget - 1.0) > 1e-9:
-            print(  # noqa: T201 - live sampling diagnostics
+            print(
                 f"[QualityPriorityGrouper] Renormalizing budgets: "
                 f"{total_budget:.4f} -> 1.0 "
                 f"(some families/priorities had no eligible data)"

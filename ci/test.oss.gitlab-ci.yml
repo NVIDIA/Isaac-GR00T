@@ -50,7 +50,6 @@ test.oss.cpu:
         - scripts/deployment/oss/installation.md
         - tests/oss/test_dockerfile.py
         - ci/sync/copybara_sync.py
-        - ci/sync/public_export.py
         - ci/test.oss.gitlab-ci.yml
         - ci/image.gitlab-ci.yml
         - ci/image.oss.gitlab-ci.yml
@@ -63,7 +62,7 @@ test.oss.cpu:
     - &oss_package_before_script |
       if [ -d "$CI_PROJECT_DIR/oss" ]; then
         export OSS_PACKAGE_ROOT="$(mktemp -d)/package"
-        python3 -m ci.sync.copybara_sync \
+        python3 "$CI_PROJECT_DIR/ci/sync/copybara_sync.py" \
           --repo-root "$CI_PROJECT_DIR" \
           --export-oss-for-tests "$OSS_PACKAGE_ROOT"
       else

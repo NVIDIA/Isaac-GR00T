@@ -24,7 +24,6 @@ from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
-import tomllib
 import yaml
 
 from groot.infra import oss
@@ -1828,25 +1827,6 @@ def test_locked_training_stack_supports_linux_aarch64_and_keeps_x86_cu128() -> N
     flash = packages[("flash-attn", _pyproject_pin("flash-attn"))]
     assert f'version = "{x86_torch_version}"' in flash
     assert f'version = "{arm_torch_version}"' in flash
-
-    x86_nvrx = packages[
-        ("nvidia-resiliency-ext", _pyproject_pin("nvidia-resiliency-ext", aarch64=False))
-    ]
-    arm_nvrx = packages[
-        ("nvidia-resiliency-ext", _pyproject_pin("nvidia-resiliency-ext", aarch64=True))
-    ]
-    assert "manylinux_2_31_x86_64" in x86_nvrx
-    assert "manylinux_2_39_aarch64" in arm_nvrx
-    # Training installs NVRx by default; deployment, and so the Thor image, does not.
-    extras = tomllib.loads((_package_root() / "pyproject.toml").read_text(encoding="utf-8"))[
-        "project"
-    ]["optional-dependencies"]
-    assert sum(dep.startswith("nvidia-resiliency-ext==") for dep in extras["training"]) == 2
-    assert not any(dep.startswith("nvidia-resiliency-ext") for dep in extras["deployment"])
-    thor_lock = tomllib.loads(
-        (_package_root() / "scripts/deployment/thor/uv.lock").read_text(encoding="utf-8")
-    )
-    assert "nvidia-resiliency-ext" not in {package["name"] for package in thor_lock["package"]}
 
 
 def test_oss_gpu_ci_job_runs_gpu_marked_package_tests() -> None:
