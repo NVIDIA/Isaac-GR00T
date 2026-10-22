@@ -10,9 +10,9 @@
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any
 
 from groot.core.training.configs.training.open_loop_eval_config import (
+    OpenLoopEvalConfig,
     OpenLoopEvalInProcessConfig,
 )
 
@@ -255,27 +255,26 @@ class TrainingConfig:
     # Straggler Detection (nvidia_resiliency_ext)
     straggler: "StragglerConfig" = dataclasses.field(default_factory=lambda: StragglerConfig())
 
-    # In-process open-loop evaluation.
+    # Open-loop evaluation (two nested configs).
+    open_loop_eval: OpenLoopEvalConfig = dataclasses.field(default_factory=OpenLoopEvalConfig)
     open_loop_eval_in_process: OpenLoopEvalInProcessConfig = dataclasses.field(
         default_factory=OpenLoopEvalInProcessConfig
     )
-
-    # Training extensions provided outside groot.core, by name, each with its own
-    # options; see groot/core/training/experiment/extensions.py.
-    extensions: dict[str, dict[str, Any]] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Coerce dict -> nested dataclass for YAML-loaded configs.
 
         ``Config.load_dict`` in ``groot/core/training/configs/base_config.py``
         reconstructs this config through the training registry. With nested
-        dataclass fields, YAML delivers ``data["training"]["open_loop_eval_in_process"]``
+        dataclass fields, YAML delivers ``data["training"]["open_loop_eval"]``
         as a ``dict``. Without coercion,
-        ``config.training.open_loop_eval_in_process.enabled`` raises ``AttributeError``
+        ``config.training.open_loop_eval.enabled`` raises ``AttributeError``
         on ``dict.enabled``. Mirrors ``DataConfig.__post_init__``.
         """
         if isinstance(self.straggler, dict):
             self.straggler = StragglerConfig(**self.straggler)
+        if isinstance(self.open_loop_eval, dict):
+            self.open_loop_eval = OpenLoopEvalConfig(**self.open_loop_eval)
         if isinstance(self.open_loop_eval_in_process, dict):
             self.open_loop_eval_in_process = OpenLoopEvalInProcessConfig(
                 **self.open_loop_eval_in_process

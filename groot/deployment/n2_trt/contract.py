@@ -66,14 +66,6 @@ VAE_PRECISIONS = ("bf16", "fp8")
 # build settings; the runtime never infers it from binding names alone.
 ACTION_CONTEXT_MODES = ("raw", "projected", "kv")
 
-# Which prompt slots the DiT cross-attention reads (the checkpoint's ``dit_text_keys``).
-# ``all`` attends every slot of the right-padded prompt, pads included; ``real`` attends
-# each sample's real prompt tokens only, so its engines take the real-token count as an
-# extra input. Recorded in the contract only for ``real``: ``all`` payloads are unchanged.
-TEXT_KEYS = ("all", "real")
-# The engine binding of a ``real`` contract: (B,) int32 real-token count of the padded prompt.
-TEXT_SEQ_LEN_INPUT = "text_seq_len"
-
 
 def resolve_checkpoint_actor_config(model_config: dict[str, Any]) -> dict[str, Any]:
     """Read the executed N2 actor config without converting the checkpoint.
@@ -165,8 +157,6 @@ class N2TensorRTContract:
     # The bundle also carries the conditioning-cached joint engine (cond_kv_freeze serving).
     cond_kv_freeze: bool = False
     vae_bottleneck_kernel: tuple[int, int, int] | None = None
-    # The checkpoint's DiT text keys (``TEXT_KEYS``); ``real`` engines take ``text_seq_len``.
-    text_keys: str = "all"
 
     @property
     def patch_size(self) -> tuple[int, int, int]:
@@ -347,8 +337,6 @@ class N2TensorRTContract:
             payload["action_cache_precision"] = self.action_cache_precision.value
         if self.cond_kv_freeze:
             payload["cond_kv_freeze"] = True
-        if self.text_keys != "all":
-            payload["text_keys"] = self.text_keys
         return payload
 
     @classmethod
@@ -463,7 +451,6 @@ class N2TensorRTContract:
         if bottleneck is not None:
             model_variant = N2ModelVariant.TURBO3
         contract = cls(
-            text_keys=checkpoint_text_keys(model),
             schema_version=_CONTRACT_SCHEMA_VERSION,
             vae_bottleneck_kernel=bottleneck,
             checkpoint=str(checkpoint_path),
@@ -631,8 +618,6 @@ class N2TensorRTContract:
             failures["cond_kv_freeze"] = (
                 "the conditioning-cached joint engine is not qualified with token merge"
             )
-        if self.text_keys not in TEXT_KEYS:
-            failures["text_keys"] = {"actual": self.text_keys, "supported": list(TEXT_KEYS)}
         expected_variant = {
             ("wan21", False): N2ModelVariant.CORE,
             ("wan21", True): N2ModelVariant.TURBO2,
@@ -650,25 +635,6 @@ class N2TensorRTContract:
                 "unsupported N2 TensorRT contract (not supported yet): "
                 + json.dumps(failures, default=str)
             )
-
-
-def checkpoint_text_keys(model_config: dict[str, Any]) -> str:
-    """The DiT text keys of a checkpoint config (``TEXT_KEYS``).
-
-    Configs written before the string field carry the boolean ``dit_text_pad_mask``
-    (True means ``real``); a config with neither attends every slot (``all``).
-    """
-    value = model_config.get("dit_text_keys")
-    legacy = model_config.get("dit_text_pad_mask")
-    if value is None:
-        value = "real" if legacy else "all"
-    elif legacy is not None and value != ("real" if legacy else "all"):
-        raise ValueError(
-            f"checkpoint config sets dit_text_keys={value!r} and dit_text_pad_mask={legacy!r}"
-        )
-    if value not in TEXT_KEYS:
-        raise ValueError(f"unsupported dit_text_keys={value!r}; expected one of {TEXT_KEYS}")
-    return value
 
 
 def _read_json(path: Path) -> dict[str, Any]:

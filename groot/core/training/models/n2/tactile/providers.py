@@ -12,10 +12,11 @@
 
 from __future__ import annotations
 
+from configparser import ConfigParser
+from importlib import metadata, resources
 from typing import TYPE_CHECKING
 
 from groot.core.training.models.n2.tactile.guards import TactileUnsupportedError
-from groot.core.utils.entry_points import find_entry_points
 
 if TYPE_CHECKING:
     from torch import nn
@@ -26,12 +27,19 @@ _GROUP = "groot.n2.deform"
 def build_hb1_autoencoder() -> nn.Module:
     """Build the full autoencoder; its decoder's RNG use is part of N2 initialization.
 
-    The factory is an entry point; the OSS package ships neither its registration nor
-    the implementation. A source manifest that does not register it is an error, not an
-    absent provider. Discovery and imports happen only when deformation construction
-    requests this call. Provider import/construction errors propagate unchanged.
+    Installed packages advertise the factory through Python entry points. Source-only
+    runs (including --no-install-project containers) use the same manifest that generates
+    that metadata. The OSS package ships neither the manifest nor the implementation.
+    Discovery and imports happen only when deformation construction requests this call.
+    Provider import/construction errors propagate unchanged.
     """
-    providers = find_entry_points(_GROUP, "hb1", missing_ok=False)
+    providers = list(metadata.entry_points(group=_GROUP, name="hb1"))
+    if not providers:
+        manifest = resources.files("groot").joinpath("entry_points.txt")
+        if manifest.is_file():
+            config = ConfigParser(interpolation=None)
+            config.read_string(manifest.read_text(encoding="utf-8"))
+            providers = [metadata.EntryPoint(name="hb1", value=config[_GROUP]["hb1"], group=_GROUP)]
     if not providers:
         raise TactileUnsupportedError(
             "HB1 deformation requires the internal GR00T HB1 provider; it is not included in OSS."

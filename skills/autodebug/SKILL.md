@@ -40,7 +40,7 @@ Use the supplied report, or normalize the request with
 `unknown`; do not invent values.
 
 ```bash
-uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py new \
+uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py new \
   --report <report.md> \
   --workspace <checkout-to-debug> \
   --target-config <targets.json>
@@ -73,16 +73,16 @@ repeating the intake lookup. Read the returned `next` action and follow it exact
 `show` at any time:
 
 ```bash
-uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py show \
+uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py show \
   --incident <incident.json>
 ```
 
 Inspect the granted targets and collect a read-only probe without advancing the incident:
 
 ```bash
-uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py targets \
+uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py targets \
   --incident <incident.json>
-uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py probe \
+uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py probe \
   --incident <incident.json> \
   --target <target-name> \
   --command '<focused command>'
@@ -124,7 +124,7 @@ unless that session is alive and its results continue to enter the runner ledger
    harness error:
 
    ```bash
-     uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py reproduce \
+     uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py reproduce \
        --incident <incident.json> \
        --command '<smallest failing command>' \
        --failure-signature '<exact reported error or assertion>'
@@ -135,7 +135,7 @@ unless that session is alive and its results continue to enter the runner ledger
    for the single most useful missing item. After it arrives, resume the existing incident:
 
    ```bash
-   uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py resume \
+   uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py resume \
      --incident <incident.json> \
      --note '<new evidence or corrected reproduction condition>'
    ```
@@ -148,7 +148,7 @@ unless that session is alive and its results continue to enter the runner ledger
    returned by the incident:
 
    ```bash
-   uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py cases \
+   uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py cases \
      --incident <incident.json>
    ```
 
@@ -158,7 +158,7 @@ unless that session is alive and its results continue to enter the runner ledger
 4. Test one hypothesis with one focused command. Keep all other factors fixed:
 
    ```bash
-   uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py diagnose \
+   uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py diagnose \
      --incident <incident.json> \
      --hypothesis '<one falsifiable hypothesis>' \
      --outcome <supported|rejected|inconclusive> \
@@ -196,7 +196,7 @@ unless that session is alive and its results continue to enter the runner ledger
    implementation agent:
 
    ```bash
-   uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py handoff \
+   uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py handoff \
      --incident <incident.json> \
      --analysis '<why the evidence supports this diagnosis and what remains unknown>' \
      --change '<one repository-backed change>' \
@@ -222,7 +222,7 @@ unless that session is alive and its results continue to enter the runner ledger
    `<separate-worktree>/oss` when resuming:
 
    ```bash
-   uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py resume \
+   uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py resume \
      --incident <incident.json> \
      --note '<downstream implementation summary>' \
      --implementation-workspace <separate-worktree>/<same-subdirectory> \
@@ -232,7 +232,7 @@ unless that session is alive and its results continue to enter the runner ledger
 9. Run the built-in verification automatically after the implementation commit returns:
 
    ```bash
-   uv run --no-project --python 3.12 python skills/autodebug/scripts/autodebug.py verify \
+   uv run --no-project --python 3.10 python skills/autodebug/scripts/autodebug.py verify \
      --incident <incident.json>
    ```
 

@@ -25,7 +25,6 @@ from groot.core.training.models.n2.components.flash_attention import (
     scaled_dot_product_attention_bf16,
 )
 from groot.core.training.models.n2.components.kv_cache import CondKVCache, FrozenPrefixKVCache
-from groot.core.training.models.n2.components.text_pad_mask import TextPadMask
 from groot.core.training.models.n2.utils.cosmos_model_deps import ensure_cosmos_model_deps
 from groot.deployment.n2_trt.conditioner import (
     CROSS_KEY_INPUT,
@@ -36,7 +35,6 @@ from groot.deployment.n2_trt.conditioner import (
 )
 from groot.deployment.n2_trt.contract import (
     ACTION_CONTEXT_MODES,
-    TEXT_SEQ_LEN_INPUT,
     N2TensorRTContract,
     TransformerPrecision,
 )
@@ -129,45 +127,6 @@ def _resolve_routing_indices(
         video_token_indices.to(device=modality_ids.device, dtype=torch.long),
         non_video_token_indices.to(device=modality_ids.device, dtype=torch.long),
     )
-
-
-class _ExportTextPadMask(TextPadMask):
-    """Export form of :class:`TextPadMask` (``text_keys="real"``) with the same semantics.
-
-    Every query attends its sample's first ``seq_len`` keys; a sample without real tokens
-    yields zeros, as ``dense_prefix_sdpa`` does. The key mask enters SDPA as an additive
-    bias in the query dtype, broadcast over heads and queries, so the strongly typed graph
-    carries no boolean-to-float32 mask conversion.
-    """
-
-    def cross_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-        seq_len = self.seq_len.long()
-        has_keys = seq_len > 0
-        kv_ok = torch.arange(k.shape[1], device=q.device)[None, :] < seq_len[:, None]
-        kv_ok = kv_ok | ~has_keys[:, None]
-        bias = torch.where(
-            kv_ok,
-            torch.zeros((), dtype=q.dtype, device=q.device),
-            torch.full((), float("-inf"), dtype=q.dtype, device=q.device),
-        )
-        out = scaled_dot_product_attention_bf16(
-            q.transpose(1, 2),
-            k.transpose(1, 2),
-            v.transpose(1, 2),
-            attn_mask=bias[:, None, None, :],
-        ).transpose(1, 2)
-        return torch.where(
-            has_keys[:, None, None, None], out, torch.zeros((), dtype=out.dtype, device=out.device)
-        )
-
-    def repeat(self, n: int) -> _ExportTextPadMask:
-        return _ExportTextPadMask(self.seq_len.repeat(n))
-
-
-def _text_inputs(payload: dict[str, Any]) -> tuple[torch.Tensor, ...]:
-    """The ``text_seq_len`` graph input of a captured call (none for ``text_keys="all"``)."""
-    seq_len = payload.get(TEXT_SEQ_LEN_INPUT)
-    return () if seq_len is None else (seq_len,)
 
 
 class _CrossKVSource(torch.nn.Module):
@@ -276,15 +235,10 @@ class _N2TransformerExportAdapterBase(torch.nn.Module):
         pad: int,
         kv_cache: Any,
         store_kv: bool,
-        text_seq_len: torch.Tensor | None = None,
     ) -> torch.Tensor:
         token_merge_kwargs = (
             {"sequence_transform": self.token_merge} if self.token_merge is not None else {}
         )
-        if text_seq_len is not None:
-            if self.cross_kv:
-                raise RuntimeError("cross-attention K/V inputs do not support text_keys='real'")
-            token_merge_kwargs["text_pad_mask"] = _ExportTextPadMask(text_seq_len)
         projection = None
         swapped_attentions: list[tuple[torch.nn.Module, torch.nn.Module]] = []
         if self.projected_context or self.cross_kv:
@@ -347,7 +301,6 @@ class N2TransformerJointCaptureExportAdapter(_N2TransformerExportAdapterBase):
         rope_sin: torch.Tensor,
         context: torch.Tensor,
         modality_ids: torch.Tensor,
-        text_seq_len: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, ...]:
         from groot.core.training.models.n2.components.kv_cache import CondKVCache
 
@@ -367,7 +320,6 @@ class N2TransformerJointCaptureExportAdapter(_N2TransformerExportAdapterBase):
             pad=self.pad,
             kv_cache=cache,
             store_kv=True,
-            text_seq_len=text_seq_len,
         )
         if self.token_merge is None:
             return (
@@ -444,7 +396,6 @@ class N2TransformerJointCondCachedExportAdapter(_N2TransformerExportAdapterBase)
         modality_ids: torch.Tensor,
         cond_key: torch.Tensor,
         cond_value: torch.Tensor,
-        text_seq_len: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         latents = latents.to(torch.bfloat16)
         timesteps = timesteps.to(torch.bfloat16)
@@ -462,7 +413,6 @@ class N2TransformerJointCondCachedExportAdapter(_N2TransformerExportAdapterBase)
             pad=0,
             kv_cache=cache,
             store_kv=False,
-            text_seq_len=text_seq_len,
         )
         if len(cache.fresh_key) != len(cache.key_cache):
             raise RuntimeError("conditioning-prefix export did not splice every layer")
@@ -486,7 +436,6 @@ class N2TransformerActionCachedExportAdapter(_N2TransformerExportAdapterBase):
         modality_ids: torch.Tensor,
         kv_cache_key: torch.Tensor,
         kv_cache_value: torch.Tensor,
-        text_seq_len: torch.Tensor | None = None,
     ) -> torch.Tensor:
         from groot.core.training.models.n2.components.kv_cache import CondKVCache
 
@@ -511,7 +460,6 @@ class N2TransformerActionCachedExportAdapter(_N2TransformerExportAdapterBase):
             pad=0,
             kv_cache=cache,
             store_kv=False,
-            text_seq_len=text_seq_len,
         )
 
 
@@ -655,7 +603,6 @@ class N2TransformerTokenMergeActionCachedExportAdapter(_N2TransformerExportAdapt
         kv_cache_value_fine: torch.Tensor,
         kv_cache_key_coarse: torch.Tensor,
         kv_cache_value_coarse: torch.Tensor,
-        text_seq_len: torch.Tensor | None = None,
     ) -> torch.Tensor:
         from groot.deployment.n2_trt.runtime import _restore_token_merge_cache
 
@@ -678,7 +625,6 @@ class N2TransformerTokenMergeActionCachedExportAdapter(_N2TransformerExportAdapt
             pad=0,
             kv_cache=cache,
             store_kv=False,
-            text_seq_len=text_seq_len,
         )
 
 
@@ -1333,8 +1279,6 @@ def _save_capture(path: Path, payload: dict[str, Any]) -> None:
         output_name: payload["output"].detach().cpu(),
         "pad": int(packed.pad),
     }
-    if isinstance(payload.get(TEXT_SEQ_LEN_INPUT), torch.Tensor):
-        sample[TEXT_SEQ_LEN_INPUT] = payload[TEXT_SEQ_LEN_INPUT].detach().cpu()
     for name in ("video_token_indices", "non_video_token_indices"):
         if isinstance(sample[name], torch.Tensor):
             sample[name] = sample[name].detach().cpu()
@@ -1457,9 +1401,6 @@ def _install_call_probe(
                 "token_merge": transformer_kwargs.get("sequence_transform"),
                 "token_merge_layers": token_merge_layers,
             }
-            text_pad_mask = transformer_kwargs.get("text_pad_mask")
-            if text_pad_mask is not None:
-                payload[TEXT_SEQ_LEN_INPUT] = text_pad_mask.seq_len
             if mode == "action_cached" and action_context_mode == "projected":
                 payload[PROJECTED_CONTEXT_INPUT] = project_context(
                     model.transformer.crossattn_proj, prompt_embs
@@ -1655,13 +1596,9 @@ def _probe_unused_action_engine(model, joint_payload):
         token_valid_mask=packed.token_valid_mask,
         **kwargs,
     )
-    if joint_payload.get(TEXT_SEQ_LEN_INPUT) is not None:
-        kwargs = {"text_pad_mask": TextPadMask(joint_payload[TEXT_SEQ_LEN_INPUT])}
-    else:
-        kwargs = {}
     with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda"):
         model._call_transformer(
-            action_packed, joint_payload["prompt_embs"], kv_cache=cache, store_kv=False, **kwargs
+            action_packed, joint_payload["prompt_embs"], kv_cache=cache, store_kv=False
         )
 
 
@@ -1702,7 +1639,6 @@ def _runtime_manifest(args: argparse.Namespace, *, contract: N2TensorRTContract)
         "policy_embodiment_tag": args.policy_embodiment_tag,
         "codec_roundtrip": args.codec,
         "action_context_mode": args.action_context_mode,
-        "text_keys": contract.text_keys,
         "capture_samples": 1,
         "opset": args.opset,
         "predict_kwargs": {
@@ -1888,7 +1824,6 @@ def _captured_layout_record(payload: dict[str, Any]) -> dict[str, Any]:
         CROSS_KEY_INPUT: _tensor_record(payload.get(CROSS_KEY_INPUT)),
         CROSS_VALUE_INPUT: _tensor_record(payload.get(CROSS_VALUE_INPUT)),
         "modality_ids": _tensor_record(modality_ids),
-        TEXT_SEQ_LEN_INPUT: _tensor_record(payload.get(TEXT_SEQ_LEN_INPUT)),
         "shared_batch_layout": bool(
             torch.equal(modality_ids, modality_ids[:1].expand_as(modality_ids))
         ),
@@ -2102,11 +2037,6 @@ def main() -> int:
         conditional_kv_cache=True,
     )
 
-    real_text_keys = contract.text_keys == "real"
-    if real_text_keys and cross_kv:
-        raise ValueError("the 'kv' action context mode does not support text_keys='real'")
-    text_input_names = [TEXT_SEQ_LEN_INPUT] if real_text_keys else []
-
     # Retain production-native samples for behavioral diagnosis. Engine
     # correctness is qualified separately against the exact SDPA export source.
     os.environ["ENABLE_TENSORRT"] = "False"
@@ -2119,17 +2049,6 @@ def main() -> int:
     print(f"[n2-transformer-export] checkpoint={args.checkpoint}")
     print("[n2-transformer-export] running policy-shaped transformer call probe...")
     model, sample_paths, captured_samples = _run_policy_probe(args, output_dir)
-    if getattr(model, "text_keys", "all") != contract.text_keys:
-        raise RuntimeError(
-            f"loaded model text keys {getattr(model, 'text_keys', 'all')!r} != contract "
-            f"{contract.text_keys!r}"
-        )
-    for name, payload in captured_samples.items():
-        if (payload.get(TEXT_SEQ_LEN_INPUT) is not None) != real_text_keys:
-            raise RuntimeError(
-                f"captured {name} call text padding mask does not match text_keys="
-                f"{contract.text_keys!r}"
-            )
     # The captured production outputs above remain immutable CPU samples.  Only
     # the adapter execution and ONNX trace below use the exportable SDPA path.
     os.environ["ENABLE_TENSORRT"] = "True"
@@ -2218,7 +2137,7 @@ def main() -> int:
                 non_video_token_indices=non_video_token_indices,
                 token_merge=token_merge,
             ).eval()
-            joint_inputs = (*_joint_inputs(joint_payload), *_text_inputs(joint_payload))
+            joint_inputs = _joint_inputs(joint_payload)
 
         if wanted_action:
             action_payload = captured_samples["action_cached"]
@@ -2278,7 +2197,6 @@ def main() -> int:
                 "rope_sin",
                 "context",
                 "modality_ids",
-                *text_input_names,
             ]
             joint_reference_path = output_dir / "samples/joint_export_source.pt"
             _save_export_reference(
@@ -2339,10 +2257,7 @@ def main() -> int:
                 conditioning_latent_frames=contract.conditioning_latent_frames,
             )
             _install_conditioning_prefix_flex_patch(prefix_layout)
-            cond_inputs = (
-                *_joint_cond_inputs(cond_payload, joint_output),
-                *_text_inputs(cond_payload),
-            )
+            cond_inputs = _joint_cond_inputs(cond_payload, joint_output)
             cond_index, query_index = _conditioning_prefix_indices(cond_packed.modality_ids)
             video_token_indices, non_video_token_indices = _resolve_routing_indices(cond_inputs[5])
             cond_adapter = N2TransformerJointCondCachedExportAdapter(
@@ -2362,7 +2277,6 @@ def main() -> int:
                 "modality_ids",
                 "cond_key",
                 "cond_value",
-                *text_input_names,
             ]
             cond_output_names = ["output", "kv_key", "kv_value"]
             cond_reference_path = output_dir / "samples/joint_condcached_export_source.pt"
@@ -2422,11 +2336,7 @@ def main() -> int:
                 captured_samples["joint_full_capture"],
                 token_merge_layers=token_merge_layers,
             )
-            action_inputs = (
-                *captured_action_inputs[: -len(source_cache)],
-                *source_cache,
-                *_text_inputs(action_payload),
-            )
+            action_inputs = (*captured_action_inputs[: -len(source_cache)], *source_cache)
             action_adapter.transformer = model.transformer
             print("[n2-transformer-export] exporting action-cached ONNX...")
             output = _run_adapter(action_adapter, action_inputs)
@@ -2448,7 +2358,6 @@ def main() -> int:
                 *action_context_input_names,
                 "modality_ids",
                 *action_cache_input_names,
-                *text_input_names,
             ]
             action_reference_path = output_dir / "samples/action_export_source.pt"
             _save_export_reference(
@@ -2478,11 +2387,10 @@ def main() -> int:
                 "kv_cache_inputs": {
                     name: _tensor_record(value)
                     for name, value in zip(
-                        action_input_names,
-                        action_inputs,
+                        action_cache_input_names,
+                        action_inputs[-len(action_cache_input_names) :],
                         strict=True,
                     )
-                    if name in action_cache_input_names
                 },
             }
             _write_json(
