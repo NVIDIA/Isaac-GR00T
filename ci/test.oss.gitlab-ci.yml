@@ -11,7 +11,6 @@
 # OSS package CPU unit and GPU functional tests, run in the images built from
 # the user-facing docker/Dockerfile (ci/image.oss.gitlab-ci.yml). The GPU suite
 # runs on x86_64 L40S in the amd64 image and on Linux aarch64 GB300 in the arm64 one.
-# The images keep NGC's PyTorch, which gr00t-sync leaves in place.
 
 .oss_image_job:
   stage: premerge
@@ -74,7 +73,7 @@ test.oss.cpu:
       cd "$OSS_PACKAGE_ROOT"
       uv pip install --no-deps -e .
       python -c 'import os, pathlib, groot; package = pathlib.Path(groot.__file__).resolve(); root = pathlib.Path(os.environ["OSS_PACKAGE_ROOT"]).resolve(); assert package.is_relative_to(root), f"groot imported outside OSS export: {package}"'
-    - gr00t-sync --extra training --extra dev
+    - uv sync --frozen --inexact --extra training --extra dev
 
   script:
     - |
@@ -114,7 +113,7 @@ test.oss.cpu:
 
   before_script:
     - *oss_package_before_script
-    - &oss_gpu_sync gr00t-sync --extra training --extra dev --extra tensorrt
+    - &oss_gpu_sync uv sync --frozen --inexact --extra training --extra dev --extra tensorrt
 
   script:
     - |

@@ -48,6 +48,7 @@ command -v "${gitleaks_bin}" >/dev/null || fail "gitleaks executable not found"
 key_prefix="nvapi"
 synthetic_key="${key_prefix}-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 second_synthetic_key="${key_prefix}-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+third_synthetic_key="${key_prefix}-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
 
 # The custom NVIDIA rule must reject a newly introduced key.
 printf 'api_key = "%s"\n' "${synthetic_key}" >"${tmp_dir}/nvidia-key.txt"
@@ -96,5 +97,60 @@ git -C "${range_repo}" commit -qm "Add new key fixture"
 expect_nvidia_leak \
   "${tmp_dir}/new-key-range.log" \
   git --config "${config_path}" --log-opts="${base_sha}..HEAD" --redact --verbose --no-banner "${range_repo}"
+
+# A commit-list scan, as used for MRs, must reject a key that a later commit
+# removed, and must not walk into the listed commits' ancestors.
+printf 'api_key = "%s"\n' "${third_synthetic_key}" >"${range_repo}/removed-key.txt"
+git -C "${range_repo}" add removed-key.txt
+git -C "${range_repo}" commit -qm "Add removed key fixture"
+added_sha="$(git -C "${range_repo}" rev-parse HEAD)"
+git -C "${range_repo}" rm -q removed-key.txt
+git -C "${range_repo}" commit -qm "Remove key fixture"
+removed_sha="$(git -C "${range_repo}" rev-parse HEAD)"
+"${gitleaks_bin}" git \
+  --config "${config_path}" \
+  --log-opts="--no-walk --diff-merges=first-parent ${removed_sha}" \
+  --redact \
+  --no-banner \
+  "${range_repo}" \
+  >"${tmp_dir}/no-walk-clean.log" 2>&1
+expect_nvidia_leak \
+  "${tmp_dir}/no-walk-removed-key.log" \
+  git --config "${config_path}" \
+  --log-opts="--no-walk --diff-merges=first-parent ${removed_sha} ${added_sha}" \
+  --redact --verbose --no-banner "${range_repo}"
+
+# A key introduced only while resolving a merge conflict must be scanned,
+# even if a later commit removes it. Neither parent contains this key.
+merge_repo="${tmp_dir}/merge-repo"
+git init -q --initial-branch=main "${merge_repo}"
+git -C "${merge_repo}" config user.email "gitleaks-test@nvidia.com"
+git -C "${merge_repo}" config user.name "Gitleaks Test"
+printf 'api_key = "base"\n' >"${merge_repo}/config.txt"
+git -C "${merge_repo}" add config.txt
+git -C "${merge_repo}" commit -qm "Add merge fixture"
+git -C "${merge_repo}" checkout -qb feature
+printf 'api_key = "feature"\n' >"${merge_repo}/config.txt"
+git -C "${merge_repo}" commit -qam "Change feature config"
+git -C "${merge_repo}" checkout -q main
+printf 'api_key = "main"\n' >"${merge_repo}/config.txt"
+git -C "${merge_repo}" commit -qam "Change main config"
+git -C "${merge_repo}" checkout -q feature
+if git -C "${merge_repo}" merge --no-edit main >"${tmp_dir}/merge.log" 2>&1; then
+  fail "expected a merge conflict"
+fi
+git -C "${merge_repo}" rev-parse --verify MERGE_HEAD >/dev/null || fail "expected a pending merge"
+printf 'api_key = "%s"\n' "${third_synthetic_key}" >"${merge_repo}/config.txt"
+git -C "${merge_repo}" add config.txt
+git -C "${merge_repo}" commit -qm "Resolve conflict with key fixture"
+merge_sha="$(git -C "${merge_repo}" rev-parse HEAD)"
+printf 'api_key = "removed"\n' >"${merge_repo}/config.txt"
+git -C "${merge_repo}" commit -qam "Remove merge key fixture"
+removed_merge_sha="$(git -C "${merge_repo}" rev-parse HEAD)"
+expect_nvidia_leak \
+  "${tmp_dir}/merge-key.log" \
+  git --config "${config_path}" \
+  --log-opts="--no-walk --diff-merges=first-parent ${removed_merge_sha} ${merge_sha}" \
+  --redact --verbose --no-banner "${merge_repo}"
 
 echo "Gitleaks configuration self-tests passed."

@@ -1879,9 +1879,7 @@ def test_oss_gpu_ci_job_runs_gpu_marked_package_tests() -> None:
     assert "--tb=short" in gpu_job
     assert "-vv" in gpu_job
     assert "-ra" in gpu_job
-    # A plain `uv sync` in the image would replace NGC's PyTorch with the lock's.
-    assert "gr00t-sync --extra training --extra dev --extra tensorrt" in gpu_job
-    assert "uv sync" not in gpu_job
+    assert "uv sync --frozen --inexact --extra training --extra dev --extra tensorrt" in gpu_job
     assert "uv pip install" not in gpu_job
     assert 'GR00T_DOCKER_IMAGE_TESTS: "1"' in gpu_job
     assert '"$OSS_PACKAGE_ROOT/tests/test_dockerfile.py"' in gpu_job
@@ -1904,8 +1902,6 @@ def test_oss_cpu_ci_job_runs_the_dockerfile_tests_in_the_x86_image() -> None:
     pytest_call = cpu_job[cpu_job.index("python -m pytest") :]
     assert '"$OSS_PACKAGE_ROOT/tests/test_dockerfile.py"' in pytest_call
     assert "uv run python -" not in cpu_job
-    assert "gr00t-sync --extra training --extra dev" in cpu_job
-    assert "uv sync" not in cpu_job
 
 
 def test_oss_ci_images_build_the_user_dockerfile_with_its_defaults() -> None:

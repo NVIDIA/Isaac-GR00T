@@ -66,8 +66,9 @@ up the uv environment, prepare the example dataset, and verify
 training, open-loop evaluation, and the policy server.</code></pre>
       </td>
       <td>
-        <p>Build and run the <a href="docker/README.md">GR00T container</a> on
-        x86_64 Linux or GB300 / DGX Station, then run the
+        <p>Follow the <a href="docs/installation.md#x86-training">x86 training
+        setup</a>, or the <a href="docs/installation.md#gb300-training">GB300
+        training setup</a> on Linux aarch64 GB300 and DGX Station, then run the
         <a href="docs/minimal_example.md">minimal end-to-end example</a> to
         prepare the dataset and verify training, evaluation, and serving.</p>
         <p>For Jetson AGX Thor inference, use the

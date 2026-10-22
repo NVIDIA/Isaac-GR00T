@@ -12,4 +12,3 @@
 *
 !pyproject.toml
 !uv.lock
-!docker/gr00t-sync
