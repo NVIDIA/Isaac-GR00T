@@ -8,71 +8,43 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-"""In-process open-loop eval config, and load-time compatibility for the legacy one.
+"""Nested configs for the open-loop evaluation features.
 
-``OpenLoopEvalInProcessConfig`` configures the distributed in-process callback in
-``groot/core/training/open_loop/in_process_eval_callback.py``. Pure ``groot.core``;
-runs on every rank.
+Two flavours:
 
-The legacy on-checkpoint-save evaluation is no longer part of ``groot.core``; it is
-provided separately as the ``legacy_open_loop_eval`` training extension. Saved configs
-and launch overrides still carry its old ``training.open_loop_eval`` key, and every
-python-tagged ``experiment_cfg/config.yaml`` names its removed config class. Delete
-the compatibility below together with that extension.
+* ``OpenLoopEvalConfig``         — legacy on-checkpoint-save callback in
+  ``groot/core/training/experiment/utils.py::OpenLoopEvalCallback``.
+  Lazy-imports ``groot.control``; rank-0 only.
+* ``OpenLoopEvalInProcessConfig`` — distributed in-process callback in
+  ``groot/core/training/open_loop/in_process_eval_callback.py``.
+  Pure ``groot.core``; runs on every rank.
 """
 from __future__ import annotations
 
-from collections.abc import MutableMapping
 from dataclasses import dataclass, field
-import logging
-from typing import Any
-
-import yaml
-
-LEGACY_OPEN_LOOP_EVAL_KEY = "open_loop_eval"
-LEGACY_OPEN_LOOP_EVAL_EXTENSION = "legacy_open_loop_eval"
-_LEGACY_CONFIG_TAG = (
-    "tag:yaml.org,2002:python/object:"
-    "groot.core.training.configs.training.open_loop_eval_config.OpenLoopEvalConfig"
-)
 
 
-def migrate_legacy_open_loop_eval(training: MutableMapping[str, Any]) -> None:
-    """Rewrite a ``training.open_loop_eval`` mapping into ``training.extensions``.
+@dataclass
+class OpenLoopEvalConfig:
+    """Legacy on-checkpoint-save open-loop evaluation."""
 
-    A disabled section is dropped. An enabled one becomes the options of the
-    ``legacy_open_loop_eval`` extension; validation fails where it is not installed.
-    """
-    legacy = training.pop(LEGACY_OPEN_LOOP_EVAL_KEY, None)
-    if legacy is None:
-        return
-    # Configs that predate the removal also predate ``extensions``.
-    extensions = dict(training.get("extensions") or {})
-    training["extensions"] = extensions
-    options = dict(legacy)
-    if not options.pop("enabled", False):
-        return
-    if LEGACY_OPEN_LOOP_EVAL_EXTENSION in extensions:
-        raise ValueError(
-            f"training.{LEGACY_OPEN_LOOP_EVAL_KEY} and "
-            f"training.extensions.{LEGACY_OPEN_LOOP_EVAL_EXTENSION} are both set; keep only "
-            "the extension."
-        )
-    logging.warning(
-        "training.%s is deprecated; running it as training.extensions.%s. Where that "
-        "extension is not installed, use training.open_loop_eval_in_process instead.",
-        LEGACY_OPEN_LOOP_EVAL_KEY,
-        LEGACY_OPEN_LOOP_EVAL_EXTENSION,
-    )
-    extensions[LEGACY_OPEN_LOOP_EVAL_EXTENSION] = options
+    enabled: bool = False
+    """Master switch."""
 
+    traj_ids: list[int] = field(default_factory=lambda: [0])
+    """Trajectory IDs to evaluate."""
 
-def _construct_legacy_config(loader: yaml.Loader, node: yaml.MappingNode) -> dict[str, Any]:
-    return loader.construct_mapping(node, deep=True)
+    steps_per_traj: int = 100
+    """Number of steps to evaluate per trajectory."""
 
+    plot_indices: list[int] | None = None
+    """List of action indices to plot. None plots all."""
 
-for _loader in (yaml.Loader, yaml.UnsafeLoader):
-    yaml.add_constructor(_LEGACY_CONFIG_TAG, _construct_legacy_config, Loader=_loader)
+    policy_type: str = "gr00t"
+    """'gr00t' | 'dream0'. Selects the eval-time policy adapter in groot.control."""
+
+    dataset_index: int | None = None
+    """0-based index of the dataset to evaluate. None = all matching."""
 
 
 @dataclass
@@ -154,5 +126,6 @@ class OpenLoopEvalInProcessConfig:
             )
         if self.enable_reverse_kl and self.rkl_num_samples < 2:
             raise ValueError(
-                f"enable_reverse_kl requires rkl_num_samples >= 2, got {self.rkl_num_samples}"
+                f"enable_reverse_kl requires rkl_num_samples >= 2, "
+                f"got {self.rkl_num_samples}"
             )
