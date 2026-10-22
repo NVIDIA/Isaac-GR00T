@@ -126,6 +126,7 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "history_frames_per_camera": 5,
         "history_delta_indices": [-40, -30, -20, -10, 0],
         "image_target_size": [224, 320],
+        "observation_image_size": [480, 640],
         "action_horizon": 80,
         "model_type": "GrootN2",
         "model_dtype": "bfloat16",
@@ -156,6 +157,7 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "history_frames_per_camera": 5,
         "history_delta_indices": [-40, -30, -20, -10, 0],
         "image_target_size": [224, 320],
+        "observation_image_size": [480, 640],
         "action_horizon": 80,
         "model_type": "GrootN2",
         "model_dtype": "bfloat16",
@@ -186,6 +188,7 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "history_frames_per_camera": 5,
         "history_delta_indices": [-40, -30, -20, -10, 0],
         "image_target_size": [224, 320],
+        "observation_image_size": [480, 640],
         "action_horizon": 80,
         "model_type": "GrootN2",
         "model_dtype": "bfloat16",
@@ -216,6 +219,7 @@ G1_TARGET_PROFILES: dict[str, dict[str, Any]] = {
         "history_frames_per_camera": 5,
         "history_delta_indices": [-40, -30, -20, -10, 0],
         "image_target_size": [224, 320],
+        "observation_image_size": [480, 640],
         "action_horizon": 80,
         "model_type": "GrootN2",
         "model_dtype": "bfloat16",
@@ -635,6 +639,45 @@ def _checkpoint_flat_bounded_state(
     return (mean + perturbation).astype(np.float32, copy=False)
 
 
+def resolve_observation_image_sizes(
+    camera_keys: Sequence[str],
+    *,
+    image_size: Sequence[int],
+    camera_image_sizes: Mapping[str, Sequence[int]] | None = None,
+) -> dict[str, list[int]]:
+    """Resolve raw H/W by camera, independently of checkpoint model geometry."""
+    overrides = {} if camera_image_sizes is None else camera_image_sizes
+    unknown = set(overrides) - set(camera_keys)
+    if unknown:
+        raise ValueError(f"observation image sizes contain unknown camera keys: {sorted(unknown)}")
+
+    def checked_size(size: Sequence[int]) -> list[int]:
+        if len(size) != 2 or any(type(value) is not int or value <= 0 for value in size):
+            raise ValueError(
+                f"observation image size must be two positive integers (H W): {size!r}"
+            )
+        return list(size)
+
+    default = checked_size(image_size)
+    return {key: checked_size(overrides.get(key, default)) for key in camera_keys}
+
+
+def validate_g1_observation_image_sizes(
+    target_profile: str,
+    observation_image_sizes: Mapping[str, Sequence[int]],
+) -> None:
+    """Keep canonical raw-camera geometry separate from model workload admission."""
+    profile = G1_TARGET_PROFILES[target_profile]
+    expected = resolve_observation_image_sizes(
+        profile["camera_keys"], image_size=profile["observation_image_size"]
+    )
+    if dict(observation_image_sizes) != expected:
+        raise ValueError(
+            f"target profile {target_profile!r} requires observation_image_sizes={expected}; "
+            "use an unprofiled diagnostic for other camera resolutions"
+        )
+
+
 def make_checkpoint_flat_observation(
     modality: Mapping[str, Any],
     statistics: Mapping[str, Any],
@@ -642,12 +685,19 @@ def make_checkpoint_flat_observation(
     *,
     instruction: str,
     seed: int = 0,
+    observation_image_sizes: Mapping[str, Sequence[int]] | None = None,
 ) -> dict[str, Any]:
-    """Build one deterministic checkpoint-flat measurement observation."""
+    """Build deterministic raw observations; omitted sizes retain legacy fixture geometry."""
     frames = int(workload["history_frames_per_camera"])
-    height, width = workload["image_target_size"]
+    camera_keys = modality["video"]["modality_keys"]
+    sizes = resolve_observation_image_sizes(
+        camera_keys,
+        image_size=workload["image_target_size"],
+        camera_image_sizes=observation_image_sizes,
+    )
     observation: dict[str, Any] = {}
-    for camera_index, key in enumerate(modality["video"]["modality_keys"]):
+    for camera_index, key in enumerate(camera_keys):
+        height, width = sizes[key]
         observation[f"video.{key}"] = _checkpoint_flat_gradient_video(
             frames, height, width, seed=seed, camera_index=camera_index
         )
