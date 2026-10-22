@@ -26,6 +26,7 @@ from groot.core.training.models.n2.components.sequence_packing import (
 from groot.deployment.n2_trt.conditioner import ACTION_CONTEXT_INPUT_NAMES
 from groot.deployment.n2_trt.contract import (
     ACTION_CONTEXT_MODES,
+    TEXT_SEQ_LEN_INPUT,
     N2TensorRTContract,
     TransformerPrecision,
 )
@@ -545,6 +546,7 @@ def _require_transformer_bindings(
     *,
     token_merge_layers: tuple[int, int] | None = None,
     action_context_mode: str = "raw",
+    text_keys: str = "all",
 ) -> None:
     """Require the exact private ABI, with one documented ONNX optimization.
 
@@ -553,8 +555,13 @@ def _require_transformer_bindings(
     accepted omission. Every other missing, renamed, or additional binding is
     fatal; this function does not implement an eager fallback. The action
     engine's language input follows the bundle's recorded ``action_context_mode``.
+    ``text_keys="real"`` engines also take ``text_seq_len``; ``all`` engines must not.
     """
     expected_inputs = set(_TRANSFORMER_TRT_INPUT_NAMES[mode])
+    if text_keys == "real":
+        expected_inputs.add(TEXT_SEQ_LEN_INPUT)
+    elif text_keys != "all":
+        raise ValueError(f"unsupported text_keys {text_keys!r}")
     expected_outputs = set(_TRANSFORMER_TRT_OUTPUT_NAMES[mode])
     if mode == "action":
         if action_context_mode not in ACTION_CONTEXT_INPUT_NAMES:
@@ -594,18 +601,37 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
         mode: str,
         token_merge_layers: tuple[int, int] | None = None,
         action_context_mode: str = "raw",
+        text_keys: str = "all",
     ):
         super().__init__(engine_path)
         self.mode = mode
         self.token_merge_layers = token_merge_layers
         self.action_context_mode = action_context_mode
+        self.text_keys = text_keys
         _require_transformer_bindings(
             mode,
             set(self.inputs),
             self.output_names,
             token_merge_layers=token_merge_layers,
             action_context_mode=action_context_mode,
+            text_keys=text_keys,
         )
+
+    def _text_tensors(self, text_seq_len: torch.Tensor | None) -> dict[str, torch.Tensor]:
+        """The ``text_seq_len`` binding: required exactly when the engine takes it."""
+        if getattr(self, "text_keys", "all") != "real":
+            if text_seq_len is not None:
+                raise RuntimeError(
+                    f"{self.mode} engine attends every prompt slot (text_keys='all') but the "
+                    "call carries a text padding mask"
+                )
+            return {}
+        if text_seq_len is None:
+            raise RuntimeError(
+                f"{self.mode} engine attends the real prompt tokens only (text_keys='real') but "
+                "the call carries no text padding mask"
+            )
+        return {TEXT_SEQ_LEN_INPUT: text_seq_len}
 
     @staticmethod
     def _candidate_tensors(
@@ -656,6 +682,7 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
         prompt_embs: torch.Tensor,
         kv_cache: CondKVCache | None,
         context_tensors: dict[str, torch.Tensor] | None = None,
+        text_seq_len: torch.Tensor | None = None,
     ) -> str | None:
         tensors = self._candidate_tensors(
             packed=packed,
@@ -664,6 +691,7 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
             token_merge_layers=self.token_merge_layers,
             context_tensors=context_tensors,
         )
+        tensors.update(self._text_tensors(text_seq_len))
         return self._prepared_tensors_skip_reason(tensors)
 
     def _prepared_tensors_skip_reason(self, tensors: dict[str, torch.Tensor]) -> str | None:
@@ -678,6 +706,7 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
         prompt_embs: torch.Tensor,
         kv_cache: CondKVCache | None,
         context_tensors: dict[str, torch.Tensor] | None = None,
+        text_seq_len: torch.Tensor | None = None,
     ) -> torch.Tensor:
         tensors = self._candidate_tensors(
             packed=packed,
@@ -686,6 +715,7 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
             token_merge_layers=self.token_merge_layers,
             context_tensors=context_tensors,
         )
+        tensors.update(self._text_tensors(text_seq_len))
         skip_reason = self._prepared_tensors_skip_reason(tensors)
         if skip_reason is not None:
             raise RuntimeError(f"fixed-shape N2 TensorRT {self.mode} call rejected: {skip_reason}")
@@ -730,6 +760,7 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
         packed: PackedSequence,
         prompt_embs: torch.Tensor,
         kv_cache: FrozenPrefixKVCache,
+        text_seq_len: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Serve one joint step whose conditioning-video K/V are the cached prefix.
 
@@ -760,6 +791,7 @@ class _N2TransformerTrtRunner(N2TensorTrtRunner):
             "context": prompt_embs,
             "cond_key": torch.stack(kv_cache.frozen_key, dim=0),
             "cond_value": torch.stack(kv_cache.frozen_value, dim=0),
+            **self._text_tensors(text_seq_len),
         }
         skip_reason = N2TensorTrtRunner.skip_reason(self, tensors)
         if skip_reason is not None:
@@ -861,6 +893,10 @@ class N2TensorRTRuntime:
                 f"unsupported action context mode {action_context_mode!r}; "
                 f"expected one of {ACTION_CONTEXT_MODES}"
             )
+        self.text_keys = contract.text_keys
+        if self.text_keys == "real" and action_context_mode == "kv":
+            # Precomputed cross-attention K/V bypass the attention that applies the mask.
+            raise ValueError("the 'kv' action context mode does not support text_keys='real'")
         self.contract = contract
         self.manifest = manifest
         self.action_context_mode = action_context_mode
@@ -910,17 +946,21 @@ class N2TensorRTRuntime:
             raise RuntimeError(
                 "served cond_kv_freeze requires the conditioning-cached joint engine"
             )
+        # "all" engines keep the historical constructor call; "real" engines take text_seq_len.
+        text_kwargs = {"text_keys": self.text_keys} if self.text_keys != "all" else {}
         self.transformer_runners = {
             "joint": _N2TransformerTrtRunner(
                 engine_paths["joint"],
                 mode="joint",
                 token_merge_layers=self.token_merge_layers,
+                **text_kwargs,
             ),
             "action": _N2TransformerTrtRunner(
                 engine_paths["action"],
                 mode="action",
                 token_merge_layers=self.token_merge_layers,
                 action_context_mode=action_context_mode,
+                **text_kwargs,
             ),
         }
         if "joint_cond" in engine_paths:
@@ -928,6 +968,7 @@ class N2TensorRTRuntime:
                 engine_paths["joint_cond"],
                 mode="joint_cond",
                 token_merge_layers=self.token_merge_layers,
+                **text_kwargs,
             )
         self.vae_runner = N2TensorTrtRunner(engine_paths["vae"])
         contract_reason = _vae_trt_contract_skip_reason(
@@ -1285,7 +1326,13 @@ class N2TensorRTRuntime:
         packed: PackedSequence,
         prompt_embs: torch.Tensor,
         kv_cache: CondKVCache | None,
+        text_seq_len: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        """Run one transformer engine call.
+
+        ``text_seq_len`` is the (B,) real-token count of the right-padded prompt; a
+        ``text_keys="real"`` bundle requires it and an ``all`` bundle refuses it.
+        """
         if mode not in self.transformer_runners:
             raise RuntimeError(
                 f"fixed-shape N2 TensorRT only supports explicit joint/action calls; got {mode!r}"
@@ -1300,7 +1347,7 @@ class N2TensorRTRuntime:
                 )
             self.engine_calls[mode] += 1
             return runner.run_conditioning_cached(
-                packed=packed, prompt_embs=prompt_embs, kv_cache=kv_cache
+                packed=packed, prompt_embs=prompt_embs, kv_cache=kv_cache, text_seq_len=text_seq_len
             )
         context_tensors = None
         if mode == "action" and self.action_context_mode != "raw":
@@ -1317,6 +1364,7 @@ class N2TensorRTRuntime:
             prompt_embs=prompt_embs,
             kv_cache=kv_cache,
             context_tensors=context_tensors,
+            text_seq_len=text_seq_len,
         )
         self.engine_calls[mode] += 1
         return output

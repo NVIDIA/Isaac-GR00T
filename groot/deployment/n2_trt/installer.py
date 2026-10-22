@@ -192,6 +192,7 @@ def _require_model_contract(model: Any, contract: N2TensorRTContract) -> None:
             ),
             contract.token_merge_layers,
         ),
+        "text_keys": (getattr(model, "text_keys", "all"), contract.text_keys),
     }
     for name, (actual, expected) in comparisons.items():
         if actual != expected:
@@ -220,6 +221,10 @@ def _call_transformer(
     del denoising_step, is_cfg, To, total_seqlen
     del last_mini_batch_params_dict, state_collector
     runtime = self.n2_trt_runtime
+    # dit_text_keys "real": the engines take the mask's real-token count; the runtime
+    # refuses a call whose mask presence does not match the bundle.
+    text_pad_mask = transformer_kwargs.pop("text_pad_mask", None)
+    text_seq_len = None if text_pad_mask is None else text_pad_mask.seq_len
     kv_cache = transformer_kwargs.get("kv_cache")
     frozen_prefix = isinstance(kv_cache, FrozenPrefixKVCache)
     if frozen_prefix and "joint_cond" not in getattr(runtime, "transformer_runners", {}):
@@ -257,6 +262,7 @@ def _call_transformer(
         packed=engine_packed,
         prompt_embs=prompt_embs.to(dtype=runtime.prompt_input_dtype(mode)),
         kv_cache=kv_cache,
+        text_seq_len=text_seq_len,
     )
 
 
@@ -406,12 +412,6 @@ def install_n2_tensorrt(
         raise RuntimeError("N2 TensorRT is already installed on this model")
     contract.validate()
     _require_model_contract(model, contract)
-    text_keys = getattr(model.config, "dit_text_keys", "all")
-    if text_keys != "all":
-        raise RuntimeError(
-            f"N2 TensorRT does not support dit_text_keys={text_keys!r}: its engines cross-attend "
-            "every prompt slot, pads included"
-        )
     if model.tiled:
         raise RuntimeError("N2 TensorRT does not support tiled VAE execution")
     expected_pattern = AttentionMaskPattern.BIDIRECTIONAL_VIDEO_ACTION_FULL
