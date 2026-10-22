@@ -1,20 +1,28 @@
 # Installation
 
 Run the commands in this guide from the package root, the directory containing
-`README.md` and `pyproject.toml`. Choose the environment matching your platform
-and workflow:
+`README.md` and `pyproject.toml`.
+
+On x86_64 Linux and on Linux aarch64 GB300 / DGX Station, the supported
+environment is the [GR00T container](../docker/README.md). It runs the NGC
+PyTorch stack that GR00T's internal training uses, and it is the environment CI
+tests. Jetson AGX Thor has its own supported [host setup](#jetson-thor).
 
 | Platform and workflow | Setup | Continue with |
 | --- | --- | --- |
-| x86_64 Linux: post-training or the full smoke test | [Training](#x86-training) | [Minimal end-to-end example](minimal_example.md) or the README training commands |
-| x86_64 Linux: PyTorch evaluation or policy serving | [Inference](#x86-inference) | The README evaluation and serving commands |
-| x86_64 Linux: TensorRT evaluation or policy serving | [Optional TensorRT](#optional-tensorrt-on-x86) | [TensorRT deployment guide](../scripts/deployment/README.md) |
-| Linux aarch64 GB300 / DGX Station: post-training, PyTorch evaluation, or policy serving | [GB300 training](#gb300-training) | [Minimal end-to-end example](minimal_example.md) or the README training commands |
+| x86_64 Linux or GB300 / DGX Station: post-training, PyTorch evaluation, or policy serving | [Container](../docker/README.md) | [Minimal end-to-end example](minimal_example.md) or the README commands |
+| x86_64 Linux or GB300 / DGX Station: TensorRT evaluation or policy serving | [Container](../docker/README.md) with the `tensorrt` extra | [TensorRT deployment guide](../scripts/deployment/README.md) |
 | Jetson AGX Thor: TensorRT export, build, validation, and serving | [Thor](#jetson-thor) | [TensorRT deployment guide](../scripts/deployment/README.md) |
 
 The training environment also supports PyTorch evaluation and policy serving.
-Install one environment for your workflow; a training user does not need to
-install the separate inference extra.
+
+## Host installation (best effort)
+
+The x86 and GB300 sections below install the whole lock directly on a host,
+without the container. This path is best effort: it installs the lock's own
+PyTorch and CUDA builds, which differ from the container's, and CI does not test
+it. Use it when you cannot run the container, for example with a driver older
+than CUDA 13 (R580) requires.
 
 ## x86 prerequisites
 
@@ -35,10 +43,7 @@ workload.
 
 For a new container, a known-good public starting point is
 `nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04`. An equivalent x86_64 Linux
-environment with CUDA 12.8 development tools also works. To build the training
-environment below as an image from that base, see
-[docker/README.md](../docker/README.md); the frozen uv environment remains the
-software contract.
+environment with CUDA 12.8 development tools also works.
 
 Apple Silicon Docker containers run as ARM64 Linux by default. They cannot run
 this x86 CUDA workflow; use an x86_64 NVIDIA Linux host. GB300 and Jetson Thor
@@ -176,9 +181,7 @@ Before installing:
   FlashAttention with it, since no aarch64 wheel is published, and DeepSpeed
   checks it on import. On Ubuntu 24.04 sbsa, `cuda-nvcc-13-0` from the NVIDIA
   CUDA apt repository provides that path. For a new container, a known-good
-  public starting point is `nvidia/cuda:13.0.2-devel-ubuntu24.04`; to build the
-  training environment below as an image from it, see
-  [docker/README.md](../docker/README.md).
+  public starting point is `nvidia/cuda:13.0.2-devel-ubuntu24.04`.
 - Install the apt packages and uv from the [x86 prerequisites](#x86-prerequisites),
   including `python3-dev`. Triton JIT-compiles attention kernels and needs
   `Python.h`.
