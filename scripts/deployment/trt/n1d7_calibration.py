@@ -278,7 +278,19 @@ def capture_calibration_batches(
 
                 if "vl_sa" in components:
                     hidden_states = action_head.vlln(backbone_output["backbone_features"])
-                    batches["vl_sa"].append(_to_cpu({"hidden_states": hidden_states}))
+                    attention_mask = backbone_output.get("backbone_attention_mask")
+                    if attention_mask is None:
+                        attention_mask = torch.ones(
+                            hidden_states.shape[:2], dtype=torch.bool, device=hidden_states.device
+                        )
+                    batches["vl_sa"].append(
+                        _to_cpu(
+                            {
+                                "hidden_states": hidden_states,
+                                "attention_mask": attention_mask.bool(),
+                            }
+                        )
+                    )
 
                 if "dit" in components:
                     processed = action_head.process_backbone_output(backbone_output)

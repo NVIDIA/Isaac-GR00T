@@ -175,7 +175,13 @@ class Gr00tN1d7ActionHead(nn.Module):
     def process_backbone_output(self, backbone_output: BatchFeature) -> BatchFeature:
         backbone_features = backbone_output["backbone_features"]
         backbone_features = self.vlln(backbone_features)
-        backbone_features = self.vl_self_attention(backbone_features)
+        if isinstance(self.vl_self_attention, SelfAttentionTransformer):
+            backbone_features = self.vl_self_attention(
+                backbone_features,
+                attention_mask=backbone_output.get("backbone_attention_mask"),
+            )
+        else:
+            backbone_features = self.vl_self_attention(backbone_features)
         backbone_output["backbone_features"] = backbone_features
         return backbone_output
 
