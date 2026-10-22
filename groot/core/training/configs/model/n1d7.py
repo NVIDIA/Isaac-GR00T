@@ -84,15 +84,6 @@ class GrootN1d7Config(PretrainedConfig):
     # with 1536D action head latent space).
     dit_latent_dim: int | None = None
     state_dropout_prob: float = 0.0
-    # An embodiment fills only [:horizon, :dim] of the action_horizon x max_action_dim
-    # canvas. When True, the padding is kept out of the DiT self-attention and the
-    # integrated prediction. Existing checkpoints were trained and served with that
-    # padding visible, so this is off unless asked for; enable it for runs whose
-    # checkpoints will also be served with it on.
-    # None means inherit: fine-tuning a strict-trained base without naming the flag
-    # keeps its masking rather than silently reverting to off. The action head resolves
-    # None to False, so the config a run saves always states how it actually ran.
-    strict_action_padding_mask: bool | None = None
 
     # Global parameters from YAML
     add_pos_embed: bool = True
