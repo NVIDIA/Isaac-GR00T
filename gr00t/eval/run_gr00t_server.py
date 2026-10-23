@@ -84,6 +84,12 @@ class ServerConfig:
     strict: bool = True
     """Whether to enforce strict input and output validation"""
 
+    speed_rl_features: bool = False
+    """Export action-aligned N1.7 DiT features for the independent Speed-RL client"""
+
+    speed_rl_model_id: str | None = None
+    """Stable identifier stored in the Speed-RL feature/checkpoint contract"""
+
     use_sim_policy_wrapper: bool = False
     """Whether to use the sim policy wrapper"""
 
@@ -96,6 +102,12 @@ def main(config: ServerConfig):
     print(f"  Device: {config.device}")
     print(f"  Host: {config.host}")
     print(f"  Port: {config.port}")
+    print(f"  Speed-RL features: {config.speed_rl_features}")
+
+    if config.speed_rl_features and config.model_path is None:
+        raise ValueError("--speed-rl-features requires --model-path")
+    if config.speed_rl_features and config.use_sim_policy_wrapper:
+        raise ValueError("--speed-rl-features is not compatible with --use-sim-policy-wrapper")
 
     # Create and start the server
     if config.model_path is not None:
@@ -107,6 +119,8 @@ def main(config: ServerConfig):
             model_path=config.model_path,
             device=config.device,
             strict=config.strict,
+            speed_rl_features=config.speed_rl_features,
+            speed_rl_model_id=config.speed_rl_model_id,
         )
     elif config.dataset_path is not None:
         if config.execution_horizon is None:

@@ -48,6 +48,7 @@ class EmbodimentTag(Enum):
 
     Finetuning tag (for custom robots):
     - NEW_EMBODIMENT        -> "new_embodiment"
+    - NAVIAI_WA1_HEAD_LR_WF -> "naviai_wa1_head_lr_wf"
     - ROBOCASA_PANDA_OMRON  -> "robocasa_panda_omron"
     - ROBOCASA_GR1_TABLETOP -> "robocasa_gr1_tabletop"
 
@@ -128,6 +129,11 @@ class EmbodimentTag(Enum):
     NEW_EMBODIMENT = "new_embodiment"
     """
     Any new embodiment.
+    """
+
+    NAVIAI_WA1_HEAD_LR_WF = "naviai_wa1_head_lr_wf"
+    """
+    NAVIAI WA1 with head, left wrist, and right wrist cameras plus wrist force state.
     """
 
     ROBOCASA_GR1_TABLETOP = "robocasa_gr1_tabletop"
@@ -217,6 +223,7 @@ POSTTRAIN_TAGS: frozenset[EmbodimentTag] = frozenset(
 FINETUNE_ONLY_TAGS: frozenset[EmbodimentTag] = frozenset(
     {
         EmbodimentTag.NEW_EMBODIMENT,
+        EmbodimentTag.NAVIAI_WA1_HEAD_LR_WF,
         EmbodimentTag.ROBOCASA_PANDA_OMRON,
         EmbodimentTag.ROBOCASA_GR1_TABLETOP,
     }

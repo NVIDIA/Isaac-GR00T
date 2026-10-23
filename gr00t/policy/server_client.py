@@ -180,6 +180,13 @@ class PolicyServer:
             getattr(self.policy, "get_modality_config", lambda: {}),
             requires_input=False,
         )
+        speed_rl_contract = getattr(self.policy, "get_speed_rl_contract", None)
+        if callable(speed_rl_contract):
+            self.register_endpoint(
+                "get_speed_rl_contract",
+                speed_rl_contract,
+                requires_input=False,
+            )
 
     def _kill_server(self):
         """Stop the run loop. Does not release the socket / context — use ``close()``."""

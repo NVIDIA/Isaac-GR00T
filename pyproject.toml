@@ -20,6 +20,9 @@ dependencies = [
     "pandas==2.2.3",
     "peft==0.17.1",
     "termcolor==3.2.0",
+    # 0.6.3 provides a source distribution that builds on this project's Python 3.12.
+    # Newer 0.6.8 artifacts currently only provide CPython 3.10 wheels.
+    "toppra==0.6.3",
     "torch==2.9.0",
     "torchvision==0.24.0",
     "transformers==4.57.3",
