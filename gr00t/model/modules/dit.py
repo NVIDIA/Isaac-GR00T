@@ -23,6 +23,7 @@ from diffusers.models.attention import Attention, FeedForward
 from diffusers.models.embeddings import SinusoidalPositionalEmbedding, TimestepEmbedding, Timesteps
 import torch
 from torch import nn
+from torch.nn.attention import SDPBackend, sdpa_kernel
 import torch.nn.functional as F
 
 
@@ -50,12 +51,7 @@ def _sdpa_context():
     if not _should_force_math_sdpa():
         return nullcontext()
 
-    return torch.backends.cuda.sdp_kernel(
-        enable_flash=False,
-        enable_math=True,
-        enable_mem_efficient=False,
-        enable_cudnn=False,
-    )
+    return sdpa_kernel([SDPBackend.MATH])
 
 
 class TimestepEncoder(nn.Module):
