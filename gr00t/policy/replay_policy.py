@@ -295,11 +295,7 @@ class ReplayPolicy(BasePolicy):
                 f"Action key '{action_key}' must be a numpy array of shape (B, T, D), got {action_arr.shape}"
             )
 
-            action_horizon = (
-                self.modality_configs["action"].delta_indices[-1]
-                - self.modality_configs["action"].delta_indices[0]
-                + 1
-            )
+            action_horizon = len(self.modality_configs["action"].delta_indices)
             assert action_arr.shape[1] == action_horizon, (
                 f"Action key '{action_key}'s horizon must be {action_horizon}. "
                 f"Got {action_arr.shape[1]}"
@@ -324,40 +320,28 @@ class ReplayPolicy(BasePolicy):
             first_video_key = self.modality_configs["video"].modality_keys[0]
             batch_size = observation["video"][first_video_key].shape[0]
         # If batch size is not provided in observation, check if it's provided in options
-        elif "batch_size" in options:
+        elif options is not None and "batch_size" in options:
             batch_size = options["batch_size"]
         else:
             batch_size = 1
             print("No batch size provided, using default batch size of 1")
-        # Note that this can differ form the execution horizon, as the policy can predict more steps than what's actually executed.
-        action_horizon = (
-            self.modality_configs["action"].delta_indices[-1]
-            - self.modality_configs["action"].delta_indices[0]
-            + 1
-        )
+
+        action_delta_indices = self.modality_configs["action"].delta_indices
+        action_horizon = len(action_delta_indices)
         assert self.execution_horizon <= action_horizon, (
             f"Execution horizon must be less than or equal to the model's action horizon. Got {self.execution_horizon} and {action_horizon}"
         )
 
-        # Extract action chunk starting from current step
+        if self.current_step >= self.episode_length:
+            action_indices = np.full(action_horizon, self.episode_length - 1, dtype=np.int64)
+        else:
+            action_indices = self.current_step + np.asarray(action_delta_indices, dtype=np.int64)
+            action_indices = np.clip(action_indices, 0, self.episode_length - 1)
+
+        # Extract the configured action offsets from the current step.
         action_chunk = {}
         for key, actions in self.actions.items():
-            if self.current_step >= self.episode_length:
-                # Past the end of episode: return last action repeated
-                chunk = np.tile(actions[-1:], (action_horizon, 1))  # (action_horizon, D)
-            else:
-                end_step = self.current_step + action_horizon
-                if end_step <= self.episode_length:
-                    # Normal case: extract without padding
-                    chunk = actions[self.current_step : end_step]  # (action_horizon, D)
-                else:
-                    # Near end of episode: pad with last action
-                    remaining = self.episode_length - self.current_step
-                    valid_chunk = actions[self.current_step :]  # (remaining, D)
-                    padding = np.tile(
-                        actions[-1:], (action_horizon - remaining, 1)
-                    )  # (action_horizon - remaining, D)
-                    chunk = np.concatenate([valid_chunk, padding], axis=0)
+            chunk = actions[action_indices]
 
             # Expand to batch dimension: (action_horizon, D) -> (B, action_horizon, D)
             action_chunk[key] = np.tile(chunk[np.newaxis, :, :], (batch_size, 1, 1))
