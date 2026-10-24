@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 from dataclasses import dataclass, field
 from typing import Annotated, Any, List, Optional
 
@@ -68,7 +69,7 @@ class DataConfig:
     # Supplied via code defaults / a `--load-config-path` YAML / the pretrained
     # checkpoint, not typed on the CLI, so it is hidden from tyro with Suppress.
     modality_configs: Annotated[dict[str, dict[str, ModalityConfig]], tyro.conf.Suppress] = field(
-        default_factory=lambda: MODALITY_CONFIGS
+        default_factory=lambda: copy.deepcopy(MODALITY_CONFIGS)
     )
 
     # Sharded dataset configuration
