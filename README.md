@@ -137,6 +137,26 @@ the N1.6 model package and runtime behavior.
 
 **CUDA / Python per platform:** dGPU on CUDA 12.8 with Python 3.12; Jetson Thor and Orin on JetPack 7.2 / CUDA 13.2 with Python 3.12; DGX Spark on CUDA 13.0 with Python 3.12. The per-platform install scripts and Dockerfiles live under `scripts/deployment/`; see the [Deployment & Inference Guide](scripts/deployment/README.md) for the full matrix.
 
+### N1.7 Single-GPU Training Performance
+
+Training measurements cover the non-edge GPUs used for development and post-training.
+The standard batch is 1 and uses the same canonical two-camera workload on every
+device. A timed step includes the synchronized BF16 forward pass, backward pass,
+and AdamW update. The language and visual backbones are frozen while the projector,
+diffusion model, and VLLN modules are trainable. Maximum batch is the largest local
+batch that completed, bounded by an adjacent CUDA out-of-memory trial.
+
+| Device | Standard batch | Training step (ms) | Max batch | Max-batch step (ms) | Samples/s |
+|---|---:|---:|---:|---:|---:|
+| H100 80GB HBM3 | 1 | 115.5 | 409 | 2123.9 | 192.57 |
+| L40 | 1 | 190.5 | 213 | 3775.5 | 56.42 |
+| RTX Pro 6000 Blackwell Server Edition (96 GB) | 1 | 119.3 | 502 | 3822.4 | 131.33 |
+
+Each passing batch uses two warmup steps and five timed steps; the table reports
+the median. Candidates run in fresh processes, doubling from batch 1 until OOM and
+then bisecting to an adjacent pass/OOM boundary. Data loading is excluded. These
+are local optimizer-step measurements, not distributed-training results.
+
 ### Clone the Repository
 
 GR00T relies on submodules for certain dependencies. Include them when cloning:
