@@ -30,6 +30,7 @@ from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.utils import parse_observation_gr00t
+from gr00t.deployment.action_padding import assert_strict_action_padding_mask_disabled
 from gr00t.deployment.modes import InferenceMode
 from gr00t.eval._horizon_contract import migrate_deprecated_action_horizon_argv
 from gr00t.policy.gr00t_policy import Gr00tPolicy
@@ -179,6 +180,9 @@ class TensorRTDiTWrapper:
 
 def replace_dit_with_tensorrt(policy: Gr00tPolicy | Any, trt_engine_path: str, device: int = 0):
     """Replace the DiT forward method with TensorRT inference."""
+    assert_strict_action_padding_mask_disabled(
+        policy.model.action_head.config, "TensorRT DiT replacement"
+    )
     trt_dit = TensorRTDiTWrapper(trt_engine_path, device=device)
 
     def trt_forward(
@@ -189,6 +193,7 @@ def replace_dit_with_tensorrt(policy: Gr00tPolicy | Any, trt_engine_path: str, d
         return_all_hidden_states=False,
         image_mask=None,
         backbone_attention_mask=None,
+        hidden_attention_mask=None,
     ):
         """
         TensorRT wrapper matching DiT forward signature.
@@ -198,7 +203,14 @@ def replace_dit_with_tensorrt(policy: Gr00tPolicy | Any, trt_engine_path: str, d
         - encoder_hidden_states -> vl_embs
         - timestep -> timestep
         - image_mask, backbone_attention_mask passed through
+
+        ``hidden_attention_mask`` is accepted so the signature still binds the
+        action head's call, which always passes it. The engine has no such input,
+        so a non-``None`` mask cannot be honored; the setup-time guard above keeps
+        that unreachable.
         """
+        if hidden_attention_mask is not None:
+            raise NotImplementedError("The TensorRT DiT engine has no hidden_attention_mask input")
         output = trt_dit(
             sa_embs=hidden_states,
             vl_embs=encoder_hidden_states,

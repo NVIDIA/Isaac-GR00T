@@ -25,11 +25,13 @@ from pathlib import Path
 import tempfile
 from unittest.mock import MagicMock, patch
 
+from gr00t.configs.model.gr00t_n1d7 import Gr00tN1d7Config
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.types import MessageType, VLAStepData
 import numpy as np
 from PIL import Image
 import pytest
+import torch
 
 
 FIXTURE_DIR = Path(__file__).parent.parent.parent / "fixtures" / "processor_config"
@@ -179,6 +181,114 @@ class TestProcessorCall:
         messages = [{"type": MessageType.EPISODE_STEP.value, "content": step_data}]
         result = processor(messages)
         assert isinstance(result["embodiment_id"], (int, np.integer))
+
+    def test_action_mask_emitted_without_action(self, processor, proc_config):
+        """Inference steps carry no action, but the model still needs the mask."""
+        step_data = _make_step_data(proc_config)
+        step_data.actions = {}
+        messages = [{"type": MessageType.EPISODE_STEP.value, "content": step_data}]
+        result = processor(messages)
+
+        mc = proc_config["modality_configs"][EMBODIMENT]
+        action_horizon = len(mc["action"]["delta_indices"])
+        action_dim = processor.state_action_processor.get_action_dim(EMBODIMENT)
+        action_mask = result["action_mask"]
+
+        assert "action" not in result
+        assert action_mask.shape == (
+            proc_config["max_action_horizon"],
+            proc_config["max_action_dim"],
+        )
+        assert torch.all(action_mask[:action_horizon, :action_dim] == 1)
+        assert torch.all(action_mask[action_horizon:, :] == 0)
+        assert torch.all(action_mask[:, action_dim:] == 0)
+
+    def test_legacy_inference_does_not_emit_action_mask(self, processor, proc_config):
+        processor.strict_action_padding_mask = False
+        step_data = _make_step_data(proc_config)
+        step_data.actions = {}
+        messages = [{"type": MessageType.EPISODE_STEP.value, "content": step_data}]
+
+        result = processor(messages)
+
+        assert "action_mask" not in result
+
+    def test_action_mask_identical_with_and_without_action(self, processor, proc_config):
+        """Padding must be masked the same way in training and in inference."""
+        train_step = _make_step_data(proc_config)
+        train_mask = processor([{"type": MessageType.EPISODE_STEP.value, "content": train_step}])[
+            "action_mask"
+        ]
+
+        inference_step = _make_step_data(proc_config)
+        inference_step.actions = {}
+        inference_mask = processor(
+            [{"type": MessageType.EPISODE_STEP.value, "content": inference_step}]
+        )["action_mask"]
+
+        assert torch.equal(train_mask, inference_mask)
+
+    @pytest.mark.parametrize("processor_strict", [True, False])
+    @pytest.mark.parametrize("model_strict", [True, False])
+    def test_strict_mask_agreement_is_enforced(self, processor, model_strict, processor_strict):
+        processor.strict_action_padding_mask = processor_strict
+        model_config = Gr00tN1d7Config(strict_action_padding_mask=model_strict)
+
+        if model_strict == processor_strict:
+            processor.validate_strict_action_padding_mask(model_config)
+        else:
+            with pytest.raises(RuntimeError, match="disagree on strict_action_padding_mask"):
+                processor.validate_strict_action_padding_mask(model_config)
+
+    def test_collated_inference_batch_carries_action_mask(self, processor, proc_config):
+        """The collator is the last hop before the model; the key must survive it."""
+        samples = []
+        for _ in range(2):
+            step_data = _make_step_data(proc_config)
+            step_data.actions = {}
+            samples.append(
+                processor([{"type": MessageType.EPISODE_STEP.value, "content": step_data}])
+            )
+
+        collated = processor.collator(samples)["inputs"]
+
+        assert "action_mask" in collated
+        assert collated["action_mask"].shape == (
+            len(samples),
+            proc_config["max_action_horizon"],
+            proc_config["max_action_dim"],
+        )
+
+    def test_inference_action_mask_covers_horizon_and_dimension(self, processor, proc_config):
+        mc = proc_config["modality_configs"][EMBODIMENT]
+        with open(FIXTURE_DIR / "statistics.json") as f:
+            statistics = json.load(f)
+
+        batch_size = 1
+        observation = {
+            f"state.{key}": np.zeros(
+                (batch_size, len(statistics[EMBODIMENT]["state"][key]["min"])),
+                dtype=np.float32,
+            )
+            for key in mc["state"]["modality_keys"]
+        }
+        for key in mc["video"]["modality_keys"]:
+            observation[f"video.{key}"] = np.zeros((batch_size, 1, 256, 256, 3), dtype=np.uint8)
+        observation[mc["language"]["modality_keys"][0]] = ["pick up the apple"]
+
+        result = processor.process_observation(observation, EmbodimentTag(EMBODIMENT))
+
+        action_horizon = len(mc["action"]["delta_indices"])
+        action_dim = processor.state_action_processor.get_action_dim(EMBODIMENT)
+        action_mask = result["action_mask"]
+        assert action_mask.shape == (
+            batch_size,
+            proc_config["max_action_horizon"],
+            proc_config["max_action_dim"],
+        )
+        assert torch.all(action_mask[:, :action_horizon, :action_dim] == 1)
+        assert torch.all(action_mask[:, action_horizon:, :] == 0)
+        assert torch.all(action_mask[:, :, action_dim:] == 0)
 
 
 class TestProcessorVLMInputs:

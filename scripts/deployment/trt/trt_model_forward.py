@@ -59,6 +59,10 @@ import os
 import sys
 from typing import Optional
 
+from gr00t.deployment.action_padding import (
+    STRICT_ACTION_PADDING_MASK_UNSUPPORTED_MODES,
+    assert_strict_action_padding_mask_disabled,
+)
 from gr00t.deployment.modes import InferenceMode
 import torch
 from transformers.feature_extraction_utils import BatchFeature
@@ -1240,6 +1244,11 @@ def setup_tensorrt_engines(policy, trt_engine_path, mode=InferenceMode.n17_full_
             _required_action_head_engines(trt_engine_path),
             mode=mode.value,
             source=f"setup_tensorrt_engines({mode})",
+        )
+
+    if mode in STRICT_ACTION_PADDING_MASK_UNSUPPORTED_MODES:
+        assert_strict_action_padding_mask_disabled(
+            policy.model.action_head.config, f"TensorRT mode {mode.value}"
         )
 
     checked_metadata = assert_engine_matches_policy(

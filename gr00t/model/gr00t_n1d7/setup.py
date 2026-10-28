@@ -73,18 +73,21 @@ class Gr00tN1d7Pipeline(ModelPipeline):
     def setup(self):
         self.model = self._create_model()
         self.train_dataset, self.eval_dataset = self._create_dataset(self.save_cfg_dir)
+        self.processor.validate_strict_action_padding_mask(self.model.config)
         self.data_collator = self._create_collator()
 
     def _create_model(self):
         """Setup model with proper vocabulary expansion."""
         skip_weight_loading = getattr(self.config.training, "skip_weight_loading", False)
         if self.config.training.start_from_checkpoint is not None and not skip_weight_loading:
-            strict_vl_padding_mask = self.config.model.strict_vl_padding_mask
-            strict_override = (
-                {}
-                if strict_vl_padding_mask is None
-                else {"strict_vl_padding_mask": strict_vl_padding_mask}
-            )
+            strict_override = {
+                name: value
+                for name, value in (
+                    ("strict_vl_padding_mask", self.config.model.strict_vl_padding_mask),
+                    ("strict_action_padding_mask", self.config.model.strict_action_padding_mask),
+                )
+                if value is not None
+            }
             model, loading_info = AutoModel.from_pretrained(
                 self.config.training.start_from_checkpoint,
                 tune_llm=self.config.model.tune_llm,
@@ -175,6 +178,7 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 formalize_language=self.model_config.formalize_language,
                 apply_sincos_state_encoding=self.model_config.apply_sincos_state_encoding,
                 max_action_horizon=self.model_config.action_horizon,
+                strict_action_padding_mask=self.model_config.strict_action_padding_mask,
                 use_albumentations=self.model_config.use_albumentations_transforms,
                 extra_augmentation_config=self.model_config.extra_augmentation_config,
                 shortest_image_edge=self.model_config.shortest_image_edge,
@@ -206,6 +210,7 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 max_action_dim=self.model_config.max_action_dim,
                 apply_sincos_state_encoding=self.model_config.apply_sincos_state_encoding,
                 max_action_horizon=self.model_config.action_horizon,
+                strict_action_padding_mask=self.model_config.strict_action_padding_mask,
                 use_albumentations=self.model_config.use_albumentations_transforms,
                 extra_augmentation_config=self.model_config.extra_augmentation_config,
                 shortest_image_edge=self.model_config.shortest_image_edge,
