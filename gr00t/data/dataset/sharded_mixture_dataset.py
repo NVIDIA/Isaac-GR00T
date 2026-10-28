@@ -121,7 +121,10 @@ def merge_statistics(
         # Compute final combined statistics
         overall_mean = weighted_means.tolist()
         overall_variance = weighted_squares - weighted_means**2
-        overall_std = np.sqrt(overall_variance).tolist()
+        # E[x^2] - E[x]^2 can round to a tiny negative number when the true
+        # variance is zero (e.g. a dimension that is constant in every dataset),
+        # and np.sqrt would turn that into NaN.
+        overall_std = np.sqrt(np.maximum(overall_variance, 0.0)).tolist()
 
         # Global min/max across all datasets
         overall_min = np.min(np.array(min_list), axis=0).tolist()
