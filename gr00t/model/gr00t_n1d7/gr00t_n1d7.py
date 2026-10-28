@@ -42,6 +42,8 @@ class Gr00tN1d7ActionHead(nn.Module):
 
     def __init__(self, config: Gr00tN1d7Config):
         super().__init__()
+        if config.strict_vl_padding_mask is None:
+            config.strict_vl_padding_mask = False
         self.config = config
         self.hidden_size = config.hidden_size
         self.input_embedding_dim = config.input_embedding_dim
@@ -264,7 +266,7 @@ class Gr00tN1d7ActionHead(nn.Module):
             model_output, _ = self.model(
                 hidden_states=sa_embs,
                 encoder_hidden_states=vl_embeds,
-                encoder_attention_mask=vl_attn_mask,
+                encoder_attention_mask=vl_attn_mask if self.config.strict_vl_padding_mask else None,
                 timestep=t_discretized,
                 return_all_hidden_states=True,
             )
@@ -426,6 +428,11 @@ class Gr00tN1d7ActionHead(nn.Module):
                     hidden_states=sa_embs,
                     encoder_hidden_states=vl_embeds,
                     timestep=timesteps_tensor,
+                    encoder_attention_mask=(
+                        backbone_output.backbone_attention_mask
+                        if self.config.strict_vl_padding_mask
+                        else None
+                    ),
                 )
             pred = self.action_decoder(model_output, embodiment_id)
 

@@ -63,6 +63,12 @@ class FinetuneConfig:
     Dropout probability applied to state inputs for regularization during training.
     """
 
+    strict_vl_padding_mask: bool | None = None
+    """
+    If True, keep left-padded VL tokens out of the action head. None keeps the value of
+    the checkpoint being fine-tuned, which is off for released checkpoints.
+    """
+
     # --- Data Augmentation ---
     random_rotation_angle: int | None = None
     """Maximum rotation angle (in degrees) for random rotation augmentation of input images."""
