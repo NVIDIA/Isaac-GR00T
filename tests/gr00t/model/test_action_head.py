@@ -82,7 +82,7 @@ def _make_backbone_output(config, batch_size=2, seq_len=8):
     return BatchFeature(
         data={
             "backbone_features": torch.randn(batch_size, seq_len, config.backbone_embedding_dim),
-            "backbone_attention_mask": torch.ones(batch_size, seq_len, dtype=torch.long),
+            "backbone_attention_mask": torch.ones(batch_size, seq_len, dtype=torch.bool),
             "image_mask": torch.ones(batch_size, seq_len, dtype=torch.bool),
         }
     )
@@ -151,6 +151,75 @@ class TestActionHeadGetAction:
             action_input,
         )
         assert out["action_pred"].shape[0] == 1
+
+
+class TestPlainDiTIgnoresVLPadding:
+    """With strict_vl_padding_mask, the plain DiT ignores padded VL tokens like AlternateVLDiT."""
+
+    @staticmethod
+    def _outputs(head, config, features, mask):
+        backbone_output = BatchFeature(
+            data={
+                "backbone_features": features,
+                "backbone_attention_mask": mask,
+                "image_mask": torch.zeros(mask.shape, dtype=torch.bool),
+            }
+        )
+        torch.manual_seed(1)
+        action_input = _make_action_input(config)
+        with torch.no_grad():
+            loss = head.forward(backbone_output, action_input)["loss"]
+            del action_input["action"]
+            torch.manual_seed(1)
+            pred = head.get_action(backbone_output, action_input)["action_pred"]
+        return loss, pred
+
+    @staticmethod
+    def _head(strict_vl_padding_mask):
+        torch.manual_seed(0)
+        config = _small_config(
+            use_alternate_vl_dit=False, strict_vl_padding_mask=strict_vl_padding_mask
+        )
+        return Gr00tN1d7ActionHead(config).eval(), config
+
+    @pytest.fixture
+    def plain_dit_head(self):
+        return self._head(strict_vl_padding_mask=True)
+
+    def _short_and_padded(self, head, config):
+        features = torch.randn(2, 6, config.backbone_embedding_dim)
+        garbage = 100 * torch.randn(2, 3, config.backbone_embedding_dim)
+        mask = torch.cat([torch.ones(2, 6), torch.zeros(2, 3)], dim=1).bool()
+
+        short = self._outputs(head, config, features, torch.ones(2, 6, dtype=torch.bool))
+        padded = self._outputs(head, config, torch.cat([features, garbage], dim=1), mask)
+        return short, padded
+
+    def test_padded_tokens_are_as_inert_as_absent_ones(self, plain_dit_head):
+        short, padded = self._short_and_padded(*plain_dit_head)
+        torch.testing.assert_close(padded, short)
+
+    def test_checkpoint_without_the_flag_keeps_legacy_behavior(self):
+        """A config missing the field resolves to off, and the padding still reaches the DiT."""
+        head, config = self._head(strict_vl_padding_mask=None)
+        assert config.strict_vl_padding_mask is False
+
+        (short_loss, short_pred), (padded_loss, padded_pred) = self._short_and_padded(head, config)
+        assert not torch.allclose(padded_loss, short_loss)
+        assert not torch.allclose(padded_pred, short_pred)
+
+    def test_per_sample_left_padding_values_do_not_matter(self, plain_dit_head):
+        head, config = plain_dit_head
+        features = torch.randn(2, 9, config.backbone_embedding_dim)
+        mask = torch.ones(2, 9, dtype=torch.bool)
+        mask[0, :3] = False
+
+        other = features.clone()
+        other[0, :3] = 100 * torch.randn(3, config.backbone_embedding_dim)
+        torch.testing.assert_close(
+            self._outputs(head, config, other, mask),
+            self._outputs(head, config, features, mask),
+        )
 
 
 class TestActionHeadEncodeFeatures:

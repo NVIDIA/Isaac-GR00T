@@ -84,6 +84,11 @@ class Gr00tN1d7Config(PretrainedConfig):
     add_pos_embed: bool = True
     attn_dropout: float = 0.2
     use_vlln: bool = True
+    # Keep left-padded VL tokens out of the action head. Checkpoints without the field
+    # keep their legacy behavior, where the plain DiT attends to the padding. None
+    # means inherit from the checkpoint being fine-tuned; the action head resolves it
+    # to False, so a saved config always states how the run behaved.
+    strict_vl_padding_mask: bool | None = None
     max_seq_len: int = 1024
     use_alternate_vl_dit: bool = True  # True for AlternateVLDiT, False for DiT
     attend_text_every_n_blocks: int = 2
