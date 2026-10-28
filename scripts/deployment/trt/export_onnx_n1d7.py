@@ -60,6 +60,7 @@ from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.utils import parse_observation_gr00t
+from gr00t.deployment.action_padding import assert_strict_action_padding_mask_disabled
 from gr00t.deployment.modes import ExportMode
 from gr00t.model.modules.qwen3_backbone import _assign_inv_freq, recompute_vision_rotary_inv_freq
 from gr00t.policy.gr00t_policy import Gr00tPolicy
@@ -1967,6 +1968,9 @@ def main(args):
         device="cuda",
     )
     logger.info("  Policy loaded")
+    assert_strict_action_padding_mask_disabled(
+        policy.model.action_head.config, "ONNX export for TensorRT"
+    )
 
     # Step 2: Load dataset
     logger.info("\n[Step 2] Loading dataset...")
