@@ -48,7 +48,7 @@ def _euler_to_eef_9d(cartesian_position: np.ndarray, *, apply_correction: bool) 
     cart = np.asarray(cartesian_position, dtype=np.float64)
     xyz = cart[..., :3].reshape(-1, 3)
     euler = cart[..., 3:].reshape(-1, 3)
-    rot = Rotation.from_euler("XYZ", euler).as_matrix()
+    rot = Rotation.from_euler("xyz", euler).as_matrix()
     if apply_correction:
         rot = rot @ DROID_EEF_ROTATION_CORRECT
     rot6d = rot[:, :2, :].reshape(-1, 6)
