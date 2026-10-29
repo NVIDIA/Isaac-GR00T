@@ -249,6 +249,10 @@ class GrootN2Config(PretrainedConfig):
     # Training
     train_architecture: str = "full"  # "full" or "lora"
     tune_dit: bool = True
+    # Route state/action tokens through a trainable copy of each transformer
+    # block while freezing the dense video path. Expert weights are initialized
+    # from a dense checkpoint when posttraining with start_from_path.
+    action_expert: bool = False
     lora_rank: int = 4
     lora_alpha: int = 4
     lora_target_modules: str = "q,k,v,o,ffn.0,ffn.2"
@@ -422,6 +426,22 @@ class GrootN2Config(PretrainedConfig):
             self.tiled = False
         if self.dit_text_keys not in ("all", "real"):
             raise ValueError(f"dit_text_keys must be 'all' or 'real', got {self.dit_text_keys!r}")
+        if self.action_expert:
+            if self.action_cfg is None:
+                raise ValueError("action_expert requires action_cfg")
+            if not self.tune_dit:
+                raise ValueError("action_expert requires tune_dit=True")
+            if self.train_architecture != "full":
+                raise ValueError("action_expert currently supports train_architecture='full' only")
+            if self.tactile_cfg is not None or self.deform_cfg is not None:
+                raise ValueError("action_expert does not currently support tactile/deform tokens")
+            patterns = self.action_cfg.get("attention_mask_pattern") or []
+            if any(name == "full" for name, _ in patterns):
+                raise ValueError(
+                    "action_expert requires an asymmetric attention mask where video tokens "
+                    "do not attend to action/state tokens; attention_mask_pattern='full' is "
+                    "not supported"
+                )
 
         if self.rope_fp32 is not None and not isinstance(self.rope_fp32, bool):
             raise TypeError("rope_fp32 must be a bool or None")

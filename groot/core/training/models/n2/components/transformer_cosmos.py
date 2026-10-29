@@ -17,6 +17,7 @@ Weight naming matches HF checkpoints (ffn convention) for direct loading.
 Stripped: ControlNet support, img_context, ONNX paths, GQA (unused for Cosmos 2B/14B).
 """
 
+import copy
 from dataclasses import dataclass
 import math
 from typing import Any, Protocol
@@ -66,6 +67,15 @@ def _video_non_video_indices(
     non_video_mask = ~video_mask
     non_video_idx = non_video_mask.nonzero(as_tuple=True)[0] if non_video_mask.any() else None
     return video_idx, non_video_idx
+
+
+def _route_tokens(
+    base: torch.Tensor, expert: torch.Tensor, expert_indices: torch.Tensor | None
+) -> torch.Tensor:
+    """Replace the routed token rows without mutating either input."""
+    if expert_indices is None or expert_indices.numel() == 0:
+        return base
+    return base.index_copy(1, expert_indices, expert.index_select(1, expert_indices))
 
 
 class LayerwiseSequenceTransform(Protocol):
@@ -228,6 +238,8 @@ class Attention(nn.Module):
         kv_cache: CondKVCache | None = None,
         layer_idx: int = 0,
         store_kv: bool = True,
+        expert: "Attention | None" = None,
+        expert_indices: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Self- or cross-attention forward pass.
 
@@ -243,6 +255,12 @@ class Attention(nn.Module):
         q = self.to_q(hidden_states)
         k = self.to_k(context)
         v = self.to_v(context)
+        if expert is not None:
+            if encoder_hidden_states is not None:
+                raise ValueError("routed attention projections only support self-attention")
+            q = _route_tokens(q, expert.to_q(hidden_states), expert_indices)
+            k = _route_tokens(k, expert.to_k(context), expert_indices)
+            v = _route_tokens(v, expert.to_v(context), expert_indices)
 
         B, S_q, _ = q.shape
         S_kv = k.shape[1]
@@ -253,8 +271,17 @@ class Attention(nn.Module):
         k = k.view(B, S_kv, self.heads, dim_head).transpose(1, 2)
         v = v.view(B, S_kv, self.heads, dim_head).transpose(1, 2)
 
-        q = self.norm_q(q)
-        k = self.norm_k(k)
+        base_q = self.norm_q(q)
+        base_k = self.norm_k(k)
+        if expert is not None and expert_indices is not None and expert_indices.numel() > 0:
+            q = base_q.index_copy(
+                2, expert_indices, expert.norm_q(q).index_select(2, expert_indices)
+            )
+            k = base_k.index_copy(
+                2, expert_indices, expert.norm_k(k).index_select(2, expert_indices)
+            )
+        else:
+            q, k = base_q, base_k
 
         if image_rotary_emb is not None:
             q = apply_rotary_emb(q, image_rotary_emb)
@@ -303,7 +330,12 @@ class Attention(nn.Module):
             out = flash_attn_func_v23(q, k, v, flatten=False)  # (B, S_q, H, D)
 
         out = out.reshape(B, S_q, -1)
-        out = self.to_out[0](out)
+        base_out = self.to_out[0](out)
+        out = (
+            _route_tokens(base_out, expert.to_out[0](out), expert_indices)
+            if expert is not None
+            else base_out
+        )
         out = self.to_out[1](out)
         return out
 
@@ -672,6 +704,7 @@ class CosmosTransformerBlock(nn.Module):
         adaln_lora_dim: int = 256,
         qk_norm: str = "rms_norm",
         out_bias: bool = False,
+        action_expert: bool = False,
     ):
         super().__init__()
         hidden_size = num_attention_heads * attention_head_dim
@@ -693,6 +726,17 @@ class CosmosTransformerBlock(nn.Module):
 
         self.norm3 = CosmosAdaLayerNormZero(hidden_size, adaln_lora_dim)
         self.ff = FeedForward(hidden_size, mult=mlp_ratio, bias=out_bias)
+
+        self.action_expert = action_expert
+        if action_expert:
+            # Start as an exact copy of the dense path. A dense checkpoint load
+            # refreshes these copies from its loaded weights in GrootN2.load_state_dict.
+            self.action_norm1 = copy.deepcopy(self.norm1)
+            self.action_attn1 = copy.deepcopy(self.attn1)
+            self.action_norm2 = copy.deepcopy(self.norm2)
+            self.action_attn2 = copy.deepcopy(self.attn2)
+            self.action_norm3 = copy.deepcopy(self.norm3)
+            self.action_ff = copy.deepcopy(self.ff)
 
     def forward(
         self,
@@ -718,6 +762,12 @@ class CosmosTransformerBlock(nn.Module):
             hidden_states = hidden_states + extra_pos_emb
 
         norm_hs, gate = self.norm1(hidden_states, embedded_timestep, temb, timestep_segments)
+        if self.action_expert:
+            action_norm_hs, action_gate = self.action_norm1(
+                hidden_states, embedded_timestep, temb, timestep_segments
+            )
+            norm_hs = _route_tokens(norm_hs, action_norm_hs, non_video_idx)
+            gate = _route_tokens(gate, action_gate, non_video_idx)
         hidden_states = hidden_states + gate * self.attn1(
             norm_hs,
             image_rotary_emb=image_rotary_emb,
@@ -727,12 +777,20 @@ class CosmosTransformerBlock(nn.Module):
             kv_cache=kv_cache,
             layer_idx=layer_idx,
             store_kv=store_kv,
+            expert=self.action_attn1 if self.action_expert else None,
+            expert_indices=non_video_idx,
         )
 
         norm_hs, gate = self.norm2(hidden_states, embedded_timestep, temb, timestep_segments)
+        if self.action_expert:
+            action_norm_hs, action_gate = self.action_norm2(
+                hidden_states, embedded_timestep, temb, timestep_segments
+            )
+            norm_hs = _route_tokens(norm_hs, action_norm_hs, non_video_idx)
+            gate = _route_tokens(gate, action_gate, non_video_idx)
         # Unmasked export adapters retain their original cross-attention call signature.
         text_mask_kwargs = {} if text_pad_mask is None else {"text_pad_mask": text_pad_mask}
-        hidden_states = hidden_states + gate * self.attn2(
+        cross_out = self.attn2(
             norm_hs,
             encoder_hidden_states=encoder_hidden_states,
             n_cameras=n_cameras,
@@ -740,9 +798,28 @@ class CosmosTransformerBlock(nn.Module):
             non_video_idx=non_video_idx,
             **text_mask_kwargs,
         )
+        if self.action_expert and non_video_idx is not None and non_video_idx.numel() > 0:
+            action_cross_out = self.action_attn2(
+                norm_hs[:, non_video_idx],
+                encoder_hidden_states=encoder_hidden_states,
+                n_cameras=n_cameras,
+                video_idx=non_video_idx.new_empty(0),
+                non_video_idx=None,
+                **text_mask_kwargs,
+            )
+            cross_out = cross_out.index_copy(1, non_video_idx, action_cross_out)
+        hidden_states = hidden_states + gate * cross_out
 
         norm_hs, gate = self.norm3(hidden_states, embedded_timestep, temb, timestep_segments)
-        hidden_states = hidden_states + gate * self.ff(norm_hs)
+        ff_out = self.ff(norm_hs)
+        if self.action_expert:
+            action_norm_hs, action_gate = self.action_norm3(
+                hidden_states, embedded_timestep, temb, timestep_segments
+            )
+            norm_hs = _route_tokens(norm_hs, action_norm_hs, non_video_idx)
+            gate = _route_tokens(gate, action_gate, non_video_idx)
+            ff_out = _route_tokens(ff_out, self.action_ff(norm_hs), non_video_idx)
+        hidden_states = hidden_states + gate * ff_out
 
         return hidden_states
 
@@ -770,6 +847,7 @@ class CosmosTransformerConfig:
     max_n_cameras: int = 4
     view_embed_dim: int = 0  # 7 for official AV multiview
     per_view_text: bool = False
+    action_expert: bool = False
 
 
 COSMOS_2B_CONFIG = CosmosTransformerConfig(
@@ -835,6 +913,7 @@ class CosmosTransformer3DModel(nn.Module):
                     config.adaln_lora_dim,
                     qk_norm="rms_norm",
                     out_bias=False,
+                    action_expert=config.action_expert,
                 )
                 for _ in range(config.num_layers)
             ]
@@ -842,6 +921,8 @@ class CosmosTransformer3DModel(nn.Module):
 
         # 3. Output norm
         self.norm_out = CosmosAdaLayerNorm(hidden_size, config.adaln_lora_dim)
+        if config.action_expert:
+            self.action_norm_out = copy.deepcopy(self.norm_out)
 
         # 4. Cross-attention projection (optional)
         if config.use_crossattn_projection:
@@ -1104,11 +1185,35 @@ class CosmosTransformer3DModel(nn.Module):
             # still requires the original sequence layout.
             latents = sequence_transform.restore_sequence(latents, transform_state)
             temb, embedded_timestep = transform_saved[1], transform_saved[2]
+            non_video_idx = transform_saved[7]
 
         # 5. Final norm (AdaLN applied to all tokens)
-        latents = self.norm_out(latents, embedded_timestep, temb, timestep_segments)
+        normed = self.norm_out(latents, embedded_timestep, temb, timestep_segments)
+        if self.config.action_expert:
+            action_normed = self.action_norm_out(
+                latents, embedded_timestep, temb, timestep_segments
+            )
+            normed = _route_tokens(normed, action_normed, non_video_idx)
+        latents = normed
 
         return latents
+
+    def freeze_base_for_action_expert(self) -> None:
+        """Freeze the dense path and leave only action-expert modules trainable."""
+        if not self.config.action_expert:
+            raise ValueError("action_expert is not enabled")
+        self.requires_grad_(False)
+        self.action_norm_out.requires_grad_(True)
+        for block in self.transformer_blocks:
+            for name in (
+                "action_norm1",
+                "action_attn1",
+                "action_norm2",
+                "action_attn2",
+                "action_norm3",
+                "action_ff",
+            ):
+                getattr(block, name).requires_grad_(True)
 
     def enable_gradient_checkpointing(self):
         self.gradient_checkpointing = True

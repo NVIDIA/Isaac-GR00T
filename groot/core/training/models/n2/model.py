@@ -103,8 +103,24 @@ LEGACY_ROPE_BUFFER_KEYS = frozenset(
     f"{module}_rope.{name}" for module in ("action", "state") for name in ("freqs", "seq")
 )
 ACTION_TEMPORAL_POS_EMB_KEY = "action_encoder.temporal_pos_emb"
+ACTION_EXPERT_KEY_PARTS = (
+    (".action_norm1.", ".norm1."),
+    (".action_attn1.", ".attn1."),
+    (".action_norm2.", ".norm2."),
+    (".action_attn2.", ".attn2."),
+    (".action_norm3.", ".norm3."),
+    (".action_ff.", ".ff."),
+    (".action_norm_out.", ".norm_out."),
+)
 
 VAE_TEMPORAL_FACTOR = 4  # Wan VAE temporal compression ratio
+
+
+def _dense_key_for_action_expert(key: str) -> str:
+    """Map an action-expert checkpoint key to its dense-path source key."""
+    for expert_part, dense_part in ACTION_EXPERT_KEY_PARTS:
+        key = key.replace(expert_part, dense_part)
+    return key
 
 
 def apply_state_keep(state_tokens: torch.Tensor, data: dict) -> torch.Tensor:
@@ -285,6 +301,9 @@ class GrootN2(PreTrainedModel):
             rope_scale=dit_config.rope_scale,
         )
         transformer_config = dataclasses.replace(dit_config, max_n_cameras=self.max_n_cameras)
+        transformer_config = dataclasses.replace(
+            transformer_config, action_expert=config.action_expert
+        )
         token_merge_kernel = getattr(config, "token_merge_kernel", None)
         if token_merge_kernel is not None:
             _, tm_end = config.token_merge_layers
@@ -386,8 +405,13 @@ class GrootN2(PreTrainedModel):
             tokenizer = self.text_encoder.tokenizer
             self.text_pad_token_id = getattr(tokenizer, "tokenizer", tokenizer).pad_token_id
 
-        # 5. Optionally freeze transformer
-        if not config.tune_dit:
+        # 5. Optionally freeze transformer. Action-expert posttraining keeps the
+        # dense video path fixed and trains only the copied state/action path.
+        if config.action_expert:
+            self.video_tokenizer.requires_grad_(False)
+            self.video_rope.requires_grad_(False)
+            self.transformer.freeze_base_for_action_expert()
+        elif not config.tune_dit:
             self.transformer.requires_grad_(False)
 
         # 6. LoRA (optional)
@@ -2838,6 +2862,11 @@ class GrootN2(PreTrainedModel):
         """Validate frozen tactile encoders after HF has loaded all checkpoint shards."""
         output_loading_info = kwargs.pop("output_loading_info", False)
         model, info = super().from_pretrained(*args, output_loading_info=True, **kwargs)
+        if getattr(model.config, "action_expert", False) and any(
+            _dense_key_for_action_expert(key) != key for key in info["missing_keys"]
+        ):
+            model._initialize_action_expert_from_base()
+            logging.info("[GrootN2] Initialized missing action-expert weights from dense path")
         # HF versions report mismatches either as keys or as (key, old_shape, new_shape).
         mismatched = [k if isinstance(k, str) else k[0] for k in info["mismatched_keys"]]
         n2_tactile.complete_encoder_load(
@@ -2909,9 +2938,35 @@ class GrootN2(PreTrainedModel):
                 remapped[new_key] = resized_val
                 continue
             remapped[new_key] = val
+        if getattr(self.config, "action_expert", False):
+            initialized = 0
+            for expert_key in self.state_dict():
+                dense_key = _dense_key_for_action_expert(expert_key)
+                if dense_key != expert_key and expert_key not in remapped and dense_key in remapped:
+                    remapped[expert_key] = remapped[dense_key]
+                    initialized += 1
+            if initialized:
+                logging.info(
+                    "[GrootN2] Initialized %d action-expert tensors from dense checkpoint",
+                    initialized,
+                )
         result = super().load_state_dict(remapped, strict=strict, assign=assign)
         n2_tactile.record_encoder_load(self, remapped.keys())
         return result
+
+    def _initialize_action_expert_from_base(self) -> None:
+        """Copy a loaded dense transformer into a newly enabled action expert."""
+        self.transformer.action_norm_out.load_state_dict(self.transformer.norm_out.state_dict())
+        for block in self.transformer.transformer_blocks:
+            for expert_name, dense_name in (
+                ("action_norm1", "norm1"),
+                ("action_attn1", "attn1"),
+                ("action_norm2", "norm2"),
+                ("action_attn2", "attn2"),
+                ("action_norm3", "norm3"),
+                ("action_ff", "ff"),
+            ):
+                getattr(block, expert_name).load_state_dict(getattr(block, dense_name).state_dict())
 
     @staticmethod
     def _fix_state_dict_key_on_load(key):
