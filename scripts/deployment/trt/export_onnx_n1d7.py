@@ -1471,6 +1471,17 @@ def prepare_observation(policy, dataset, traj_idx=0):
 # ============================================================
 
 
+def exports_vl_self_attention(action_head) -> bool:
+    """Whether full_pipeline writes vl_self_attention.onnx; otherwise it stays in PyTorch.
+
+    The exported graph takes ``hidden_states`` only, so a head that masks VL padding
+    keeps the module in PyTorch, where the runtime passes the mask.
+    """
+    return not isinstance(action_head.vl_self_attention, nn.Identity) and not (
+        action_head.mask_vl_padding
+    )
+
+
 def export_vl_self_attention_to_onnx(
     policy,
     output_dir,
@@ -1489,10 +1500,13 @@ def export_vl_self_attention_to_onnx(
     Input: hidden_states [B, T, backbone_embedding_dim]  (T is dynamic)
     Output: hidden_states [B, T, backbone_embedding_dim]
     """
-    vl_sa = policy.model.action_head.vl_self_attention
-    if isinstance(vl_sa, nn.Identity):
-        logger.info("  vl_self_attention is Identity — skipping export")
+    if not exports_vl_self_attention(policy.model.action_head):
+        logger.info(
+            "  vl_self_attention is Identity or masks VL padding, which the exported graph "
+            "cannot — skipping export, it runs in PyTorch"
+        )
         return None
+    vl_sa = policy.model.action_head.vl_self_attention
 
     logger.info("\n" + "=" * 80)
     logger.info("Exporting VL Self-Attention to ONNX")
@@ -2068,6 +2082,8 @@ def main(args):
         "backbone_embedding_dim": int(action_head_config.backbone_embedding_dim),
         "embodiment_tag": str(args.embodiment_tag),
         "export_mode": args.export_mode,
+        "vl_self_attention_exported": args.export_mode == "full_pipeline"
+        and exports_vl_self_attention(policy.model.action_head),
         "precision": args.precision,
         "vit_precision": vit_prec,
         "llm_precision": llm_prec,
@@ -2120,7 +2136,7 @@ def main(args):
         needed = {"dit"}
         if args.export_mode == "full_pipeline":
             needed |= {"vit", "llm"}
-            if not isinstance(policy.model.action_head.vl_self_attention, nn.Identity):
+            if exports_vl_self_attention(policy.model.action_head):
                 needed.add("vl_sa")
         logger.info("\n[Step 3.5] Capturing calibration data (before any quantization)...")
         calib_batches = capture_calibration_batches(

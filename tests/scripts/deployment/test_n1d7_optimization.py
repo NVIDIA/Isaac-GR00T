@@ -16,6 +16,7 @@
 """CPU checks for quantized artifact contracts and export graph transformations."""
 
 import ast
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -224,19 +225,14 @@ def test_cached_dit_matches_masked_alternating_attention(batch_size, monkeypatch
     torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-5)
 
 
-@pytest.mark.parametrize(
-    "export_mode,engine_present,expect_loaded",
-    [("action_head", True, False), ("full_pipeline", True, True), ("full_pipeline", False, False)],
-)
-def test_optimized_action_head_ignores_stale_vl_engine(
-    export_mode,
-    engine_present,
-    expect_loaded,
-    tmp_path,
+def _construct_optimized_runner(
+    tmp_path, export_mode, engine_present, action_head, vl_self_attention_exported=None
 ):
-    """A reused bundle must not replace PyTorch VL attention in action-head mode."""
-    # Execute the real constructor with engine loading stubbed so this regression
-    # runs in CPU CI, without importing CUDA-only TensorRT runtime dependencies.
+    """Run the real runner constructor with engine loading stubbed.
+
+    This keeps the regressions in CPU CI, without importing CUDA-only TensorRT
+    runtime dependencies. Returns the runner, the loaded paths, and the VL engine path.
+    """
     source = Path(_DEPLOY_DIR) / "trt" / "trt_model_forward.py"
     tree = ast.parse(source.read_text())
     runner = next(
@@ -249,12 +245,19 @@ def test_optimized_action_head_ignores_stale_vl_engine(
         for node in runner.body
         if isinstance(node, ast.FunctionDef) and node.name == "__init__"
     )
+    engine_path = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "vl_self_attention_engine_path"
+    )
     metadata = {
         "optimized_action_head": True,
         "dit_precision": "bf16",
         "action_head_format_version": 1,
         "export_mode": export_mode,
     }
+    if vl_self_attention_exported is not None:
+        metadata["vl_self_attention_exported"] = vl_self_attention_exported
     artifacts = OptimizationArtifacts.from_metadata(str(tmp_path), metadata, artifact_kind="engine")
     Path(artifacts.cross_kv).touch()
     Path(artifacts.constants).touch()
@@ -269,16 +272,58 @@ def test_optimized_action_head_ignores_stale_vl_engine(
 
     scope = {
         "os": os,
+        "logger": logging.getLogger(__name__),
         "OptimizationArtifacts": OptimizationArtifacts,
         "ACTION_HEAD_FORMAT_VERSION": 1,
         "GraphSafeEngine": load_engine,
     }
-    exec(compile(ast.Module(body=[constructor], type_ignores=[]), str(source), "exec"), scope)
+    exec(
+        compile(ast.Module(body=[engine_path, constructor], type_ignores=[]), str(source), "exec"),
+        scope,
+    )
     runtime = SimpleNamespace(
         _validate_interfaces=lambda: None,
         _load_constants=lambda path: {},
         _make_position_embeddings=lambda: None,
     )
-    scope["__init__"](runtime, object(), str(tmp_path), metadata, str(tmp_path / "dit_bf16.engine"))
+    scope["__init__"](
+        runtime, action_head, str(tmp_path), metadata, str(tmp_path / "dit_bf16.engine")
+    )
+    return runtime, loaded, vl_engine
+
+
+@pytest.mark.parametrize(
+    "export_mode,engine_present,expect_loaded",
+    [("action_head", True, False), ("full_pipeline", True, True), ("full_pipeline", False, False)],
+)
+def test_optimized_action_head_ignores_stale_vl_engine(
+    export_mode,
+    engine_present,
+    expect_loaded,
+    tmp_path,
+):
+    """A reused bundle must not replace PyTorch VL attention in action-head mode."""
+    runtime, loaded, vl_engine = _construct_optimized_runner(
+        tmp_path, export_mode, engine_present, SimpleNamespace(mask_vl_padding=False)
+    )
     assert (str(vl_engine) in loaded) == expect_loaded
     assert (runtime.vl_sa_engine is not None) == expect_loaded
+
+
+def test_optimized_action_head_refuses_vl_engine_with_strict_vl_padding_mask(tmp_path):
+    """The VL attention engine has no mask input, so a strict-mask checkpoint must not use it."""
+    head = SimpleNamespace(mask_vl_padding=True)
+    with pytest.raises(NotImplementedError, match="strict_vl_padding_mask"):
+        _construct_optimized_runner(tmp_path, "full_pipeline", True, head)
+    runtime, _, _ = _construct_optimized_runner(tmp_path, "action_head", True, head)
+    assert runtime.vl_sa_engine is None
+
+
+def test_optimized_action_head_ignores_vl_engine_left_from_an_earlier_export(tmp_path):
+    """A strict export kept VL attention in PyTorch, so an engine beside it is stale."""
+    head = SimpleNamespace(mask_vl_padding=True)
+    runtime, loaded, vl_engine = _construct_optimized_runner(
+        tmp_path, "full_pipeline", True, head, vl_self_attention_exported=False
+    )
+    assert str(vl_engine) not in loaded
+    assert runtime.vl_sa_engine is None

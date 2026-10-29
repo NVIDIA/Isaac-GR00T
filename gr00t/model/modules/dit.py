@@ -509,6 +509,8 @@ class SelfAttentionTransformer(ModelMixin, ConfigMixin):
     def forward(
         self,
         hidden_states: torch.Tensor,  # Shape: (B, T, D)
+        attention_mask: Optional[torch.Tensor] = None,  # Shape: (B, T), True = keep
+        # Must stay positional: torch.onnx.export pads the args tuple from this signature.
         return_all_hidden_states: bool = False,
     ):
         # Process through transformer blocks - single pass through the blocks
@@ -517,7 +519,7 @@ class SelfAttentionTransformer(ModelMixin, ConfigMixin):
 
         # Process through transformer blocks
         for idx, block in enumerate(self.transformer_blocks):
-            hidden_states = block(hidden_states)
+            hidden_states = block(hidden_states, attention_mask=attention_mask)
             all_hidden_states.append(hidden_states)
 
         if return_all_hidden_states:

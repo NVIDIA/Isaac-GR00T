@@ -77,7 +77,7 @@ the same set of engines.
 |-----------|--------|-------|
 | ViT | **TRT** | Qwen3-VL Vision (24 blocks, FP32 for accuracy) |
 | LLM | **TRT** | Qwen3-VL Text Model (16 layers, with deepstack injection) |
-| VL Self-Attention | **TRT** | SelfAttentionTransformer (4 layers, if present) |
+| VL Self-Attention | **TRT** | SelfAttentionTransformer (4 layers, if present); stays in PyTorch with `strict_vl_padding_mask` on, so it can mask VL padding |
 | State Encoder | **TRT** | CategorySpecificMLP |
 | Action Encoder | **TRT** | MultiEmbodimentActionEncoder |
 | DiT | **TRT** | AlternateVLDiT (32 layers) |

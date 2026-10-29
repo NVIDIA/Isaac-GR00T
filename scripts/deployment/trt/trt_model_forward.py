@@ -64,6 +64,7 @@ from gr00t.deployment.action_padding import (
     assert_strict_action_padding_mask_disabled,
 )
 from gr00t.deployment.modes import InferenceMode
+from gr00t.deployment.vl_padding import assert_plain_dit_sees_no_vl_padding
 import torch
 from transformers.feature_extraction_utils import BatchFeature
 
@@ -222,12 +223,12 @@ class OptimizedActionHeadRunner:
 
         # Reused directories may contain a stale full-pipeline VL attention engine.
         # Action-head-only exports retain this module in PyTorch.
-        vl_sa_path = os.path.join(engine_dir, "vl_self_attention.engine")
-        self.vl_sa_engine = (
-            GraphSafeEngine(vl_sa_path)
-            if metadata.get("export_mode") == "full_pipeline" and os.path.exists(vl_sa_path)
+        vl_sa_path = (
+            vl_self_attention_engine_path(action_head, engine_dir, metadata)
+            if metadata.get("export_mode") == "full_pipeline"
             else None
         )
+        self.vl_sa_engine = GraphSafeEngine(vl_sa_path) if vl_sa_path is not None else None
         self.state_encoder_engine = GraphSafeEngine(
             os.path.join(engine_dir, "state_encoder.engine")
         )
@@ -455,6 +456,10 @@ class OptimizedActionHeadRunner:
             backbone_features = backbone_features.to(self.vl_sa_engine.dtype_of("hidden_states"))
             self.vl_sa_engine.set_runtime_tensor_shape("hidden_states", backbone_features.shape)
             vl_embs = self.vl_sa_engine(backbone_features, cache_outputs=cache_outputs)["output"]
+        elif self.action_head.mask_vl_padding:
+            vl_embs = self.action_head.vl_self_attention(
+                backbone_features, attention_mask=state.backbone_attention_mask
+            )
         else:
             vl_embs = self.action_head.vl_self_attention(backbone_features)
 
@@ -628,6 +633,28 @@ def _load_engine_metadata(engine_dir):
             break
     _ENGINE_METADATA_CACHE[engine_dir] = metadata
     return metadata
+
+
+def vl_self_attention_engine_path(action_head, engine_dir, metadata):
+    """Return the VL self-attention engine to load, or None to keep the PyTorch module."""
+    path = os.path.join(engine_dir, "vl_self_attention.engine")
+    if not os.path.exists(path):
+        return None
+    if metadata is not None and not metadata.get("vl_self_attention_exported", True):
+        logger.warning(
+            "Ignoring %s: the export kept VL self-attention in PyTorch, so this engine is "
+            "left over from an earlier export into the same directory.",
+            path,
+        )
+        return None
+    if action_head.mask_vl_padding:
+        raise NotImplementedError(
+            f"strict_vl_padding_mask is enabled but found {path}, which takes no mask input "
+            "and would attend to padding the PyTorch model masks out. If it is left over from "
+            "an earlier export into the same directory, re-export (the export now keeps this "
+            "module in PyTorch) or delete the file."
+        )
+    return path
 
 
 def _engine_path(engine_dir, component, default_precision="bf16"):
@@ -1062,6 +1089,9 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
         backbone_output: BatchFeature with backbone_features, backbone_attention_mask, image_mask
         action_input: BatchFeature with state, embodiment_id
     """
+    assert_plain_dit_sees_no_vl_padding(
+        self.config, backbone_output.get("backbone_attention_mask", None), "TensorRT action head"
+    )
     # --- VLLN (PyTorch) + vl_self_attention (TRT if available, else PyTorch) ---
     backbone_features = backbone_output.backbone_features
     # Keep dtype consistent with the PyTorch LayerNorm parameters to avoid
@@ -1077,6 +1107,10 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
             backbone_features = backbone_features.to(engine_dtype)
         self.vl_sa_engine.set_runtime_tensor_shape("hidden_states", backbone_features.shape)
         backbone_features = self.vl_sa_engine(backbone_features)["output"]
+    elif self.mask_vl_padding:
+        backbone_features = self.vl_self_attention(
+            backbone_features, attention_mask=backbone_output.backbone_attention_mask
+        )
     else:
         backbone_features = self.vl_self_attention(backbone_features)
     vl_embs = backbone_features
@@ -1384,8 +1418,10 @@ def _setup_n17_full_pipeline(policy, trt_engine_path):
     action_head._trt_optimization_runner = None
 
     # Load vl_self_attention TRT engine (if available)
-    vl_sa_engine_path = os.path.join(trt_engine_path, "vl_self_attention.engine")
-    if os.path.exists(vl_sa_engine_path):
+    vl_sa_engine_path = vl_self_attention_engine_path(
+        action_head, trt_engine_path, _load_engine_metadata(trt_engine_path)
+    )
+    if vl_sa_engine_path is not None:
         print(f"Loading VL Self-Attention engine: {vl_sa_engine_path}")
         action_head.vl_sa_engine = Engine(vl_sa_engine_path)
         # Delete PyTorch module — TRT engine replaces it
@@ -1395,7 +1431,7 @@ def _setup_n17_full_pipeline(policy, trt_engine_path):
         print("  Deleted PyTorch vl_self_attention (replaced by TRT engine)")
     else:
         action_head.vl_sa_engine = None
-        print(f"  VL Self-Attention engine not found at {vl_sa_engine_path}, using PyTorch")
+        print("  No VL Self-Attention engine to load, using PyTorch")
 
     if hasattr(action_head, "model"):
         del action_head.model
@@ -1585,6 +1621,11 @@ def _setup_dit_only(policy, trt_engine_path):
         method matches the ``Gr00tN1d7.get_action_with_features`` contract that
         ``get_action`` calls with these keywords; the DiT-only path needs neither.
         """
+        assert_plain_dit_sees_no_vl_padding(
+            action_head.config,
+            backbone_output.get("backbone_attention_mask", None),
+            "TensorRT DiT-only mode",
+        )
         vl_embs = backbone_features
         batch_size = vl_embs.shape[0]
         device = vl_embs.device
