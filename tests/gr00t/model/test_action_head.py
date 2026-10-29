@@ -438,3 +438,125 @@ class TestActionHeadTrainableParams:
         head.set_trainable_parameters(True, False, True)
         for p in head.model.parameters():
             assert not p.requires_grad
+
+
+class TestVLPaddingMask:
+    """VL tokens are left-padded to the longest prompt in the batch."""
+
+    VL_SELF_ATTENTION_CFG = {
+        "num_attention_heads": 2,
+        "attention_head_dim": 32,
+        "num_layers": 2,
+        "dropout": 0.0,
+        "final_dropout": False,
+        "positional_embeddings": None,
+    }
+
+    def _head(self, strict_vl_padding_mask):
+        config = _small_config(
+            use_alternate_vl_dit=True,  # the released checkpoint's DiT variant
+            vl_self_attention_cfg=self.VL_SELF_ATTENTION_CFG,
+            strict_vl_padding_mask=strict_vl_padding_mask,
+            strict_action_padding_mask=False,
+        )
+        torch.manual_seed(0)
+        return Gr00tN1d7ActionHead(config).eval(), config
+
+    def _predict(self, head, config, real, pad_vec, pad_len):
+        features = torch.cat([pad_vec.expand(1, pad_len, -1), real], dim=1)
+        seq_len = features.shape[1]
+        mask = torch.zeros(1, seq_len, dtype=torch.bool)
+        mask[:, -real.shape[1] :] = True
+        image_mask = torch.zeros(1, seq_len, dtype=torch.bool)
+        image_mask[:, -real.shape[1] : -real.shape[1] + 2] = True
+        torch.manual_seed(1234)  # identical diffusion noise on every call
+        return head.get_action(
+            BatchFeature(
+                data={
+                    "backbone_features": features,
+                    "backbone_attention_mask": mask,
+                    "image_mask": image_mask,
+                }
+            ),
+            BatchFeature(
+                data={
+                    "state": torch.zeros(1, config.state_history_length, config.max_state_dim),
+                    "embodiment_id": torch.zeros(1, dtype=torch.long),
+                }
+            ),
+        )["action_pred"]
+
+    @pytest.mark.parametrize("pad_len", [1, 5, 17])
+    def test_pad_count_does_not_change_action(self, pad_len):
+        """One observation must predict one action, whatever else shares its batch."""
+        head, config = self._head(strict_vl_padding_mask=True)
+        torch.manual_seed(7)
+        real = torch.randn(1, 6, config.backbone_embedding_dim)
+        pad_vec = torch.randn(1, 1, config.backbone_embedding_dim)
+
+        unpadded = self._predict(head, config, real, pad_vec, 0)
+        padded = self._predict(head, config, real, pad_vec, pad_len)
+
+        torch.testing.assert_close(unpadded, padded)
+
+    def test_batchmate_prompt_length_does_not_change_action(self):
+        """Batched with a longer prompt, an observation predicts what it predicts alone."""
+        head, config = self._head(strict_vl_padding_mask=True)
+        torch.manual_seed(7)
+        short = torch.randn(1, 6, config.backbone_embedding_dim)
+        long = torch.randn(1, 23, config.backbone_embedding_dim)
+
+        def predict(features, mask):
+            image_mask = torch.zeros_like(mask)
+            image_mask[:, -6:-4] = True
+            torch.manual_seed(1234)  # both calls have batch size 2, so row 0 gets the same noise
+            return head.get_action(
+                BatchFeature(
+                    data={
+                        "backbone_features": features,
+                        "backbone_attention_mask": mask,
+                        "image_mask": image_mask,
+                    }
+                ),
+                BatchFeature(
+                    data={
+                        "state": torch.zeros(2, config.state_history_length, config.max_state_dim),
+                        "embodiment_id": torch.zeros(2, dtype=torch.long),
+                    }
+                ),
+            )["action_pred"][0]
+
+        padded_short = torch.cat([torch.randn(1, 17, short.shape[-1]), short], dim=1)
+        mask = torch.ones(2, 23, dtype=torch.bool)
+        mask[0, :17] = False
+        with_long = predict(torch.cat([padded_short, long]), mask)
+        unpadded = predict(short.repeat(2, 1, 1), torch.ones(2, 6, dtype=torch.bool))
+
+        torch.testing.assert_close(with_long, unpadded)
+
+    def test_flag_off_leaves_padding_visible(self):
+        """Off by default: padding still reaches the action, as in released checkpoints."""
+        head, config = self._head(strict_vl_padding_mask=False)
+        assert not head.mask_vl_padding
+
+        torch.manual_seed(7)
+        real = torch.randn(1, 6, config.backbone_embedding_dim)
+        pad_vec = torch.randn(1, 1, config.backbone_embedding_dim)
+
+        unpadded = self._predict(head, config, real, pad_vec, 0)
+        padded = self._predict(head, config, real, pad_vec, 17)
+
+        assert not torch.allclose(unpadded, padded)
+
+    def test_flag_refuses_positional_embeddings(self):
+        """Left padding moves the real tokens, so the mask alone cannot hide it."""
+        config = _small_config(
+            vl_self_attention_cfg={
+                **self.VL_SELF_ATTENTION_CFG,
+                "positional_embeddings": "sinusoidal",
+                "max_num_positional_embeddings": 64,
+            },
+            strict_vl_padding_mask=True,
+        )
+        with pytest.raises(ValueError, match="positional_embeddings=None"):
+            Gr00tN1d7ActionHead(config)

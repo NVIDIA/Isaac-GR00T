@@ -32,6 +32,7 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.utils import parse_observation_gr00t
 from gr00t.deployment.action_padding import assert_strict_action_padding_mask_disabled
 from gr00t.deployment.modes import InferenceMode
+from gr00t.deployment.vl_padding import assert_plain_dit_sees_no_vl_padding
 from gr00t.eval._horizon_contract import migrate_deprecated_action_horizon_argv
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 from gr00t.policy.policy import BasePolicy
@@ -211,6 +212,9 @@ def replace_dit_with_tensorrt(policy: Gr00tPolicy | Any, trt_engine_path: str, d
         """
         if hidden_attention_mask is not None:
             raise NotImplementedError("The TensorRT DiT engine has no hidden_attention_mask input")
+        assert_plain_dit_sees_no_vl_padding(
+            policy.model.action_head.config, encoder_attention_mask, "TensorRT DiT replacement"
+        )
         output = trt_dit(
             sa_embs=hidden_states,
             vl_embs=encoder_hidden_states,

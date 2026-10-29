@@ -111,6 +111,15 @@ class Gr00tN1d7ActionHead(nn.Module):
             self.vl_self_attention = SelfAttentionTransformer(**vl_self_attention_cfg)
         else:
             self.vl_self_attention = nn.Identity()
+        self.mask_vl_padding = config.strict_vl_padding_mask and not isinstance(
+            self.vl_self_attention, nn.Identity
+        )
+        if self.mask_vl_padding and self.vl_self_attention.config.positional_embeddings:
+            raise ValueError(
+                "strict_vl_padding_mask needs vl_self_attention_cfg positional_embeddings=None: "
+                "left padding shifts the absolute positions of the real VL tokens, so masking "
+                "the padding cannot make them padding-independent."
+            )
 
         if config.add_pos_embed:
             self.position_embedding = nn.Embedding(config.max_seq_len, self.input_embedding_dim)
@@ -196,7 +205,12 @@ class Gr00tN1d7ActionHead(nn.Module):
     def process_backbone_output(self, backbone_output: BatchFeature) -> BatchFeature:
         backbone_features = backbone_output["backbone_features"]
         backbone_features = self.vlln(backbone_features)
-        backbone_features = self.vl_self_attention(backbone_features)
+        if self.mask_vl_padding:
+            backbone_features = self.vl_self_attention(
+                backbone_features, attention_mask=backbone_output["backbone_attention_mask"]
+            )
+        else:
+            backbone_features = self.vl_self_attention(backbone_features)
         backbone_output["backbone_features"] = backbone_features
         return backbone_output
 

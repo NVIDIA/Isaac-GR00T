@@ -41,7 +41,7 @@ import shutil
 import time
 from typing import Literal
 
-from gr00t.deployment.modes import FULL_PIPELINE_COMPONENTS, BuildEngineMode
+from gr00t.deployment.modes import FULL_PIPELINE_COMPONENTS, BuildEngineMode, components_to_build
 import onnx
 import tensorrt as trt
 import tyro
@@ -478,6 +478,7 @@ def build_full_pipeline(
                 f"Unknown pipeline component(s) {sorted(unknown)}; "
                 f"valid components: {sorted(valid_names)}"
             )
+    only = components_to_build(only, metadata)
 
     metadata_precision_keys = {"ViT": "vit", "LLM": "llm", "DiT": "dit"}
     component_precision: dict[str, str] = {}
