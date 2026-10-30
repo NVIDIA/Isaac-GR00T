@@ -11,7 +11,7 @@ dependencies = [
     "draccus",
     "matplotlib",
     "ipython",
-    "msgpack==1.1.0",
+    "msgpack==1.2.1",
     "msgpack-numpy==0.4.8",
     "transformers==4.57.3",
     "zmq",
