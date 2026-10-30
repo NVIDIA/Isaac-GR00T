@@ -510,14 +510,31 @@ class SelfAttentionTransformer(ModelMixin, ConfigMixin):
         self,
         hidden_states: torch.Tensor,  # Shape: (B, T, D)
         return_all_hidden_states: bool = False,
+        *,
+        attention_mask: Optional[torch.Tensor] = None,
     ):
+        """Refine VL tokens with an optional [B, T] mask (1/True means valid).
+
+        Mask padded keys in every layer so they cannot affect valid tokens.
+        Padded query outputs are retained; downstream attention must also mask them.
+        """
+        if attention_mask is not None:
+            if attention_mask.shape != hidden_states.shape[:2]:
+                raise ValueError(
+                    "attention_mask must have shape "
+                    f"{tuple(hidden_states.shape[:2])}, got {tuple(attention_mask.shape)}"
+                )
+            # Diffusers attention expects [B, Q, K], with a broadcast query axis.
+            attention_mask = attention_mask.to(device=hidden_states.device, dtype=torch.bool)
+            attention_mask = attention_mask.unsqueeze(1)
+
         # Process through transformer blocks - single pass through the blocks
         hidden_states = hidden_states.contiguous()
         all_hidden_states = [hidden_states]
 
         # Process through transformer blocks
         for idx, block in enumerate(self.transformer_blocks):
-            hidden_states = block(hidden_states)
+            hidden_states = block(hidden_states, attention_mask=attention_mask)
             all_hidden_states.append(hidden_states)
 
         if return_all_hidden_states:

@@ -88,6 +88,43 @@ from .n1d7_optimization_config import (  # noqa: E402
 from .trt_torch import Engine  # noqa: E402
 
 
+def _validate_vl_attention_engine(engine, *, strict_vl_padding_mask=False):
+    """Check that the VL engine was exported with the checkpoint's strict mode."""
+    has_mask = any(name == "attention_mask" for name, *_ in engine.in_meta)
+    if has_mask != strict_vl_padding_mask:
+        raise ValueError(
+            "VL Self-Attention engine attention_mask binding does not match "
+            f"strict_vl_padding_mask={strict_vl_padding_mask}. "
+            "Re-export vl_self_attention.onnx and rebuild vl_self_attention.engine "
+            "using the checkpoint's strict_vl_padding_mask setting."
+        )
+
+
+def _refine_vl_features(action_head, backbone_output, engine=None, *, cache_outputs=None):
+    """Apply the same VL padding mask in PyTorch and TensorRT inference."""
+    features = backbone_output["backbone_features"]
+    vlln_param = next(action_head.vlln.parameters(), None)
+    if vlln_param is not None:
+        features = features.to(dtype=vlln_param.dtype)
+    if engine is None:
+        backbone_output["backbone_features"] = features
+        return action_head.process_backbone_output(backbone_output)["backbone_features"]
+    strict = bool(action_head.config.strict_vl_padding_mask)
+    _validate_vl_attention_engine(engine, strict_vl_padding_mask=strict)
+    features = action_head.vlln(features)
+    features = features.to(dtype=engine.dtype_of("hidden_states"))
+    engine.set_runtime_tensor_shape("hidden_states", features.shape)
+    kwargs = {} if cache_outputs is None else {"cache_outputs": cache_outputs}
+    if strict:
+        mask = backbone_output.get("backbone_attention_mask")
+        if mask is None:
+            mask = torch.ones(features.shape[:2], dtype=torch.bool, device=features.device)
+        mask = mask.to(device=features.device, dtype=engine.dtype_of("attention_mask"))
+        engine.set_runtime_tensor_shape("attention_mask", mask.shape)
+        kwargs["attention_mask"] = mask
+    return engine(hidden_states=features, **kwargs)["output"]
+
+
 class GraphSafeEngine(Engine):
     """Engine variant with stable output addresses and asynchronous execution."""
 
@@ -228,6 +265,11 @@ class OptimizedActionHeadRunner:
             if metadata.get("export_mode") == "full_pipeline" and os.path.exists(vl_sa_path)
             else None
         )
+        if self.vl_sa_engine is not None:
+            _validate_vl_attention_engine(
+                self.vl_sa_engine,
+                strict_vl_padding_mask=bool(self.action_head.config.strict_vl_padding_mask),
+            )
         self.state_encoder_engine = GraphSafeEngine(
             os.path.join(engine_dir, "state_encoder.engine")
         )
@@ -450,13 +492,17 @@ class OptimizedActionHeadRunner:
         return state
 
     def _execute(self, state, cache_outputs=True):
-        backbone_features = self.action_head.vlln(state.backbone_features)
-        if self.vl_sa_engine is not None:
-            backbone_features = backbone_features.to(self.vl_sa_engine.dtype_of("hidden_states"))
-            self.vl_sa_engine.set_runtime_tensor_shape("hidden_states", backbone_features.shape)
-            vl_embs = self.vl_sa_engine(backbone_features, cache_outputs=cache_outputs)["output"]
-        else:
-            vl_embs = self.action_head.vl_self_attention(backbone_features)
+        vl_embs = _refine_vl_features(
+            self.action_head,
+            BatchFeature(
+                data={
+                    "backbone_features": state.backbone_features,
+                    "backbone_attention_mask": state.backbone_attention_mask,
+                }
+            ),
+            self.vl_sa_engine,
+            cache_outputs=cache_outputs,
+        )
 
         vl_embs = vl_embs.to(self.cross_kv_engine.dtype_of("vl_embs"))
         self.cross_kv_engine.set_runtime_tensor_shape("vl_embs", vl_embs.shape)
@@ -1063,22 +1109,9 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
         action_input: BatchFeature with state, embodiment_id
     """
     # --- VLLN (PyTorch) + vl_self_attention (TRT if available, else PyTorch) ---
-    backbone_features = backbone_output.backbone_features
-    # Keep dtype consistent with the PyTorch LayerNorm parameters to avoid
-    # fp16/bf16 mismatch when TRT backbone output precision differs.
-    vlln_param = next(self.vlln.parameters(), None)
-    vlln_dtype = vlln_param.dtype if vlln_param is not None else backbone_features.dtype
-    if backbone_features.dtype != vlln_dtype:
-        backbone_features = backbone_features.to(vlln_dtype)
-    backbone_features = self.vlln(backbone_features)
-    if hasattr(self, "vl_sa_engine") and self.vl_sa_engine is not None:
-        engine_dtype = self.vl_sa_engine.in_meta[0][2]
-        if backbone_features.dtype != engine_dtype:
-            backbone_features = backbone_features.to(engine_dtype)
-        self.vl_sa_engine.set_runtime_tensor_shape("hidden_states", backbone_features.shape)
-        backbone_features = self.vl_sa_engine(backbone_features)["output"]
-    else:
-        backbone_features = self.vl_self_attention(backbone_features)
+    backbone_features = _refine_vl_features(
+        self, backbone_output, getattr(self, "vl_sa_engine", None)
+    )
     vl_embs = backbone_features
 
     embodiment_id = action_input.embodiment_id
@@ -1388,6 +1421,10 @@ def _setup_n17_full_pipeline(policy, trt_engine_path):
     if os.path.exists(vl_sa_engine_path):
         print(f"Loading VL Self-Attention engine: {vl_sa_engine_path}")
         action_head.vl_sa_engine = Engine(vl_sa_engine_path)
+        _validate_vl_attention_engine(
+            action_head.vl_sa_engine,
+            strict_vl_padding_mask=bool(action_head.config.strict_vl_padding_mask),
+        )
         # Delete PyTorch module — TRT engine replaces it
         if hasattr(action_head, "vl_self_attention"):
             del action_head.vl_self_attention
