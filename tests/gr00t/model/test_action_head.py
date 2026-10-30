@@ -21,9 +21,10 @@ and feed it synthetic backbone output tensors.
 """
 
 import math
+from unittest.mock import patch
 
 from gr00t.configs.model.gr00t_n1d7 import Gr00tN1d7Config
-from gr00t.model.gr00t_n1d7.gr00t_n1d7 import Gr00tN1d7ActionHead
+from gr00t.model.gr00t_n1d7.gr00t_n1d7 import Gr00tN1d7ActionHead, _expand_action_mask
 import pytest
 import torch
 from transformers.feature_extraction_utils import BatchFeature
@@ -37,6 +38,7 @@ def _small_config(**overrides) -> Gr00tN1d7Config:
         max_state_dim=7,
         max_action_dim=7,
         action_horizon=4,
+        strict_action_padding_mask=True,
         state_history_length=1,
         num_inference_timesteps=2,
         max_num_embodiments=4,
@@ -82,7 +84,7 @@ def _make_backbone_output(config, batch_size=2, seq_len=8):
     return BatchFeature(
         data={
             "backbone_features": torch.randn(batch_size, seq_len, config.backbone_embedding_dim),
-            "backbone_attention_mask": torch.ones(batch_size, seq_len, dtype=torch.long),
+            "backbone_attention_mask": torch.ones(batch_size, seq_len, dtype=torch.bool),
             "image_mask": torch.ones(batch_size, seq_len, dtype=torch.bool),
         }
     )
@@ -97,6 +99,22 @@ def _make_action_input(config, batch_size=2):
             "action_mask": torch.ones(batch_size, config.action_horizon, config.max_action_dim),
         }
     )
+
+
+def test_strict_action_padding_mask_is_opt_in():
+    """A config without the field, as in older checkpoints, resolves to off."""
+    assert Gr00tN1d7Config().strict_action_padding_mask is None
+    config = _small_config(strict_action_padding_mask=None)
+    Gr00tN1d7ActionHead(config)
+    assert config.strict_action_padding_mask is False
+
+
+def test_expand_action_mask_rejects_horizon_only_mask():
+    actions = torch.zeros(2, 4, 7)
+    horizon_only_mask = torch.ones(2, 4)
+
+    with pytest.raises(ValueError, match="action_mask must have shape"):
+        _expand_action_mask(horizon_only_mask, actions)
 
 
 class TestActionHeadForward:
@@ -122,6 +140,47 @@ class TestActionHeadForward:
         head.train()
         out = head.forward(_make_backbone_output(config), _make_action_input(config))
         assert torch.isfinite(out["loss"])
+
+    def test_padded_noise_does_not_change_valid_loss(self, action_head):
+        head, config = action_head
+        first_backbone = _make_backbone_output(config)
+        second_backbone = BatchFeature(
+            data={key: value.clone() for key, value in first_backbone.items()}
+        )
+        first_input = _make_action_input(config)
+        first_input["action_mask"].zero_()
+        first_input["action_mask"][:, :2, :5] = 1
+        second_input = BatchFeature(data={key: value.clone() for key, value in first_input.items()})
+
+        first_noise = torch.randn_like(first_input["action"])
+        second_noise = first_noise.clone()
+        invalid = first_input["action_mask"] == 0
+        second_noise[invalid] = torch.randn_like(second_noise[invalid]) * 1_000
+        sample_time = torch.full((first_input["action"].shape[0],), 0.4)
+
+        with (
+            patch(
+                "gr00t.model.gr00t_n1d7.gr00t_n1d7.torch.randn",
+                return_value=first_noise,
+            ),
+            patch.object(head, "sample_time", return_value=sample_time),
+        ):
+            first_output = head.forward(first_backbone, first_input)
+        with (
+            patch(
+                "gr00t.model.gr00t_n1d7.gr00t_n1d7.torch.randn",
+                return_value=second_noise,
+            ),
+            patch.object(head, "sample_time", return_value=sample_time),
+        ):
+            second_output = head.forward(second_backbone, second_input)
+
+        valid = first_input["action_mask"].bool()
+        torch.testing.assert_close(
+            first_output["action_loss"][valid], second_output["action_loss"][valid]
+        )
+        assert torch.count_nonzero(first_output["action_loss"][~valid]) == 0
+        assert torch.count_nonzero(second_output["action_loss"][~valid]) == 0
 
 
 class TestActionHeadGetAction:
@@ -151,6 +210,124 @@ class TestActionHeadGetAction:
             action_input,
         )
         assert out["action_pred"].shape[0] == 1
+
+    def test_get_action_keeps_padding_zero(self, action_head):
+        head, config = action_head
+        action_input = _make_action_input(config)
+        del action_input["action"]
+        action_input["action_mask"].zero_()
+        action_input["action_mask"][:, :2, :5] = 1
+
+        out = head.get_action(_make_backbone_output(config), action_input)
+
+        invalid = action_input["action_mask"] == 0
+        assert torch.count_nonzero(out["action_pred"][invalid]) == 0
+
+    def test_strict_inference_requires_action_mask(self, action_head):
+        head, config = action_head
+        action_input = _make_action_input(config)
+        del action_input["action"]
+        del action_input["action_mask"]
+
+        with pytest.raises(
+            ValueError, match="action_mask is required when strict_action_padding_mask is enabled"
+        ):
+            head.get_action(_make_backbone_output(config), action_input)
+
+    def test_legacy_inference_ignores_action_mask(self):
+        config = _small_config(strict_action_padding_mask=False)
+        head = Gr00tN1d7ActionHead(config)
+        head.eval()
+        action_input = _make_action_input(config)
+        del action_input["action"]
+        action_input["action_mask"].zero_()
+        action_input["action_mask"][:, :2, :5] = 1
+        backbone_output = _make_backbone_output(config)
+
+        def zero_velocity(hidden_states, embodiment_id):
+            return torch.zeros(
+                *hidden_states.shape[:-1], config.max_action_dim, device=hidden_states.device
+            )
+
+        with (
+            patch(
+                "gr00t.model.gr00t_n1d7.gr00t_n1d7.torch.randn",
+                return_value=torch.ones(2, config.action_horizon, config.max_action_dim),
+            ),
+            patch.object(head.action_decoder, "forward", side_effect=zero_velocity),
+        ):
+            out = head.get_action(backbone_output, action_input)
+
+        torch.testing.assert_close(out["action_pred"], torch.ones_like(out["action_pred"]))
+
+
+class TestPlainDiTIgnoresVLPadding:
+    """With strict_vl_padding_mask, the plain DiT ignores padded VL tokens like AlternateVLDiT."""
+
+    @staticmethod
+    def _outputs(head, config, features, mask):
+        backbone_output = BatchFeature(
+            data={
+                "backbone_features": features,
+                "backbone_attention_mask": mask,
+                "image_mask": torch.zeros(mask.shape, dtype=torch.bool),
+            }
+        )
+        torch.manual_seed(1)
+        action_input = _make_action_input(config)
+        with torch.no_grad():
+            loss = head.forward(backbone_output, action_input)["loss"]
+            del action_input["action"]
+            torch.manual_seed(1)
+            pred = head.get_action(backbone_output, action_input)["action_pred"]
+        return loss, pred
+
+    @staticmethod
+    def _head(strict_vl_padding_mask):
+        torch.manual_seed(0)
+        config = _small_config(
+            use_alternate_vl_dit=False, strict_vl_padding_mask=strict_vl_padding_mask
+        )
+        return Gr00tN1d7ActionHead(config).eval(), config
+
+    @pytest.fixture
+    def plain_dit_head(self):
+        return self._head(strict_vl_padding_mask=True)
+
+    def _short_and_padded(self, head, config):
+        features = torch.randn(2, 6, config.backbone_embedding_dim)
+        garbage = 100 * torch.randn(2, 3, config.backbone_embedding_dim)
+        mask = torch.cat([torch.ones(2, 6), torch.zeros(2, 3)], dim=1).bool()
+
+        short = self._outputs(head, config, features, torch.ones(2, 6, dtype=torch.bool))
+        padded = self._outputs(head, config, torch.cat([features, garbage], dim=1), mask)
+        return short, padded
+
+    def test_padded_tokens_are_as_inert_as_absent_ones(self, plain_dit_head):
+        short, padded = self._short_and_padded(*plain_dit_head)
+        torch.testing.assert_close(padded, short)
+
+    def test_checkpoint_without_the_flag_keeps_legacy_behavior(self):
+        """A config missing the field resolves to off, and the padding still reaches the DiT."""
+        head, config = self._head(strict_vl_padding_mask=None)
+        assert config.strict_vl_padding_mask is False
+
+        (short_loss, short_pred), (padded_loss, padded_pred) = self._short_and_padded(head, config)
+        assert not torch.allclose(padded_loss, short_loss)
+        assert not torch.allclose(padded_pred, short_pred)
+
+    def test_per_sample_left_padding_values_do_not_matter(self, plain_dit_head):
+        head, config = plain_dit_head
+        features = torch.randn(2, 9, config.backbone_embedding_dim)
+        mask = torch.ones(2, 9, dtype=torch.bool)
+        mask[0, :3] = False
+
+        other = features.clone()
+        other[0, :3] = 100 * torch.randn(3, config.backbone_embedding_dim)
+        torch.testing.assert_close(
+            self._outputs(head, config, other, mask),
+            self._outputs(head, config, features, mask),
+        )
 
 
 class TestActionHeadEncodeFeatures:

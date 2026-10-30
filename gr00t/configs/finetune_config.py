@@ -63,6 +63,22 @@ class FinetuneConfig:
     Dropout probability applied to state inputs for regularization during training.
     """
 
+    strict_vl_padding_mask: bool | None = None
+    """
+    If True, keep left-padded VL tokens out of the action head. None keeps the value of
+    the checkpoint being fine-tuned, which is off for released checkpoints.
+    """
+
+    strict_action_padding_mask: bool | None = None
+    """
+    If True, keep padded action dimensions and horizon tokens out of the action encoder and
+    the DiT self-attention. None keeps the value of the checkpoint being fine-tuned, which is
+    off for released checkpoints, since they were trained with that padding visible; enable
+    it for runs whose checkpoints will also be served with it on.
+    Such checkpoints have to be served with the PyTorch action head: the TensorRT paths refuse
+    them because the engines cannot reproduce the masking.
+    """
+
     # --- Data Augmentation ---
     random_rotation_angle: int | None = None
     """Maximum rotation angle (in degrees) for random rotation augmentation of input images."""

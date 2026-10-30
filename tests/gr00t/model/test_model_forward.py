@@ -103,7 +103,7 @@ def _make_mock_backbone(config, seq_len=8):
                 "backbone_features": torch.randn(
                     B, seq_len, config.backbone_embedding_dim, device=device, dtype=dtype
                 ),
-                "backbone_attention_mask": torch.ones(B, seq_len, device=device, dtype=torch.long),
+                "backbone_attention_mask": torch.ones(B, seq_len, device=device, dtype=torch.bool),
                 "image_mask": torch.ones(B, seq_len, device=device, dtype=torch.bool),
             }
         )

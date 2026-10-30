@@ -3,6 +3,9 @@
 
 """Regression tests for padding isolation in the VL fusion transformer."""
 
+import copy
+from types import MethodType
+
 from gr00t.configs.model.gr00t_n1d7 import Gr00tN1d7Config
 from gr00t.model.gr00t_n1d7.gr00t_n1d7 import Gr00tN1d7ActionHead
 from gr00t.model.modules.dit import SelfAttentionTransformer
@@ -40,6 +43,7 @@ def _head_config(**overrides):
         tune_projector=True,
         tune_diffusion_model=True,
         use_alternate_vl_dit=True,
+        strict_vl_padding_mask=True,
         attend_text_every_n_blocks=2,
         vl_self_attention_cfg=_fusion_config(),
         diffusion_model_cfg=dict(
@@ -126,8 +130,9 @@ def test_fusion_without_padding_preserves_existing_output():
     torch.testing.assert_close(output, layers[-1])
 
 
-def test_action_head_passes_padding_mask_to_fusion():
-    head = Gr00tN1d7ActionHead(_head_config()).eval()
+@pytest.mark.parametrize("alternate", [False, True])
+def test_action_head_passes_padding_mask_to_fusion(alternate):
+    head = Gr00tN1d7ActionHead(_head_config(use_alternate_vl_dit=alternate)).eval()
     features, changed, mask = _inputs()
     original = head.process_backbone_output(_backbone(features, mask))
     perturbed = head.process_backbone_output(_backbone(changed, mask))
@@ -142,8 +147,9 @@ def test_action_head_without_fusion_accepts_padding_mask():
     torch.testing.assert_close(output.backbone_features, head.vlln(features))
 
 
-def test_padded_training_loss_and_gradients_are_isolated():
-    head = Gr00tN1d7ActionHead(_head_config()).train()
+@pytest.mark.parametrize("alternate", [False, True])
+def test_padded_training_loss_and_gradients_are_isolated(alternate):
+    head = Gr00tN1d7ActionHead(_head_config(use_alternate_vl_dit=alternate)).train()
     features, changed, mask = _inputs()
     features.requires_grad_()
     actions = _actions()
@@ -162,8 +168,9 @@ def test_padded_training_loss_and_gradients_are_isolated():
     assert not torch.equal(before, head.vl_self_attention.transformer_blocks[0].attn1.to_q.weight)
 
 
-def test_padded_action_predictions_are_isolated():
-    head = Gr00tN1d7ActionHead(_head_config()).eval()
+@pytest.mark.parametrize("alternate", [False, True])
+def test_padded_action_predictions_are_isolated(alternate):
+    head = Gr00tN1d7ActionHead(_head_config(use_alternate_vl_dit=alternate)).eval()
     features, changed, mask = _inputs()
     actions = _actions()
     del actions["action"]
@@ -172,3 +179,72 @@ def test_padded_action_predictions_are_isolated():
     torch.manual_seed(31)
     perturbed = head.get_action(_backbone(changed, mask), actions)
     torch.testing.assert_close(original.action_pred, perturbed.action_pred)
+
+
+@pytest.mark.parametrize("alternate", [False, True])
+@pytest.mark.parametrize("strict", [None, False])
+def test_legacy_checkpoint_preserves_features_loss_and_actions(alternate, strict):
+    config_dict = _head_config(use_alternate_vl_dit=alternate).to_dict()
+    if strict is None:
+        # Released checkpoints predate this field entirely.
+        del config_dict["strict_vl_padding_mask"]
+    else:
+        config_dict["strict_vl_padding_mask"] = strict
+    head = Gr00tN1d7ActionHead(Gr00tN1d7Config.from_dict(config_dict)).eval()
+    assert head.config.strict_vl_padding_mask is False
+    reference = copy.deepcopy(head)
+
+    def legacy_process(self, backbone):
+        features = self.vlln(backbone["backbone_features"])
+        # Independent pre-patch fusion path: no mask in any block.
+        features = features.contiguous()
+        for block in self.vl_self_attention.transformer_blocks:
+            features = block(features)
+        backbone["backbone_features"] = features
+        return backbone
+
+    reference.process_backbone_output = MethodType(legacy_process, reference)
+    features, _, mask = _inputs()
+    torch.testing.assert_close(
+        head.process_backbone_output(_backbone(features, mask)).backbone_features,
+        reference.process_backbone_output(_backbone(features, mask)).backbone_features,
+        rtol=0,
+        atol=0,
+    )
+    actions = _actions()
+    torch.manual_seed(31)
+    actual_loss = head(_backbone(features, mask), actions)["loss"]
+    torch.manual_seed(31)
+    expected_loss = reference(_backbone(features, mask), actions)["loss"]
+    torch.testing.assert_close(actual_loss, expected_loss, rtol=0, atol=0)
+    del actions["action"]
+    torch.manual_seed(31)
+    actual = head.get_action(_backbone(features, mask), actions).action_pred
+    torch.manual_seed(31)
+    expected = reference.get_action(_backbone(features, mask), actions).action_pred
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_checkpoint_roundtrip_preserves_strict_setting_and_weights(tmp_path, strict):
+    head = Gr00tN1d7ActionHead(_head_config(strict_vl_padding_mask=strict)).eval()
+    head.config.save_pretrained(tmp_path)
+    restored = Gr00tN1d7ActionHead(Gr00tN1d7Config.from_pretrained(tmp_path)).eval()
+    restored.load_state_dict(head.state_dict(), strict=True)
+    assert restored.config.strict_vl_padding_mask is strict
+    other = Gr00tN1d7ActionHead(_head_config(strict_vl_padding_mask=not strict))
+    other.load_state_dict(head.state_dict(), strict=True)
+    features, _, mask = _inputs()
+    torch.testing.assert_close(
+        head.process_backbone_output(_backbone(features, mask)).backbone_features,
+        restored.process_backbone_output(_backbone(features, mask)).backbone_features,
+        rtol=0,
+        atol=0,
+    )
+
+
+def test_fusion_rejects_wrong_mask_shape():
+    model = SelfAttentionTransformer(**_fusion_config()).eval()
+    features, _, mask = _inputs()
+    with pytest.raises(ValueError, match="attention_mask must have shape"):
+        model(features, attention_mask=mask.unsqueeze(1))

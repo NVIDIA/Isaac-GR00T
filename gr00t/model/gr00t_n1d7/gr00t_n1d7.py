@@ -35,6 +35,23 @@ from gr00t.model.modules.embodiment_conditioned_mlp import (
 logger = logging.getLogger(__name__)
 
 
+def _expand_action_mask(
+    action_mask: torch.Tensor | None, actions: torch.Tensor
+) -> torch.Tensor | None:
+    if action_mask is None:
+        return None
+    if action_mask.ndim != 3 or action_mask.shape[:2] != actions.shape[:2]:
+        raise ValueError(
+            "action_mask must have shape "
+            f"(batch, horizon, action_dim), got {tuple(action_mask.shape)}"
+        )
+    if action_mask.shape[-1] not in (1, actions.shape[-1]):
+        raise ValueError(
+            f"action_mask dimension must be 1 or {actions.shape[-1]}, got {action_mask.shape[-1]}"
+        )
+    return action_mask.to(device=actions.device, dtype=actions.dtype).expand_as(actions)
+
+
 class Gr00tN1d7ActionHead(nn.Module):
     """Action head component for flow matching diffusion policy."""
 
@@ -42,6 +59,10 @@ class Gr00tN1d7ActionHead(nn.Module):
 
     def __init__(self, config: Gr00tN1d7Config):
         super().__init__()
+        if config.strict_vl_padding_mask is None:
+            config.strict_vl_padding_mask = False
+        if config.strict_action_padding_mask is None:
+            config.strict_action_padding_mask = False
         self.config = config
         self.hidden_size = config.hidden_size
         self.input_embedding_dim = config.input_embedding_dim
@@ -175,7 +196,9 @@ class Gr00tN1d7ActionHead(nn.Module):
     def process_backbone_output(self, backbone_output: BatchFeature) -> BatchFeature:
         backbone_features = backbone_output["backbone_features"]
         backbone_features = self.vlln(backbone_features)
-        if isinstance(self.vl_self_attention, SelfAttentionTransformer):
+        if self.config.strict_vl_padding_mask and isinstance(
+            self.vl_self_attention, SelfAttentionTransformer
+        ):
             backbone_features = self.vl_self_attention(
                 backbone_features,
                 attention_mask=backbone_output.get("backbone_attention_mask"),
@@ -233,12 +256,25 @@ class Gr00tN1d7ActionHead(nn.Module):
 
         # Embed noised action trajectory.
         actions = action_input.action
+        action_mask = _expand_action_mask(action_input.action_mask, actions)
+        if action_mask is None:
+            raise ValueError("action_mask is required during training")
+        strict_action_mask = action_mask if self.config.strict_action_padding_mask else None
+        if strict_action_mask is not None:
+            actions = actions * strict_action_mask
         noise = torch.randn(actions.shape, device=actions.device, dtype=actions.dtype)
+        if strict_action_mask is not None:
+            noise = noise * strict_action_mask
         t = self.sample_time(actions.shape[0], device=actions.device, dtype=actions.dtype)
         t = t[:, None, None]  # shape (B,1,1) for broadcast
 
         noisy_trajectory = (1 - t) * noise + t * actions
         velocity = actions - noise
+        action_token_mask = None
+        if strict_action_mask is not None:
+            noisy_trajectory = noisy_trajectory * strict_action_mask
+            velocity = velocity * strict_action_mask
+            action_token_mask = strict_action_mask.any(dim=-1)
 
         # Convert (continuous) t -> discrete if needed
         t_discretized = (t[:, 0, 0] * self.num_timestep_buckets).long()
@@ -249,9 +285,22 @@ class Gr00tN1d7ActionHead(nn.Module):
             pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
             pos_embs = self.position_embedding(pos_ids).unsqueeze(0)
             action_features = action_features + pos_embs
+        if action_token_mask is not None:
+            action_features = action_features * action_token_mask.unsqueeze(-1).to(
+                dtype=action_features.dtype
+            )
 
         # Join vision, language, state and action embedding along sequence dimension.
         sa_embs = torch.cat((state_features, action_features), dim=1)
+        hidden_attention_mask = None
+        if action_token_mask is not None:
+            hidden_attention_mask = torch.cat(
+                (
+                    torch.ones(state_features.shape[:2], device=device, dtype=torch.bool),
+                    action_token_mask,
+                ),
+                dim=1,
+            )
         vl_attn_mask = backbone_output.backbone_attention_mask
 
         if self.config.use_alternate_vl_dit:
@@ -265,21 +314,24 @@ class Gr00tN1d7ActionHead(nn.Module):
                 return_all_hidden_states=True,
                 image_mask=image_mask,
                 backbone_attention_mask=backbone_attention_mask,
+                hidden_attention_mask=hidden_attention_mask,
             )
         else:
             model_output, _ = self.model(
                 hidden_states=sa_embs,
                 encoder_hidden_states=vl_embeds,
-                encoder_attention_mask=vl_attn_mask,
+                encoder_attention_mask=vl_attn_mask if self.config.strict_vl_padding_mask else None,
                 timestep=t_discretized,
                 return_all_hidden_states=True,
+                hidden_attention_mask=hidden_attention_mask,
             )
 
         pred = self.action_decoder(model_output, embodiment_id)
         pred_actions = pred[:, -actions.shape[1] :]
+        if strict_action_mask is not None:
+            pred_actions = pred_actions * strict_action_mask
 
         # Slice out only the action portion of pred and target.
-        action_mask = action_input.action_mask
         action_loss = F.mse_loss(pred_actions, velocity, reduction="none") * action_mask
         loss = action_loss.sum() / (action_mask.sum() + 1e-6)
 
@@ -360,6 +412,26 @@ class Gr00tN1d7ActionHead(nn.Module):
 
         dt = 1.0 / self.num_inference_timesteps
         vel_strength = torch.ones_like(actions)
+        action_mask = None
+        if self.config.strict_action_padding_mask:
+            action_mask = _expand_action_mask(action_input.get("action_mask"), actions)
+            if action_mask is None:
+                raise ValueError(
+                    "action_mask is required when strict_action_padding_mask is enabled"
+                )
+        action_token_mask = None
+        hidden_attention_mask = None
+        if action_mask is not None:
+            actions = actions * action_mask
+            vel_strength = vel_strength * action_mask
+            action_token_mask = action_mask.any(dim=-1)
+            hidden_attention_mask = torch.cat(
+                (
+                    torch.ones(state_features.shape[:2], device=device, dtype=torch.bool),
+                    action_token_mask,
+                ),
+                dim=1,
+            )
 
         if "action" in action_input:
             # If action in input when doing get action, it means we want to use RTC.
@@ -405,6 +477,8 @@ class Gr00tN1d7ActionHead(nn.Module):
             t_discretized = int(t_cont * self.num_timestep_buckets)
 
             # Embed noised action trajectory.
+            if action_mask is not None:
+                actions = actions * action_mask
             timesteps_tensor = torch.full(
                 size=(batch_size,), fill_value=t_discretized, device=device
             )
@@ -414,6 +488,10 @@ class Gr00tN1d7ActionHead(nn.Module):
                 pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
                 pos_embs = self.position_embedding(pos_ids).unsqueeze(0)
                 action_features = action_features + pos_embs
+            if action_token_mask is not None:
+                action_features = action_features * action_token_mask.unsqueeze(-1).to(
+                    dtype=action_features.dtype
+                )
 
             # Join vision, language, state and action embedding along sequence dimension.
             sa_embs = torch.cat((state_features, action_features), dim=1)
@@ -426,19 +504,30 @@ class Gr00tN1d7ActionHead(nn.Module):
                     timestep=timesteps_tensor,
                     image_mask=backbone_output.image_mask,
                     backbone_attention_mask=backbone_output.backbone_attention_mask,
+                    hidden_attention_mask=hidden_attention_mask,
                 )
             else:
                 model_output = self.model(
                     hidden_states=sa_embs,
                     encoder_hidden_states=vl_embeds,
                     timestep=timesteps_tensor,
+                    encoder_attention_mask=(
+                        backbone_output.backbone_attention_mask
+                        if self.config.strict_vl_padding_mask
+                        else None
+                    ),
+                    hidden_attention_mask=hidden_attention_mask,
                 )
             pred = self.action_decoder(model_output, embodiment_id)
 
             pred_velocity = pred[:, -self.action_horizon :]
+            if action_mask is not None:
+                pred_velocity = pred_velocity * action_mask
 
             # Update actions using euler integration.
             actions = actions + dt * pred_velocity * vel_strength
+            if action_mask is not None:
+                actions = actions * action_mask
 
         return BatchFeature(
             data={

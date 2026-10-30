@@ -18,12 +18,47 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 from pathlib import Path
 import tempfile
 
 from filelock import FileLock
 import pytest
+
+
+def _retain_failure_output(report) -> None:
+    """Keep complete failed-test output in CI artifacts and bound console sections."""
+    directory = os.environ.get("PYTEST_FAILURE_LOG_DIR")
+    if not directory or not report.failed:
+        return
+    identity = hashlib.sha256((report.nodeid + report.when).encode()).hexdigest()[:16]
+    path = Path(directory) / f"{identity}-{report.when}.log"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w") as stream:
+            stream.write(f"{report.nodeid} ({report.when})\n\n{report.longrepr}\n")
+            for name, content in report.sections:
+                stream.write(f"\n=== {name} ===\n{content}\n")
+        note = f"Complete failure log: {path}"
+    except OSError as error:
+        # Artifact storage trouble must not hide the original test failure.
+        note = f"Could not retain full failure log at {path}: {type(error).__name__}"
+        report.sections.append(("Failure log retention", note))
+    limit = 8192
+    report.sections[:] = [
+        (
+            name,
+            f"[Output truncated; {note}]\n" + content[-limit:] if len(content) > limit else content,
+        )
+        for name, content in report.sections
+    ]
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    _retain_failure_output(outcome.get_result())
 
 
 def _pin_xdist_worker_to_gpu() -> None:

@@ -59,6 +59,10 @@ import os
 import sys
 from typing import Optional
 
+from gr00t.deployment.action_padding import (
+    STRICT_ACTION_PADDING_MASK_UNSUPPORTED_MODES,
+    assert_strict_action_padding_mask_disabled,
+)
 from gr00t.deployment.modes import InferenceMode
 import torch
 from transformers.feature_extraction_utils import BatchFeature
@@ -84,12 +88,15 @@ from .n1d7_optimization_config import (  # noqa: E402
 from .trt_torch import Engine  # noqa: E402
 
 
-def _validate_vl_attention_engine(engine):
-    """Require a mask-aware VL engine before replacing the PyTorch module."""
-    if not any(name == "attention_mask" for name, *_ in engine.in_meta):
+def _validate_vl_attention_engine(engine, *, strict_vl_padding_mask=False):
+    """Check that the VL engine was exported with the checkpoint's strict mode."""
+    has_mask = any(name == "attention_mask" for name, *_ in engine.in_meta)
+    if has_mask != strict_vl_padding_mask:
         raise ValueError(
-            "VL Self-Attention engine is missing attention_mask. "
-            "Re-export vl_self_attention.onnx and rebuild vl_self_attention.engine."
+            "VL Self-Attention engine attention_mask binding does not match "
+            f"strict_vl_padding_mask={strict_vl_padding_mask}. "
+            "Re-export vl_self_attention.onnx and rebuild vl_self_attention.engine "
+            "using the checkpoint's strict_vl_padding_mask setting."
         )
 
 
@@ -102,17 +109,20 @@ def _refine_vl_features(action_head, backbone_output, engine=None, *, cache_outp
     if engine is None:
         backbone_output["backbone_features"] = features
         return action_head.process_backbone_output(backbone_output)["backbone_features"]
-    _validate_vl_attention_engine(engine)
+    strict = bool(action_head.config.strict_vl_padding_mask)
+    _validate_vl_attention_engine(engine, strict_vl_padding_mask=strict)
     features = action_head.vlln(features)
     features = features.to(dtype=engine.dtype_of("hidden_states"))
-    mask = backbone_output.get("backbone_attention_mask")
-    if mask is None:
-        mask = torch.ones(features.shape[:2], dtype=torch.bool, device=features.device)
-    mask = mask.to(device=features.device, dtype=engine.dtype_of("attention_mask"))
     engine.set_runtime_tensor_shape("hidden_states", features.shape)
-    engine.set_runtime_tensor_shape("attention_mask", mask.shape)
     kwargs = {} if cache_outputs is None else {"cache_outputs": cache_outputs}
-    return engine(hidden_states=features, attention_mask=mask, **kwargs)["output"]
+    if strict:
+        mask = backbone_output.get("backbone_attention_mask")
+        if mask is None:
+            mask = torch.ones(features.shape[:2], dtype=torch.bool, device=features.device)
+        mask = mask.to(device=features.device, dtype=engine.dtype_of("attention_mask"))
+        engine.set_runtime_tensor_shape("attention_mask", mask.shape)
+        kwargs["attention_mask"] = mask
+    return engine(hidden_states=features, **kwargs)["output"]
 
 
 class GraphSafeEngine(Engine):
@@ -256,7 +266,10 @@ class OptimizedActionHeadRunner:
             else None
         )
         if self.vl_sa_engine is not None:
-            _validate_vl_attention_engine(self.vl_sa_engine)
+            _validate_vl_attention_engine(
+                self.vl_sa_engine,
+                strict_vl_padding_mask=bool(self.action_head.config.strict_vl_padding_mask),
+            )
         self.state_encoder_engine = GraphSafeEngine(
             os.path.join(engine_dir, "state_encoder.engine")
         )
@@ -1266,6 +1279,11 @@ def setup_tensorrt_engines(policy, trt_engine_path, mode=InferenceMode.n17_full_
             source=f"setup_tensorrt_engines({mode})",
         )
 
+    if mode in STRICT_ACTION_PADDING_MASK_UNSUPPORTED_MODES:
+        assert_strict_action_padding_mask_disabled(
+            policy.model.action_head.config, f"TensorRT mode {mode.value}"
+        )
+
     checked_metadata = assert_engine_matches_policy(
         policy, trt_engine_path, source=f"setup_tensorrt_engines({mode})"
     )
@@ -1403,7 +1421,10 @@ def _setup_n17_full_pipeline(policy, trt_engine_path):
     if os.path.exists(vl_sa_engine_path):
         print(f"Loading VL Self-Attention engine: {vl_sa_engine_path}")
         action_head.vl_sa_engine = Engine(vl_sa_engine_path)
-        _validate_vl_attention_engine(action_head.vl_sa_engine)
+        _validate_vl_attention_engine(
+            action_head.vl_sa_engine,
+            strict_vl_padding_mask=bool(action_head.config.strict_vl_padding_mask),
+        )
         # Delete PyTorch module — TRT engine replaces it
         if hasattr(action_head, "vl_self_attention"):
             del action_head.vl_self_attention

@@ -60,6 +60,7 @@ from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.utils import parse_observation_gr00t
+from gr00t.deployment.action_padding import assert_strict_action_padding_mask_disabled
 from gr00t.deployment.modes import ExportMode
 from gr00t.model.modules.qwen3_backbone import _assign_inv_freq, recompute_vision_rotary_inv_freq
 from gr00t.policy.gr00t_policy import Gr00tPolicy
@@ -1485,9 +1486,11 @@ def export_vl_self_attention_to_onnx(
     This module sits between VLLN and the DiT, transforming backbone
     embeddings. If the model has no vl_self_attention (nn.Identity), skip.
 
-    Inputs: hidden_states [B, T, backbone_embedding_dim], attention_mask [B, T]
-    (T is dynamic; True means valid.) Output: hidden_states [B, T, backbone_embedding_dim]
-    Rebuild existing VL TensorRT engines to include the attention_mask input.
+    Input: hidden_states [B, T, backbone_embedding_dim] (T is dynamic).
+    With strict_vl_padding_mask=True, also export attention_mask [B, T] (True means valid).
+    Output: hidden_states [B, T, backbone_embedding_dim].
+    Default mode preserves the legacy single-input engine contract. Enabling strict
+    mode requires re-exporting and rebuilding the VL engine with its mask input.
     """
     vl_sa = policy.model.action_head.vl_self_attention
     if isinstance(vl_sa, nn.Identity):
@@ -1506,15 +1509,27 @@ def export_vl_self_attention_to_onnx(
             super().__init__()
             self.transformer = transformer
 
-        def forward(self, hidden_states, attention_mask):
+        def forward(self, hidden_states, attention_mask=None):
+            if attention_mask is None:
+                return self.transformer(hidden_states)
             return self.transformer(hidden_states, attention_mask=attention_mask)
 
+    strict = bool(config.strict_vl_padding_mask)
+    # A wrapper also keeps the legacy exporter from passing the transformer's
+    # keyword-only attention_mask argument positionally in single-input mode.
     model = VLAttentionWrapper(vl_sa).to(dtype).eval().cuda()
 
     hidden_states = torch.randn(
         batch_size, vl_seq_len, config.backbone_embedding_dim, dtype=dtype, device="cuda"
     )
-    attention_mask = torch.ones(batch_size, vl_seq_len, dtype=torch.bool, device="cuda")
+    inputs = (hidden_states,)
+    input_names = ["hidden_states"]
+    dynamic_axes = {"hidden_states": {1: "seq_len"}, "output": {1: "seq_len"}}
+    if strict:
+        attention_mask = torch.ones(batch_size, vl_seq_len, dtype=torch.bool, device="cuda")
+        inputs += (attention_mask,)
+        input_names.append("attention_mask")
+        dynamic_axes["attention_mask"] = {1: "seq_len"}
     logger.info(f"  hidden_states: {hidden_states.shape} ({hidden_states.dtype})")
 
     output_path = os.path.join(output_dir, "vl_self_attention.onnx")
@@ -1527,15 +1542,11 @@ def export_vl_self_attention_to_onnx(
     with torch.inference_mode():
         torch.onnx.export(
             model,
-            (hidden_states, attention_mask),
+            inputs,
             output_path,
-            input_names=["hidden_states", "attention_mask"],
+            input_names=input_names,
             output_names=["output"],
-            dynamic_axes={
-                "hidden_states": {1: "seq_len"},
-                "attention_mask": {1: "seq_len"},
-                "output": {1: "seq_len"},
-            },
+            dynamic_axes=dynamic_axes,
             opset_version=19,
             do_constant_folding=True,
             export_params=True,
@@ -1979,6 +1990,9 @@ def main(args):
         device="cuda",
     )
     logger.info("  Policy loaded")
+    assert_strict_action_padding_mask_disabled(
+        policy.model.action_head.config, "ONNX export for TensorRT"
+    )
 
     # Step 2: Load dataset
     logger.info("\n[Step 2] Loading dataset...")

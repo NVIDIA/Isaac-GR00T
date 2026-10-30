@@ -289,6 +289,7 @@ def test_optimized_action_head_ignores_stale_vl_engine(
         _load_constants=lambda path: {},
         _make_position_embeddings=lambda: None,
     )
-    scope["__init__"](runtime, object(), str(tmp_path), metadata, str(tmp_path / "dit_bf16.engine"))
+    head = SimpleNamespace(config=SimpleNamespace(strict_vl_padding_mask=True))
+    scope["__init__"](runtime, head, str(tmp_path), metadata, str(tmp_path / "dit_bf16.engine"))
     assert (str(vl_engine) in loaded) == expect_loaded
     assert (runtime.vl_sa_engine is not None) == expect_loaded

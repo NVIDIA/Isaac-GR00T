@@ -69,6 +69,8 @@ GR00T N1.7 is trained on a diverse mixture of robot data including bimanual, sem
 
 GR00T N1.7 is fully commercially licensable under Apache 2.0. It delivers comparable performance to N1.6, with improved generalization and language-following capabilities driven by the inclusion of 20K hours of EgoScale human video data in pretraining.
 
+**GR00T N1.7 runs at ~40 Hz on NVIDIA RTX PRO 6000 Blackwell Server Edition and ~28 Hz on Jetson AGX Thor** with TensorRT. [Benchmark details](scripts/deployment/README.md#benchmark-results) (batch-1 LIBERO; Thor MAXN + `jetson_clocks`).
+
 The neural network architecture of GR00T N1.7 is a combination of vision-language foundation model and diffusion transformer head that denoises continuous actions. Here is a schematic diagram of the architecture:
 
 <div align="center">
@@ -134,6 +136,26 @@ the N1.6 model package and runtime behavior.
 **Fine-tuning:** 1 or more GPUs with 40 GB+ VRAM recommended. We recommend H100 or L40 nodes for optimal performance. Other hardware (e.g., A6000) works but may require longer training time. See the [Hardware Recommendation Guide](getting_started/hardware_recommendation.md) for detailed specs.
 
 **CUDA / Python per platform:** dGPU on CUDA 12.8 with Python 3.12; Jetson Thor and Orin on JetPack 7.2 / CUDA 13.2 with Python 3.12; DGX Spark on CUDA 13.0 with Python 3.12. The per-platform install scripts and Dockerfiles live under `scripts/deployment/`; see the [Deployment & Inference Guide](scripts/deployment/README.md) for the full matrix.
+
+### N1.7 Single-GPU Training Performance
+
+Training measurements cover the non-edge GPUs used for development and post-training.
+The standard batch is 1 and uses the same canonical two-camera workload on every
+device. A timed step includes the synchronized BF16 forward pass, backward pass,
+and AdamW update. The language and visual backbones are frozen while the projector,
+diffusion model, and VLLN modules are trainable. Maximum batch is the largest local
+batch that completed, bounded by an adjacent CUDA out-of-memory trial.
+
+| Device | Standard batch | Training step (ms) | Max batch | Max-batch step (ms) | Samples/s |
+|---|---:|---:|---:|---:|---:|
+| H100 80GB HBM3 | 1 | 115.5 | 409 | 2123.9 | 192.57 |
+| L40 | 1 | 190.5 | 213 | 3775.5 | 56.42 |
+| RTX Pro 6000 Blackwell Server Edition (96 GB) | 1 | 119.3 | 502 | 3822.4 | 131.33 |
+
+Each passing batch uses two warmup steps and five timed steps; the table reports
+the median. Candidates run in fresh processes, doubling from batch 1 until OOM and
+then bisecting to an adjacent pass/OOM boundary. Data loading is excluded. These
+are local optimizer-step measurements, not distributed-training results.
 
 ### Clone the Repository
 
@@ -484,6 +506,8 @@ Replace `demo_data/cube_to_bowl_5` and `examples/SO100/so100_config.py` with you
 - Maximize batch size for your hardware and train for a few thousand steps.
 - Users may observe 5-6% variance between runs due to non-deterministic image augmentations. Keep this in mind when comparing to reported benchmarks.
 - **`--state_dropout_prob`** (model config default: 0.8; finetune CLI default: 0.2; see `gr00t/configs/finetune_config.py`): Randomly drops state inputs during training to improve generalization and reduce state-dependency. The shipped benchmark scripts override the CLI default per suite: LIBERO 10-Long uses 0.2 (the CLI default), SimplerEnv Bridge uses 0.8, SimplerEnv Fractal uses 0.5. If your task relies heavily on proprioceptive state, lower this value.
+- **`--strict_vl_padding_mask`** (default: inherit from the checkpoint, off for released checkpoints; see `gr00t/configs/finetune_config.py`): Masks padded keys in every VL fusion self-attention layer and in the plain DiT cross-attention. AlternateVLDiT already masks its cross-attention inputs, but also needs the fusion mask to prevent padding from affecting valid VL features beforehand. It stays off for existing checkpoints to preserve their behavior; new training runs may opt in. The setting is persisted in the checkpoint's `config.json`, and fine-tuning a checkpoint keeps its value unless the flag is given. VL ONNX/TensorRT export follows the same setting: off preserves the legacy single-input engine; enabling it adds an `attention_mask` input and requires rebuilding the VL engine. Runtime rejects an engine whose mask binding does not match the checkpoint's setting.
+- **`--strict_action_padding_mask`** (default: inherit from the checkpoint, off for released checkpoints; see `gr00t/configs/finetune_config.py`): Keeps padded action dimensions and horizon tokens out of the action encoder and the DiT self-attention. A real embodiment fills only part of the fixed `action_horizon` x `max_action_dim` canvas, and released checkpoints were both trained and served with the remaining padding visible, so this stays off by default to preserve their behavior. New training runs may opt in when the same strict masking behavior will be used at inference. The setting is persisted in the checkpoint's `config.json` and `processor_config.json`, and fine-tuning a checkpoint keeps its value unless the flag is given. Checkpoints trained with it on must be served with the PyTorch action head: the TensorRT export and engine-swap paths refuse them, because the engines have no `hidden_attention_mask` input and would serve the padding as visible again.
 
 ---
 
