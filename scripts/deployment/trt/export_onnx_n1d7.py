@@ -60,7 +60,6 @@ from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.utils import parse_observation_gr00t
-from gr00t.deployment.action_padding import assert_strict_action_padding_mask_disabled
 from gr00t.deployment.modes import ExportMode
 from gr00t.model.modules.qwen3_backbone import _assign_inv_freq, recompute_vision_rotary_inv_freq
 from gr00t.policy.gr00t_policy import Gr00tPolicy
@@ -222,8 +221,11 @@ class CachedCrossKVDiT(nn.Module):
         output_modulation,
         image_mask,
         backbone_attention_mask,
+        hidden_attention_mask=None,
     ):
-        hidden_states = sa_embs.contiguous()
+        from gr00t.model.modules.dit import _mask_hidden_states
+
+        hidden_states = _mask_hidden_states(sa_embs.contiguous(), hidden_attention_mask)
         image_attention_mask = image_mask & backbone_attention_mask
         non_image_attention_mask = (~image_mask) & backbone_attention_mask
 
@@ -239,7 +241,7 @@ class CachedCrossKVDiT(nn.Module):
                 from gr00t.model.modules.dit import _sdpa_context
 
                 with _sdpa_context():
-                    attention_output = block.attn1(normalized)
+                    attention_output = block.attn1(normalized, attention_mask=hidden_attention_mask)
             else:
                 if index % (2 * self.dit.attend_text_every_n_blocks) == 0:
                     attention_mask = non_image_attention_mask
@@ -258,11 +260,13 @@ class CachedCrossKVDiT(nn.Module):
                 attention_output = block.final_dropout(attention_output)
             hidden_states = attention_output + hidden_states
             hidden_states = block.ff(block.norm3(hidden_states)) + hidden_states
+            hidden_states = _mask_hidden_states(hidden_states, hidden_attention_mask)
 
         shift, scale = output_modulation.chunk(2, dim=-1)
         hidden_states = self.dit.norm_out(hidden_states)
         hidden_states = hidden_states * (1 + scale[:, None]) + shift[:, None]
-        return self.dit.proj_out_2(hidden_states)
+        hidden_states = _mask_hidden_states(hidden_states, hidden_attention_mask)
+        return _mask_hidden_states(self.dit.proj_out_2(hidden_states), hidden_attention_mask)
 
 
 def save_action_head_constants(policy, dit_model, output_dir: str, batch_size: int):
@@ -387,6 +391,7 @@ def export_optimized_dit(
             timestep,
             image_mask,
             backbone_attention_mask,
+            hidden_attention_mask=None,
         ):
             return self.dit(
                 sa_embs,
@@ -394,6 +399,7 @@ def export_optimized_dit(
                 timestep,
                 image_mask=image_mask,
                 backbone_attention_mask=backbone_attention_mask,
+                hidden_attention_mask=hidden_attention_mask,
             )
 
     wrapped_model = CalibrationWrapper(dit_model).to(dtype).eval().cuda()
@@ -417,6 +423,13 @@ def export_optimized_dit(
         .expand(batch_size, *captured_inputs.backbone_attention_mask.shape[1:])
         .to(device="cuda", dtype=torch.bool)
     )
+    hidden_attention_mask = (
+        None
+        if captured_inputs.hidden_attention_mask is None
+        else captured_inputs.hidden_attention_mask[:1]
+        .expand(batch_size, *captured_inputs.hidden_attention_mask.shape[1:])
+        .to(device="cuda", dtype=torch.bool)
+    )
     if pre_export_fn is not None:
         pre_export_fn(wrapped_model)
 
@@ -438,6 +451,7 @@ def export_optimized_dit(
             reference_timestep,
             image_mask,
             backbone_attention_mask,
+            hidden_attention_mask,
         )
         optimized_output = optimized_dit(
             sa_embs,
@@ -447,6 +461,7 @@ def export_optimized_dit(
             output_modulation,
             image_mask,
             backbone_attention_mask,
+            hidden_attention_mask,
         )
     cosine = F.cosine_similarity(
         reference_output.float().flatten().unsqueeze(0),
@@ -503,6 +518,9 @@ def export_optimized_dit(
         "image_mask",
         "backbone_attention_mask",
     ]
+    if hidden_attention_mask is not None:
+        optimized_inputs += (hidden_attention_mask,)
+        input_names.append("hidden_attention_mask")
     attention_handles = _patch_dit_attn_for_export(dit_model)
     try:
         with torch.inference_mode():
@@ -658,6 +676,7 @@ class DiTInputCapture:
         self.timestep = None
         self.image_mask = None
         self.backbone_attention_mask = None
+        self.hidden_attention_mask = None
 
     def hook_fn(self, module, args, kwargs):
         """Pre-forward hook to capture inputs."""
@@ -671,6 +690,10 @@ class DiTInputCapture:
             bb_mask = kwargs.get("backbone_attention_mask")
             if bb_mask is not None:
                 self.backbone_attention_mask = bb_mask.detach().cpu().clone()
+            # Passed only by a strict_action_padding_mask checkpoint.
+            hidden_mask = kwargs.get("hidden_attention_mask")
+            if hidden_mask is not None:
+                self.hidden_attention_mask = hidden_mask.detach().cpu().clone()
 
             self.captured = True
             logger.info("  Captured DiT inputs:")
@@ -681,6 +704,8 @@ class DiTInputCapture:
                 logger.info(f"    image_mask: {self.image_mask.shape}")
             if self.backbone_attention_mask is not None:
                 logger.info(f"    backbone_attention_mask: {self.backbone_attention_mask.shape}")
+            if self.hidden_attention_mask is not None:
+                logger.info(f"    hidden_attention_mask: {self.hidden_attention_mask.shape}")
 
 
 class ViTInputCapture:
@@ -1728,6 +1753,48 @@ def _unpatch_dit_attn(handles):
         h.remove()
 
 
+DIT_EXPORT_MASKS = ("image_mask", "backbone_attention_mask", "hidden_attention_mask")
+
+
+class DiTExportWrapper(torch.nn.Module):
+    """Bind the exported DiT inputs to DiT keywords by name.
+
+    torch.onnx.export passes inputs positionally, calibration passes them by
+    keyword. Which masks exist depends on the DiT and the checkpoint settings,
+    so positional masks follow ``mask_names`` rather than a fixed signature.
+    """
+
+    def __init__(self, dit, mask_names):
+        super().__init__()
+        self.dit = dit
+        self.mask_names = tuple(mask_names)
+
+    def forward(self, sa_embs, vl_embs, timestep, *masks, **named_masks):
+        named_masks.update(zip(self.mask_names, masks))
+        kwargs = {
+            name: named_masks[name] for name in self.mask_names if named_masks.get(name) is not None
+        }
+        return self.dit(sa_embs, vl_embs, timestep, **kwargs)
+
+
+def dit_export_inputs(captured_inputs, batch_size, dtype, device):
+    """Return the DiT ONNX input names and matching example tensors."""
+    names = ["sa_embs", "vl_embs", "timestep"]
+    inputs = [
+        torch.randn((batch_size,) + captured_inputs.sa_embs.shape[1:], dtype=dtype, device=device),
+        torch.randn((batch_size,) + captured_inputs.vl_embs.shape[1:], dtype=dtype, device=device),
+        torch.ones((batch_size,), dtype=torch.int64, device=device),
+    ]
+    for name in DIT_EXPORT_MASKS:
+        captured = getattr(captured_inputs, name)
+        if captured is not None:
+            names.append(name)
+            inputs.append(
+                torch.ones((batch_size,) + captured.shape[1:], dtype=torch.bool, device=device)
+            )
+    return names, inputs
+
+
 def export_dit_to_onnx(
     policy,
     captured_inputs,
@@ -1771,55 +1838,11 @@ def export_dit_to_onnx(
     dit_model = dit_model.to(dtype).cuda()
 
     # Build the DiT wrapper up front so callers can run calibration through it.
-    has_image_mask = captured_inputs.image_mask is not None
-    has_backbone_mask = captured_inputs.backbone_attention_mask is not None
-
-    # Wrapper to convert positional args -> keyword args for DiT.
-    # torch.onnx.export uses positional args: `dit.forward(arg1, arg2...)`.
-    # DiT module uses keyword args: `dit.forward(hidden_states=....)`.
-    class DiTWrapper(torch.nn.Module):
-        def __init__(self, dit, use_image_mask, use_backbone_mask):
-            super().__init__()
-            self.dit = dit
-            self.use_image_mask = use_image_mask
-            self.use_backbone_mask = use_backbone_mask
-
-        def forward(
-            self, sa_embs, vl_embs, timestep, image_mask=None, backbone_attention_mask=None
-        ):
-            kwargs = {}
-            if self.use_image_mask and image_mask is not None:
-                kwargs["image_mask"] = image_mask
-            if self.use_backbone_mask and backbone_attention_mask is not None:
-                kwargs["backbone_attention_mask"] = backbone_attention_mask
-            return self.dit(sa_embs, vl_embs, timestep, **kwargs)
-
-    wrapped_model = DiTWrapper(dit_model, has_image_mask, has_backbone_mask)
+    input_names, export_inputs = dit_export_inputs(captured_inputs, batch_size, dtype, "cuda")
+    has_image_mask = "image_mask" in input_names
+    has_backbone_mask = "backbone_attention_mask" in input_names
+    wrapped_model = DiTExportWrapper(dit_model, input_names[3:])
     wrapped_model = wrapped_model.to(dtype).eval().cuda()
-
-    # Use captured shapes but replace batch dim (index 0) with batch_size
-    sa_shape = (batch_size,) + captured_inputs.sa_embs.shape[1:]
-    vl_shape = (batch_size,) + captured_inputs.vl_embs.shape[1:]
-    ts_shape = (batch_size,)
-
-    sa_embs = torch.randn(sa_shape, dtype=dtype, device="cuda")
-    vl_embs = torch.randn(vl_shape, dtype=dtype, device="cuda")
-    timestep = torch.ones(ts_shape, dtype=torch.int64, device="cuda")
-
-    export_inputs = [sa_embs, vl_embs, timestep]
-    input_names = ["sa_embs", "vl_embs", "timestep"]
-
-    if has_image_mask:
-        im_shape = (batch_size,) + captured_inputs.image_mask.shape[1:]
-        image_mask = torch.ones(im_shape, dtype=torch.bool, device="cuda")
-        export_inputs.append(image_mask)
-        input_names.append("image_mask")
-
-    if has_backbone_mask:
-        bm_shape = (batch_size,) + captured_inputs.backbone_attention_mask.shape[1:]
-        backbone_attention_mask = torch.ones(bm_shape, dtype=torch.bool, device="cuda")
-        export_inputs.append(backbone_attention_mask)
-        input_names.append("backbone_attention_mask")
 
     logger.info("  Export input shapes:")
     for name, tensor in zip(input_names, export_inputs):
@@ -1982,9 +2005,6 @@ def main(args):
         device="cuda",
     )
     logger.info("  Policy loaded")
-    assert_strict_action_padding_mask_disabled(
-        policy.model.action_head.config, "ONNX export for TensorRT"
-    )
 
     # Step 2: Load dataset
     logger.info("\n[Step 2] Loading dataset...")
@@ -2129,6 +2149,8 @@ def main(args):
         dit_input_names.append("image_mask")
     if dit_capture.backbone_attention_mask is not None:
         dit_input_names.append("backbone_attention_mask")
+    if dit_capture.hidden_attention_mask is not None:
+        dit_input_names.append("hidden_attention_mask")
 
     if quantized:
         from .n1d7_calibration import calibrate_component, capture_calibration_batches

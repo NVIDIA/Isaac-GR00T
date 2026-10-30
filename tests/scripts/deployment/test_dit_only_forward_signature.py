@@ -61,10 +61,14 @@ def trt_model_forward():
 def test_dit_only_patch_binds_get_action_caller_kwargs(trt_model_forward, monkeypatch):
     """``_setup_dit_only`` must install a forward that binds every keyword
     ``get_action`` passes — otherwise verify/inference crashes."""
-    monkeypatch.setattr(trt_model_forward, "Engine", lambda *a, **k: object())
+    monkeypatch.setattr(
+        trt_model_forward, "Engine", lambda *a, **k: types.SimpleNamespace(in_meta=[["sa_embs"]])
+    )
     monkeypatch.setattr(trt_model_forward.torch.cuda, "empty_cache", lambda: None)
 
-    action_head = types.SimpleNamespace(model=object())
+    action_head = types.SimpleNamespace(
+        model=object(), config=types.SimpleNamespace(strict_action_padding_mask=False)
+    )
     policy = types.SimpleNamespace(model=types.SimpleNamespace(action_head=action_head))
 
     trt_model_forward._setup_dit_only(policy, "/tmp/does-not-exist")
