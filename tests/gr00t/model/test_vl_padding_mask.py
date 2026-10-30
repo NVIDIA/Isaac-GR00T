@@ -181,6 +181,123 @@ def test_padded_action_predictions_are_isolated(alternate):
     torch.testing.assert_close(original.action_pred, perturbed.action_pred)
 
 
+def _short_and_mixed_backbones(total_length, left_padding):
+    """Keep a short sample's valid tokens fixed while adding a longer companion."""
+    torch.manual_seed(43)
+    short_features = torch.randn(1, 5, 32)
+    short_mask = torch.ones(1, 5, dtype=torch.bool)
+    short_image_mask = torch.zeros_like(short_mask)
+    short_image_mask[:, 1] = True
+    mixed_features = torch.randn(2, total_length, 32)
+    mixed_mask = torch.ones(2, total_length, dtype=torch.bool)
+    mixed_mask[0] = False
+    start = total_length - 5 if left_padding else 0
+    mixed_features[0, start : start + 5] = short_features[0]
+    mixed_mask[0, start : start + 5] = True
+    mixed_image_mask = torch.zeros_like(mixed_mask)
+    mixed_image_mask[0, start + 1] = True
+    mixed_image_mask[1, 1] = True
+    short = BatchFeature(
+        data={
+            "backbone_features": short_features,
+            "backbone_attention_mask": short_mask,
+            "image_mask": short_image_mask,
+        }
+    )
+    mixed = BatchFeature(
+        data={
+            "backbone_features": mixed_features,
+            "backbone_attention_mask": mixed_mask,
+            "image_mask": mixed_image_mask,
+        }
+    )
+    return short, mixed
+
+
+def _fix_diffusion_randomness(monkeypatch, head):
+    # Changing batch shape can change RNG draws. Hold per-sample noise and time
+    # fixed so differences measure padding rather than stochastic diffusion.
+    noise = torch.linspace(-1, 1, 28).reshape(1, 4, 7)
+
+    def fixed_noise(size, *, device, dtype):
+        assert tuple(size[1:]) == (4, 7)
+        return noise.to(device=device, dtype=dtype).repeat(size[0], 1, 1)
+
+    monkeypatch.setattr(torch, "randn", fixed_noise)
+    monkeypatch.setattr(
+        head,
+        "sample_time",
+        lambda batch_size, device, dtype: torch.full(
+            (batch_size,), 0.5, device=device, dtype=dtype
+        ),
+    )
+
+
+@pytest.mark.parametrize("alternate", [False, True])
+@pytest.mark.parametrize("left_padding", [False, True])
+@pytest.mark.parametrize("total_length", [8, 12])
+def test_short_sample_matches_mixed_length_batch(
+    monkeypatch, alternate, left_padding, total_length
+):
+    head = Gr00tN1d7ActionHead(_head_config(use_alternate_vl_dit=alternate)).eval()
+    short, mixed = _short_and_mixed_backbones(total_length, left_padding)
+    short_actions = BatchFeature(
+        data={key: value[:1].clone() for key, value in _actions().items() if key != "action"}
+    )
+    mixed_actions = BatchFeature(
+        data={
+            key: value.repeat(2, *([1] * (value.ndim - 1))) for key, value in short_actions.items()
+        }
+    )
+    _fix_diffusion_randomness(monkeypatch, head)
+    single = head.get_action(copy.deepcopy(short), short_actions)
+    batched = head.get_action(copy.deepcopy(mixed), mixed_actions)
+    valid = mixed.backbone_attention_mask[0]
+    torch.testing.assert_close(
+        single.backbone_features[0], batched.backbone_features[0, valid], rtol=1e-5, atol=1e-6
+    )
+    torch.testing.assert_close(single.action_pred[0], batched.action_pred[0], rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize("alternate", [False, True])
+@pytest.mark.parametrize("left_padding", [False, True])
+@pytest.mark.parametrize("total_length", [8, 12])
+def test_short_sample_training_loss_and_gradients_match_with_extra_padding(
+    monkeypatch, alternate, left_padding, total_length
+):
+    head = Gr00tN1d7ActionHead(_head_config(use_alternate_vl_dit=alternate)).train()
+    short, mixed = _short_and_mixed_backbones(total_length, left_padding)
+    # Compare this sample's loss rather than a mean over different tasks.
+    padded = BatchFeature(data={key: value[:1].clone() for key, value in mixed.items()})
+    actions = BatchFeature(data={key: value[:1].clone() for key, value in _actions().items()})
+    _fix_diffusion_randomness(monkeypatch, head)
+
+    def loss_and_gradients(backbone):
+        head.zero_grad(set_to_none=True)
+        features = backbone.backbone_features.requires_grad_()
+        loss = head(backbone, copy.deepcopy(actions))["loss"]
+        loss.backward()
+        return (
+            loss.detach(),
+            features.grad.detach().clone(),
+            {
+                name: p.grad.detach().clone()
+                for name, p in head.named_parameters()
+                if p.grad is not None
+            },
+        )
+
+    short_loss, short_grad, short_parameters = loss_and_gradients(short)
+    padded_loss, padded_grad, padded_parameters = loss_and_gradients(padded)
+    valid = mixed.backbone_attention_mask[:1]
+    torch.testing.assert_close(short_loss, padded_loss, rtol=1e-5, atol=1e-6)
+    torch.testing.assert_close(short_grad[0], padded_grad[valid], rtol=1e-5, atol=1e-6)
+    assert torch.count_nonzero(padded_grad[~valid]) == 0
+    assert short_parameters.keys() == padded_parameters.keys()
+    for name, gradient in short_parameters.items():
+        torch.testing.assert_close(gradient, padded_parameters[name], rtol=1e-5, atol=1e-6)
+
+
 @pytest.mark.parametrize("alternate", [False, True])
 @pytest.mark.parametrize("strict", [None, False])
 def test_legacy_checkpoint_preserves_features_loss_and_actions(alternate, strict):
