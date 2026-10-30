@@ -92,6 +92,9 @@ class DataConfig:
     seed: int = 42
     multiprocessing_context: str = "fork"  # Options: "fork", "spawn", and "forkserver"
     allow_padding: bool = False
+    # When True, decode only the video frames needed by each shard instead of
+    # decoding every frame of an episode (speed up for video-heavy datasets).
+    use_faster_episode_loader: bool = False
 
     # Subsample ratio for the dataset
     subsample_ratio: float = 1.0
