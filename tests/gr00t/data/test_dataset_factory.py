@@ -39,7 +39,8 @@ def _make_mock_config():
     config.data.seed = 42
     config.data.allow_padding = False
     config.data.num_shards_per_epoch = 100
-    config.data.override_pretraining_statistics = False
+    config.data.ds_weights_alpha = None
+    config.training.eval_set_split_ratio = 0.1
 
     # Single dataset spec
     dataset_spec = MagicMock()
@@ -116,11 +117,86 @@ class TestDatasetFactory:
         assert train_ds is not None
         assert eval_ds is None
 
-    def test_build_rejects_eval_strategy(self):
+    def test_build_eval_strategy_steps_splits_episodes(self):
         from gr00t.data.dataset.factory import DatasetFactory
 
         config = _make_mock_config()
         config.training.eval_strategy = "steps"
+        config.training.eval_set_split_ratio = 0.2
         factory = DatasetFactory(config)
-        with pytest.raises(AssertionError, match="does not support evaluation"):
-            factory.build(MagicMock())
+        mock_processor = MagicMock()
+        mock_processor.set_statistics = MagicMock()
+
+        def _dataset(*args, **kwargs):
+            mock_dataset = MagicMock()
+            mock_dataset.__len__ = MagicMock(return_value=10)
+            mock_dataset.shard_lengths = np.full(10, 100)
+            mock_dataset.get_shard_length = MagicMock(return_value=100)
+            mock_dataset.embodiment_tag = type("ET", (), {"value": "new_embodiment"})()
+            mock_dataset.get_dataset_statistics.return_value = {
+                "state": {
+                    "x": {
+                        "min": [0.0],
+                        "max": [1.0],
+                        "mean": [0.5],
+                        "std": [0.2],
+                        "q01": [0.05],
+                        "q99": [0.95],
+                    }
+                },
+                "action": {
+                    "x": {
+                        "min": [-1.0],
+                        "max": [1.0],
+                        "mean": [0.0],
+                        "std": [0.3],
+                        "q01": [-0.9],
+                        "q99": [0.9],
+                    }
+                },
+            }
+            mock_dataset.episode_indices = kwargs.get("episode_indices")
+            return mock_dataset
+
+        captured = []
+
+        def _capture(*args, **kwargs):
+            captured.append(kwargs.get("episode_indices"))
+            return _dataset(*args, **kwargs)
+
+        with (
+            patch("gr00t.data.dataset.factory.generate_stats"),
+            patch("gr00t.data.dataset.factory.generate_rel_stats"),
+            patch("gr00t.data.dataset.factory._episode_count", return_value=10),
+            patch(
+                "gr00t.data.dataset.factory.ShardedSingleStepDataset",
+                side_effect=_capture,
+            ),
+            patch("torch.distributed.is_initialized", return_value=False),
+        ):
+            train_ds, eval_ds = factory.build(mock_processor)
+
+        assert train_ds is not None
+        assert eval_ds is not None
+        assert eval_ds.training is False
+        assert len(captured) == 2
+        train_ids, eval_ids = captured
+        assert train_ids is not None and eval_ids is not None
+        assert set(train_ids).isdisjoint(eval_ids)
+        assert set(train_ids) | set(eval_ids) == set(range(10))
+
+
+class TestSplitEpisodeIndices:
+    def test_disjoint_and_covers_all(self):
+        from gr00t.data.dataset.factory import split_episode_indices
+
+        train_ids, eval_ids = split_episode_indices(10, 0.2, seed=42)
+        assert set(train_ids).isdisjoint(eval_ids)
+        assert set(train_ids) | set(eval_ids) == set(range(10))
+        assert len(eval_ids) == 2
+
+    def test_rejects_single_episode(self):
+        from gr00t.data.dataset.factory import split_episode_indices
+
+        with pytest.raises(ValueError, match="at least 2 episodes"):
+            split_episode_indices(1, 0.1, seed=0)
