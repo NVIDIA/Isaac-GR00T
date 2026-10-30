@@ -44,6 +44,7 @@ from typing import Any, Optional
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.types import MessageType
+from gr00t.deployment.action_padding import strict_action_masks
 from gr00t.policy.gr00t_policy import Gr00tPolicy, _rec_to_dtype
 import numpy as np
 import torch
@@ -298,6 +299,9 @@ def capture_calibration_batches(
                         device=device,
                         dtype=state_features.dtype,
                     )
+                    masks = strict_action_masks(config, inputs, actions, state_features.shape[1])
+                    if masks is not None:
+                        actions = actions * masks.action
                     timestep = torch.randint(
                         0,
                         int(action_head.num_timestep_buckets),
@@ -312,6 +316,8 @@ def capture_calibration_batches(
                         )
                         pos_embs = action_head.position_embedding(pos_ids).unsqueeze(0)
                         action_features = action_features + pos_embs
+                    if masks is not None:
+                        action_features = action_features * masks.tokens.to(action_features.dtype)
 
                     batch = {
                         "sa_embs": torch.cat((state_features, action_features), dim=1),
@@ -322,6 +328,8 @@ def capture_calibration_batches(
                         batch["image_mask"] = processed["image_mask"]
                     if processed["backbone_attention_mask"] is not None:
                         batch["backbone_attention_mask"] = processed["backbone_attention_mask"]
+                    if masks is not None:
+                        batch["hidden_attention_mask"] = masks.hidden
                     batches["dit"].append(_to_cpu(batch))
 
     logger.info("Captured %d calibration batches per component.", len(step_indices))

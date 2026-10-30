@@ -13,40 +13,68 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Capability guard for ``strict_action_padding_mask`` on the TensorRT paths.
+"""``strict_action_padding_mask`` on the TensorRT paths.
 
-The exported engines have no ``hidden_attention_mask`` input and the TensorRT
-action-head loops do not apply the action mask, so a checkpoint trained with the
-strict mask would silently be served with its padding visible again. The export
-CLI, the engine-swap CLI, and the standalone script all refuse such a checkpoint,
-so the check and its wording live here.
+With the flag on, the PyTorch action head zeroes the padded action dimensions and
+keeps the padded horizon tokens out of the DiT self-attention. The TensorRT loops
+apply the same masks around their engines, and the DiT engine of a strict
+checkpoint takes the token mask as a ``hidden_attention_mask`` input. The masks
+and the engine check live here so they can be tested without TensorRT.
 """
 
 from __future__ import annotations
 
-from gr00t.deployment.modes import InferenceMode
+from dataclasses import dataclass
+
+import torch
+
+from gr00t.model.gr00t_n1d7.gr00t_n1d7 import _expand_action_mask
 
 
-# Modes that run the denoising loop on TensorRT engines. ``vit_llm_only`` leaves
-# the whole action head in PyTorch, so it serves a strict-mask checkpoint fine.
-# This lives next to the guard rather than in ``trt_model_forward`` so the set can
-# be asserted without importing TensorRT.
-STRICT_ACTION_PADDING_MASK_UNSUPPORTED_MODES = frozenset(
-    {InferenceMode.n17_full_pipeline, InferenceMode.action_head, InferenceMode.dit_only}
-)
+HIDDEN_ATTENTION_MASK = "hidden_attention_mask"
 
 
-def assert_strict_action_padding_mask_disabled(config, context: str) -> None:
-    """Refuse a checkpoint whose config enables the strict action padding mask.
+@dataclass(frozen=True)
+class StrictActionMasks:
+    """Masks the strict PyTorch action head applies in its denoising loop."""
+
+    action: torch.Tensor  # (B, action_horizon, action_dim), in the actions dtype
+    tokens: torch.Tensor  # (B, action_horizon, 1) bool, applied to the action features
+    hidden: torch.Tensor  # (B, state tokens + action_horizon) bool, the DiT input
+
+
+def strict_action_masks(
+    config, action_input, actions: torch.Tensor, num_state_tokens: int
+) -> StrictActionMasks | None:
+    """Build the strict-mode masks for ``actions``, or None when the flag is off."""
+    if not config.strict_action_padding_mask:
+        return None
+    action_mask = _expand_action_mask(action_input.get("action_mask"), actions)
+    if action_mask is None:
+        raise ValueError("action_mask is required when strict_action_padding_mask is enabled")
+    tokens = action_mask.any(dim=-1)
+    state = torch.ones(tokens.shape[0], num_state_tokens, dtype=torch.bool, device=tokens.device)
+    return StrictActionMasks(
+        action=action_mask,
+        tokens=tokens.unsqueeze(-1),
+        hidden=torch.cat((state, tokens), dim=1),
+    )
+
+
+def assert_dit_engine_matches_action_padding(config, engine_inputs, context: str) -> None:
+    """Refuse a DiT engine exported with a different ``strict_action_padding_mask``.
 
     Args:
         config: Model config carrying ``strict_action_padding_mask``.
-        context: Name of the unsupported path, interpolated into the error.
+        engine_inputs: Input tensor names of the loaded DiT engine.
+        context: Name of the TensorRT path, interpolated into the error.
     """
-    if config.strict_action_padding_mask:
-        raise NotImplementedError(
-            f"{context} does not support strict_action_padding_mask. This checkpoint "
-            "was trained with the padded action dimensions masked out, but the "
-            "TensorRT path cannot reproduce that masking, so serving it here would "
-            "change the policy. Serve it with the PyTorch action head instead."
+    strict = bool(config.strict_action_padding_mask)
+    takes_mask = HIDDEN_ATTENTION_MASK in engine_inputs
+    if strict != takes_mask:
+        raise ValueError(
+            f"{context}: the checkpoint has strict_action_padding_mask={strict}, but its DiT "
+            f"engine {'takes' if takes_mask else 'has no'} a {HIDDEN_ATTENTION_MASK} input, so "
+            "it was exported from a checkpoint with the other setting. Re-export the engine "
+            "from this checkpoint."
         )

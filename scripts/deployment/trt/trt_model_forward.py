@@ -60,8 +60,9 @@ import sys
 from typing import Optional
 
 from gr00t.deployment.action_padding import (
-    STRICT_ACTION_PADDING_MASK_UNSUPPORTED_MODES,
-    assert_strict_action_padding_mask_disabled,
+    HIDDEN_ATTENTION_MASK,
+    assert_dit_engine_matches_action_padding,
+    strict_action_masks,
 )
 from gr00t.deployment.modes import InferenceMode
 from gr00t.deployment.vl_padding import assert_plain_dit_sees_no_vl_padding
@@ -193,6 +194,10 @@ class ActionHeadGraphState:
     position_embeddings: Optional[torch.Tensor]
     graph: Optional[torch.cuda.CUDAGraph] = None
     output: Optional[torch.Tensor] = None
+    # Set only for a strict_action_padding_mask checkpoint.
+    action_mask: Optional[torch.Tensor] = None
+    action_token_mask: Optional[torch.Tensor] = None
+    hidden_attention_mask: Optional[torch.Tensor] = None
 
 
 class OptimizedActionHeadRunner:
@@ -275,6 +280,9 @@ class OptimizedActionHeadRunner:
             raise RuntimeError(
                 "Optimized metadata does not match the Action Encoder/DiT interfaces"
             )
+        assert_dit_engine_matches_action_padding(
+            self.action_head.config, dit_inputs, "Optimized TensorRT action head"
+        )
 
     def _load_constants(self, path: str):
         constants = torch.load(path, map_location="cpu", weights_only=True)
@@ -395,6 +403,13 @@ class OptimizedActionHeadRunner:
         state.backbone_attention_mask.copy_(backbone_output.backbone_attention_mask)
         state.state.copy_(self._reshape_state(action_input.state))
         state.embodiment_id.copy_(action_input.embodiment_id)
+        if state.action_mask is not None:
+            masks = strict_action_masks(
+                self.action_head.config, action_input, state.actions, state.state.shape[1]
+            )
+            state.action_mask.copy_(masks.action)
+            state.action_token_mask.copy_(masks.tokens)
+            state.hidden_attention_mask.copy_(masks.hidden)
 
     def _make_graph_state(self, backbone_output, action_input):
         device = backbone_output.backbone_features.device
@@ -447,6 +462,13 @@ class OptimizedActionHeadRunner:
             output_modulations=self.constants["output_modulations"],
             position_embeddings=self.position_embeddings,
         )
+        masks = strict_action_masks(
+            self.action_head.config, action_input, actions, action_state.shape[1]
+        )
+        if masks is not None:
+            state.action_mask = torch.empty_like(masks.action)
+            state.action_token_mask = torch.empty_like(masks.tokens)
+            state.hidden_attention_mask = torch.empty_like(masks.hidden)
         self._copy_inputs(state, backbone_output, action_input)
         return state
 
@@ -477,6 +499,8 @@ class OptimizedActionHeadRunner:
 
         actions = state.actions
         actions.copy_(state.initial_actions)
+        if state.action_mask is not None:
+            actions.mul_(state.action_mask)
         dit_dtype = self.dit_engine.dtype_of("sa_embs")
         time_delta = 1.0 / self.action_head.num_inference_timesteps
         for step in range(self.action_head.num_inference_timesteps):
@@ -496,6 +520,10 @@ class OptimizedActionHeadRunner:
             )["output"]
             if state.position_embeddings is not None:
                 action_features = action_features + state.position_embeddings
+            if state.action_token_mask is not None:
+                action_features = action_features * state.action_token_mask.to(
+                    action_features.dtype
+                )
 
             dit_inputs = {
                 "sa_embs": torch.cat((state_features, action_features), dim=1).to(dit_dtype),
@@ -506,6 +534,8 @@ class OptimizedActionHeadRunner:
                 "image_mask": state.image_mask,
                 "backbone_attention_mask": state.backbone_attention_mask,
             }
+            if state.hidden_attention_mask is not None:
+                dit_inputs[HIDDEN_ATTENTION_MASK] = state.hidden_attention_mask
             for name, tensor in dit_inputs.items():
                 self.dit_engine.set_runtime_tensor_shape(name, tensor.shape)
             model_output = self.dit_engine(cache_outputs=cache_outputs, **dit_inputs)["output"]
@@ -517,7 +547,12 @@ class OptimizedActionHeadRunner:
             prediction = self.action_decoder_engine(
                 model_output, state.embodiment_id, cache_outputs=cache_outputs
             )["output"]
-            actions.add_(prediction[:, -self.action_head.action_horizon :], alpha=time_delta)
+            velocity = prediction[:, -self.action_head.action_horizon :]
+            if state.action_mask is not None:
+                velocity = velocity * state.action_mask
+            actions.add_(velocity, alpha=time_delta)
+            if state.action_mask is not None:
+                actions.mul_(state.action_mask)
         return actions
 
     def _capture_graph(self, state):
@@ -1158,6 +1193,9 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
             dtype=aux_dtype,
             device=device,
         )
+    masks = strict_action_masks(self.config, action_input, actions, state_features.shape[1])
+    if masks is not None:
+        actions = actions * masks.action
 
     num_steps = self.num_inference_timesteps
     dt = 1.0 / num_steps
@@ -1184,6 +1222,8 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
             pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
             pos_embs = self.position_embedding(pos_ids).unsqueeze(0).to(aux_dtype)
             action_features = action_features + pos_embs
+        if masks is not None:
+            action_features = action_features * masks.tokens.to(action_features.dtype)
 
         # Concatenate state + action embeddings
         sa_embs = torch.cat((state_features, action_features), dim=1).to(dit_dtype)
@@ -1194,18 +1234,23 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
         self.dit_engine.set_runtime_tensor_shape("timestep", timesteps_tensor.shape)
 
         dit_kwargs = {}
-        if hasattr(backbone_output, "image_mask") and backbone_output.image_mask is not None:
+        # The plain DiT engine has no image or backbone mask inputs.
+        dit_inputs = {item[0] for item in self.dit_engine.in_meta}
+        if "image_mask" in dit_inputs and getattr(backbone_output, "image_mask", None) is not None:
             image_mask = backbone_output.image_mask
             self.dit_engine.set_runtime_tensor_shape("image_mask", image_mask.shape)
             dit_kwargs["image_mask"] = image_mask
 
         if (
-            hasattr(backbone_output, "backbone_attention_mask")
+            "backbone_attention_mask" in dit_inputs
             and backbone_output.backbone_attention_mask is not None
         ):
             bb_mask = backbone_output.backbone_attention_mask
             self.dit_engine.set_runtime_tensor_shape("backbone_attention_mask", bb_mask.shape)
             dit_kwargs["backbone_attention_mask"] = bb_mask
+        if masks is not None:
+            self.dit_engine.set_runtime_tensor_shape(HIDDEN_ATTENTION_MASK, masks.hidden.shape)
+            dit_kwargs[HIDDEN_ATTENTION_MASK] = masks.hidden
 
         model_output = self.dit_engine(sa_embs, vl_embs, timesteps_tensor, **dit_kwargs)["output"]
 
@@ -1214,9 +1259,13 @@ def action_head_tensorrt_forward(self, backbone_output, action_input, options=No
         self.action_decoder_engine.set_runtime_tensor_shape("embodiment_id", embodiment_id.shape)
         pred = self.action_decoder_engine(model_output, embodiment_id)["output"]
         pred_velocity = pred[:, -self.action_horizon :]
+        if masks is not None:
+            pred_velocity = pred_velocity * masks.action
 
         # Euler integration
         actions = actions + dt * pred_velocity
+        if masks is not None:
+            actions = actions * masks.action
 
     return BatchFeature(data={"action_pred": actions})
 
@@ -1278,11 +1327,6 @@ def setup_tensorrt_engines(policy, trt_engine_path, mode=InferenceMode.n17_full_
             _required_action_head_engines(trt_engine_path),
             mode=mode.value,
             source=f"setup_tensorrt_engines({mode})",
-        )
-
-    if mode in STRICT_ACTION_PADDING_MASK_UNSUPPORTED_MODES:
-        assert_strict_action_padding_mask_disabled(
-            policy.model.action_head.config, f"TensorRT mode {mode.value}"
         )
 
     checked_metadata = assert_engine_matches_policy(
@@ -1453,6 +1497,11 @@ def _setup_n17_full_pipeline(policy, trt_engine_path):
     dit_path = _engine_path(trt_engine_path, "dit")
     print(f"Loading DiT engine: {dit_path}")
     action_head.dit_engine = Engine(dit_path)
+    assert_dit_engine_matches_action_padding(
+        action_head.config,
+        {item[0] for item in action_head.dit_engine.in_meta},
+        "TensorRT mode n17_full_pipeline",
+    )
     action_head.action_decoder_engine = Engine(
         os.path.join(trt_engine_path, "action_decoder.engine")
     )
@@ -1566,6 +1615,11 @@ def _setup_action_head(policy, trt_engine_path):
     dit_path = _engine_path(trt_engine_path, "dit")
     print(f"Loading DiT engine: {dit_path}")
     action_head.dit_engine = Engine(dit_path)
+    assert_dit_engine_matches_action_padding(
+        action_head.config,
+        {item[0] for item in action_head.dit_engine.in_meta},
+        "TensorRT mode action_head",
+    )
     action_head.action_decoder_engine = Engine(
         os.path.join(trt_engine_path, "action_decoder.engine")
     )
@@ -1603,6 +1657,11 @@ def _setup_dit_only(policy, trt_engine_path):
                 break
     print(f"Loading DiT engine: {dit_path}")
     action_head.dit_engine = Engine(dit_path)
+    assert_dit_engine_matches_action_padding(
+        action_head.config,
+        {item[0] for item in action_head.dit_engine.in_meta},
+        "TensorRT mode dit_only",
+    )
 
     # Monkey-patch only the get_action method
     # We need a simpler forward that only replaces the DiT call
@@ -1617,9 +1676,9 @@ def _setup_dit_only(policy, trt_engine_path):
     ):
         """get_action_with_features with DiT replaced by TRT.
 
-        ``action_input``/``options`` are accepted (and unused) so the patched
-        method matches the ``Gr00tN1d7.get_action_with_features`` contract that
-        ``get_action`` calls with these keywords; the DiT-only path needs neither.
+        ``options`` is accepted (and unused) so the patched method matches the
+        ``Gr00tN1d7.get_action_with_features`` contract that ``get_action`` calls
+        with these keywords. ``action_input`` carries the strict-mode action mask.
         """
         assert_plain_dit_sees_no_vl_padding(
             action_head.config,
@@ -1636,6 +1695,11 @@ def _setup_dit_only(policy, trt_engine_path):
             dtype=vl_embs.dtype,
             device=device,
         )
+        masks = strict_action_masks(
+            action_head.config, action_input or {}, actions, state_features.shape[1]
+        )
+        if masks is not None:
+            actions = actions * masks.action
 
         dt = 1.0 / action_head.num_inference_timesteps
 
@@ -1652,6 +1716,8 @@ def _setup_dit_only(policy, trt_engine_path):
                 pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
                 pos_embs = action_head.position_embedding(pos_ids).unsqueeze(0)
                 action_features = action_features + pos_embs
+            if masks is not None:
+                action_features = action_features * masks.tokens.to(action_features.dtype)
 
             sa_embs = torch.cat((state_features, action_features), dim=1).to(engine_dtype)
 
@@ -1664,13 +1730,18 @@ def _setup_dit_only(policy, trt_engine_path):
             action_head.dit_engine.set_runtime_tensor_shape("timestep", timesteps_trt.shape)
 
             dit_kwargs = {}
-            if hasattr(backbone_output, "image_mask") and backbone_output.image_mask is not None:
+            # The plain DiT engine has no image or backbone mask inputs.
+            dit_inputs = {item[0] for item in action_head.dit_engine.in_meta}
+            if (
+                "image_mask" in dit_inputs
+                and getattr(backbone_output, "image_mask", None) is not None
+            ):
                 image_mask = backbone_output.image_mask
                 action_head.dit_engine.set_runtime_tensor_shape("image_mask", image_mask.shape)
                 dit_kwargs["image_mask"] = image_mask
 
             if (
-                hasattr(backbone_output, "backbone_attention_mask")
+                "backbone_attention_mask" in dit_inputs
                 and backbone_output.backbone_attention_mask is not None
             ):
                 bb_mask = backbone_output.backbone_attention_mask
@@ -1678,6 +1749,11 @@ def _setup_dit_only(policy, trt_engine_path):
                     "backbone_attention_mask", bb_mask.shape
                 )
                 dit_kwargs["backbone_attention_mask"] = bb_mask
+            if masks is not None:
+                action_head.dit_engine.set_runtime_tensor_shape(
+                    HIDDEN_ATTENTION_MASK, masks.hidden.shape
+                )
+                dit_kwargs[HIDDEN_ATTENTION_MASK] = masks.hidden
 
             model_output = action_head.dit_engine(
                 sa_embs, vl_embs_trt, timesteps_trt, **dit_kwargs
@@ -1687,7 +1763,11 @@ def _setup_dit_only(policy, trt_engine_path):
             # the model dtype (normally BF16).
             pred = action_head.action_decoder(model_output.to(action_features.dtype), embodiment_id)
             pred_velocity = pred[:, -action_head.action_horizon :]
+            if masks is not None:
+                pred_velocity = pred_velocity * masks.action
             actions = actions + dt * pred_velocity
+            if masks is not None:
+                actions = actions * masks.action
 
         return BatchFeature(
             data={
