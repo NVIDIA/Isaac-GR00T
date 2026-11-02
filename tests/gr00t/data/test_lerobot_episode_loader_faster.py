@@ -82,12 +82,12 @@ class TestGetVideoIndicesFromSteps:
     @pytest.mark.parametrize(
         ("steps", "delta", "episode_length", "allow_padding", "expected"),
         [
-            # In-bounds steps with a negative delta
-            (np.array([10, 11, 12]), [-15, 0], 100, False, [-5, -4, -3, 10, 11, 12]),
+            # History before episode start repeats the first observation
+            (np.array([10, 11, 12]), [-15, 0], 100, False, [0, 10, 11, 12]),
             # allow_padding clamps out-of-range indices to [0, episode_length - 1]
             (np.array([0, 1]), [-3, 0], 100, True, [0, 1]),
-            # Without padding, out-of-range indices are passed through
-            (np.array([0, 1]), [-3, 0], 100, False, [-3, -2, 0, 1]),
+            # Observation history is clamped even when padding is disabled
+            (np.array([0, 1]), [-3, 0], 100, False, [0, 1]),
             # Wide delta range (action horizon) spanning the whole episode
             (np.array([50]), list(range(40)), 100, True, list(range(50, 90))),
             # Duplicates from different steps are deduplicated
@@ -136,11 +136,11 @@ class TestCallSparseLoading:
         assert df["mask.seg"].iloc[0] == 0
         assert df["mask.seg"].iloc[99] == 99
 
-    def test_no_padding_keeps_negative_indices(self):
+    def test_no_padding_repeats_first_observation(self):
         loader = _make_fake_loader()
         loader(0, np.array([0, 1]), allow_padding=False)
         requested = loader.requested_video_indices[-1]
-        assert requested.tolist() == [-15, -14, 0, 1]
+        assert requested.tolist() == [0, 1]
 
     def test_trims_to_nominal_length(self):
         loader = _make_fake_loader()
@@ -287,3 +287,118 @@ class TestDatasetWiring:
 
         assert dataset.episode_loader is mock_loader
         MockFaster.assert_not_called()
+
+
+@pytest.mark.parametrize("steps,length", [([7], 20), ([7, 14], 20), ([0], 5)])
+def test_sparse_history_agrees_with_step_reader(steps, length):
+    from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
+    from gr00t.data.types import EmbodimentTag
+
+    loader = _make_fake_loader(episode_lengths=(length,))
+    loader.modality_configs.pop("mask")
+    loader.modality_configs["state"].delta_indices = [-15, 0]
+    loader.modality_configs["action"].delta_indices = [0]
+    loader._load_parquet_data = lambda _: pd.DataFrame(
+        {
+            "state.x": [np.array([i]) for i in range(length)],
+            "action.x": [np.array([i]) for i in range(length)],
+        }
+    )
+    # Backend-free unit check; the accompanying native-video study uses real MP4.
+    loader._load_video_data = lambda _, indices: {
+        "cam": [np.full((2, 2, 3), i, dtype=np.int64) for i in indices]
+    }
+    data = loader(0, np.array(steps), allow_padding=False)
+    for index in steps:
+        step = extract_step_data(
+            data, index, loader.modality_configs, EmbodimentTag.NEW_EMBODIMENT, allow_padding=False
+        )
+        assert step.images["cam"][0] is not None
+        np.testing.assert_array_equal(step.images["cam"][0], 0)
+        np.testing.assert_array_equal(step.images["cam"][1], index)
+        np.testing.assert_array_equal(step.states["x"][:, 0], [0, index])
+
+
+@pytest.mark.parametrize("length,step", [(20, 20), (0, 0)])
+def test_invalid_video_index_rejected_before_decoding(length, step):
+    loader = _make_fake_loader()
+    with pytest.raises(IndexError, match="video index"):
+        loader._get_video_indices_from_steps(np.array([step]), [0], length)
+
+
+@pytest.mark.parametrize("steps", [[7], [0, 7], [7, 0], [7, 7], [7, 14]])
+def test_shard_composition_preserves_sample_and_matches_full_decoding(steps):
+    from gr00t.data.dataset.sharded_single_step_dataset import (
+        ShardedSingleStepDataset,
+        extract_step_data,
+    )
+    from gr00t.data.types import EmbodimentTag
+
+    loader = _make_fake_loader(episode_lengths=(20,))
+    loader.episode_lengths = [20]
+    loader.modality_configs.pop("mask")
+    loader.modality_configs["video"].modality_keys = ["cam", "wrist"]
+    loader.modality_configs["state"].delta_indices = [-15, 0]
+    loader.modality_configs["action"].delta_indices = [0, 1]
+    loader._load_parquet_data = lambda _: pd.DataFrame(
+        {
+            "state.x": [np.array([i]) for i in range(20)],
+            "action.x": [np.array([100 + i]) for i in range(20)],
+        }
+    )
+    # Pixels encode both frame and camera identity, including on the full path.
+    loader._load_video_data = lambda _, indices: {
+        camera: [np.full((2, 2, 3), i + offset, dtype=np.uint8) for i in indices]
+        for camera, offset in [("cam", 0), ("wrist", 50)]
+    }
+    reference = extract_step_data(
+        loader[0], 7, loader.modality_configs, EmbodimentTag.NEW_EMBODIMENT
+    )
+    with patch(
+        "gr00t.data.dataset.sharded_single_step_dataset.LeRobotEpisodeLoaderFaster",
+        return_value=loader,
+    ):
+        dataset = ShardedSingleStepDataset(
+            "/fake/dataset",
+            EmbodimentTag.NEW_EMBODIMENT,
+            loader.modality_configs,
+            episode_sampling_rate=1.0,
+            use_faster_episode_loader=True,
+        )
+    dataset.processor = lambda messages: messages[0]["content"]
+    dataset.sharded_episodes = [[(0, np.array(steps))]]
+    samples = dataset.get_shard(0)
+
+    for index, sample in zip(steps, samples, strict=True):
+        if index != 7:
+            continue
+        for camera, offset in [("cam", 0), ("wrist", 50)]:
+            assert all(frame is not None for frame in sample.images[camera])
+            np.testing.assert_array_equal(sample.images[camera], reference.images[camera])
+            assert [frame[0, 0, 0] for frame in sample.images[camera]] == [offset, 7 + offset]
+        np.testing.assert_array_equal(sample.states["x"], reference.states["x"])
+        np.testing.assert_array_equal(sample.actions["x"], reference.actions["x"])
+        assert sample.text == reference.text
+
+
+@pytest.mark.parametrize("allow_padding", [False, True])
+def test_empty_episode_rejected_before_video_backend(allow_padding):
+    loader = _make_fake_loader(episode_lengths=(0,))
+    loader._load_video_data = MagicMock()
+    with pytest.raises(IndexError, match="video index"):
+        loader(0, np.array([0]), allow_padding=allow_padding)
+    loader._load_video_data.assert_not_called()
+
+
+def test_future_overflow_rejected_before_video_backend():
+    loader = _make_fake_loader(episode_lengths=(20,), video_delta_indices=(0, 1))
+    loader._load_video_data = MagicMock()
+    with pytest.raises(IndexError, match="video index 20"):
+        loader(0, np.array([19]), allow_padding=False)
+    loader._load_video_data.assert_not_called()
+
+
+def test_explicit_padding_clamps_both_ends_before_decoding():
+    loader = _make_fake_loader(episode_lengths=(20,), video_delta_indices=(-30, 0, 1))
+    loader(0, np.array([19]), allow_padding=True)
+    assert loader.requested_video_indices[-1].tolist() == [0, 19]

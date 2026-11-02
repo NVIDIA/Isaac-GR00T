@@ -49,7 +49,8 @@ class LeRobotEpisodeLoaderFaster(LeRobotEpisodeLoader):
             step_indices: Step indices assigned to the current shard for one episode
             video_delta_indices: Temporal offsets configured for the video modality
             episode_length: Actual episode length after parquet trimming
-            allow_padding: Whether to clamp frame indices into valid bounds
+            allow_padding: Whether to clamp both ends. When False, negative
+                observation history repeats frame 0 and future overflow raises.
 
         Returns:
             Sorted unique frame indices needed by the requested steps
@@ -60,6 +61,14 @@ class LeRobotEpisodeLoaderFaster(LeRobotEpisodeLoader):
                 frame_index = int(step_index + delta_index)
                 if allow_padding:
                     frame_index = max(0, min(frame_index, episode_length - 1))
+                elif frame_index < 0:
+                    # Match extract_step_data: observation history repeats frame 0.
+                    frame_index = 0
+                if not 0 <= frame_index < episode_length:
+                    raise IndexError(
+                        f"video index {frame_index} is out of range for an episode "
+                        f"of length {episode_length}"
+                    )
                 requested_indices.add(frame_index)
         return np.array(sorted(requested_indices), dtype=int)
 
@@ -75,7 +84,8 @@ class LeRobotEpisodeLoaderFaster(LeRobotEpisodeLoader):
         Args:
             idx: Episode index to load
             step_indices: Step indices assigned to the current shard for this episode
-            allow_padding: Whether to clamp temporal indices into valid bounds
+            allow_padding: Whether to clamp both ends of video indices. When False,
+                history before the first frame repeats frame 0 and future overflow raises.
 
         Returns:
             DataFrame with all non-video modalities loaded for the full episode and
