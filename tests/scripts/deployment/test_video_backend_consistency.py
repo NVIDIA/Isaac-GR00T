@@ -22,6 +22,7 @@ field.
 
 from __future__ import annotations
 
+from importlib import import_module
 import inspect
 import os
 import sys
@@ -51,7 +52,7 @@ def deploy_imports():
 @pytest.mark.parametrize(
     "module_name, cls_name",
     [
-        ("export_onnx_n1d7", "ExportConfig"),
+        ("trt.export_onnx_n1d7", "ExportConfig"),
         ("build_trt_pipeline", "PipelineConfig"),
         ("standalone_inference_script", "ArgsConfig"),
     ],
@@ -59,7 +60,7 @@ def deploy_imports():
 def test_cli_config_has_no_video_backend_field(deploy_imports, module_name, cls_name):
     """Deployment CLIs should not expose a one-choice ``--video-backend`` flag."""
     try:
-        mod = __import__(module_name)
+        mod = import_module(module_name)
     except (ImportError, OSError) as e:
         pytest.skip(f"{module_name} not importable in this env: {e}")
     cfg_cls = getattr(mod, cls_name, None)

@@ -42,7 +42,7 @@ dependencies = [
     "torchcodec==0.10.0",
     "onnx>=1.20.0",
     "onnxscript",
-    "tensorrt>=10.14.1.48.post1",
+    "tensorrt==10.16.1.11",
     # Keep these as direct pins: the Spark torch wheel does not bundle these runtime libs,
     # and we want them installed even if torch's transitive dependency metadata changes upstream.
     # Revisit if the Jetson AI Lab torch packages start vendoring them or declaring them reliably.
@@ -67,6 +67,7 @@ include = ["gr00t*"]
 [tool.uv]
 
 [tool.uv.sources]
+tensorrt = { index = "nvidia-pypi" }
 torch = [{ index = "jetson-sbsa-cu130" }]
 torchvision = [{ index = "jetson-sbsa-cu130" }]
 torchcodec = [{ index = "jetson-sbsa-cu130" }]
@@ -76,7 +77,6 @@ diffusers = [{ index = "jetson-sbsa-cu130" }]
 [[tool.uv.index]]
 name = "nvidia-pypi"
 url = "https://pypi.nvidia.com"
-explicit = true
 
 [[tool.uv.index]]
 name = "jetson-sbsa-cu130"

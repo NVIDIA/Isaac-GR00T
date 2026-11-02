@@ -85,9 +85,9 @@ bash docker/build.sh --profile=spark
 
 For full Spark usage instructions (inference, benchmarks, bare metal setup), see the [Deployment & Inference Guide](../scripts/deployment/README.md#dgx-spark-setup).
 
-### Orin Container (Jetson Orin / CUDA 12.6)
+### Orin Container (Jetson Orin / CUDA 13.2)
 
-The `gr00t-orin` image is built from `scripts/deployment/orin/Dockerfile` for Jetson Orin (JetPack 6.2, CUDA 12.6, Python 3.10):
+The `gr00t-orin` image is built from `scripts/deployment/orin/Dockerfile` for Jetson Orin (JetPack 7.2, CUDA 13.2, Python 3.12):
 
 ```bash
 bash docker/build.sh --profile=orin

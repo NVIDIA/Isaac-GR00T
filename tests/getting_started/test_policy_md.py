@@ -118,6 +118,9 @@ class MockProcessor:
     def get_modality_configs(self) -> dict:
         return _make_policy_md_modality_configs()
 
+    def validate_strict_action_padding_mask(self, model_config) -> None:
+        pass
+
     def __call__(self, messages) -> dict:
         return {}
 

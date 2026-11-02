@@ -42,7 +42,7 @@ def resolve_vit_engine_path(monkeypatch):
     Every side effect goes through ``monkeypatch`` so it is reverted at
     teardown and never leaks across tests collected by the same pytest-xdist
     worker. Installing these stubs at module top-level (the previous form of
-    this file) replaces ``sys.modules['trt_torch'].Engine`` with ``object``;
+    this file) replaces ``sys.modules['trt.trt_torch'].Engine`` with ``object``;
     if the same worker later runs ``test_trt_full_pipeline``, ``Engine(path)``
     raises ``TypeError: object() takes no arguments``. The same lesson is
     spelled out in ``tests/scripts/deployment/test_build_tensorrt_engine.py``.
@@ -65,15 +65,15 @@ def resolve_vit_engine_path(monkeypatch):
         feat = types.ModuleType("transformers.feature_extraction_utils")
         feat.BatchFeature = object
         monkeypatch.setitem(sys.modules, "transformers.feature_extraction_utils", feat)
-    if "trt_torch" not in sys.modules:
-        trt_torch_stub = types.ModuleType("trt_torch")
+    if "trt.trt_torch" not in sys.modules:
+        trt_torch_stub = types.ModuleType("trt.trt_torch")
         trt_torch_stub.Engine = object
-        monkeypatch.setitem(sys.modules, "trt_torch", trt_torch_stub)
+        monkeypatch.setitem(sys.modules, "trt.trt_torch", trt_torch_stub)
 
     monkeypatch.syspath_prepend(DEPLOY_DIR)
-    monkeypatch.delitem(sys.modules, "trt_model_forward", raising=False)
+    monkeypatch.delitem(sys.modules, "trt.trt_model_forward", raising=False)
 
-    from trt_model_forward import _resolve_vit_engine_path as fn
+    from trt.trt_model_forward import _resolve_vit_engine_path as fn
 
     yield fn
 

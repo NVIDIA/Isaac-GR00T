@@ -23,6 +23,7 @@ re-inlines the choices.
 
 from __future__ import annotations
 
+from importlib import import_module
 import os
 import sys
 from typing import get_type_hints
@@ -58,18 +59,18 @@ def deploy_imports():
 @pytest.mark.parametrize(
     "module_name, cls_name, field_name, mode_enum",
     [
-        ("export_onnx_n1d7", "ExportConfig", "export_mode", ExportMode),
+        ("trt.export_onnx_n1d7", "ExportConfig", "export_mode", ExportMode),
         ("build_trt_pipeline", "PipelineConfig", "export_mode", ExportMode),
-        ("verify_n1d7_trt", "VerifyConfig", "mode", VerifyMode),
+        ("trt.verify_n1d7_trt", "VerifyConfig", "mode", VerifyMode),
         ("benchmark_inference", "BenchmarkConfig", "trt_mode", BenchmarkMode),
-        ("build_tensorrt_engine", "BuildConfig", "mode", BuildEngineMode),
+        ("trt.build_tensorrt_engine", "BuildConfig", "mode", BuildEngineMode),
     ],
 )
 def test_cli_mode_field_is_sot_enum(deploy_imports, module_name, cls_name, field_name, mode_enum):
     """A CLI whose mode field is not its SOT enum has reverted to an ad-hoc
     ``Literal``/enum — re-import the enum instead."""
     try:
-        mod = __import__(module_name)
+        mod = import_module(module_name)
     except (ImportError, OSError) as e:  # torch/tensorrt or native CUDA libs absent on CPU CI
         pytest.skip(f"{module_name} not importable in this env: {e}")
     cfg_cls = getattr(mod, cls_name, None)
@@ -103,11 +104,11 @@ def test_setup_tensorrt_engines_dispatch_matches_inference_mode(deploy_imports):
     """``setup_tensorrt_engines`` must dispatch on exactly the ``InferenceMode``
     members — neither an unhandled mode nor an orphaned setup branch."""
     try:
-        mod = __import__("trt_model_forward")
+        mod = import_module("trt.trt_model_forward")
     except (ImportError, OSError) as e:  # torch / tensorrt absent on CPU CI
         pytest.skip(f"trt_model_forward not importable in this env: {e}")
 
     assert set(mod._INFERENCE_MODE_DISPATCH) == set(InferenceMode), (
-        "trt_model_forward._INFERENCE_MODE_DISPATCH and InferenceMode have drifted; "
+        "trt.trt_model_forward._INFERENCE_MODE_DISPATCH and InferenceMode have drifted; "
         "every mode needs a setup branch and vice-versa."
     )

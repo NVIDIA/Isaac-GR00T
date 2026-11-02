@@ -15,7 +15,7 @@
 
 """CPU-only oracle tests for the ViT ONNX export rotary path.
 
-Covers two silent-failure risks in ``scripts/deployment/export_onnx_n1d7.py``
+Covers two silent-failure risks in ``scripts/deployment/trt/export_onnx_n1d7.py``
 whose only existing coverage is a backend-vs-backend cosine fingerprint (blind to
 common-mode error):
 
@@ -42,7 +42,7 @@ DEPLOY_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../s
 if DEPLOY_DIR not in sys.path:
     sys.path.insert(0, DEPLOY_DIR)
 
-export = pytest.importorskip("export_onnx_n1d7")
+export = pytest.importorskip("trt.export_onnx_n1d7")
 qwen3_vl = pytest.importorskip("transformers.models.qwen3_vl.modeling_qwen3_vl")
 qwen3_vl_config = pytest.importorskip("transformers.models.qwen3_vl.configuration_qwen3_vl")
 

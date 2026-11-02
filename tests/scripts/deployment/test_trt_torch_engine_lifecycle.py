@@ -89,9 +89,9 @@ def engine_module(monkeypatch, tmp_path):
         os.path.join(os.path.dirname(__file__), "../../../scripts/deployment")
     )
     monkeypatch.syspath_prepend(deploy_dir)
-    monkeypatch.delitem(sys.modules, "trt_torch", raising=False)
+    monkeypatch.delitem(sys.modules, "trt.trt_torch", raising=False)
 
-    from trt_torch import Engine
+    from trt.trt_torch import Engine
 
     engine_file = tmp_path / "fake.engine"
     engine_file.write_bytes(b"not-a-real-engine")
