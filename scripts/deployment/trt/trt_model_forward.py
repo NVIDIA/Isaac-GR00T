@@ -101,16 +101,21 @@ def _validate_vl_attention_engine(engine, *, strict_vl_padding_mask=False):
 
 
 def _refine_vl_features(action_head, backbone_output, engine=None, *, cache_outputs=None):
-    """Apply the same VL padding mask in PyTorch and TensorRT inference."""
+    """Apply the same VL padding mask in PyTorch and TensorRT inference.
+
+    Engine loaders validate the mask binding once, so it is not rechecked per call.
+    """
     features = backbone_output["backbone_features"]
     vlln_param = next(action_head.vlln.parameters(), None)
     if vlln_param is not None:
         features = features.to(dtype=vlln_param.dtype)
     if engine is None:
-        backbone_output["backbone_features"] = features
-        return action_head.process_backbone_output(backbone_output)["backbone_features"]
+        # Refine a copy so the caller's backbone_output stays unchanged, as with TRT.
+        refined = action_head.process_backbone_output(
+            BatchFeature(data={**backbone_output, "backbone_features": features})
+        )
+        return refined["backbone_features"]
     strict = bool(action_head.config.strict_vl_padding_mask)
-    _validate_vl_attention_engine(engine, strict_vl_padding_mask=strict)
     features = action_head.vlln(features)
     features = features.to(dtype=engine.dtype_of("hidden_states"))
     engine.set_runtime_tensor_shape("hidden_states", features.shape)

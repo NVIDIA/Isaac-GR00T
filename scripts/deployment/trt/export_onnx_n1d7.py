@@ -50,6 +50,7 @@ Usage:
 
 import copy
 from dataclasses import dataclass
+from functools import partial
 import json
 import logging
 import os
@@ -1539,19 +1540,27 @@ def export_vl_self_attention_to_onnx(
         pre_export_fn(model)
 
     logger.info(f"  Exporting to {output_path}...")
-    with torch.inference_mode():
-        torch.onnx.export(
-            model,
-            inputs,
-            output_path,
-            input_names=input_names,
-            output_names=["output"],
-            dynamic_axes=dynamic_axes,
-            opset_version=19,
-            do_constant_folding=True,
-            export_params=True,
-            dynamo=False,
-        )
+    # As in the DiT export, pass the mask to SDPA as additive in the compute dtype;
+    # a bool mask makes TorchScript compute every attention layer in FP32.
+    # TRT mha_v2 can produce NaNs with -inf padding bias at longer VL lengths.
+    # A finite dtype minimum still suppresses padded keys without that failure.
+    attention_handles = _patch_dit_attn_for_export(vl_sa, finite_mask=True) if strict else []
+    try:
+        with torch.inference_mode():
+            torch.onnx.export(
+                model,
+                inputs,
+                output_path,
+                input_names=input_names,
+                output_names=["output"],
+                dynamic_axes=dynamic_axes,
+                opset_version=19,
+                do_constant_folding=True,
+                export_params=True,
+                dynamo=False,
+            )
+    finally:
+        _unpatch_dit_attn(attention_handles)
 
     logger.info("  VL Self-Attention exported successfully!")
     _consolidate_external_data(output_path)
@@ -1693,8 +1702,8 @@ def export_action_encoder_to_onnx(
 # ============================================================
 
 
-def _dit_attn_bool_mask_to_additive_pre_hook(module, args, kwargs):
-    """Convert bool attention_mask to additive (0/-inf) in the compute dtype."""
+def _dit_attn_bool_mask_to_additive_pre_hook(module, args, kwargs, *, finite_mask=False):
+    """Convert bool attention_mask to additive bias in the compute dtype."""
     am = kwargs.get("attention_mask")
     if am is None or am.dtype != torch.bool:
         return None
@@ -1703,14 +1712,16 @@ def _dit_attn_bool_mask_to_additive_pre_hook(module, args, kwargs):
         return None
     dtype = q.dtype
     zero = torch.zeros((), dtype=dtype, device=am.device)
-    ninf = torch.full((), float("-inf"), dtype=dtype, device=am.device)
-    kwargs["attention_mask"] = torch.where(am, zero, ninf)
+    mask_value = torch.finfo(dtype).min if finite_mask else float("-inf")
+    negative = torch.full((), mask_value, dtype=dtype, device=am.device)
+    kwargs["attention_mask"] = torch.where(am, zero, negative)
     return args, kwargs
 
 
-def _patch_dit_attn_for_export(dit_model):
+def _patch_dit_attn_for_export(dit_model, *, finite_mask=False):
     """Register pre-hooks on every BasicTransformerBlock.attn1 to enable TRT
-    mha_v2 fusion on cross-attn. Returns handles for restoration."""
+    mha_v2 fusion. VL export uses a finite mask floor; DiT keeps its default.
+    Returns handles for restoration."""
     handles = []
     blocks = getattr(dit_model, "transformer_blocks", None)
     if blocks is None:
@@ -1721,7 +1732,8 @@ def _patch_dit_attn_for_export(dit_model):
         if attn is None:
             continue
         h = attn.register_forward_pre_hook(
-            _dit_attn_bool_mask_to_additive_pre_hook, with_kwargs=True
+            partial(_dit_attn_bool_mask_to_additive_pre_hook, finite_mask=finite_mask),
+            with_kwargs=True,
         )
         handles.append(h)
     logger.info(
