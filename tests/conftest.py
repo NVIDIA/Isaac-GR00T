@@ -21,6 +21,7 @@ import contextlib
 import hashlib
 import os
 from pathlib import Path
+import sys
 import tempfile
 
 from filelock import FileLock
@@ -91,6 +92,58 @@ def _pin_xdist_worker_to_gpu() -> None:
 
 
 _pin_xdist_worker_to_gpu()
+
+
+def _cgroup_cpu_quota() -> int | None:
+    """Whole CPUs allowed by a cgroup v2 or v1 CFS quota, or None without one."""
+    cgroup = Path("/sys/fs/cgroup")
+    try:
+        quota, period = (cgroup / "cpu.max").read_text().split()
+    except (OSError, ValueError):
+        try:
+            quota = (cgroup / "cpu/cpu.cfs_quota_us").read_text().strip()
+            period = (cgroup / "cpu/cpu.cfs_period_us").read_text().strip()
+        except OSError:
+            return None
+    if not quota.isdigit() or not period.isdigit() or int(period) == 0:
+        return None  # "max" (v2) or -1 (v1) means no quota.
+    return max(1, int(quota) // int(period))
+
+
+def _available_cpus() -> int:
+    """CPUs this process may use, including a cgroup CPU quota."""
+    cpus = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
+    quota = _cgroup_cpu_quota()
+    if quota is not None:
+        cpus = min(cpus or quota, quota)
+    return cpus or 1
+
+
+def _limit_xdist_worker_threads() -> None:
+    """Share the CPUs among pytest-xdist workers instead of oversubscribing them.
+
+    Each worker's torch would otherwise start one OpenMP thread per host core,
+    so eight workers on a CPU-limited pod thrash. Earlier collection may
+    already have imported torch, so its thread pool is resized as well.
+    An explicit OMP_NUM_THREADS or MKL_NUM_THREADS is kept. torch.set_num_threads
+    sets both pools, so it uses the smaller explicit limit, if any. Values that
+    are not a positive integer, such as nested OpenMP lists, are left to the
+    runtime and not used for resizing.
+    """
+    workers = os.environ.get("PYTEST_XDIST_WORKER_COUNT")
+    if not workers or not workers.isdigit() or int(workers) == 0:
+        return
+    threads = max(1, _available_cpus() // int(workers))
+    names = ("OMP_NUM_THREADS", "MKL_NUM_THREADS")
+    explicit = [int(v) for n in names if (v := os.environ.get(n, "")).isdigit() and int(v) > 0]
+    for name in names:
+        os.environ.setdefault(name, str(threads))
+    torch = sys.modules.get("torch")
+    if torch is not None:
+        torch.set_num_threads(min(explicit, default=threads))
+
+
+_limit_xdist_worker_threads()
 
 
 def _configure_shared_caches() -> None:
