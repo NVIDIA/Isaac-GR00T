@@ -225,8 +225,20 @@ def test_cached_dit_matches_masked_alternating_attention(batch_size, monkeypatch
     torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-5)
 
 
+def _strict_head(strict):
+    return SimpleNamespace(
+        mask_vl_padding=strict, config=SimpleNamespace(strict_vl_padding_mask=strict)
+    )
+
+
 def _construct_optimized_runner(
-    tmp_path, export_mode, engine_present, action_head, vl_self_attention_exported=None
+    tmp_path,
+    export_mode,
+    engine_present,
+    action_head,
+    vl_self_attention_exported=None,
+    engine_has_mask=None,
+    closed=None,
 ):
     """Run the real runner constructor with engine loading stubbed.
 
@@ -265,11 +277,22 @@ def _construct_optimized_runner(
     if engine_present:
         vl_engine.touch()
     loaded = []
+    closed = [] if closed is None else closed
 
     def load_engine(path):
         loaded.append(path)
-        return SimpleNamespace(path=path)
+        strict = action_head.config.strict_vl_padding_mask
+        has_mask = strict if engine_has_mask is None else engine_has_mask
+        in_meta = [("hidden_states", (), torch.bfloat16)]
+        if has_mask:
+            in_meta.append(("attention_mask", (), torch.bool))
+        return SimpleNamespace(path=path, in_meta=in_meta, close=lambda: closed.append(path))
 
+    mask_validator = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_validate_vl_attention_engine"
+    )
     scope = {
         "os": os,
         "logger": logging.getLogger(__name__),
@@ -278,7 +301,11 @@ def _construct_optimized_runner(
         "GraphSafeEngine": load_engine,
     }
     exec(
-        compile(ast.Module(body=[engine_path, constructor], type_ignores=[]), str(source), "exec"),
+        compile(
+            ast.Module(body=[engine_path, mask_validator, constructor], type_ignores=[]),
+            str(source),
+            "exec",
+        ),
         scope,
     )
     runtime = SimpleNamespace(
@@ -304,24 +331,34 @@ def test_optimized_action_head_ignores_stale_vl_engine(
 ):
     """A reused bundle must not replace PyTorch VL attention in action-head mode."""
     runtime, loaded, vl_engine = _construct_optimized_runner(
-        tmp_path, export_mode, engine_present, SimpleNamespace(mask_vl_padding=False)
+        tmp_path, export_mode, engine_present, _strict_head(False)
     )
     assert (str(vl_engine) in loaded) == expect_loaded
     assert (runtime.vl_sa_engine is not None) == expect_loaded
 
 
-def test_optimized_action_head_refuses_vl_engine_with_strict_vl_padding_mask(tmp_path):
-    """The VL attention engine has no mask input, so a strict-mask checkpoint must not use it."""
-    head = SimpleNamespace(mask_vl_padding=True)
-    with pytest.raises(NotImplementedError, match="strict_vl_padding_mask"):
-        _construct_optimized_runner(tmp_path, "full_pipeline", True, head)
-    runtime, _, _ = _construct_optimized_runner(tmp_path, "action_head", True, head)
-    assert runtime.vl_sa_engine is None
+def test_optimized_action_head_loads_mask_aware_vl_engine_with_strict_vl_padding_mask(tmp_path):
+    head = _strict_head(True)
+    runtime, loaded, vl_engine = _construct_optimized_runner(tmp_path, "full_pipeline", True, head)
+    assert str(vl_engine) in loaded
+    assert runtime.vl_sa_engine is not None
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_optimized_action_head_refuses_vl_engine_with_mismatched_mask_input(strict, tmp_path):
+    """An engine exported with the other strict_vl_padding_mask setting must be rebuilt."""
+    head = _strict_head(strict)
+    closed = []
+    with pytest.raises(ValueError, match="attention_mask binding"):
+        _construct_optimized_runner(
+            tmp_path, "full_pipeline", True, head, engine_has_mask=not strict, closed=closed
+        )
+    assert closed == [str(tmp_path / "vl_self_attention.engine")]
 
 
 def test_optimized_action_head_ignores_vl_engine_left_from_an_earlier_export(tmp_path):
-    """A strict export kept VL attention in PyTorch, so an engine beside it is stale."""
-    head = SimpleNamespace(mask_vl_padding=True)
+    """An export that kept VL attention in PyTorch makes an engine beside it stale."""
+    head = _strict_head(False)
     runtime, loaded, vl_engine = _construct_optimized_runner(
         tmp_path, "full_pipeline", True, head, vl_self_attention_exported=False
     )

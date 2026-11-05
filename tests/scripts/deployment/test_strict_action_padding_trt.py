@@ -177,6 +177,12 @@ def _compile(script, name, scope, parent=None):
             if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name == parent
         )
     function = next(n for n in ast.walk(root) if isinstance(n, ast.FunctionDef) and n.name == name)
+    helpers = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in {"_refine_vl_features", "_validate_vl_attention_engine"}
+    ]
     scope = {
         "torch": torch,
         "BatchFeature": BatchFeature,
@@ -186,7 +192,7 @@ def _compile(script, name, scope, parent=None):
         "HIDDEN_ATTENTION_MASK": HIDDEN_ATTENTION_MASK,
         **scope,
     }
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(path), "exec"), scope)
+    exec(compile(ast.Module(body=[*helpers, function], type_ignores=[]), str(path), "exec"), scope)
     return scope[name]
 
 
@@ -273,8 +279,14 @@ def _runner_class():
     classes = [
         n
         for n in tree.body
-        if isinstance(n, ast.ClassDef)
-        and n.name in ("ActionHeadGraphState", "OptimizedActionHeadRunner")
+        if isinstance(n, (ast.ClassDef, ast.FunctionDef))
+        and n.name
+        in (
+            "ActionHeadGraphState",
+            "OptimizedActionHeadRunner",
+            "_refine_vl_features",
+            "_validate_vl_attention_engine",
+        )
     ]
     scope = {
         "torch": torch,
