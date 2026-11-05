@@ -120,12 +120,17 @@ def merge_statistics(
 
         # Compute final combined statistics
         overall_mean = weighted_means.tolist()
-        overall_variance = weighted_squares - weighted_means**2
-        overall_std = np.sqrt(overall_variance).tolist()
 
         # Global min/max across all datasets
-        overall_min = np.min(np.array(min_list), axis=0).tolist()
-        overall_max = np.max(np.array(max_list), axis=0).tolist()
+        overall_min = np.min(np.array(min_list), axis=0)
+        overall_max = np.max(np.array(max_list), axis=0)
+
+        # Roundoff in the second-moment subtraction can land slightly negative (NaN after sqrt)
+        # or slightly positive (tiny nonzero std); clamp, then zero dimensions that are constant
+        # across every dataset.
+        overall_variance = np.maximum(weighted_squares - weighted_means**2, 0.0)
+        overall_variance[overall_min == overall_max] = 0.0
+        overall_std = np.sqrt(overall_variance).tolist()
 
         # Global quantiles (conservative bounds across datasets)
         q01_array = np.array(q01_list)
@@ -135,8 +140,8 @@ def merge_statistics(
 
         # Store combined statistics for this modality
         overall_stats[modality] = {
-            "min": overall_min,
-            "max": overall_max,
+            "min": overall_min.tolist(),
+            "max": overall_max.tolist(),
             "mean": overall_mean,
             "std": overall_std,
             "q01": weighted_q01,
