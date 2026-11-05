@@ -225,6 +225,83 @@ def test_cached_dit_matches_masked_alternating_attention(batch_size, monkeypatch
     torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-5)
 
 
+def test_dit_export_attention_masks_use_a_finite_floor(monkeypatch):
+    """Both exported DiT attention paths mask padding with finfo.min, never -inf.
+
+    CPU math attention softmaxes a -inf row safely, so the masks are checked directly.
+    """
+    pytest.importorskip("tree", reason="Full model dependencies are unavailable on this host")
+    from gr00t.model.modules.dit import AlternateVLDiT
+    from trt.export_onnx_n1d7 import (
+        CachedCrossKVDiT,
+        DiTCrossKV,
+        _patch_dit_attn_for_export,
+        _unpatch_dit_attn,
+    )
+
+    monkeypatch.setenv("GR00T_DIT_SDPA_MODE", "math")
+    torch.manual_seed(17)
+    dit = AlternateVLDiT(
+        num_attention_heads=2,
+        attention_head_dim=8,
+        output_dim=6,
+        num_layers=4,
+        dropout=0,
+        final_dropout=False,
+        interleave_self_attention=True,
+        cross_attention_dim=12,
+    ).eval()
+    actions = torch.randn(2, 5, 16)
+    context = torch.randn(2, 7, 12)
+    context_mask = torch.tensor([[True] * 5 + [False] * 2, [False] * 7])
+    image_mask = context_mask & torch.tensor([True] * 3 + [False] * 4)
+    timestep = torch.zeros(2)
+    with torch.inference_mode():
+        expected = dit(
+            actions[:1],
+            context[:1],
+            timestep[:1],
+            image_mask=image_mask[:1],
+            backbone_attention_mask=context_mask[:1],
+        )
+        masks = []
+        attention = nn.functional.scaled_dot_product_attention
+
+        def recording_attention(*args, attn_mask=None, **kwargs):
+            if attn_mask is not None:
+                masks.append(attn_mask)
+            return attention(*args, attn_mask=attn_mask, **kwargs)
+
+        monkeypatch.setattr(nn.functional, "scaled_dot_product_attention", recording_attention)
+        handles = _patch_dit_attn_for_export(dit)
+        try:
+            patched = dit(
+                actions,
+                context,
+                timestep,
+                image_mask=image_mask,
+                backbone_attention_mask=context_mask,
+            )
+        finally:
+            _unpatch_dit_attn(handles)
+        temb = dit.timestep_encoder(timestep)
+        modulations = torch.stack(
+            [b.norm1.linear(b.norm1.silu(temb)) for b in dit.transformer_blocks]
+        )
+        output_modulation = dit.proj_out_1(nn.functional.silu(temb))
+        keys, values = DiTCrossKV(dit)(context)
+        patched_masks = len(masks)
+        cached = CachedCrossKVDiT(dit)(
+            actions, keys, values, modulations, output_modulation, image_mask, context_mask
+        )
+    assert 0 < patched_masks < len(masks)
+    for mask in masks:
+        assert torch.isfinite(mask).all()
+        assert mask.min() == torch.finfo(mask.dtype).min
+    for actual in (patched, cached):
+        torch.testing.assert_close(actual[:1], expected, rtol=1e-4, atol=1e-5)
+
+
 def _strict_head(strict):
     return SimpleNamespace(
         mask_vl_padding=strict, config=SimpleNamespace(strict_vl_padding_mask=strict)
