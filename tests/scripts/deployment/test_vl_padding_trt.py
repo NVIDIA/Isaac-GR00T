@@ -72,12 +72,19 @@ def _compile(script, name, scope, parent=None):
     function = next(
         node for node in ast.walk(root) if isinstance(node, ast.FunctionDef) and node.name == name
     )
+    helpers = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in {"_refine_vl_features", "_validate_vl_attention_engine"}
+    ]
     scope = {
         "torch": torch,
+        "BatchFeature": BatchFeature,
         "assert_plain_dit_sees_no_vl_padding": assert_plain_dit_sees_no_vl_padding,
         **scope,
     }
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(path), "exec"), scope)
+    exec(compile(ast.Module(body=[*helpers, function], type_ignores=[]), str(path), "exec"), scope)
     return scope[name]
 
 
@@ -86,10 +93,22 @@ def _head(config, mask_vl_padding, seen_masks):
         seen_masks.append(attention_mask)
         return hidden_states
 
+    def process_backbone_output(backbone_output):
+        features = backbone_output["backbone_features"]
+        if mask_vl_padding:
+            features = vl_self_attention(
+                features, attention_mask=backbone_output["backbone_attention_mask"]
+            )
+        else:
+            features = vl_self_attention(features)
+        backbone_output["backbone_features"] = features
+        return backbone_output
+
     return SimpleNamespace(
         config=config,
         vlln=nn.Identity(),
         vl_self_attention=vl_self_attention,
+        process_backbone_output=process_backbone_output,
         mask_vl_padding=mask_vl_padding,
         vl_sa_engine=None,
         dit_engine=_StopEngine(),
@@ -124,7 +143,7 @@ def _run_optimized_runner(head, backbone_output):
 @pytest.mark.parametrize("run", [_run_action_head, _run_optimized_runner])
 @pytest.mark.parametrize("mask_vl_padding", [True, False])
 def test_pytorch_vl_self_attention_fallback_gets_the_mask(run, mask_vl_padding):
-    """Without a VL engine, a strict head must still mask padding under TensorRT."""
+    """Without a VL engine, TensorRT paths run the head's own masking PyTorch path."""
     seen_masks = []
     run(_head(ALTERNATE_VL_DIT, mask_vl_padding, seen_masks), _backbone_output(PADDED))
     assert seen_masks == [PADDED if mask_vl_padding else None]
@@ -132,7 +151,7 @@ def test_pytorch_vl_self_attention_fallback_gets_the_mask(run, mask_vl_padding):
 
 @pytest.mark.parametrize("strict", [True, False])
 def test_setup_loads_a_vl_engine_only_if_the_export_built_it(tmp_path, strict, caplog):
-    """A strict export keeps VL attention in PyTorch, so an engine beside it is stale."""
+    """An export that kept VL attention in PyTorch makes an engine beside it stale."""
     engine_path = _compile(
         "trt/trt_model_forward.py",
         "vl_self_attention_engine_path",
@@ -147,11 +166,7 @@ def test_setup_loads_a_vl_engine_only_if_the_export_built_it(tmp_path, strict, c
     assert engine_path(head, engine_dir, {"vl_self_attention_exported": False}) is None
     assert str(engine) in caplog.text
     for metadata in (None, {}, {"vl_self_attention_exported": True}):
-        if strict:
-            with pytest.raises(NotImplementedError, match="left over from an earlier export"):
-                engine_path(head, engine_dir, metadata)
-        else:
-            assert engine_path(head, engine_dir, metadata) == str(engine)
+        assert engine_path(head, engine_dir, metadata) == str(engine)
 
 
 def _call_action_head(head, backbone_output):
@@ -200,15 +215,16 @@ def test_plain_dit_guard_refuses_only_a_padded_batch():
     assert_plain_dit_sees_no_vl_padding(LEGACY_PLAIN_DIT, PADDED, "test path")
 
 
-def test_strict_head_exports_without_vl_self_attention(tmp_path):
-    """full_pipeline keeps a masking vl_self_attention in PyTorch instead of failing."""
+def test_only_an_identity_vl_self_attention_is_not_exported(tmp_path):
+    """A masking vl_self_attention is exported with a mask input; Identity has no graph."""
     export = pytest.importorskip("trt.export_onnx_n1d7", exc_type=ImportError)
-    strict = SimpleNamespace(vl_self_attention=nn.Linear(2, 2), mask_vl_padding=True)
-    assert not export.exports_vl_self_attention(strict)
-    assert export.exports_vl_self_attention(
-        SimpleNamespace(vl_self_attention=nn.Linear(2, 2), mask_vl_padding=False)
-    )
-    policy = SimpleNamespace(model=SimpleNamespace(action_head=strict))
+    for strict in (True, False):
+        assert export.exports_vl_self_attention(
+            SimpleNamespace(vl_self_attention=nn.Linear(2, 2), mask_vl_padding=strict)
+        )
+    identity = SimpleNamespace(vl_self_attention=nn.Identity(), mask_vl_padding=False)
+    assert not export.exports_vl_self_attention(identity)
+    policy = SimpleNamespace(model=SimpleNamespace(action_head=identity))
     assert export.export_vl_self_attention_to_onnx(policy, str(tmp_path), vl_seq_len=4) is None
     assert not any(tmp_path.iterdir())
 
