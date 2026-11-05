@@ -74,9 +74,17 @@ def _compile(script, name, scope, parent=None):
     )
     scope = {
         "torch": torch,
+        "BatchFeature": BatchFeature,
         "assert_plain_dit_sees_no_vl_padding": assert_plain_dit_sees_no_vl_padding,
         **scope,
     }
+    if script == "trt/trt_model_forward.py":
+        helpers = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_refine_vl_features"
+        ]
+        exec(compile(ast.Module(body=helpers, type_ignores=[]), str(path), "exec"), scope)
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(path), "exec"), scope)
     return scope[name]
 
@@ -132,7 +140,7 @@ def test_pytorch_vl_self_attention_fallback_gets_the_mask(run, mask_vl_padding):
 
 @pytest.mark.parametrize("strict", [True, False])
 def test_setup_loads_a_vl_engine_only_if_the_export_built_it(tmp_path, strict, caplog):
-    """A strict export keeps VL attention in PyTorch, so an engine beside it is stale."""
+    """Older exports can keep VL attention in PyTorch; stale engines stay ignored."""
     engine_path = _compile(
         "trt/trt_model_forward.py",
         "vl_self_attention_engine_path",
@@ -147,11 +155,8 @@ def test_setup_loads_a_vl_engine_only_if_the_export_built_it(tmp_path, strict, c
     assert engine_path(head, engine_dir, {"vl_self_attention_exported": False}) is None
     assert str(engine) in caplog.text
     for metadata in (None, {}, {"vl_self_attention_exported": True}):
-        if strict:
-            with pytest.raises(NotImplementedError, match="left over from an earlier export"):
-                engine_path(head, engine_dir, metadata)
-        else:
-            assert engine_path(head, engine_dir, metadata) == str(engine)
+        # The loaders validate the actual mask binding after choosing the file.
+        assert engine_path(head, engine_dir, metadata) == str(engine)
 
 
 def _call_action_head(head, backbone_output):
@@ -200,15 +205,16 @@ def test_plain_dit_guard_refuses_only_a_padded_batch():
     assert_plain_dit_sees_no_vl_padding(LEGACY_PLAIN_DIT, PADDED, "test path")
 
 
-def test_strict_head_exports_without_vl_self_attention(tmp_path):
-    """full_pipeline keeps a masking vl_self_attention in PyTorch instead of failing."""
+def test_full_pipeline_exports_strict_vl_but_skips_identity(tmp_path):
+    """Mask-aware exports handle strict heads; Identity still needs no engine."""
     export = pytest.importorskip("trt.export_onnx_n1d7", exc_type=ImportError)
     strict = SimpleNamespace(vl_self_attention=nn.Linear(2, 2), mask_vl_padding=True)
-    assert not export.exports_vl_self_attention(strict)
+    assert export.exports_vl_self_attention(strict)
     assert export.exports_vl_self_attention(
         SimpleNamespace(vl_self_attention=nn.Linear(2, 2), mask_vl_padding=False)
     )
-    policy = SimpleNamespace(model=SimpleNamespace(action_head=strict))
+    identity = SimpleNamespace(vl_self_attention=nn.Identity(), mask_vl_padding=False)
+    policy = SimpleNamespace(model=SimpleNamespace(action_head=identity))
     assert export.export_vl_self_attention_to_onnx(policy, str(tmp_path), vl_seq_len=4) is None
     assert not any(tmp_path.iterdir())
 

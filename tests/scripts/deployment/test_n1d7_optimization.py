@@ -226,7 +226,12 @@ def test_cached_dit_matches_masked_alternating_attention(batch_size, monkeypatch
 
 
 def _construct_optimized_runner(
-    tmp_path, export_mode, engine_present, action_head, vl_self_attention_exported=None
+    tmp_path,
+    export_mode,
+    engine_present,
+    action_head,
+    vl_self_attention_exported=None,
+    engine_has_mask=False,
 ):
     """Run the real runner constructor with engine loading stubbed.
 
@@ -268,7 +273,14 @@ def _construct_optimized_runner(
 
     def load_engine(path):
         loaded.append(path)
-        return SimpleNamespace(path=path)
+        names = ["hidden_states"] + (["attention_mask"] if engine_has_mask else [])
+        return SimpleNamespace(path=path, in_meta=[(name, None, None) for name in names])
+
+    validate = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_validate_vl_attention_engine"
+    )
 
     scope = {
         "os": os,
@@ -278,7 +290,11 @@ def _construct_optimized_runner(
         "GraphSafeEngine": load_engine,
     }
     exec(
-        compile(ast.Module(body=[engine_path, constructor], type_ignores=[]), str(source), "exec"),
+        compile(
+            ast.Module(body=[engine_path, validate, constructor], type_ignores=[]),
+            str(source),
+            "exec",
+        ),
         scope,
     )
     runtime = SimpleNamespace(
@@ -313,10 +329,33 @@ def test_optimized_action_head_ignores_stale_vl_engine(
 def test_optimized_action_head_refuses_vl_engine_with_strict_vl_padding_mask(tmp_path):
     """The VL attention engine has no mask input, so a strict-mask checkpoint must not use it."""
     head = SimpleNamespace(mask_vl_padding=True)
-    with pytest.raises(NotImplementedError, match="strict_vl_padding_mask"):
+    with pytest.raises(ValueError, match="strict_vl_padding_mask"):
         _construct_optimized_runner(tmp_path, "full_pipeline", True, head)
     runtime, _, _ = _construct_optimized_runner(tmp_path, "action_head", True, head)
     assert runtime.vl_sa_engine is None
+
+
+def test_optimized_action_head_accepts_matching_strict_vl_engine(tmp_path):
+    runtime, loaded, vl_engine = _construct_optimized_runner(
+        tmp_path,
+        "full_pipeline",
+        True,
+        SimpleNamespace(mask_vl_padding=True),
+        engine_has_mask=True,
+    )
+    assert str(vl_engine) in loaded
+    assert runtime.vl_sa_engine is not None
+
+
+def test_optimized_action_head_rejects_strict_engine_for_legacy_head(tmp_path):
+    with pytest.raises(ValueError, match="strict_vl_padding_mask=False"):
+        _construct_optimized_runner(
+            tmp_path,
+            "full_pipeline",
+            True,
+            SimpleNamespace(mask_vl_padding=False),
+            engine_has_mask=True,
+        )
 
 
 def test_optimized_action_head_ignores_vl_engine_left_from_an_earlier_export(tmp_path):

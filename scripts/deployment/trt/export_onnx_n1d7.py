@@ -50,6 +50,7 @@ Usage:
 
 import copy
 from dataclasses import dataclass
+from functools import partial
 import json
 import logging
 import os
@@ -1497,14 +1498,8 @@ def prepare_observation(policy, dataset, traj_idx=0):
 
 
 def exports_vl_self_attention(action_head) -> bool:
-    """Whether full_pipeline writes vl_self_attention.onnx; otherwise it stays in PyTorch.
-
-    The exported graph takes ``hidden_states`` only, so a head that masks VL padding
-    keeps the module in PyTorch, where the runtime passes the mask.
-    """
-    return not isinstance(action_head.vl_self_attention, nn.Identity) and not (
-        action_head.mask_vl_padding
-    )
+    """Whether full_pipeline writes vl_self_attention.onnx; Identity needs no engine."""
+    return not isinstance(action_head.vl_self_attention, nn.Identity)
 
 
 def export_vl_self_attention_to_onnx(
@@ -1522,14 +1517,14 @@ def export_vl_self_attention_to_onnx(
     This module sits between VLLN and the DiT, transforming backbone
     embeddings. If the model has no vl_self_attention (nn.Identity), skip.
 
-    Input: hidden_states [B, T, backbone_embedding_dim]  (T is dynamic)
-    Output: hidden_states [B, T, backbone_embedding_dim]
+    Input: hidden_states [B, T, backbone_embedding_dim] (T is dynamic).
+    Strict mode also exports attention_mask [B, T] (True means valid).
+    Default mode preserves the legacy single-input interface; changing the
+    strict setting requires re-exporting and rebuilding the VL engine.
+    Output: hidden_states [B, T, backbone_embedding_dim].
     """
     if not exports_vl_self_attention(policy.model.action_head):
-        logger.info(
-            "  vl_self_attention is Identity or masks VL padding, which the exported graph "
-            "cannot — skipping export, it runs in PyTorch"
-        )
+        logger.info("  vl_self_attention is Identity — skipping export")
         return None
     vl_sa = policy.model.action_head.vl_self_attention
 
@@ -1544,6 +1539,15 @@ def export_vl_self_attention_to_onnx(
     hidden_states = torch.randn(
         batch_size, vl_seq_len, config.backbone_embedding_dim, dtype=dtype, device="cuda"
     )
+    strict = policy.model.action_head.mask_vl_padding
+    inputs = (hidden_states,)
+    input_names = ["hidden_states"]
+    dynamic_axes = {"hidden_states": {1: "seq_len"}, "output": {1: "seq_len"}}
+    if strict:
+        attention_mask = torch.ones(batch_size, vl_seq_len, dtype=torch.bool, device="cuda")
+        inputs += (attention_mask,)
+        input_names.append("attention_mask")
+        dynamic_axes["attention_mask"] = {1: "seq_len"}
     logger.info(f"  hidden_states: {hidden_states.shape} ({hidden_states.dtype})")
 
     output_path = os.path.join(output_dir, "vl_self_attention.onnx")
@@ -1553,22 +1557,27 @@ def export_vl_self_attention_to_onnx(
         pre_export_fn(model)
 
     logger.info(f"  Exporting to {output_path}...")
-    with torch.inference_mode():
-        torch.onnx.export(
-            model,
-            (hidden_states,),
-            output_path,
-            input_names=["hidden_states"],
-            output_names=["output"],
-            dynamic_axes={
-                "hidden_states": {1: "seq_len"},
-                "output": {1: "seq_len"},
-            },
-            opset_version=19,
-            do_constant_folding=True,
-            export_params=True,
-            dynamo=False,
-        )
+    # Bool SDPA masks export FP32 attention and NaN guards, preventing BF16 MHA
+    # fusion. Use an additive compute-dtype bias only during export. TRT mha_v2
+    # can produce NaNs for long padded sequences with -inf, so VL uses a finite
+    # dtype minimum; DiT exports keep their existing mask floor.
+    handles = _patch_dit_attn_for_export(vl_sa, finite_mask=True) if strict else []
+    try:
+        with torch.inference_mode():
+            torch.onnx.export(
+                model,
+                inputs,
+                output_path,
+                input_names=input_names,
+                output_names=["output"],
+                dynamic_axes=dynamic_axes,
+                opset_version=19,
+                do_constant_folding=True,
+                export_params=True,
+                dynamo=False,
+            )
+    finally:
+        _unpatch_dit_attn(handles)
 
     logger.info("  VL Self-Attention exported successfully!")
     _consolidate_external_data(output_path)
@@ -1710,8 +1719,8 @@ def export_action_encoder_to_onnx(
 # ============================================================
 
 
-def _dit_attn_bool_mask_to_additive_pre_hook(module, args, kwargs):
-    """Convert bool attention_mask to additive (0/-inf) in the compute dtype."""
+def _dit_attn_bool_mask_to_additive_pre_hook(module, args, kwargs, *, finite_mask=False):
+    """Convert bool attention_mask to additive bias in the compute dtype."""
     am = kwargs.get("attention_mask")
     if am is None or am.dtype != torch.bool:
         return None
@@ -1720,12 +1729,13 @@ def _dit_attn_bool_mask_to_additive_pre_hook(module, args, kwargs):
         return None
     dtype = q.dtype
     zero = torch.zeros((), dtype=dtype, device=am.device)
-    ninf = torch.full((), float("-inf"), dtype=dtype, device=am.device)
-    kwargs["attention_mask"] = torch.where(am, zero, ninf)
+    mask_value = torch.finfo(dtype).min if finite_mask else float("-inf")
+    negative = torch.full((), mask_value, dtype=dtype, device=am.device)
+    kwargs["attention_mask"] = torch.where(am, zero, negative)
     return args, kwargs
 
 
-def _patch_dit_attn_for_export(dit_model):
+def _patch_dit_attn_for_export(dit_model, *, finite_mask=False):
     """Register pre-hooks on every BasicTransformerBlock.attn1 to enable TRT
     mha_v2 fusion on cross-attn. Returns handles for restoration."""
     handles = []
@@ -1738,7 +1748,8 @@ def _patch_dit_attn_for_export(dit_model):
         if attn is None:
             continue
         h = attn.register_forward_pre_hook(
-            _dit_attn_bool_mask_to_additive_pre_hook, with_kwargs=True
+            partial(_dit_attn_bool_mask_to_additive_pre_hook, finite_mask=finite_mask),
+            with_kwargs=True,
         )
         handles.append(h)
     logger.info(

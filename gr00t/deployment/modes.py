@@ -150,8 +150,8 @@ def components_to_build(
 ) -> frozenset[str] | None:
     """Narrow ``only`` by what the export recorded it kept in PyTorch.
 
-    ``vl_self_attention_exported`` is False when the module is Identity or masks VL
-    padding, which its exported graph cannot. Bundles without the key are unchanged.
+    ``vl_self_attention_exported`` is False for Identity or older strict exports
+    that kept VL fusion in PyTorch. Bundles without the key are unchanged.
     """
     if metadata is None or metadata.get("vl_self_attention_exported", True):
         return only

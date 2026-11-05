@@ -279,7 +279,12 @@ def capture_calibration_batches(
 
                 if "vl_sa" in components:
                     hidden_states = action_head.vlln(backbone_output["backbone_features"])
-                    batches["vl_sa"].append(_to_cpu({"hidden_states": hidden_states}))
+                    vl_inputs = {"hidden_states": hidden_states}
+                    if action_head.mask_vl_padding:
+                        vl_inputs["attention_mask"] = backbone_output[
+                            "backbone_attention_mask"
+                        ].bool()
+                    batches["vl_sa"].append(_to_cpu(vl_inputs))
 
                 if "dit" in components:
                     processed = action_head.process_backbone_output(backbone_output)
