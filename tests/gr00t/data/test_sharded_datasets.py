@@ -209,6 +209,71 @@ class TestMergeStatistics:
         merged = merge_statistics(stats, [1.0], is_relative_stats=True)
         assert merged == {}
 
+    @pytest.mark.parametrize("is_relative_stats", [False, True])
+    @pytest.mark.parametrize(
+        "constants, weights",
+        [
+            # Roundoff in the second-moment subtraction goes negative here (NaN without clamp).
+            ([0.3, -0.3, 0.0], [1.0, 9.0]),
+            ([1.25, 0.75], [1.0, 2.0]),
+            # Roundoff goes positive here (std ~1.3e-9 without the min == max check).
+            ([0.1, -0.1], [1.0, 9.0]),
+        ],
+    )
+    def test_constant_dimensions_have_exactly_zero_std(self, constants, weights, is_relative_stats):
+        """GitHub #795: a dimension constant across every dataset must merge to std 0, not NaN."""
+        values = np.array(constants)
+        if is_relative_stats:
+            values = values.reshape(1, -1)
+        entry = {
+            "mean": values.tolist(),
+            "std": np.zeros_like(values).tolist(),
+            "min": values.tolist(),
+            "max": values.tolist(),
+            "q01": values.tolist(),
+            "q99": values.tolist(),
+        }
+        stats = [{"x": dict(entry)} for _ in range(2)]
+
+        merged = merge_statistics(stats, weights, is_relative_stats)
+
+        np.testing.assert_array_equal(merged["x"]["std"], np.zeros_like(values))
+        np.testing.assert_allclose(merged["x"]["mean"], values)
+
+    def test_single_dataset_float32_constant_std_becomes_zero(self):
+        # float32 np.std of a constant -0.7 column is ~1.19e-7, not 0.
+        stats = [
+            {
+                "x": {
+                    "min": [-0.7],
+                    "max": [-0.7],
+                    "mean": [-0.7],
+                    "std": [1.1920929e-07],
+                    "q01": [-0.7],
+                    "q99": [-0.7],
+                }
+            }
+        ]
+        merged = merge_statistics(stats, [1.0])
+        assert merged["x"]["std"] == [0.0]
+
+    def test_non_constant_dim_keeps_pooled_std(self):
+        stats = [
+            {
+                "x": {
+                    "min": [0.0],
+                    "max": [2.0],
+                    "mean": [mean],
+                    "std": [0.1],
+                    "q01": [0.0],
+                    "q99": [2.0],
+                }
+            }
+            for mean in (0.0, 1.0)
+        ]
+        merged = merge_statistics(stats, [1.0, 1.0])
+        np.testing.assert_allclose(merged["x"]["std"], [np.sqrt(0.1**2 + 0.5**2)])
+
 
 # ---------------------------------------------------------------------------
 # ShardedMixtureDataset tests
