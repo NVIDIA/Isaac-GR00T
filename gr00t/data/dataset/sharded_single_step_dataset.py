@@ -22,6 +22,33 @@ from gr00t.data.interfaces import ShardedDataset
 from gr00t.data.types import EmbodimentTag, MessageType, ModalityConfig, VLAStepData
 
 from .lerobot_episode_loader import LeRobotEpisodeLoader
+from .lerobot_episode_loader_faster import LeRobotEpisodeLoaderFaster
+
+
+def _resolve_unpadded_indices(indices: list[int], episode_length: int, modality: str) -> list[int]:
+    """Validate absolute frame indices for one modality when padding is disabled.
+
+    ``DataFrame.iloc`` accepts negative positions and silently counts them from
+    the END of the episode. A history offset such as the DROID video
+    ``delta_indices=[-15, 0]`` therefore used to return frames from the last 15
+    rows of the episode for every ``step_index < 15``. Observation history that
+    reaches before the first frame is clamped to frame 0 instead — the same
+    repeat-the-first-observation padding that ``MultiStepWrapper.reset`` and the
+    real-robot clients apply at episode start, so training matches inference.
+    Any other out-of-range index has no sensible fallback and is rejected.
+    """
+    resolved = []
+    for idx in indices:
+        if idx < 0 and modality != "action":
+            idx = 0
+        if not 0 <= idx < episode_length:
+            raise IndexError(
+                f"{modality} index {idx} (step_index + delta_index) is out of range for an "
+                f"episode of length {episode_length}; enable padding (allow_padding=True, "
+                "config.data.allow_padding for training) to clamp indices instead."
+            )
+        resolved.append(idx)
+    return resolved
 
 
 def extract_step_data(
@@ -40,6 +67,10 @@ def extract_step_data(
         indices_to_load = [step_index + delta_index for delta_index in config.delta_indices]
         if allow_padding:
             indices_to_load = [max(0, min(idx, len(episode_data) - 1)) for idx in indices_to_load]
+        else:
+            indices_to_load = _resolve_unpadded_indices(
+                indices_to_load, len(episode_data), modality
+            )
         for key in config.modality_keys:
             if f"{modality}.{key}" in episode_data.columns:
                 modality_data = episode_data[f"{modality}.{key}"].iloc[indices_to_load]
@@ -107,7 +138,12 @@ class ShardedSingleStepDataset(ShardedDataset):
         shard_size: Target number of timesteps per shard
         episode_sampling_rate: Fraction of episode timesteps to use (for efficiency)
         seed: Random seed for reproducible sharding and sampling
-        allow_padding: Whether to allow padding of indices to valid range [0, max_length - 1]
+        allow_padding: Whether to clamp all sampled indices to the valid range
+            [0, max_length - 1]. When False, observation history before the first frame
+            is still clamped to frame 0 (matching inference-time padding) and any other
+            out-of-range index raises instead of silently wrapping around the episode.
+        use_faster_episode_loader: Whether to enable sparse video loading based on
+            shard step indices
 
     Example:
         >>> dataset = ShardedSingleStepDataset(
@@ -135,6 +171,7 @@ class ShardedSingleStepDataset(ShardedDataset):
         episode_sampling_rate: float = 0.1,
         seed: int = 42,
         allow_padding: bool = False,
+        use_faster_episode_loader: bool = False,
     ):
         """Initialize single-step dataset with sharding configuration."""
         super().__init__(dataset_path)
@@ -144,12 +181,16 @@ class ShardedSingleStepDataset(ShardedDataset):
         self.episode_sampling_rate = episode_sampling_rate
         self.seed = seed
         self.allow_padding = allow_padding
+        self.use_faster_episode_loader = use_faster_episode_loader
         self.processor = None
         self.rng = np.random.default_rng(seed)
         action_delta_indices = modality_configs["action"].delta_indices
         self.action_horizon = max(action_delta_indices) - min(action_delta_indices) + 1
 
-        self.episode_loader = LeRobotEpisodeLoader(
+        episode_loader_cls = (
+            LeRobotEpisodeLoaderFaster if use_faster_episode_loader else LeRobotEpisodeLoader
+        )
+        self.episode_loader = episode_loader_cls(
             dataset_path=dataset_path,
             modality_configs=modality_configs,
         )
@@ -288,8 +329,16 @@ class ShardedSingleStepDataset(ShardedDataset):
         episodes = self.sharded_episodes[idx]
         datapoints = []
         for ep_idx, step_indices in episodes:
-            # Load episode data once per episode in shard
-            episode_data = self.episode_loader[ep_idx]
+            if self.use_faster_episode_loader:
+                # [speed up] Let the faster loader decode only the video frames
+                # needed by this shard's step indices for the current episode.
+                episode_data = self.episode_loader(
+                    ep_idx,
+                    step_indices,
+                    allow_padding=self.allow_padding,
+                )
+            else:
+                episode_data = self.episode_loader[ep_idx]
             for step_index in step_indices:
                 datapoints.append(self.get_datapoint(episode_data, step_index))
         return datapoints
