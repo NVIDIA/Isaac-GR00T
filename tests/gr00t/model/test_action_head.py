@@ -20,6 +20,7 @@ These tests instantiate the action head directly (no backbone required)
 and feed it synthetic backbone output tensors.
 """
 
+import logging
 import math
 from unittest.mock import patch
 
@@ -548,8 +549,7 @@ class TestVLPaddingMask:
 
         assert not torch.allclose(unpadded, padded)
 
-    def test_flag_refuses_positional_embeddings(self):
-        """Left padding moves the real tokens, so the mask alone cannot hide it."""
+    def _positional_head(self, **overrides):
         config = _small_config(
             vl_self_attention_cfg={
                 **self.VL_SELF_ATTENTION_CFG,
@@ -557,6 +557,34 @@ class TestVLPaddingMask:
                 "max_num_positional_embeddings": 64,
             },
             strict_vl_padding_mask=True,
+            strict_action_padding_mask=False,
+            **overrides,
         )
+        torch.manual_seed(0)
+        return Gr00tN1d7ActionHead(config).eval(), config
+
+    def test_checkpoint_with_positional_embeddings_masks_only_the_dit(self, caplog):
+        """Left padding moves the real tokens, so the mask alone cannot hide it."""
+        with caplog.at_level(logging.WARNING):
+            head, config = self._positional_head(use_alternate_vl_dit=False)
+        assert not head.mask_vl_padding
+        assert head.config.strict_vl_padding_mask
+        assert "positional_embeddings" in caplog.text
+
+        real = torch.randn(1, 6, config.backbone_embedding_dim)
+        pad_vec = torch.randn(1, 1, config.backbone_embedding_dim)
+        with patch.object(head.model, "forward", wraps=head.model.forward) as dit:
+            self._predict(head, config, real, pad_vec, 5)
+        expected = torch.cat([torch.zeros(1, 5), torch.ones(1, 6)], dim=1).bool()
+        assert dit.call_args_list
+        for call in dit.call_args_list:
+            torch.testing.assert_close(call.kwargs["encoder_attention_mask"], expected)
+
+    def test_new_run_refuses_the_flag_with_positional_embeddings(self):
+        from gr00t.model.gr00t_n1d7.setup import require_strict_vl_padding_mask
+
+        head, _ = self._positional_head()
         with pytest.raises(ValueError, match="positional_embeddings=None"):
-            Gr00tN1d7ActionHead(config)
+            require_strict_vl_padding_mask(True, head)
+        require_strict_vl_padding_mask(None, head)
+        require_strict_vl_padding_mask(True, self._head(strict_vl_padding_mask=True)[0])

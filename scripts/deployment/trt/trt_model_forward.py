@@ -90,19 +90,19 @@ from .n1d7_optimization_config import (  # noqa: E402
 from .trt_torch import Engine  # noqa: E402
 
 
-def _validate_vl_attention_engine(engine, *, strict_vl_padding_mask=False):
-    """Check that the VL engine was exported with the checkpoint's strict mode.
+def _validate_vl_attention_engine(engine, *, mask_vl_padding=False):
+    """Check that the VL engine has a mask input exactly when the action head masks VL padding.
 
     A mismatched engine is closed before raising, since the caller never keeps it.
     """
     has_mask = any(name == "attention_mask" for name, *_ in engine.in_meta)
-    if has_mask != strict_vl_padding_mask:
+    if has_mask != mask_vl_padding:
         engine.close()
         raise ValueError(
-            "VL Self-Attention engine attention_mask binding does not match "
-            f"strict_vl_padding_mask={strict_vl_padding_mask}. "
-            "Re-export vl_self_attention.onnx and rebuild vl_self_attention.engine "
-            "using the checkpoint's strict_vl_padding_mask setting."
+            "VL Self-Attention engine attention_mask binding does not match the action "
+            f"head's mask_vl_padding={mask_vl_padding} (strict_vl_padding_mask, unless "
+            "vl_self_attention uses positional embeddings). Re-export vl_self_attention.onnx "
+            "and rebuild vl_self_attention.engine from this checkpoint."
         )
 
 
@@ -282,7 +282,7 @@ class OptimizedActionHeadRunner:
         self.vl_sa_engine = GraphSafeEngine(vl_sa_path) if vl_sa_path is not None else None
         if self.vl_sa_engine is not None:
             _validate_vl_attention_engine(
-                self.vl_sa_engine, strict_vl_padding_mask=action_head.mask_vl_padding
+                self.vl_sa_engine, mask_vl_padding=action_head.mask_vl_padding
             )
         self.state_encoder_engine = GraphSafeEngine(
             os.path.join(engine_dir, "state_encoder.engine")
@@ -1494,9 +1494,7 @@ def _setup_n17_full_pipeline(policy, trt_engine_path):
     if vl_sa_engine_path is not None:
         print(f"Loading VL Self-Attention engine: {vl_sa_engine_path}")
         vl_sa_engine = Engine(vl_sa_engine_path)
-        _validate_vl_attention_engine(
-            vl_sa_engine, strict_vl_padding_mask=action_head.mask_vl_padding
-        )
+        _validate_vl_attention_engine(vl_sa_engine, mask_vl_padding=action_head.mask_vl_padding)
         action_head.vl_sa_engine = vl_sa_engine
         # Delete PyTorch module — TRT engine replaces it
         if hasattr(action_head, "vl_self_attention"):

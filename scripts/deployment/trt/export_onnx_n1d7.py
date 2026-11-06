@@ -1515,10 +1515,12 @@ def export_vl_self_attention_to_onnx(
     embeddings. If the model has no vl_self_attention (nn.Identity), skip.
 
     Input: hidden_states [B, T, backbone_embedding_dim] (T is dynamic).
-    With strict_vl_padding_mask=True, also export attention_mask [B, T] (True means valid).
+    When the action head masks VL padding (``mask_vl_padding``: strict_vl_padding_mask,
+    unless vl_self_attention uses positional embeddings), also export attention_mask
+    [B, T] (True means valid).
     Output: hidden_states [B, T, backbone_embedding_dim].
-    Default mode preserves the legacy single-input engine contract. Enabling strict
-    mode requires re-exporting and rebuilding the VL engine with its mask input.
+    Otherwise the legacy single-input engine contract is preserved. Changing
+    ``mask_vl_padding`` requires re-exporting and rebuilding the VL engine.
     """
     if not exports_vl_self_attention(policy.model.action_head):
         logger.info("  vl_self_attention is Identity — skipping export")

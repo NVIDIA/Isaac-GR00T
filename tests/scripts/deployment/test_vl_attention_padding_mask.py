@@ -60,11 +60,11 @@ def export_on_cpu(monkeypatch):
     monkeypatch.setattr(torch, "randn", on_cpu(torch.randn))
     monkeypatch.setattr(torch, "ones", on_cpu(torch.ones))
 
-    def run(output_dir, fusion, strict, **kwargs):
+    def run(output_dir, fusion, strict, mask_vl_padding=None, **kwargs):
         head = SimpleNamespace(
             vl_self_attention=fusion,
             config=SimpleNamespace(backbone_embedding_dim=32, strict_vl_padding_mask=strict),
-            mask_vl_padding=strict,
+            mask_vl_padding=strict if mask_vl_padding is None else mask_vl_padding,
         )
         policy = SimpleNamespace(model=SimpleNamespace(action_head=head))
         path = export.export_vl_self_attention_to_onnx(
@@ -132,6 +132,21 @@ def test_strict_vl_export_keeps_legacy_attention_precision(tmp_path, export_on_c
     assert strict.softmax == legacy.softmax == {TensorProto.BFLOAT16}
     # The export-only mask hooks must not stay on the PyTorch module.
     assert not any(block.attn1._forward_pre_hooks for block in fusion.transformer_blocks)
+
+
+def test_vl_export_follows_mask_vl_padding_not_the_flag(tmp_path, export_on_cpu):
+    """A strict checkpoint whose vl_self_attention has positional embeddings stays legacy."""
+    fusion = SelfAttentionTransformer(
+        num_attention_heads=2,
+        attention_head_dim=16,
+        num_layers=2,
+        dropout=0.0,
+        final_dropout=False,
+        positional_embeddings="sinusoidal",
+        max_num_positional_embeddings=64,
+    ).eval()
+    model = export_on_cpu(tmp_path, fusion, strict=True, mask_vl_padding=False)
+    assert [value.name for value in model.graph.input] == ["hidden_states"]
 
 
 def test_strict_vl_export_removes_hooks_when_export_fails(tmp_path, export_on_cpu, monkeypatch):
@@ -244,11 +259,11 @@ def test_runtime_accepts_legacy_maskless_engine_only_when_strict_is_off(runtime)
     runtime._validate_vl_attention_engine(engine)
     assert closed == []
     with pytest.raises(ValueError, match="Re-export.*rebuild"):
-        runtime._validate_vl_attention_engine(engine, strict_vl_padding_mask=True)
+        runtime._validate_vl_attention_engine(engine, mask_vl_padding=True)
     masked = SimpleNamespace(
         in_meta=[("attention_mask", None, torch.bool)], close=lambda: closed.append("masked")
     )
-    with pytest.raises(ValueError, match="strict_vl_padding_mask=False"):
+    with pytest.raises(ValueError, match="mask_vl_padding=False"):
         runtime._validate_vl_attention_engine(masked)
     assert closed == ["legacy", "masked"]
 

@@ -115,11 +115,13 @@ class Gr00tN1d7ActionHead(nn.Module):
             self.vl_self_attention, nn.Identity
         )
         if self.mask_vl_padding and self.vl_self_attention.config.positional_embeddings:
-            raise ValueError(
-                "strict_vl_padding_mask needs vl_self_attention_cfg positional_embeddings=None: "
-                "left padding shifts the absolute positions of the real VL tokens, so masking "
-                "the padding cannot make them padding-independent."
+            logger.warning(
+                "strict_vl_padding_mask is not applied to vl_self_attention because its "
+                "positional_embeddings are set: left padding shifts the absolute positions of "
+                "the real VL tokens, so masking the padding cannot make them "
+                "padding-independent. The DiT cross-attention still masks VL padding."
             )
+            self.mask_vl_padding = False
 
         if config.add_pos_embed:
             self.position_embedding = nn.Embedding(config.max_seq_len, self.input_embedding_dim)
