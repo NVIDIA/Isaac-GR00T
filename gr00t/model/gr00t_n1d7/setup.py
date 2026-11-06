@@ -44,6 +44,24 @@ def convert_tensors_to_lists(obj):
         return obj
 
 
+def require_strict_vl_padding_mask(requested, action_head):
+    """Refuse an explicitly requested strict_vl_padding_mask that vl_self_attention skips.
+
+    Loading such a checkpoint only warns, but a run that asks for the flag would otherwise
+    save ``strict_vl_padding_mask: true`` for a model whose actions depend on batch padding.
+    """
+    if (
+        requested
+        and not action_head.mask_vl_padding
+        and not isinstance(action_head.vl_self_attention, torch.nn.Identity)
+    ):
+        raise ValueError(
+            "strict_vl_padding_mask needs vl_self_attention_cfg positional_embeddings=None: "
+            "left padding shifts the absolute positions of the real VL tokens, so masking "
+            "the padding cannot make them padding-independent."
+        )
+
+
 class Gr00tN1d7Pipeline(ModelPipeline):
     model_class = Gr00tN1d7
     processor_class = Gr00tN1d7Processor
@@ -72,6 +90,9 @@ class Gr00tN1d7Pipeline(ModelPipeline):
 
     def setup(self):
         self.model = self._create_model()
+        require_strict_vl_padding_mask(
+            self.config.model.strict_vl_padding_mask, self.model.action_head
+        )
         self.train_dataset, self.eval_dataset = self._create_dataset(self.save_cfg_dir)
         self.processor.validate_strict_action_padding_mask(self.model.config)
         self.data_collator = self._create_collator()
