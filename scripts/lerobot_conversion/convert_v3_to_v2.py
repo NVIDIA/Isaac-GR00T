@@ -289,8 +289,11 @@ def _validate_video_paths(src: Path, dst: Path) -> None:
         if any(ord(c) < 32 and c not in ["\t", "\n", "\r"] for c in path_str):
             raise ValueError(f"Path contains invalid control characters: {name} path")
 
-    # Additional check: ensure resolved paths don't point to system directories
-    system_dirs = {"/etc", "/sys", "/proc", "/dev", "/boot", "/root"}
+    # Additional check: ensure resolved paths don't point to system directories.
+    # ``/root`` is deliberately not in this set: it is root's home directory, not a
+    # system directory, and the default dataset root (``HF_LEROBOT_HOME``) resolves
+    # under it whenever the process runs as root, which rejected every video path.
+    system_dirs = {"/etc", "/sys", "/proc", "/dev", "/boot"}
     for resolved_path, name in [(src_resolved, "source"), (dst_resolved, "destination")]:
         path_str = str(resolved_path)
         for sys_dir in system_dirs:
