@@ -178,6 +178,12 @@ class TestRegisteredPrefixClosure:
         assert sim_dir.is_dir(), f"sim source dir not found: {sim_dir}"
         prefixes: set[str] = set()
         for py in sim_dir.rglob("*.py"):
+            # The sim setup scripts build each island's virtualenv inside this tree
+            # (e.g. gr00t/eval/sim/SimplerEnv/simpler_uv/.venv), so an unfiltered walk
+            # parses tens of thousands of third-party files and collects their env
+            # prefixes as if this repo had registered them.
+            if any(part in {".venv", "site-packages"} for part in py.relative_to(sim_dir).parts):
+                continue
             tree = ast.parse(py.read_text(), filename=str(py))
             for node in ast.walk(tree):
                 # register(id="<prefix>/...") / register(id=f"<prefix>/...")
