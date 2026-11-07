@@ -63,7 +63,7 @@ DIT_FORWARD_KWARGS = (
 )
 
 
-def _head(strict=True, use_alternate_vl_dit=True):
+def _head(strict=True, use_alternate_vl_dit=True, vl_mask=False):
     config = Gr00tN1d7Config(
         backbone_embedding_dim=16,
         hidden_size=16,
@@ -72,6 +72,7 @@ def _head(strict=True, use_alternate_vl_dit=True):
         max_action_dim=ACTION_DIM,
         action_horizon=HORIZON,
         strict_action_padding_mask=strict,
+        strict_vl_padding_mask=vl_mask,
         state_history_length=1,
         num_inference_timesteps=3,
         max_num_embodiments=2,
@@ -79,7 +80,18 @@ def _head(strict=True, use_alternate_vl_dit=True):
         max_seq_len=8,
         use_alternate_vl_dit=use_alternate_vl_dit,
         attend_text_every_n_blocks=2,
-        vl_self_attention_cfg=None,
+        vl_self_attention_cfg=(
+            dict(
+                num_attention_heads=2,
+                attention_head_dim=8,
+                num_layers=2,
+                dropout=0.0,
+                final_dropout=False,
+                positional_embeddings=None,
+            )
+            if vl_mask
+            else None
+        ),
         diffusion_model_cfg={
             "positional_embeddings": None,
             "num_layers": 2,
@@ -145,7 +157,7 @@ class _Engine:
             raise RuntimeError(f"Failed to set runtime shape for {name}")
 
     def dtype_of(self, name):
-        return torch.float32
+        return {item[0]: item[2] for item in self.in_meta}.get(name, torch.float32)
 
     def __call__(self, *args, cache_outputs=None, **kwargs):
         if self.exact_inputs:
@@ -332,6 +344,41 @@ def test_tensorrt_loops_match_the_strict_pytorch_action_head(
     else:
         actual = _optimized_action(_optimized_runner(head, tmp_path))
 
+    torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-5)
+    assert not actual[:, REAL_HORIZON:].any() and not actual[..., REAL_DIM:].any()
+
+
+@pytest.mark.parametrize("path", ["action_head", "optimized"])
+def test_vl_engine_mask_composes_with_strict_action_padding(path, tmp_path, monkeypatch):
+    """VL engine bindings and DiT action masks must both survive the runtime loop."""
+    monkeypatch.setenv("GR00T_DIT_SDPA_MODE", "math")
+    original_inputs = _inputs
+
+    def padded_inputs():
+        backbone, actions = original_inputs()
+        backbone.backbone_attention_mask[1, -2:] = False
+        return backbone, actions
+
+    monkeypatch.setitem(globals(), "_inputs", padded_inputs)
+    expected = _pytorch_action(_head(vl_mask=True))
+    head = _head(vl_mask=True)
+    seen_masks = []
+
+    def vl_attention(hidden_states, attention_mask):
+        seen_masks.append(attention_mask.clone())
+        return {"output": head.vl_self_attention(hidden_states, attention_mask=attention_mask)}
+
+    engine = _Engine(vl_attention, ["hidden_states", "attention_mask"], exact_inputs=True)
+    engine.in_meta[1][2] = torch.bool  # Exported VL engines take a boolean mask.
+    if path == "action_head":
+        head.vl_sa_engine = engine
+        actual = _action_head_path(head)
+    else:
+        runner = _optimized_runner(head, tmp_path)
+        runner.vl_sa_engine = engine
+        actual = _optimized_action(runner)
+    assert len(seen_masks) == 1
+    torch.testing.assert_close(seen_masks[0], padded_inputs()[0].backbone_attention_mask)
     torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-5)
     assert not actual[:, REAL_HORIZON:].any() and not actual[..., REAL_DIM:].any()
 
