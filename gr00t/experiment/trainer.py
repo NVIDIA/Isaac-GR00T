@@ -217,6 +217,68 @@ class Gr00tTrainer(Trainer):
 
         return torch.utils.data.DataLoader(self.train_dataset, **dataloader_params)
 
+    def get_eval_dataloader(self, eval_dataset=None):  # noqa: D401
+        """Return an eval dataloader while preserving dataset-owned sharding."""
+        if eval_dataset is None:
+            eval_dataset = self.eval_dataset
+        elif isinstance(eval_dataset, str):
+            eval_dataset = self.eval_dataset[eval_dataset]
+        if eval_dataset is None:
+            raise ValueError("Trainer: evaluation requires an eval_dataset.")
+
+        data_collator = self._get_collator_with_removed_columns(
+            self.data_collator, description="evaluation"
+        )
+        persistent_workers = self.args.dataloader_num_workers > 0
+        dataloader_params = {
+            "batch_size": self.args.eval_batch_size,
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": persistent_workers,
+        }
+        if self.args.dataloader_num_workers > 0:
+            dataloader_params["multiprocessing_context"] = self.multiprocessing_context
+
+        return torch.utils.data.DataLoader(eval_dataset, **dataloader_params)
+
+    def evaluate(self, *args, **kwargs):  # type: ignore[override]
+        """Run HF eval with the processor in eval mode so dropout/jitter are off."""
+        processor = getattr(self.train_dataset, "processor", None)
+        if processor is not None and hasattr(processor, "eval"):
+            processor.eval()
+        try:
+            return super().evaluate(*args, **kwargs)
+        finally:
+            if processor is not None and hasattr(processor, "train"):
+                processor.train()
+
+    def prediction_step(
+        self,
+        model,
+        inputs,
+        prediction_loss_only,
+        ignore_keys=None,
+    ):
+        """Always compute eval loss from the model forward.
+
+        HF ``Trainer.prediction_step`` only returns loss when ``label_names`` are
+        present in the batch or when ``can_return_loss`` is true (forward has
+        ``return_loss=True``). Gr00tN1d7 has empty ``label_names`` and no
+        ``return_loss`` parameter; loss lives in the forward outputs. Without
+        this override, eval still runs (``eval_runtime``) but never logs
+        ``eval_loss``.
+        """
+        inputs = self._prepare_inputs(inputs)
+        with torch.no_grad():
+            with self.compute_loss_context_manager():
+                num_items_in_batch = self._get_num_items_in_batch([inputs], self.args.device)
+                loss = self.compute_loss(
+                    model, inputs, return_outputs=False, num_items_in_batch=num_items_in_batch
+                )
+            loss = loss.detach().mean()
+        return (loss, None, None)
+
     def train(
         self,
         resume_from_checkpoint=None,
