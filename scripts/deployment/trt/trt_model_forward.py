@@ -102,7 +102,8 @@ def _validate_vl_attention_engine(engine, *, mask_vl_padding=False):
             "VL Self-Attention engine attention_mask binding does not match the action "
             f"head's mask_vl_padding={mask_vl_padding} (strict_vl_padding_mask, unless "
             "vl_self_attention uses positional embeddings). Re-export vl_self_attention.onnx "
-            "and rebuild vl_self_attention.engine from this checkpoint."
+            "and rebuild vl_self_attention.engine from this checkpoint (for ExecuTorch "
+            "programs, rerun export_executorch_n1d7.py)."
         )
 
 

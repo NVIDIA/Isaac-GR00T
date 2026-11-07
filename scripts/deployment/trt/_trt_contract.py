@@ -199,11 +199,11 @@ def assert_engine_matches_policy(
     if engine_ah is not None and policy_ah is not None and engine_ah != policy_ah:
         sa_note = f" (baked into sa_seq_len={engine_sa})" if engine_sa is not None else ""
         raise ValueError(
-            f"{source}: TRT engine bundle at {engine_path} was built for "
+            f"{source}: the export at {engine_path} was built for "
             f"action_horizon={engine_ah}{sa_note}, but the loaded policy has "
-            f"action_horizon={policy_ah}. The engine and policy disagree on "
-            "chunk size; re-export/rebuild the engines for this model, or load "
-            "the model the engines were built from."
+            f"action_horizon={policy_ah}. The export and policy disagree on "
+            "chunk size; re-export (and rebuild the TensorRT engines) for this "
+            "model, or load the model the export was built from."
         )
     return metadata
 
