@@ -274,12 +274,12 @@ def resolve_batch_size(
 
     if built is not None and int(requested) != int(built):
         raise ValueError(
-            f"{source}: requested batch_size={requested} but the TRT engine at "
+            f"{source}: requested batch_size={requested} but the export at "
             f"{engine_path} was built (statically) for batch_size={built}. "
             "The export pipeline does not register the batch dim in "
-            "dynamic_axes, so the engine only accepts its build batch. Pass "
-            f"--batch-size {built}, or rebuild the engines at batch_size="
-            f"{requested}."
+            "dynamic_axes, so it only accepts its build batch. Pass "
+            f"--batch-size {built}, or re-export (and rebuild the TensorRT "
+            f"engines) at batch_size={requested}."
         )
     return int(requested)
 
