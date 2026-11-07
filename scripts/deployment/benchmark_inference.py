@@ -24,13 +24,14 @@ Measures component-wise timing for:
 - Action Head (DiT): Flow-matching diffusion model
 - E2E: Full end-to-end inference
 
-Supports six inference modes:
+Supports seven inference modes:
 1. PyTorch Eager: Standard PyTorch execution
 2. torch.compile: PyTorch 2.0+ JIT compilation with max-autotune
 3. TensorRT (DiT-only): Optimized DiT action head using TensorRT engine
 4. TensorRT (Full Pipeline): All 6 components in TRT (ViT + LLM + Action Head)
 5. TensorRT (Action Head): Action head engines with the backbone in PyTorch
 6. TensorRT (vit_llm_only): ViT + LLM in TRT, action head in PyTorch (use on Spark/sm121)
+7. ExecuTorch + TensorRT: the 7 programs of export_executorch_n1d7.py (--executorch-path)
 
 Usage:
     # Basic benchmark (Eager + torch.compile)
@@ -386,6 +387,10 @@ class BenchmarkConfig:
     trt_engine_path: str | None = None
     """Path to TensorRT engine. If not provided, TensorRT benchmark is skipped."""
 
+    executorch_path: str | None = None
+    """Directory of ExecuTorch programs from trt/export_executorch_n1d7.py. If not provided,
+    the ExecuTorch benchmark is skipped."""
+
     num_iterations: int = 20
     """Number of benchmark iterations."""
 
@@ -408,7 +413,7 @@ class BenchmarkConfig:
     """Skip torch.compile benchmark (can take a while due to JIT compilation)."""
 
     batch_size: int = 1
-    """Batch size for TRT inference. Must match the batch size used during ONNX export."""
+    """Batch size for TRT inference. Must match the batch size used during export."""
 
     data_processing_reference_path: str | None = None
     """Save preprocessing samples for reuse by another invocation on the same device/input."""
@@ -418,6 +423,15 @@ class BenchmarkConfig:
 
     use_trajectory: bool = False
     """Benchmark on full trajectory instead of single data point. This cycles through all steps in an episode for more realistic benchmarking."""
+
+
+def close_accelerated_backends(policy):
+    """Release the TensorRT engines or ExecuTorch programs attached to ``policy``."""
+    from trt.executorch_model_forward import close_executorch_programs
+    from trt.trt_model_forward import close_tensorrt_engines
+
+    close_tensorrt_engines(policy)
+    close_executorch_programs(policy)
 
 
 def main(args: BenchmarkConfig | None = None):
@@ -450,6 +464,11 @@ def main(args: BenchmarkConfig | None = None):
     print(f"Use Trajectory: {args.use_trajectory}")
     print()
 
+    if args.executorch_path:
+        from trt.executorch_model_forward import check_executorch_export
+
+        check_executorch_export(args.executorch_path)
+
     # Load dataset and prepare observation
     print("Loading policy...")
     policy = Gr00tPolicy(
@@ -466,6 +485,8 @@ def main(args: BenchmarkConfig | None = None):
 
     if args.trt_engine_path:
         resolve_batch_size(args.trt_engine_path, args.batch_size, source="benchmark_inference")
+    if args.executorch_path:
+        resolve_batch_size(args.executorch_path, args.batch_size, source="benchmark_inference")
 
     modality_config = policy.get_modality_config()
     dataset = LeRobotEpisodeLoader(
@@ -718,8 +739,12 @@ def main(args: BenchmarkConfig | None = None):
     # ========================================
     # 3. TensorRT (if available)
     # ========================================
+    accelerated = []
     if args.trt_engine_path and os.path.exists(args.trt_engine_path):
-        trt_label = f"TensorRT ({args.trt_mode})"
+        accelerated.append((f"TensorRT ({args.trt_mode})", "tensorrt"))
+    if args.executorch_path:
+        accelerated.append(("ExecuTorch + TensorRT", "executorch"))
+    for trt_label, backend in accelerated:
         print("\n" + "-" * 50)
         print(f"Benchmarking {trt_label}...")
         print("-" * 50)
@@ -734,6 +759,9 @@ def main(args: BenchmarkConfig | None = None):
             del policy
         except NameError:
             pass
+        if policy_trt is not None:
+            close_accelerated_backends(policy_trt)
+            policy_trt = None
         torch.cuda.empty_cache()
         gc.collect()
 
@@ -745,10 +773,15 @@ def main(args: BenchmarkConfig | None = None):
             strict=True,
         )
 
-        from trt.trt_model_forward import setup_tensorrt_engines
+        if backend == "executorch":
+            from trt.executorch_model_forward import setup_executorch_programs
 
-        # Verification and benchmarking share metadata-aware bindings and dtypes.
-        setup_tensorrt_engines(policy_trt, args.trt_engine_path, mode=args.trt_mode)
+            setup_executorch_programs(policy_trt, args.executorch_path)
+        else:
+            from trt.trt_model_forward import setup_tensorrt_engines
+
+            # Verification and benchmarking share metadata-aware bindings and dtypes.
+            setup_tensorrt_engines(policy_trt, args.trt_engine_path, mode=args.trt_mode)
 
         # TensorRT needs extra warmup for engine initialization and CUDA context setup
         trt_warmup = effective_warmup
@@ -770,7 +803,7 @@ def main(args: BenchmarkConfig | None = None):
             print(f"  Backbone:        {np.median(components['backbone']):.0f} ms")
         if not args.flat_e2e:
             print(f"  Action Head:     {np.median(components['action_head']):.0f} ms")
-    elif args.trt_engine_path:
+    if args.trt_engine_path and not os.path.exists(args.trt_engine_path):
         print(f"\nTensorRT engine not found: {args.trt_engine_path}")
         print("To build engines for full pipeline, run:")
         print(
@@ -812,9 +845,7 @@ def main(args: BenchmarkConfig | None = None):
 
     print("\n" + "=" * 100)
     if policy_trt is not None:
-        from trt.trt_model_forward import close_tensorrt_engines
-
-        close_tensorrt_engines(policy_trt)
+        close_accelerated_backends(policy_trt)
 
 
 if __name__ == "__main__":
