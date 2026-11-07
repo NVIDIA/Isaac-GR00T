@@ -101,7 +101,8 @@ def normalize_values_minmax(values, params):
     """
     min_vals = params["min"]
     max_vals = params["max"]
-    normalized = np.zeros_like(values)
+    # Float result type: an integer dtype would truncate the division below
+    normalized = np.zeros_like(values, dtype=np.result_type(values, np.float32))
 
     mask = ~np.isclose(max_vals, min_vals)
 
@@ -188,7 +189,7 @@ def normalize_values_meanstd(values, params):
     mask = std_vals != 0
 
     # Initialize normalized array
-    normalized = np.zeros_like(values)
+    normalized = np.zeros_like(values, dtype=np.result_type(values, np.float32))
 
     # Normalize only features with non-zero std
     normalized[..., mask] = (values[..., mask] - mean_vals[..., mask]) / std_vals[..., mask]
@@ -235,7 +236,9 @@ def unnormalize_values_meanstd(normalized_values, params):
     mask = std_vals != 0
 
     # Initialize unnormalized array
-    unnormalized = np.zeros_like(normalized_values)
+    unnormalized = np.zeros_like(
+        normalized_values, dtype=np.result_type(normalized_values, np.float32)
+    )
 
     # Unnormalize only features with non-zero std
     unnormalized[..., mask] = (
