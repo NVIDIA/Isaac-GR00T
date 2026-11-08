@@ -33,6 +33,7 @@ Returns messages with VLAStepData as defined in types.py.
 """
 
 from collections import defaultdict
+from collections.abc import Callable
 import json
 import logging
 from pathlib import Path
@@ -580,6 +581,18 @@ class LeRobotEpisodeLoader:
         Raises:
             IndexError: If episode index is out of bounds
         """
+        return self.load_episode(idx)
+
+    def load_episode(
+        self, idx: int, select_frames: Callable[[int], np.ndarray] | None = None
+    ) -> pd.DataFrame:
+        """Load an episode, decoding video only at the rows ``select_frames`` picks.
+
+        ``select_frames(length)`` receives the number of rows actually loaded, which can be
+        less than the metadata length, and returns the rows to decode. Rows it does not
+        pick hold ``None`` in the video columns; every other column is identical to
+        ``self[idx]``.
+        """
         if idx < 0 or idx >= len(self):
             raise IndexError(f"Episode index {idx} out of bounds")
 
@@ -601,14 +614,29 @@ class LeRobotEpisodeLoader:
         df = df.iloc[:actual_length]
 
         # Load synchronized video data
-        video_data = self._load_video_data(episode_id, np.arange(actual_length))
+        frame_indices = None
+        if select_frames is None:
+            video_data = self._load_video_data(episode_id, np.arange(actual_length))
+        else:
+            frame_indices = np.unique(np.asarray(select_frames(actual_length), dtype=np.int64))
+            if len(frame_indices) and (frame_indices[0] < 0 or frame_indices[-1] >= actual_length):
+                raise IndexError(
+                    f"frame_indices out of range [0, {actual_length}) for episode {episode_id}"
+                )
+            video_data = self._load_video_data(episode_id, frame_indices)
 
         # Add video frames to dataframe as PIL Images
         for key in video_data.keys():
-            assert len(video_data[key]) == len(df), (
-                f"Video data for {key} has length {len(video_data[key])} but dataframe has length {len(df)}"
-            )
-            df[f"video.{key}"] = [frame for frame in video_data[key]]
+            if frame_indices is None:
+                assert len(video_data[key]) == len(df), (
+                    f"Video data for {key} has length {len(video_data[key])} but dataframe has length {len(df)}"
+                )
+                df[f"video.{key}"] = [frame for frame in video_data[key]]
+            else:
+                column = [None] * len(df)
+                for row, frame in zip(frame_indices, video_data[key]):
+                    column[row] = frame
+                df[f"video.{key}"] = column
 
         # Load synchronized mask data
         mask_data = self._load_mask_data(episode_id, np.arange(actual_length))

@@ -129,4 +129,12 @@ if __name__ == "__main__":
     config.training.resume_from_checkpoint = ft_config.resume_from_checkpoint
     config.training.skip_weight_loading = ft_config.skip_weight_loading
 
+    config.data.loader = ft_config.data_loader
+    config.data.fast_loader = {
+        "decode_threads": ft_config.fast_decode_threads,
+        "ffmpeg_threads": ft_config.fast_ffmpeg_threads,
+        "shuffle_buffer": ft_config.fast_shuffle_buffer,
+        "min_fill": ft_config.fast_min_fill,
+    }
+
     run(config)

@@ -212,7 +212,32 @@ class FinetuneConfig:
     The processor (tokenizer/config) is still loaded from base_model_path.
     Useful for CI/testing to skip the slow checkpoint shard loading."""
 
+    # --- Data Loader ---
+    data_loader: str = "fast"
+    """Training data loader: "fast" (default; decodes only the video frames each sample
+    reads and streams samples through a shuffle buffer) or "stock" (the previous loader).
+    "fast" serves the same samples as "stock", reordered within about
+    ``fast_shuffle_buffer`` samples instead of within each shard, so batches mix datasets
+    more and up to that many samples cross each epoch boundary. The order is reproducible
+    for a given seed."""
+
+    fast_decode_threads: int = 2
+    """"fast" loader: episode decode threads per dataloader worker."""
+
+    fast_ffmpeg_threads: int = 1
+    """"fast" loader: FFmpeg threads per video decoder (stock uses 0 = one per core)."""
+
+    fast_shuffle_buffer: int = 0
+    """"fast" loader: shuffle buffer size in samples. 0 means ``shard_size``."""
+
+    fast_min_fill: int = 0
+    """"fast" loader: samples buffered before the first yield; the buffer then grows by one
+    sample per served sample up to the shuffle buffer size. 0 means a quarter of the
+    shuffle buffer."""
+
     def __post_init__(self) -> None:
+        if self.data_loader not in ("stock", "fast"):
+            raise ValueError(f"data_loader must be 'stock' or 'fast', got {self.data_loader!r}")
         if self.gradient_accumulation_steps < 1:
             raise ValueError(
                 f"gradient_accumulation_steps must be >= 1, got {self.gradient_accumulation_steps}"

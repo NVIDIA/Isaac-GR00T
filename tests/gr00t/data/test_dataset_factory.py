@@ -34,6 +34,7 @@ def _make_mock_config():
     config = MagicMock()
     config.training.eval_strategy = "no"
     config.data.mode = "single_turn"
+    config.data.loader = "stock"
     config.data.shard_size = 128
     config.data.episode_sampling_rate = 0.5
     config.data.seed = 42
@@ -115,6 +116,34 @@ class TestDatasetFactory:
 
         assert train_ds is not None
         assert eval_ds is None
+
+    def test_build_fast_loader_uses_fast_classes(self):
+        from gr00t.data.dataset.factory import DatasetFactory
+
+        config = _make_mock_config()
+        config.data.loader = "fast"
+        config.data.fast_loader = {"decode_threads": 3, "ffmpeg_threads": 2}
+        mock_dataset = MagicMock()
+        mock_dataset.__len__ = MagicMock(return_value=10)
+
+        with (
+            patch("gr00t.data.dataset.factory.generate_stats"),
+            patch("gr00t.data.dataset.factory.generate_rel_stats"),
+            patch(
+                "gr00t.data.dataset.factory.FastShardedSingleStepDataset",
+                return_value=mock_dataset,
+            ) as single_cls,
+            patch("gr00t.data.dataset.factory.FastShardedMixtureDataset") as mixture_cls,
+            patch("torch.distributed.is_initialized", return_value=False),
+        ):
+            train_ds, _ = DatasetFactory(config).build(MagicMock())
+
+        assert train_ds is mixture_cls.return_value
+        assert single_cls.call_args.kwargs["ffmpeg_threads"] == 2
+        mixture_kwargs = mixture_cls.call_args.kwargs
+        assert mixture_kwargs["decode_threads"] == 3
+        assert mixture_kwargs["shuffle_buffer"] == 0
+        assert mixture_kwargs["min_fill"] == 0
 
     def test_build_rejects_eval_strategy(self):
         from gr00t.data.dataset.factory import DatasetFactory
