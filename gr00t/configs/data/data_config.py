@@ -96,6 +96,12 @@ class DataConfig:
     # Subsample ratio for the dataset
     subsample_ratio: float = 1.0
 
+    # Training data loader: "fast" (gr00t/data/dataset/fast_sharded_dataset.py) or "stock"
+    # (ShardedMixtureDataset).
+    loader: str = "fast"
+    # "fast" loader settings; see FAST_LOADER_DEFAULTS in fast_sharded_dataset.py.
+    fast_loader: Annotated[dict[str, Any], tyro.conf.Suppress] = field(default_factory=dict)
+
     # DP Image Config
     image_crop_size: List[int] = field(default_factory=lambda: [244, 244])
     image_target_size: List[int] = field(default_factory=lambda: [224, 224])

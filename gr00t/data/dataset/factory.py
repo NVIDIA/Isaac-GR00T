@@ -17,6 +17,11 @@ import numpy as np
 from tqdm import tqdm
 
 from gr00t.configs.base_config import Config
+from gr00t.data.dataset.fast_sharded_dataset import (
+    FastShardedMixtureDataset,
+    FastShardedSingleStepDataset,
+    fast_loader_settings,
+)
 from gr00t.data.dataset.sharded_mixture_dataset import ShardedMixtureDataset
 from gr00t.data.dataset.sharded_single_step_dataset import ShardedSingleStepDataset
 from gr00t.data.embodiment_tags import EmbodimentTag
@@ -40,6 +45,21 @@ class DatasetFactory:
         assert self.config.training.eval_strategy == "no", (
             "Sharded dataset does not support evaluation sets"
         )
+        loader = self.config.data.loader
+        assert loader in ("stock", "fast"), f"unknown data.loader {loader!r}"
+        if loader == "fast":
+            fast = fast_loader_settings(self.config.data.fast_loader)
+            single_cls = FastShardedSingleStepDataset
+            single_kwargs = {"ffmpeg_threads": fast["ffmpeg_threads"]}
+            mixture_cls = FastShardedMixtureDataset
+            mixture_kwargs = {
+                "decode_threads": fast["decode_threads"],
+                "shuffle_buffer": fast["shuffle_buffer"],
+                "min_fill": fast["min_fill"],
+            }
+        else:
+            single_cls, single_kwargs = ShardedSingleStepDataset, {}
+            mixture_cls, mixture_kwargs = ShardedMixtureDataset, {}
 
         all_datasets = []
         all_weights = []
@@ -58,7 +78,7 @@ class DatasetFactory:
                     if is_rank0:
                         generate_stats(dataset_path)
                         generate_rel_stats(dataset_path, EmbodimentTag(embodiment_tag))
-                dataset = ShardedSingleStepDataset(
+                dataset = single_cls(
                     dataset_path=dataset_path,
                     embodiment_tag=EmbodimentTag(embodiment_tag),
                     modality_configs=self.config.data.modality_configs[embodiment_tag],
@@ -66,6 +86,7 @@ class DatasetFactory:
                     episode_sampling_rate=self.config.data.episode_sampling_rate,
                     seed=self.config.data.seed,
                     allow_padding=self.config.data.allow_padding,
+                    **single_kwargs,
                 )
                 datasets.append(dataset)
             dataset_lengths = np.array([len(dataset) for dataset in datasets])
@@ -85,7 +106,7 @@ class DatasetFactory:
             )
 
         return (
-            ShardedMixtureDataset(
+            mixture_cls(
                 datasets=all_datasets,
                 weights=all_weights,
                 processor=processor,
@@ -93,6 +114,7 @@ class DatasetFactory:
                 training=True,
                 num_shards_per_epoch=self.config.data.num_shards_per_epoch,
                 override_pretraining_statistics=self.config.data.override_pretraining_statistics,
+                **mixture_kwargs,
             ),
             None,
         )

@@ -102,6 +102,24 @@ class ShardedDataset(ABC):
         """Get the shard at index idx."""
         pass
 
+    def get_shard_splits(self, idx: int) -> list:
+        """Independently loadable pieces of shard ``idx``.
+
+        Applying ``process_split_item`` to every item of ``load_split(split)`` over these
+        splits, in order, must give the samples of ``get_shard(idx)``. Streaming loaders
+        use finer splits to start serving a shard before all of it is loaded. Defaults to
+        the whole shard as one split.
+        """
+        return [idx]
+
+    def load_split(self, split) -> list:
+        """Load one split returned by ``get_shard_splits``; may run on any thread."""
+        return self.get_shard(split)
+
+    def process_split_item(self, item):
+        """Turn one ``load_split`` item into a sample; called from one thread at a time."""
+        return item
+
     def set_processor(self, processor: BaseProcessor):
         self.processor = processor
 
