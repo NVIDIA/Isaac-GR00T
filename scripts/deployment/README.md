@@ -245,6 +245,66 @@ uv run python scripts/deployment/standalone_inference_script.py \
 
 Expected accuracy: MSE/MAE match PyTorch within noise. TRT produces identical action quality. Speedup varies by platform — run `build_trt_pipeline.py --steps benchmark --flat-e2e` on your hardware for exact numbers.
 
+### Optional: ExecuTorch + TensorRT
+
+`trt/export_executorch_n1d7.py` exports the same 7 `full_pipeline` components as
+ExecuTorch programs (`.pte`). Torch-TensorRT builds each program's TensorRT engines
+during the export, so there is no separate engine build step. Each program can run
+from C++ with the ExecuTorch runtime and the TensorRT backend Torch-TensorRT
+provides for it, without Python or libtorch, or from Python
+with `trt/executorch_model_forward.py`, which reuses the TensorRT forward functions.
+The glue between the components (token embedding, rope index, VLLN, the denoising
+loop) is not part of the programs. Programs with fixed input shapes run as CUDA graphs
+where the GPU and driver support them: the ViT, the state and action encoders and the
+action decoder always, and all 7 with `--seq-len static`. `benchmark_inference.py` and
+`verify_n1d7_trt.py` take the programs with `--executorch-path`; the standalone inference
+script and the closed-loop evaluation still load TensorRT engines only. The path covers
+the BF16 baseline profile; FP8, NVFP4 and the optimized profile still go through ONNX.
+
+It needs PyTorch 2.15, ExecuTorch 1.6 and Torch-TensorRT 2.15, while this project
+pins PyTorch 2.9, so use a separate Python 3.12 environment. PyTorch 2.15 uses CUDA 13,
+so the NVIDIA driver must be R580 or newer. Install the stack with this package's other
+dependencies, then this package without its pins:
+
+```bash
+pip install "torch_tensorrt[executorch]" torchvision torchcodec \
+  "diffusers==0.39.0" "huggingface-hub<1.0" "transformers==4.57.3" "peft==0.17.1" \
+  "albumentations==1.4.18" "opencv-python-headless>=4.5,<4.13" dm-tree "lmdb==1.7.5" \
+  "msgpack==1.1.0" "msgpack-numpy==0.4.8" "pandas==2.2.3" "termcolor==3.2.0" \
+  "tyro==0.9.17" "click==8.1.8" "datasets==3.6.0" "einops==0.8.1" gitpython \
+  "jsonlines==4.0.0" "gymnasium==1.2.2" "matplotlib==3.10.1" "omegaconf==2.3.0" \
+  scipy "pyzmq==27.0.1" onnx
+pip install --no-deps -e .
+```
+
+ExecuTorch 1.6 needs numpy 2, and the pinned `diffusers==0.35.1` fails to import next to
+the `torchao` release it requires. Tested with torchvision 0.29.2, torchcodec 0.17.0 and
+numpy 2.2.6. TensorRT engines are built for one GPU architecture, so
+export on the device that runs the programs.
+
+```bash
+python -m scripts.deployment.trt.export_executorch_n1d7 \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --output-dir ./gr00t_executorch_deployment
+
+python scripts/deployment/benchmark_inference.py --flat-e2e --skip-compile \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --dataset-path demo_data/libero_demo \
+  --embodiment-tag LIBERO_PANDA \
+  --executorch-path ./gr00t_executorch_deployment
+
+python -m scripts.deployment.trt.verify_n1d7_trt \
+  --model-path checkpoints/GR00T-N1.7-LIBERO/libero_10 \
+  --executorch-path ./gr00t_executorch_deployment
+```
+
+`verify_n1d7_trt.py` compares the programs' ViT, backbone and action outputs with
+PyTorch. The exporter's `--seq-len static` fixes the prompt length captured from the
+dataset instead of the dynamic range the TensorRT engines use. To time both paths in one
+run, build the TensorRT engines in the same environment and pass `--trt-engine-path`
+with `--trt-mode n17_full_pipeline` too.
+
 ### Optional: LIBERO Closed-Loop Sim Evaluation
 
 To validate TRT accuracy in end-to-end robotic tasks, run the LIBERO closed-loop evaluation. This requires a separate environment setup (~10-30 min, MuJoCo simulator + dependencies).
@@ -520,6 +580,8 @@ shared precision/artifact configuration remain separate modules.
 | `trt/build_tensorrt_engine.py` | TensorRT engine construction |
 | `trt/verify_n1d7_trt.py` | PyTorch/TensorRT action equivalence checks |
 | `trt/_trt_contract.py` | Shared engine metadata and workload validation |
+| `trt/export_executorch_n1d7.py` | N1.7 component export to ExecuTorch programs with TensorRT engines |
+| `trt/executorch_model_forward.py` | Runs the ExecuTorch programs through the TRT forward functions |
 | `build_trt_pipeline.py` | Unified pipeline: export ONNX, build engines, verify, benchmark |
 | `standalone_inference_script.py` | Main inference script (PyTorch + DiT-only or full-pipeline TensorRT) |
 | `trt/trt_torch.py` | TRT Engine wrapper class (load, bind, execute) |
