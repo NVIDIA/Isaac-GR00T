@@ -67,7 +67,7 @@ NVIDIA Isaac GR00T N1.7 is an open vision-language-action (VLA) model for genera
 
 GR00T N1.7 is trained on a diverse mixture of robot data including bimanual, semi-humanoid and an expansive humanoid dataset. It is adaptable through post-training for specific embodiments, tasks and environments.
 
-GR00T N1.7 is fully commercially licensable under Apache 2.0. It delivers comparable performance to N1.6, with improved generalization and language-following capabilities driven by the inclusion of 20K hours of EgoScale human video data in pretraining.
+GR00T N1.7 is fully commercially usable: the code is released under Apache 2.0 and the model weights under the NVIDIA Open Model License (see [License](#license)). It delivers comparable performance to N1.6, with improved generalization and language-following capabilities driven by the inclusion of 20K hours of EgoScale human video data in pretraining.
 
 **GR00T N1.7 runs at ~40 Hz on NVIDIA RTX PRO 6000 Blackwell Server Edition and ~28 Hz on Jetson AGX Thor** with TensorRT. [Benchmark details](scripts/deployment/README.md#benchmark-results) (batch-1 LIBERO; Thor MAXN + `jetson_clocks`).
 
@@ -625,6 +625,8 @@ We welcome issues and pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) for 
 
 - **Code:** Apache 2.0 — see [LICENSE](LICENSE)
 - **Model weights:** [NVIDIA Open Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/)
+
+Built on NVIDIA Cosmos. The GR00T N1.7 vision-language backbone is [`nvidia/Cosmos-Reason2-2B`](https://huggingface.co/nvidia/Cosmos-Reason2-2B).
 
 ```
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
