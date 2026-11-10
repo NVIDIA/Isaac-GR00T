@@ -79,10 +79,10 @@ COSINE_THRESHOLD = 0.99
 # cosine comparison remains a valid accuracy check.
 _TRUNCATED_DIT_BLOCKS = 2
 
-# Each case re-exports ONNX and rebuilds every engine (2-6 min on Orin/Thor), and
-# each device has a single CI runner, so MR pipelines only run the default profile
-# of each export mode, the optimized full pipeline and the action-head NVFP4 smoke.
-# The nightly device pipeline sets TRT_PIPELINE_FULL_MATRIX=1 for the rest.
+# Each case re-exports ONNX and rebuilds every engine (1-6 min on Orin/Thor), and
+# each device has a single CI runner, so MR pipelines only run the optimized full
+# pipeline and the action-head NVFP4 smoke. The nightly device pipeline sets
+# TRT_PIPELINE_FULL_MATRIX=1 for the rest.
 _full_matrix_only = pytest.mark.skipif(
     os.getenv("TRT_PIPELINE_FULL_MATRIX") != "1",
     reason="runs in the nightly device pipeline; set TRT_PIPELINE_FULL_MATRIX=1 to run",
@@ -121,8 +121,15 @@ def _release_cuda_memory():
 @pytest.mark.parametrize(
     "export_mode,execution_profile,quantization,batch_size",
     [
-        pytest.param("dit_only", "baseline", "none", 1, id="dit-only"),
-        pytest.param("action_head", "baseline", "none", 1, id="action-head-baseline"),
+        pytest.param("dit_only", "baseline", "none", 1, id="dit-only", marks=_full_matrix_only),
+        pytest.param(
+            "action_head",
+            "baseline",
+            "none",
+            1,
+            id="action-head-baseline",
+            marks=_full_matrix_only,
+        ),
         pytest.param(
             "action_head",
             "optimized",
@@ -132,7 +139,9 @@ def _release_cuda_memory():
             marks=_full_matrix_only,
         ),
         pytest.param("action_head", "optimized", "mixed_nvfp4", 1, id="action-head-nvfp4"),
-        pytest.param("full_pipeline", "baseline", "none", 1, id="full-baseline-bs1"),
+        pytest.param(
+            "full_pipeline", "baseline", "none", 1, id="full-baseline-bs1", marks=_full_matrix_only
+        ),
         pytest.param(
             "full_pipeline", "baseline", "none", 2, id="full-baseline-bs2", marks=_full_matrix_only
         ),
