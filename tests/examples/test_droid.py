@@ -72,6 +72,37 @@ def test_droid_eef_rotation_correct_mirror_in_sync() -> None:
     np.testing.assert_array_equal(vendored, DROID_EEF_ROTATION_CORRECT)
 
 
+def test_droid_eef_9d_mirror_uses_extrinsic_xyz() -> None:
+    """The vendored compute_eef_9d must convert euler with scipy ``"xyz"``
+    (extrinsic fixed-frame, equivalent to tfg.rotation_matrix_3d.from_euler),
+    not ``"XYZ"`` (intrinsic). See tests/gr00t/data/state_action/test_droid_frame.py
+    for the canonical-module equivalent."""
+    example_src = (REPO_ROOT / "examples/DROID/main_gr00t.py").read_text()
+    tree = ast.parse(example_src)
+    func = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "compute_eef_9d"
+    )
+    from_euler_calls = [
+        node
+        for node in ast.walk(func)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "from_euler"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "Rotation"
+    ]
+    assert from_euler_calls, "vendored compute_eef_9d must call Rotation.from_euler"
+    for call in from_euler_calls:
+        assert call.args and isinstance(call.args[0], ast.Constant), (
+            "Rotation.from_euler sequence must be a string literal"
+        )
+        assert call.args[0].value == "xyz", (
+            f"vendored compute_eef_9d must use extrinsic 'xyz' (lowercase), got {call.args[0].value!r}"
+        )
+
+
 @pytest.mark.gpu
 @pytest.mark.timeout(1800)
 @pytest.mark.parametrize(
