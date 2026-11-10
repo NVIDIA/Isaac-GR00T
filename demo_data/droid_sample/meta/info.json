@@ -39,6 +39,30 @@
         17
       ]
     },
+    "timestamp": {
+      "dtype": "float64",
+      "shape": [
+        1
+      ]
+    },
+    "frame_index": {
+      "dtype": "int64",
+      "shape": [
+        1
+      ]
+    },
+    "episode_index": {
+      "dtype": "int64",
+      "shape": [
+        1
+      ]
+    },
+    "index": {
+      "dtype": "int64",
+      "shape": [
+        1
+      ]
+    },
     "task_index": {
       "dtype": "int64",
       "shape": [

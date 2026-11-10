@@ -146,6 +146,7 @@ def extract_episodes(cache_dir: Path, output_dir: Path, num_episodes: int) -> No
 
     episode_records = []
     task_indices_used = set()
+    global_index = 0
 
     for ep_row in episodes:
         ep_idx = int(ep_row["episode_index"])
@@ -170,7 +171,8 @@ def extract_episodes(cache_dir: Path, output_dir: Path, num_episodes: int) -> No
 
         ep_df = ep_df.copy()
         ep_df["episode_index"] = new_ep_idx
-        ep_df["index"] = range(len(ep_df))
+        ep_df["index"] = range(global_index, global_index + ep_length)
+        global_index += ep_length
 
         # Compute eef_9d (XYZ + rot6d) from cartesian_position (XYZ + euler)
         # for both state and action, as the model expects 17D = eef_9d(9) + gripper(1) + joints(7)
@@ -328,6 +330,10 @@ def extract_episodes(cache_dir: Path, output_dir: Path, num_episodes: int) -> No
             },
             "observation.state": {"dtype": "float32", "shape": [17]},
             "action": {"dtype": "float32", "shape": [17]},
+            "timestamp": {"dtype": "float64", "shape": [1]},
+            "frame_index": {"dtype": "int64", "shape": [1]},
+            "episode_index": {"dtype": "int64", "shape": [1]},
+            "index": {"dtype": "int64", "shape": [1]},
             "task_index": {"dtype": "int64", "shape": [1]},
         },
     }

@@ -207,7 +207,15 @@ def _assemble_sample(
 
     # Build info.json
     features = {**video_features}
-    for key in ["observation.state", "action", "task_index"]:
+    for key in [
+        "observation.state",
+        "action",
+        "timestamp",
+        "frame_index",
+        "episode_index",
+        "index",
+        "task_index",
+    ]:
         if key in source_info.get("features", {}):
             features[key] = source_info["features"][key]
 
