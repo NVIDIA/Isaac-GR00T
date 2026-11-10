@@ -274,6 +274,9 @@ class JointActionChunk(ActionChunk[JointPose]):
 
         Uses linear interpolation for joint values.
 
+        Samples not later than the last retained timestamp are dropped before
+        interpolation, preserving the order of the retained poses.
+
         Args:
             num_points: Number of evenly-spaced points to generate (including endpoints).
                        Only used if times is None.
@@ -297,15 +300,16 @@ class JointActionChunk(ActionChunk[JointPose]):
         timestamps = self._times.copy()
         joint_values = np.array([pose.joints for pose in self._poses])  # (N, num_joints)
 
-        # Find and remove non-monotonic timestamps
+        # Compare with the last retained timestamp, not a dropped predecessor.
+        max_timestamps = np.maximum.accumulate(timestamps)
         drop_indices = [
-            idx for idx in range(1, len(timestamps)) if timestamps[idx] <= timestamps[idx - 1]
+            idx for idx in range(1, len(timestamps)) if timestamps[idx] <= max_timestamps[idx - 1]
         ]
 
         if drop_indices:
             for idx in drop_indices:
                 print(
-                    f"Dropping timestamp pair - Previous: {timestamps[idx - 1]}, "
+                    f"Dropping timestamp pair - Previous: {max_timestamps[idx - 1]}, "
                     f"Current: {timestamps[idx]} at index {idx}"
                 )
             timestamps = np.delete(timestamps, drop_indices)
@@ -502,6 +506,9 @@ class EndEffectorActionChunk(ActionChunk[EndEffectorPose]):
         Uses linear interpolation for translation and SLERP (Spherical Linear
         Interpolation) for rotation.
 
+        Samples not later than the last retained timestamp are dropped before
+        interpolation, preserving the order of the retained poses.
+
         Args:
             num_points: Number of evenly-spaced points to generate (including endpoints).
                        Only used if times is None.
@@ -527,16 +534,17 @@ class EndEffectorActionChunk(ActionChunk[EndEffectorPose]):
         positions = homogeneous_matrices[:, :3, 3]
         rotations = Rotation.from_matrix(homogeneous_matrices[:, :3, :3])
 
-        # Find indices where timestamps are not monotonically increasing
+        # Compare with the last retained timestamp, not a dropped predecessor.
+        max_timestamps = np.maximum.accumulate(timestamps)
         drop_indices = [
-            idx for idx in range(1, len(timestamps)) if timestamps[idx] <= timestamps[idx - 1]
+            idx for idx in range(1, len(timestamps)) if timestamps[idx] <= max_timestamps[idx - 1]
         ]
 
         # Remove the problematic timestamps and corresponding data
         if drop_indices:
             for idx in drop_indices:
                 print(
-                    f"Dropping timestamp pair - Previous: {timestamps[idx - 1]}, "
+                    f"Dropping timestamp pair - Previous: {max_timestamps[idx - 1]}, "
                     f"Current: {timestamps[idx]} at index {idx}"
                 )
             timestamps = np.delete(timestamps, drop_indices)

@@ -19,10 +19,11 @@ Covers:
 - EndEffectorPose.from_action_format() for all ActionFormat variants
 - EndEffectorActionChunk.from_array() for all ActionFormat variants
 - Absolute -> relative -> absolute roundtrip consistency
+- Timestamp cleanup during joint and end-effector interpolation
 """
 
-from gr00t.data.state_action.action_chunking import EndEffectorActionChunk
-from gr00t.data.state_action.pose import EndEffectorPose
+from gr00t.data.state_action.action_chunking import EndEffectorActionChunk, JointActionChunk
+from gr00t.data.state_action.pose import EndEffectorPose, JointPose
 from gr00t.data.types import ActionFormat
 import numpy as np
 import pytest
@@ -32,6 +33,40 @@ from scipy.spatial.transform import Rotation
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", ["joint", "eef"])
+@pytest.mark.parametrize(
+    "times,values",
+    [
+        ([0, 1, 2, 3, 4], [0.0, 0.1, 0.2, 0.3, 0.4]),
+        ([0, 3, 1, 2, 4], [0.0, 0.3, 0.2, 0.1, 0.4]),
+        ([0, 2, 1, 2, 4], [0.0, 0.2, 0.3, 0.1, 0.4]),
+    ],
+    ids=["monotonic-control", "successive-backward-times", "duplicate-after-backward-time"],
+)
+def test_interpolation_compares_with_last_retained_timestamp(kind, times, values):
+    if kind == "joint":
+        chunk = JointActionChunk([JointPose([value]) for value in values], times=times)
+    else:
+        chunk = EndEffectorActionChunk(
+            [
+                EndEffectorPose(
+                    translation=np.array([value, 0.0, 0.0]),
+                    rotation=Rotation.from_euler("z", value).as_matrix(),
+                    rotation_type="matrix",
+                )
+                for value in values
+            ],
+            times=times,
+        )
+    result = chunk.interpolate(times=np.arange(5))
+    actual = [pose.joints[0] if kind == "joint" else pose.translation[0] for pose in result.poses]
+    np.testing.assert_allclose(actual, np.arange(5) * 0.1, atol=1e-12)
+    if kind == "eef":
+        np.testing.assert_allclose(
+            [pose.rotvec[2] for pose in result.poses], np.arange(5) * 0.1, atol=1e-12
+        )
 
 
 def _random_pose() -> EndEffectorPose:
