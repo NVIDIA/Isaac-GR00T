@@ -24,6 +24,32 @@ from gr00t.data.types import EmbodimentTag, MessageType, ModalityConfig, VLAStep
 from .lerobot_episode_loader import LeRobotEpisodeLoader
 
 
+def _resolve_unpadded_indices(indices: list[int], episode_length: int, modality: str) -> list[int]:
+    """Validate absolute frame indices for one modality when padding is disabled.
+
+    ``DataFrame.iloc`` accepts negative positions and silently counts them from
+    the END of the episode. A history offset such as the DROID video
+    ``delta_indices=[-15, 0]`` therefore used to return frames from the last 15
+    rows of the episode for every ``step_index < 15``. Observation history that
+    reaches before the first frame is clamped to frame 0 instead — the same
+    repeat-the-first-observation padding that ``MultiStepWrapper.reset`` and the
+    real-robot clients apply at episode start, so training matches inference.
+    Any other out-of-range index has no sensible fallback and is rejected.
+    """
+    resolved = []
+    for idx in indices:
+        if idx < 0 and modality != "action":
+            idx = 0
+        if not 0 <= idx < episode_length:
+            raise IndexError(
+                f"{modality} index {idx} (step_index + delta_index) is out of range for an "
+                f"episode of length {episode_length}; enable padding (allow_padding=True, "
+                "config.data.allow_padding for training) to clamp indices instead."
+            )
+        resolved.append(idx)
+    return resolved
+
+
 def extract_step_data(
     episode_data: pd.DataFrame,
     step_index: int,
@@ -40,6 +66,10 @@ def extract_step_data(
         indices_to_load = [step_index + delta_index for delta_index in config.delta_indices]
         if allow_padding:
             indices_to_load = [max(0, min(idx, len(episode_data) - 1)) for idx in indices_to_load]
+        else:
+            indices_to_load = _resolve_unpadded_indices(
+                indices_to_load, len(episode_data), modality
+            )
         for key in config.modality_keys:
             if f"{modality}.{key}" in episode_data.columns:
                 modality_data = episode_data[f"{modality}.{key}"].iloc[indices_to_load]
@@ -107,7 +137,10 @@ class ShardedSingleStepDataset(ShardedDataset):
         shard_size: Target number of timesteps per shard
         episode_sampling_rate: Fraction of episode timesteps to use (for efficiency)
         seed: Random seed for reproducible sharding and sampling
-        allow_padding: Whether to allow padding of indices to valid range [0, max_length - 1]
+        allow_padding: Whether to clamp all sampled indices to the valid range
+            [0, max_length - 1]. When False, observation history before the first frame
+            is still clamped to frame 0 (matching inference-time padding) and any other
+            out-of-range index raises instead of silently wrapping around the episode.
 
     Example:
         >>> dataset = ShardedSingleStepDataset(

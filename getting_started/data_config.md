@@ -43,7 +43,7 @@ Defines which temporal offsets to sample relative to the current timestep:
 - Current observation: Use [0] for the current timestep (recommended for video and state)                                                                     
 - Future actions: Use positive indices (e.g., list(range(0, 16))) for action prediction horizons                                                            
 
-> **Note:** Negative indices (e.g., [-2, -1, 0]) are supported by the data loader for historical context, but no current N1.7 embodiment config uses them. Stick with [0] for video and state unless you have a specific reason to stack frames.
+> **Note:** Negative indices (e.g., [-2, -1, 0]) are supported by the data loader for historical context (the pretrain `oxe_droid_relative_eef_relative_joint` config uses `[-15, 0]` for video). At the start of an episode, history that reaches before the first frame is padded by repeating frame 0, matching what the inference wrappers do. Stick with [0] for video and state unless you have a specific reason to stack frames.
 
 Examples:
 ```python
