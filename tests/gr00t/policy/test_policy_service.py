@@ -20,6 +20,8 @@ Uses a mock policy to avoid loading real model weights. The server is
 started in a background thread and the client connects on localhost.
 """
 
+import subprocess
+import sys
 import threading
 import time
 
@@ -423,3 +425,71 @@ class TestPolicyClientLifecycle:
             _FailingClient(host="127.0.0.1", port=_find_free_port(), timeout_ms=100)
 
         captured["instance"].__del__()  # must not raise
+
+
+@pytest.mark.parametrize("retain_errors", [False, True])
+@pytest.mark.parametrize("attempts", [0, 1, 3])
+def test_client_closes_after_timeouts_with_retained_tracebacks(retain_errors, attempts):
+    """Recorded timeout exceptions must not keep old sockets alive during close."""
+    code = f"""
+import socket
+import zmq
+from gr00t.policy.server_client import PolicyClient
+with socket.socket() as listener:
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+client = PolicyClient(host="127.0.0.1", port=port, timeout_ms=20)
+errors = []
+for _ in range({attempts}):
+    try:
+        client.call_endpoint("ping", requires_input=False)
+    except zmq.Again as error:
+        if {retain_errors}:
+            errors.append(error)
+    else:
+        raise AssertionError("Expected an unavailable-server timeout")
+print("timeouts complete; closing client", flush=True)
+client.close()
+assert client.context.closed
+client.close()
+print("close completed", flush=True)
+"""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        pytest.fail(f"Client close did not finish: {error.stdout!r}")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "close completed" in result.stdout
+
+
+def test_client_recovers_when_server_starts_after_timeout():
+    """Retiring a failed connection preserves subsequent public RPC calls."""
+    port = _find_free_port()
+    client = PolicyClient(host="127.0.0.1", port=port, timeout_ms=500)
+    retired_socket = client.socket
+    try:
+        with pytest.raises(zmq.Again) as timeout:
+            client.call_endpoint("ping", requires_input=False)
+        assert timeout.value.__traceback__ is not None
+        assert retired_socket.closed
+
+        with PolicyServer(MockPolicy(), host="127.0.0.1", port=port) as server:
+            thread = threading.Thread(target=server.run, daemon=True)
+            thread.start()
+            time.sleep(0.3)
+            try:
+                assert client.ping()
+                assert client.reset() == {"reset_count": 1}
+            finally:
+                client.kill_server()
+                thread.join(timeout=2)
+            assert not thread.is_alive()
+    finally:
+        retired_socket.close(linger=0)
+        client.close()

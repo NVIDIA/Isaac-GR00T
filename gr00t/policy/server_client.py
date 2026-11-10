@@ -297,7 +297,11 @@ class PolicyClient(BasePolicy):
         self._init_socket()
 
     def _init_socket(self):
-        """Initialize or reinitialize the socket with current settings"""
+        """Initialize or reinitialize the socket with current settings."""
+        # A timeout traceback can keep the retired socket alive, blocking context.term().
+        old_socket = getattr(self, "socket", None)
+        if old_socket is not None:
+            old_socket.close(linger=0)
         self.socket = self.context.socket(zmq.REQ)
         self.socket.setsockopt(zmq.RCVTIMEO, self.timeout_ms)
         self.socket.setsockopt(zmq.SNDTIMEO, self.timeout_ms)
