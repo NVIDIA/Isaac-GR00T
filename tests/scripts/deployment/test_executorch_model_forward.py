@@ -768,3 +768,38 @@ def test_dynamic_dims_use_the_engine_builder_profile(monkeypatch, opt_len, max_l
     }
     assert trt_inputs[1]["min_shape"] == [1, 2] and trt_inputs[1]["max_shape"] == [1, max_len]
     assert trt_inputs[2] == {"shape": [3], "dtype": torch.float32}
+
+
+def test_verify_runs_its_second_pass_on_the_programs(monkeypatch, tmp_path):
+    module = _forward_module(monkeypatch)
+    verify = pytest.importorskip("trt.verify_n1d7_trt", exc_type=ModuleNotFoundError)
+    calls = []
+    backbone = torch.nn.Module()
+    backbone.model = SimpleNamespace(model=SimpleNamespace(visual=torch.nn.Module()))
+    policy = SimpleNamespace(
+        get_modality_config=dict,
+        model=SimpleNamespace(backbone=backbone),
+        programs=False,
+    )
+
+    def get_action(obs):
+        calls.append("get_action")
+        return {"action": torch.tensor([0.0, 1.0] if policy.programs else [1.0, 0.0])}
+
+    def setup(stub, path):
+        calls.append(("setup", path))
+        stub.programs = True
+
+    policy.get_action = get_action
+    monkeypatch.setattr(verify, "Gr00tPolicy", lambda **kwargs: policy)
+    monkeypatch.setattr(verify, "LeRobotEpisodeLoader", lambda **kwargs: None)
+    monkeypatch.setattr(verify, "prepare_observation", lambda *args, **kwargs: {})
+    monkeypatch.setattr(verify, "resolve_batch_size", lambda *args, **kwargs: 1)
+    monkeypatch.setattr(module, "check_executorch_export", lambda path: calls.append("check"))
+    monkeypatch.setattr(module, "setup_executorch_programs", setup)
+    monkeypatch.setattr(module, "close_executorch_programs", lambda stub: calls.append("close"))
+
+    cosine = verify.main(verify.VerifyConfig(model_path="model", executorch_path=str(tmp_path)))
+
+    assert calls == ["check", "get_action", ("setup", str(tmp_path)), "get_action", "close"]
+    assert cosine == pytest.approx(0.0)
