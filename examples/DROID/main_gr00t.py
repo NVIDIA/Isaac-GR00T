@@ -407,19 +407,14 @@ def main(args: Args):
             model_wrist_image_writer.close()
             model_exterior_image_1_left_writer.close()
 
-        success: str | float | None = None
-        while not isinstance(success, float):
-            success = input(
+        success: float | None = None
+        while success is None:
+            answer = input(
                 "Did the rollout succeed? (enter y for 100%, n for 0%), or a numeric value 0-100 based on the evaluation spec"
             )
-            if success == "y":
-                success = 1.0
-            elif success == "n":
-                success = 0.0
-
-            success = float(success) / 100
-            if not (0 <= success <= 1):
-                print(f"Success must be a number in [0, 100] but got: {success * 100}")
+            success = _parse_success(answer)
+            if success is None:
+                print(f"Success must be y, n, or a number in [0, 100] but got: {answer!r}")
 
         new_row = {
             "success": success,
@@ -437,6 +432,25 @@ def main(args: Args):
     csv_filename = os.path.join(results_dir, f"eval_{timestamp}.csv")
     df.to_csv(csv_filename)
     print(f"Results saved to {csv_filename}")
+
+
+def _parse_success(answer: str) -> float | None:
+    """Map the operator's answer to a success fraction in [0, 1].
+
+    ``y`` is 1.0, ``n`` is 0.0, and a number from 0 to 100 is divided by 100.
+    Returns None for anything else (unparsable or out of range) so the caller
+    asks again instead of recording it.
+    """
+    answer = answer.strip().lower()
+    if answer == "y":
+        return 1.0
+    if answer == "n":
+        return 0.0
+    try:
+        value = float(answer) / 100
+    except ValueError:
+        return None
+    return value if 0 <= value <= 1 else None
 
 
 def _extract_observation(args: Args, obs_dict, *, stereo_camera="left", save_to_disk=False):

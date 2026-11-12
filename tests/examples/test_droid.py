@@ -72,6 +72,45 @@ def test_droid_eef_rotation_correct_mirror_in_sync() -> None:
     np.testing.assert_array_equal(vendored, DROID_EEF_ROTATION_CORRECT)
 
 
+def _vendored_function(source: str, name: str):
+    """Compile one top-level function out of source text and return it.
+
+    Same reason as ``_vendored_array_literal``: ``main_gr00t.py`` cannot be
+    imported in CI, so the function is lifted out of the AST and executed alone.
+    """
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            namespace: dict = {}
+            exec(compile(ast.Module(body=[node], type_ignores=[]), name, "exec"), namespace)
+            return namespace[name]
+    raise AssertionError(f"function {name} not found in source")
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        ("y", 1.0),
+        ("n", 0.0),
+        ("Y", 1.0),
+        ("100", 1.0),
+        ("50", 0.5),
+        ("0", 0.0),
+        ("500", None),
+        ("-50", None),
+        ("nan", None),
+        ("yes", None),
+        ("", None),
+    ],
+)
+def test_droid_success_prompt_parsing(answer: str, expected: float | None) -> None:
+    """The prompt offers "y for 100%, n for 0%" or a number 0-100. ``y`` must be
+    stored as 1.0 (not 0.01) and an out-of-range or unparsable answer must not
+    be stored at all."""
+    example_src = (REPO_ROOT / "examples/DROID/main_gr00t.py").read_text()
+    parse_success = _vendored_function(example_src, "_parse_success")
+    assert parse_success(answer) == expected
+
+
 @pytest.mark.gpu
 @pytest.mark.timeout(1800)
 @pytest.mark.parametrize(
