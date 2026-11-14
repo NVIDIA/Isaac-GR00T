@@ -20,6 +20,7 @@
 from dataclasses import dataclass
 import os
 import sys
+from typing import Optional
 
 import torch
 from torch.nn.functional import cosine_similarity
@@ -60,6 +61,11 @@ class VerifyConfig:
     batch_size: int = 1
     """Batch size for TRT inference. If > 1, tiles the observation and takes slice [0] for comparison."""
 
+    executorch_path: Optional[str] = None
+    """Directory with the programs of ``export_executorch_n1d7.py``. If set, verify them
+    instead of the engines in ``engine_dir``; they always run the full pipeline, so
+    ``mode`` does not apply."""
+
 
 def _tile_observation(obs, n):
     """Tile a single observation dict to batch size n."""
@@ -89,7 +95,15 @@ def main(args: VerifyConfig | None = None):
     print("N1.7 TRT Verification")
     print("=" * 60)
 
-    resolve_batch_size(args.engine_dir, args.batch_size, source="verify_n1d7_trt")
+    if args.executorch_path is not None:
+        from .executorch_model_forward import check_executorch_export
+
+        check_executorch_export(args.executorch_path)
+    resolve_batch_size(
+        args.engine_dir if args.executorch_path is None else args.executorch_path,
+        args.batch_size,
+        source="verify_n1d7_trt",
+    )
 
     # Step 1: Load policy and get PyTorch reference output
     print("\n[1] Loading policy...")
@@ -157,10 +171,16 @@ def main(args: VerifyConfig | None = None):
     pt_action = torch.cat(pt_arrays)
 
     # Step 2: Setup TRT engines and run
-    print("\n[4] Loading TRT engines...")
-    from .trt_model_forward import setup_tensorrt_engines
+    if args.executorch_path is not None:
+        from .executorch_model_forward import setup_executorch_programs
 
-    setup_tensorrt_engines(policy, args.engine_dir, mode=args.mode)
+        print("\n[4] Loading ExecuTorch programs...")
+        setup_executorch_programs(policy, args.executorch_path)
+    else:
+        from .trt_model_forward import setup_tensorrt_engines
+
+        print("\n[4] Loading TRT engines...")
+        setup_tensorrt_engines(policy, args.engine_dir, mode=args.mode)
 
     # --- Capture backbone output from TRT ---
     trt_backbone_features = None
@@ -260,9 +280,14 @@ def main(args: VerifyConfig | None = None):
     else:
         print("\n  FAIL — Significant divergence")
 
-    from .trt_model_forward import close_tensorrt_engines
+    if args.executorch_path is not None:
+        from .executorch_model_forward import close_executorch_programs
 
-    close_tensorrt_engines(policy)
+        close_executorch_programs(policy)
+    else:
+        from .trt_model_forward import close_tensorrt_engines
+
+        close_tensorrt_engines(policy)
     return cosine
 
 

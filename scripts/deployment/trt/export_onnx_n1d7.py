@@ -1029,6 +1029,56 @@ def _assert_vision_rotary_matches_analytic(vision, vision_config, *, atol=1e-5, 
         )
 
 
+def build_vit_for_export(policy, captured_vit, dtype, batch_size=1):
+    """Build the exportable ViT wrapper and an example ``pixel_values`` input.
+
+    The vision attention blocks stay patched until the caller passes the
+    returned ``originals`` to ``_restore_vision_attention``.
+
+    Returns:
+        (wrapper, pixel_values, vision, originals)
+    """
+    backbone = policy.model.backbone
+    qwen_model = backbone.model
+    vision = qwen_model.model.visual
+
+    # Gr00tPolicy loads the model in bf16, which rounds the non-persistent RoPE
+    # inv_freq. The ViT is exported in fp32 by default for TRT accuracy, so
+    # re-derive the analytic fp32 inv_freq before baking cos/sin, then verify
+    # the buffer against the independent analytic oracle.
+    _restore_vision_rotary_inv_freq_fp32(vision, qwen_model.config.vision_config)
+    _assert_vision_rotary_matches_analytic(vision, qwen_model.config.vision_config)
+
+    vision = vision.to(dtype).eval().cuda()
+
+    # Compute chunk sizes from grid_thw for per-image attention splitting
+    # grid_thw: [num_images, 3] where each row is (temporal, height, width)
+    # cu_seqlens derived as: patches_per_image = h * w, repeated t times
+    grid_thw = captured_vit.grid_thw.to(device="cuda")
+    # For batch_size > 1, repeat grid_thw to tile position embeddings for all batch elements
+    if batch_size > 1:
+        grid_thw = grid_thw.repeat(batch_size, 1)
+    chunk_sizes = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]).tolist()
+    logger.info(f"  grid_thw: {grid_thw.tolist()}, chunk_sizes: {chunk_sizes}")
+
+    # Patch attention for export with per-image chunk splitting
+    originals = _patch_vision_attention_for_export(vision, chunk_sizes=chunk_sizes)
+
+    # Build wrapper with pre-computed position embeddings
+    wrapper = Qwen3VisionForExport(vision, grid_thw)
+    wrapper = wrapper.to(dtype).eval().cuda()
+
+    # Input: only pixel_values (grid_thw is baked into pre-computed buffers)
+    # For batch_size > 1, scale num_patches by batch_size
+    pv_shape = captured_vit.pixel_values_shape
+    if batch_size > 1:
+        pv_shape = (pv_shape[0] * batch_size, pv_shape[1])
+    pixel_values = torch.randn(pv_shape, dtype=dtype, device="cuda")
+
+    logger.info(f"  pixel_values: {pixel_values.shape} ({pixel_values.dtype})")
+    return wrapper, pixel_values, vision, originals
+
+
 def export_vit_to_onnx(
     policy,
     output_dir,
@@ -1060,49 +1110,14 @@ def export_vit_to_onnx(
     logger.info("Exporting ViT (Qwen3-VL Vision) to ONNX")
     logger.info("=" * 80)
 
-    backbone = policy.model.backbone
-    qwen_model = backbone.model
-    vision = qwen_model.model.visual
-
-    # Gr00tPolicy loads the model in bf16, which rounds the non-persistent RoPE
-    # inv_freq. The ViT is exported in fp32 by default for TRT accuracy, so
-    # re-derive the analytic fp32 inv_freq before baking cos/sin, then verify
-    # the buffer against the independent analytic oracle.
-    _restore_vision_rotary_inv_freq_fp32(vision, qwen_model.config.vision_config)
-    _assert_vision_rotary_matches_analytic(vision, qwen_model.config.vision_config)
-
     dtype = (
         resolve_dtype(precision_tag)
         if precision_tag
         else (torch.bfloat16 if use_bf16 else torch.float32)
     )
-    vision = vision.to(dtype).eval().cuda()
-
-    # Compute chunk sizes from grid_thw for per-image attention splitting
-    # grid_thw: [num_images, 3] where each row is (temporal, height, width)
-    # cu_seqlens derived as: patches_per_image = h * w, repeated t times
-    grid_thw = captured_vit.grid_thw.to(device="cuda")
-    # For batch_size > 1, repeat grid_thw to tile position embeddings for all batch elements
-    if batch_size > 1:
-        grid_thw = grid_thw.repeat(batch_size, 1)
-    chunk_sizes = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]).tolist()
-    logger.info(f"  grid_thw: {grid_thw.tolist()}, chunk_sizes: {chunk_sizes}")
-
-    # Patch attention for ONNX export with per-image chunk splitting
-    originals = _patch_vision_attention_for_export(vision, chunk_sizes=chunk_sizes)
-
-    # Build wrapper with pre-computed position embeddings
-    wrapper = Qwen3VisionForExport(vision, grid_thw)
-    wrapper = wrapper.to(dtype).eval().cuda()
-
-    # Input: only pixel_values (grid_thw is baked into pre-computed buffers)
-    # For batch_size > 1, scale num_patches by batch_size
-    pv_shape = captured_vit.pixel_values_shape
-    if batch_size > 1:
-        pv_shape = (pv_shape[0] * batch_size, pv_shape[1])
-    pixel_values = torch.randn(pv_shape, dtype=dtype, device="cuda")
-
-    logger.info(f"  pixel_values: {pixel_values.shape} ({pixel_values.dtype})")
+    wrapper, pixel_values, vision, originals = build_vit_for_export(
+        policy, captured_vit, dtype, batch_size
+    )
 
     # --- Quantization hook: calibrate / quantize the wrapper in-place ---
     if pre_export_fn is not None:
@@ -1155,6 +1170,236 @@ def export_vit_to_onnx(
 # ============================================================
 
 
+class LLMForExport(torch.nn.Module):
+    """Exportable wrapper for Qwen3-VL text model with deepstack.
+
+    Key adaptations from the original Qwen3VLTextModel:
+    1. Eager attention (no flash) — avoids ONNX-incompatible flash attention
+    2. Simple causal mask — avoids COMPLEX128 ops from HuggingFace's mask
+    3. Deepstack injection via torch.where — avoids boolean indexing
+    4. Position IDs as explicit input — get_rope_index() stays in PyTorch
+    5. Deepstack features as separate tensor inputs (not a Python list)
+    """
+
+    def __init__(self, config, n_deepstack):
+        super().__init__()
+        from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLTextRotaryEmbedding
+
+        # Build fresh text model with eager attention
+        self.layers = nn.ModuleList(
+            [
+                # Import the decoder layer class
+                __import__(
+                    "transformers.models.qwen3_vl.modeling_qwen3_vl",
+                    fromlist=["Qwen3VLTextDecoderLayer"],
+                ).Qwen3VLTextDecoderLayer(config, layer_idx)
+                for layer_idx in range(config.num_hidden_layers)
+            ]
+        )
+        # NOTE: No final norm! Qwen3Backbone.forward returns
+        # hidden_states[-1] (pre-norm), not last_hidden_state (post-norm).
+        # The action head's VLLN handles normalization downstream.
+        self.rotary_emb = Qwen3VLTextRotaryEmbedding(config=config)
+        self.n_deepstack = n_deepstack
+
+    def _simple_causal_mask(self, dtype, device, batch_size, seq_len, attention_mask):
+        """ONNX-compatible causal mask without complex type casts."""
+        mask_value = torch.finfo(dtype).min * 0.5
+        causal_mask = torch.triu(
+            torch.full((seq_len, seq_len), mask_value, device=device, dtype=dtype),
+            diagonal=1,
+        )
+        causal_mask = causal_mask.unsqueeze(0).unsqueeze(0).expand(batch_size, 1, -1, -1)
+
+        if attention_mask is not None and attention_mask.dim() == 2:
+            padding_mask = attention_mask[:, None, None, :].to(dtype)
+            padding_mask = (1.0 - padding_mask) * mask_value
+            causal_mask = causal_mask + padding_mask
+
+        return causal_mask
+
+    def _deepstack_add(self, hidden_states, visual_pos_masks, visual_embeds):
+        """ONNX-friendly deepstack injection using torch.where.
+
+        Original uses boolean indexing:
+            hidden_states[visual_pos_masks, :] += visual_embeds
+        This is not ONNX-friendly. Instead we:
+        1. Build a full-size delta tensor (zeros except at visual positions)
+        2. Add it to hidden_states
+        """
+        # visual_pos_masks: [B, seq_len] bool
+        # visual_embeds: [num_vis_tokens, hidden_size]
+        # hidden_states: [B, seq_len, hidden_size]
+        B, S, H = hidden_states.shape
+
+        # Scatter visual_embeds into a full [B, S, H] tensor at masked positions
+        mask_expanded = visual_pos_masks.unsqueeze(-1)  # [B, S, 1]
+
+        # Build cumulative index for visual tokens per batch
+        # For single batch (B=1), this is straightforward
+        delta = torch.zeros_like(hidden_states)
+        # Use masked_scatter to place visual_embeds at the right positions
+        delta = delta.masked_scatter(mask_expanded.expand_as(delta), visual_embeds)
+
+        hidden_states = hidden_states + delta
+        return hidden_states
+
+    def forward(
+        self,
+        inputs_embeds,
+        attention_mask,
+        position_ids,
+        visual_pos_masks=None,
+        deepstack_0=None,
+        deepstack_1=None,
+        deepstack_2=None,
+    ):
+        batch_size, seq_len = inputs_embeds.shape[:2]
+        dtype = inputs_embeds.dtype
+        device = inputs_embeds.device
+
+        # Build causal attention mask
+        attn_mask = self._simple_causal_mask(dtype, device, batch_size, seq_len, attention_mask)
+
+        # Position IDs: [3, B, seq_len] → extract text_position_ids
+        text_position_ids = position_ids[0]  # [B, seq_len]
+
+        # Cache position for rotary embeddings
+        cache_position = torch.arange(seq_len, device=device)
+
+        hidden_states = inputs_embeds
+
+        # Compute rotary position embeddings (shared across layers)
+        position_embeddings = self.rotary_emb(hidden_states, position_ids)
+
+        # Collect deepstack features into indexable structure
+        deepstack_list = []
+        if deepstack_0 is not None:
+            deepstack_list.append(deepstack_0)
+        if deepstack_1 is not None:
+            deepstack_list.append(deepstack_1)
+        if deepstack_2 is not None:
+            deepstack_list.append(deepstack_2)
+
+        # Decoder layers
+        for layer_idx, decoder_layer in enumerate(self.layers):
+            layer_outputs = decoder_layer(
+                hidden_states,
+                attention_mask=attn_mask,
+                position_ids=text_position_ids,
+                past_key_values=None,
+                cache_position=cache_position,
+                position_embeddings=position_embeddings,
+            )
+            hidden_states = layer_outputs
+
+            # Deepstack injection at first N layers
+            if visual_pos_masks is not None and layer_idx < len(deepstack_list):
+                hidden_states = self._deepstack_add(
+                    hidden_states, visual_pos_masks, deepstack_list[layer_idx]
+                )
+
+        # Return pre-norm hidden states (matching Qwen3Backbone.forward
+        # which uses hidden_states[-1], not last_hidden_state)
+        return hidden_states
+
+
+def build_llm_for_export(policy, captured_llm, dtype, fuse_gateup=False):
+    """Build the exportable LLM wrapper with the policy's truncated text-model weights."""
+    backbone = policy.model.backbone
+    qwen_model = backbone.model  # Qwen3VLForConditionalGeneration
+    inner_model = qwen_model.model  # Qwen3VLModel
+    text_model = inner_model.language_model  # Qwen3VLTextModel
+    select_layer = backbone.select_layer
+
+    # Get text config and create eager-attention copy
+    text_config = copy.deepcopy(text_model.config)
+    text_config._attn_implementation = "eager"
+    text_config.num_hidden_layers = select_layer
+
+    logger.info(
+        f"  LLM config: hidden_size={text_config.hidden_size}, "
+        f"num_layers={text_config.num_hidden_layers}, "
+        f"attn_implementation={text_config._attn_implementation}"
+    )
+
+    # Determine deepstack count
+    num_deepstack = 0
+    if captured_llm.deepstack_visual_embeds is not None:
+        num_deepstack = len(captured_llm.deepstack_visual_embeds)
+    logger.info(f"  Deepstack layers: {num_deepstack}")
+
+    # Build wrapper and load weights
+    wrapper = LLMForExport(text_config, num_deepstack)
+
+    # Copy weights from the existing truncated text model
+    # The text model has: embed_tokens, layers, norm, rotary_emb
+    # We only need layers, norm, rotary_emb (embed_tokens not used — we pass inputs_embeds)
+    src_state = text_model.state_dict()
+    dst_state = wrapper.state_dict()
+    loaded, skipped = 0, 0
+    for key in dst_state:
+        if key in src_state:
+            dst_state[key] = src_state[key]
+            loaded += 1
+        else:
+            skipped += 1
+            logger.warning(f"  Key not found in source: {key}")
+    wrapper.load_state_dict(dst_state)
+    logger.info(f"  Loaded {loaded} weight tensors, skipped {skipped}")
+
+    if fuse_gateup:
+        fuse_llm_gateup(wrapper)
+
+    return wrapper.to(dtype).eval().cuda()
+
+
+def llm_export_inputs(captured_llm, batch_size, dtype, device):
+    """Return the LLM input names, example tensors, and dynamic axes."""
+    # Create dummy inputs from captured shapes
+    seq_len, hidden_size = captured_llm.inputs_embeds.shape[1:]
+    num_deepstack = len(captured_llm.deepstack_visual_embeds or [])
+
+    inputs_embeds = torch.randn(batch_size, seq_len, hidden_size, dtype=dtype, device=device)
+    attention_mask = torch.ones(batch_size, seq_len, dtype=torch.int64, device=device)
+    position_ids = torch.zeros(3, batch_size, seq_len, dtype=torch.int64, device=device)
+
+    export_inputs = [inputs_embeds, attention_mask, position_ids]
+    input_names = ["inputs_embeds", "attention_mask", "position_ids"]
+    # seq_len varies with tokenized input length — must be dynamic for TRT profile
+    llm_dynamic_axes = {
+        "inputs_embeds": {1: "seq_len"},
+        "attention_mask": {1: "seq_len"},
+        "position_ids": {2: "seq_len"},
+        "embeddings": {1: "seq_len"},
+    }
+
+    if num_deepstack > 0 and captured_llm.visual_pos_masks is not None:
+        # Use actual captured mask so masked_scatter sizes match deepstack
+        vis_mask = captured_llm.visual_pos_masks.to(device=device)
+        if vis_mask.shape[0] == 1 and batch_size > 1:
+            vis_mask = vis_mask.expand(batch_size, -1)
+        export_inputs.append(vis_mask)
+        input_names.append("visual_pos_masks")
+        llm_dynamic_axes["visual_pos_masks"] = {1: "seq_len"}
+
+        for i in range(num_deepstack):
+            ds = captured_llm.deepstack_visual_embeds[i]
+            # deepstack is [num_vis_tokens, hidden_size] — no batch dim.
+            # masked_scatter fills all B*num_vis_tokens positions, so repeat for batch_size > 1.
+            if batch_size > 1:
+                ds_dummy = torch.randn(
+                    batch_size * ds.shape[0], ds.shape[1], dtype=dtype, device=device
+                )
+            else:
+                ds_dummy = torch.randn_like(ds, dtype=dtype, device=device)
+            export_inputs.append(ds_dummy)
+            name = f"deepstack_{i}"
+            input_names.append(name)
+
+    return input_names, export_inputs, llm_dynamic_axes
+
+
 def export_llm_to_onnx(
     policy,
     captured_llm,
@@ -1200,231 +1445,15 @@ def export_llm_to_onnx(
     logger.info("Exporting LLM (Qwen3-VL Text Model) to ONNX")
     logger.info("=" * 80)
 
-    backbone = policy.model.backbone
-    qwen_model = backbone.model  # Qwen3VLForConditionalGeneration
-    inner_model = qwen_model.model  # Qwen3VLModel
-    text_model = inner_model.language_model  # Qwen3VLTextModel
-    select_layer = backbone.select_layer
-
-    # Get text config and create eager-attention copy
-    from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLTextRotaryEmbedding
-
-    text_config = copy.deepcopy(text_model.config)
-    text_config._attn_implementation = "eager"
-    text_config.num_hidden_layers = select_layer
-
-    logger.info(
-        f"  LLM config: hidden_size={text_config.hidden_size}, "
-        f"num_layers={text_config.num_hidden_layers}, "
-        f"attn_implementation={text_config._attn_implementation}"
-    )
-
-    # Determine deepstack count
-    num_deepstack = 0
-    if captured_llm.deepstack_visual_embeds is not None:
-        num_deepstack = len(captured_llm.deepstack_visual_embeds)
-    logger.info(f"  Deepstack layers: {num_deepstack}")
-
-    class LLMForExport(torch.nn.Module):
-        """ONNX-exportable wrapper for Qwen3-VL text model with deepstack.
-
-        Key adaptations from the original Qwen3VLTextModel:
-        1. Eager attention (no flash) — avoids ONNX-incompatible flash attention
-        2. Simple causal mask — avoids COMPLEX128 ops from HuggingFace's mask
-        3. Deepstack injection via torch.where — avoids boolean indexing
-        4. Position IDs as explicit input — get_rope_index() stays in PyTorch
-        5. Deepstack features as separate tensor inputs (not a Python list)
-        """
-
-        def __init__(self, config, n_deepstack):
-            super().__init__()
-            # Build fresh text model with eager attention
-            self.layers = nn.ModuleList(
-                [
-                    # Import the decoder layer class
-                    __import__(
-                        "transformers.models.qwen3_vl.modeling_qwen3_vl",
-                        fromlist=["Qwen3VLTextDecoderLayer"],
-                    ).Qwen3VLTextDecoderLayer(config, layer_idx)
-                    for layer_idx in range(config.num_hidden_layers)
-                ]
-            )
-            # NOTE: No final norm! Qwen3Backbone.forward returns
-            # hidden_states[-1] (pre-norm), not last_hidden_state (post-norm).
-            # The action head's VLLN handles normalization downstream.
-            self.rotary_emb = Qwen3VLTextRotaryEmbedding(config=config)
-            self.n_deepstack = n_deepstack
-
-        def _simple_causal_mask(self, dtype, device, batch_size, seq_len, attention_mask):
-            """ONNX-compatible causal mask without complex type casts."""
-            mask_value = torch.finfo(dtype).min * 0.5
-            causal_mask = torch.triu(
-                torch.full((seq_len, seq_len), mask_value, device=device, dtype=dtype),
-                diagonal=1,
-            )
-            causal_mask = causal_mask.unsqueeze(0).unsqueeze(0).expand(batch_size, 1, -1, -1)
-
-            if attention_mask is not None and attention_mask.dim() == 2:
-                padding_mask = attention_mask[:, None, None, :].to(dtype)
-                padding_mask = (1.0 - padding_mask) * mask_value
-                causal_mask = causal_mask + padding_mask
-
-            return causal_mask
-
-        def _deepstack_add(self, hidden_states, visual_pos_masks, visual_embeds):
-            """ONNX-friendly deepstack injection using torch.where.
-
-            Original uses boolean indexing:
-                hidden_states[visual_pos_masks, :] += visual_embeds
-            This is not ONNX-friendly. Instead we:
-            1. Build a full-size delta tensor (zeros except at visual positions)
-            2. Add it to hidden_states
-            """
-            # visual_pos_masks: [B, seq_len] bool
-            # visual_embeds: [num_vis_tokens, hidden_size]
-            # hidden_states: [B, seq_len, hidden_size]
-            B, S, H = hidden_states.shape
-
-            # Scatter visual_embeds into a full [B, S, H] tensor at masked positions
-            mask_expanded = visual_pos_masks.unsqueeze(-1)  # [B, S, 1]
-
-            # Build cumulative index for visual tokens per batch
-            # For single batch (B=1), this is straightforward
-            delta = torch.zeros_like(hidden_states)
-            # Use masked_scatter to place visual_embeds at the right positions
-            delta = delta.masked_scatter(mask_expanded.expand_as(delta), visual_embeds)
-
-            hidden_states = hidden_states + delta
-            return hidden_states
-
-        def forward(
-            self,
-            inputs_embeds,
-            attention_mask,
-            position_ids,
-            visual_pos_masks=None,
-            deepstack_0=None,
-            deepstack_1=None,
-            deepstack_2=None,
-        ):
-            batch_size, seq_len = inputs_embeds.shape[:2]
-            dtype = inputs_embeds.dtype
-            device = inputs_embeds.device
-
-            # Build causal attention mask
-            attn_mask = self._simple_causal_mask(dtype, device, batch_size, seq_len, attention_mask)
-
-            # Position IDs: [3, B, seq_len] → extract text_position_ids
-            text_position_ids = position_ids[0]  # [B, seq_len]
-
-            # Cache position for rotary embeddings
-            cache_position = torch.arange(seq_len, device=device)
-
-            hidden_states = inputs_embeds
-
-            # Compute rotary position embeddings (shared across layers)
-            position_embeddings = self.rotary_emb(hidden_states, position_ids)
-
-            # Collect deepstack features into indexable structure
-            deepstack_list = []
-            if deepstack_0 is not None:
-                deepstack_list.append(deepstack_0)
-            if deepstack_1 is not None:
-                deepstack_list.append(deepstack_1)
-            if deepstack_2 is not None:
-                deepstack_list.append(deepstack_2)
-
-            # Decoder layers
-            for layer_idx, decoder_layer in enumerate(self.layers):
-                layer_outputs = decoder_layer(
-                    hidden_states,
-                    attention_mask=attn_mask,
-                    position_ids=text_position_ids,
-                    past_key_values=None,
-                    cache_position=cache_position,
-                    position_embeddings=position_embeddings,
-                )
-                hidden_states = layer_outputs
-
-                # Deepstack injection at first N layers
-                if visual_pos_masks is not None and layer_idx < len(deepstack_list):
-                    hidden_states = self._deepstack_add(
-                        hidden_states, visual_pos_masks, deepstack_list[layer_idx]
-                    )
-
-            # Return pre-norm hidden states (matching Qwen3Backbone.forward
-            # which uses hidden_states[-1], not last_hidden_state)
-            return hidden_states
-
-    # Build wrapper and load weights
-    wrapper = LLMForExport(text_config, num_deepstack)
-
-    # Copy weights from the existing truncated text model
-    # The text model has: embed_tokens, layers, norm, rotary_emb
-    # We only need layers, norm, rotary_emb (embed_tokens not used — we pass inputs_embeds)
-    src_state = text_model.state_dict()
-    dst_state = wrapper.state_dict()
-    loaded, skipped = 0, 0
-    for key in dst_state:
-        if key in src_state:
-            dst_state[key] = src_state[key]
-            loaded += 1
-        else:
-            skipped += 1
-            logger.warning(f"  Key not found in source: {key}")
-    wrapper.load_state_dict(dst_state)
-    logger.info(f"  Loaded {loaded} weight tensors, skipped {skipped}")
-
-    if fuse_gateup:
-        fuse_llm_gateup(wrapper)
-
     dtype = (
         resolve_dtype(precision_tag)
         if precision_tag
         else (torch.bfloat16 if use_bf16 else torch.float32)
     )
-    wrapper = wrapper.to(dtype).eval().cuda()
-
-    # Create dummy inputs from captured shapes
-    seq_len = captured_llm.inputs_embeds.shape[1]
-    hidden_size = text_config.hidden_size
-
-    inputs_embeds = torch.randn(batch_size, seq_len, hidden_size, dtype=dtype, device="cuda")
-    attention_mask = torch.ones(batch_size, seq_len, dtype=torch.int64, device="cuda")
-    position_ids = torch.zeros(3, batch_size, seq_len, dtype=torch.int64, device="cuda")
-
-    export_inputs = [inputs_embeds, attention_mask, position_ids]
-    input_names = ["inputs_embeds", "attention_mask", "position_ids"]
-    # seq_len varies with tokenized input length — must be dynamic for TRT profile
-    llm_dynamic_axes = {
-        "inputs_embeds": {1: "seq_len"},
-        "attention_mask": {1: "seq_len"},
-        "position_ids": {2: "seq_len"},
-        "embeddings": {1: "seq_len"},
-    }
-
-    if num_deepstack > 0 and captured_llm.visual_pos_masks is not None:
-        # Use actual captured mask so masked_scatter sizes match deepstack
-        vis_mask = captured_llm.visual_pos_masks.to(device="cuda")
-        if vis_mask.shape[0] == 1 and batch_size > 1:
-            vis_mask = vis_mask.expand(batch_size, -1)
-        export_inputs.append(vis_mask)
-        input_names.append("visual_pos_masks")
-        llm_dynamic_axes["visual_pos_masks"] = {1: "seq_len"}
-
-        for i in range(num_deepstack):
-            ds = captured_llm.deepstack_visual_embeds[i]
-            # deepstack is [num_vis_tokens, hidden_size] — no batch dim.
-            # masked_scatter fills all B*num_vis_tokens positions, so repeat for batch_size > 1.
-            if batch_size > 1:
-                ds_dummy = torch.randn(
-                    batch_size * ds.shape[0], ds.shape[1], dtype=dtype, device="cuda"
-                )
-            else:
-                ds_dummy = torch.randn_like(ds, dtype=dtype, device="cuda")
-            export_inputs.append(ds_dummy)
-            name = f"deepstack_{i}"
-            input_names.append(name)
+    wrapper = build_llm_for_export(policy, captured_llm, dtype, fuse_gateup=fuse_gateup)
+    input_names, export_inputs, llm_dynamic_axes = llm_export_inputs(
+        captured_llm, batch_size, dtype, "cuda"
+    )
 
     logger.info("  Export input shapes:")
     for name, tensor in zip(input_names, export_inputs):
@@ -1499,6 +1528,17 @@ def exports_vl_self_attention(action_head) -> bool:
     return not isinstance(action_head.vl_self_attention, nn.Identity)
 
 
+class VLAttentionWrapper(nn.Module):
+    def __init__(self, transformer):
+        super().__init__()
+        self.transformer = transformer
+
+    def forward(self, hidden_states, attention_mask=None):
+        if attention_mask is None:
+            return self.transformer(hidden_states)
+        return self.transformer(hidden_states, attention_mask=attention_mask)
+
+
 def export_vl_self_attention_to_onnx(
     policy,
     output_dir,
@@ -1533,16 +1573,6 @@ def export_vl_self_attention_to_onnx(
 
     config = policy.model.action_head.config
     dtype = dtype_override or (torch.bfloat16 if use_bf16 else torch.float32)
-
-    class VLAttentionWrapper(nn.Module):
-        def __init__(self, transformer):
-            super().__init__()
-            self.transformer = transformer
-
-        def forward(self, hidden_states, attention_mask=None):
-            if attention_mask is None:
-                return self.transformer(hidden_states)
-            return self.transformer(hidden_states, attention_mask=attention_mask)
 
     strict = policy.model.action_head.mask_vl_padding
     # A wrapper also keeps the legacy exporter from passing the transformer's
@@ -1991,61 +2021,13 @@ def export_action_decoder_to_onnx(
 # ============================================================
 
 
-def main(args):
-    args.embodiment_tag = EmbodimentTag.resolve(args.embodiment_tag)
+def capture_component_inputs(policy, dataset, export_mode):
+    """Run one policy call with hooks that record each component's inputs.
 
-    optimized_profile = args.execution_profile == "optimized"
-    if optimized_profile and args.export_mode == "dit_only":
-        raise ValueError(
-            "--execution-profile optimized requires --export-mode action_head or full_pipeline"
-        )
-
-    # Per-component precision tags come from the shared policy table so export,
-    # engine build, and runtime can never disagree on artifact names.
-    precisions = component_precisions(args.quantization)
-    vit_prec = precisions["vit"]
-    llm_prec = precisions["llm"]
-    dit_prec = precisions["dit"]
-    aux_prec = precisions["aux"]
-    aux_dtype = resolve_dtype(aux_prec)
-    quantized = args.quantization != "none"
-
-    logger.info("=" * 80)
-    logger.info("GR00T N1.7 ONNX Export Script")
-    logger.info("=" * 80)
-    logger.info(f"Model path: {args.model_path}")
-    logger.info(f"Dataset path: {args.dataset_path}")
-    logger.info(f"Embodiment: {args.embodiment_tag}")
-    logger.info(f"Export mode: {args.export_mode}")
-    logger.info(f"Quantization: {args.quantization}")
-    logger.info(
-        f"Component precisions: vit={vit_prec}, llm={llm_prec}, dit={dit_prec}, aux={aux_prec}"
-    )
-    logger.info(f"Execution profile: {args.execution_profile}")
-    logger.info(f"Batch size: {args.batch_size}")
-    logger.info(f"Output directory: {args.output_dir}")
-    logger.info("=" * 80)
-
-    # Step 1: Load the policy
-    logger.info("\n[Step 1] Loading policy...")
-    policy = Gr00tPolicy(
-        embodiment_tag=args.embodiment_tag,
-        model_path=args.model_path,
-        device="cuda",
-    )
-    logger.info("  Policy loaded")
-
-    # Step 2: Load dataset
-    logger.info("\n[Step 2] Loading dataset...")
-    dataset = LeRobotEpisodeLoader(
-        dataset_path=args.dataset_path,
-        modality_configs=policy.get_modality_config(),
-    )
-    logger.info(f"  Dataset loaded ({len(dataset)} trajectories)")
-
-    # Step 3: Capture inputs via hooks
-    logger.info("\n[Step 3] Capturing model inputs from actual inference...")
-
+    Returns:
+        (dit_capture, vit_capture, llm_capture); the ViT and LLM captures are
+        None unless export_mode is full_pipeline. All three are None on failure.
+    """
     dit_capture = DiTInputCapture()
     dit_hook = policy.model.action_head.model.register_forward_pre_hook(
         dit_capture.hook_fn, with_kwargs=True
@@ -2056,7 +2038,7 @@ def main(args):
     vit_hook = None
     llm_capture = None
     llm_hook = None
-    if args.export_mode == "full_pipeline":
+    if export_mode == "full_pipeline":
         vit_capture = ViTInputCapture()
         qwen_model = policy.model.backbone.model
         vit_hook = qwen_model.model.visual.register_forward_hook(
@@ -2081,13 +2063,25 @@ def main(args):
 
     if not dit_capture.captured:
         logger.error("  Failed to capture DiT inputs!")
-        return
-    if args.export_mode == "full_pipeline" and not vit_capture.captured:
+        return None, None, None
+    if export_mode == "full_pipeline" and not vit_capture.captured:
         logger.error("  Failed to capture ViT inputs!")
-        return
-    if args.export_mode == "full_pipeline" and not llm_capture.captured:
+        return None, None, None
+    if export_mode == "full_pipeline" and not llm_capture.captured:
         logger.error("  Failed to capture LLM inputs!")
-        return
+        return None, None, None
+    return dit_capture, vit_capture, llm_capture
+
+
+def build_export_metadata(policy, args, dit_capture, vit_capture, llm_capture):
+    """Describe the exported component shapes and precisions for the runtime loader."""
+    precisions = component_precisions(args.quantization)
+    vit_prec = precisions["vit"]
+    llm_prec = precisions["llm"]
+    dit_prec = precisions["dit"]
+    aux_prec = precisions["aux"]
+    quantized = args.quantization != "none"
+    optimized_profile = args.execution_profile == "optimized"
 
     # Derive metadata
     action_head_config = policy.model.action_head.config
@@ -2159,6 +2153,73 @@ def main(args):
         export_metadata["vit_grid_thw"] = [
             [int(x) for x in row] for row in vit_capture.grid_thw.tolist()
         ]
+    return export_metadata
+
+
+def main(args):
+    args.embodiment_tag = EmbodimentTag.resolve(args.embodiment_tag)
+
+    optimized_profile = args.execution_profile == "optimized"
+    if optimized_profile and args.export_mode == "dit_only":
+        raise ValueError(
+            "--execution-profile optimized requires --export-mode action_head or full_pipeline"
+        )
+
+    # Per-component precision tags come from the shared policy table so export,
+    # engine build, and runtime can never disagree on artifact names.
+    precisions = component_precisions(args.quantization)
+    vit_prec = precisions["vit"]
+    llm_prec = precisions["llm"]
+    dit_prec = precisions["dit"]
+    aux_prec = precisions["aux"]
+    aux_dtype = resolve_dtype(aux_prec)
+    quantized = args.quantization != "none"
+
+    logger.info("=" * 80)
+    logger.info("GR00T N1.7 ONNX Export Script")
+    logger.info("=" * 80)
+    logger.info(f"Model path: {args.model_path}")
+    logger.info(f"Dataset path: {args.dataset_path}")
+    logger.info(f"Embodiment: {args.embodiment_tag}")
+    logger.info(f"Export mode: {args.export_mode}")
+    logger.info(f"Quantization: {args.quantization}")
+    logger.info(
+        f"Component precisions: vit={vit_prec}, llm={llm_prec}, dit={dit_prec}, aux={aux_prec}"
+    )
+    logger.info(f"Execution profile: {args.execution_profile}")
+    logger.info(f"Batch size: {args.batch_size}")
+    logger.info(f"Output directory: {args.output_dir}")
+    logger.info("=" * 80)
+
+    # Step 1: Load the policy
+    logger.info("\n[Step 1] Loading policy...")
+    policy = Gr00tPolicy(
+        embodiment_tag=args.embodiment_tag,
+        model_path=args.model_path,
+        device="cuda",
+    )
+    logger.info("  Policy loaded")
+
+    # Step 2: Load dataset
+    logger.info("\n[Step 2] Loading dataset...")
+    dataset = LeRobotEpisodeLoader(
+        dataset_path=args.dataset_path,
+        modality_configs=policy.get_modality_config(),
+    )
+    logger.info(f"  Dataset loaded ({len(dataset)} trajectories)")
+
+    # Step 3: Capture inputs via hooks
+    logger.info("\n[Step 3] Capturing model inputs from actual inference...")
+
+    dit_capture, vit_capture, llm_capture = capture_component_inputs(
+        policy, dataset, args.export_mode
+    )
+    if dit_capture is None:
+        return
+
+    export_metadata = build_export_metadata(policy, args, dit_capture, vit_capture, llm_capture)
+    vl_seq_len = export_metadata["vl_seq_len"]
+    num_deepstack = export_metadata["num_deepstack"]
 
     logger.info("\n" + format_quantization_summary(export_metadata))
     os.makedirs(args.output_dir, exist_ok=True)
