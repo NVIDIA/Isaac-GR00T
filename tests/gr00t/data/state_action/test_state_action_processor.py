@@ -171,6 +171,35 @@ class TestActionNormalization:
             )
 
 
+class TestMeanStdActionNormalization:
+    """Mean/std-normalized action groups produce unbounded z-scores."""
+
+    def test_meanstd_action_not_clipped_and_roundtrips(self, modality_keys, statistics):
+        _, action_keys = modality_keys
+        key = action_keys[0]
+        modality_configs, statistics_local = _load_fixture_configs()
+        modality_configs[EMBODIMENT]["action"]["mean_std_embedding_keys"] = [key]
+        proc = StateActionProcessor(
+            modality_configs=modality_configs,
+            statistics=statistics_local,
+            clip_outliers=True,
+        )
+        stats = statistics_local[EMBODIMENT]["action"][key]
+        mean = np.array(stats["mean"])
+        std = np.array(stats["std"])
+        assert np.all(std > 0)
+        z = np.tile(np.array([-3.0, -1.5, 0.0, 0.5, 1.5, 3.0])[:, None], (1, len(mean)))
+        raw = _random_action(action_keys, statistics, horizon=len(z))
+        raw[key] = (mean + z * std).astype(np.float32)
+        normalized = proc.apply_action(raw, EMBODIMENT)
+        np.testing.assert_allclose(normalized[key], (raw[key] - mean) / std, rtol=1e-5, atol=1e-5)
+        recovered = proc.unapply_action(normalized, EMBODIMENT)
+        np.testing.assert_allclose(recovered[key], raw[key], rtol=1e-5, atol=1e-4)
+        # Min/max groups are still clipped.
+        for other in action_keys[1:]:
+            assert normalized[other].min() >= -1.0 and normalized[other].max() <= 1.0
+
+
 class TestApplyConvenience:
     """Test the combined apply/unapply convenience methods."""
 

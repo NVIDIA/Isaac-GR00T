@@ -83,7 +83,8 @@ class StateActionProcessor:
                 and stat_type in ["min", "max", "mean", "std", "q01", "q99"]
                 Example: {"gr1": {"state": {"left_arm": {"min": [...], "max": [...], ...}}}}
             use_percentiles: Whether to use percentiles (q01/q99) instead of min/max
-            clip_outliers: Whether to clip normalized values to [-1, 1]
+            clip_outliers: Whether to clip min/max-normalized values to [-1, 1]
+                (mean/std-normalized values are z-scores and are never clipped)
             apply_sincos_state_encoding: Global flag to enable sin/cos encoding for states
         """
         self.modality_configs = parse_modality_configs(modality_configs)
@@ -407,12 +408,14 @@ class StateActionProcessor:
                 and joint_group
                 in self.modality_configs[embodiment_tag]["action"].mean_std_embedding_keys
             ):
+                # z-scores are unbounded; clipping them to [-1, 1] would saturate every
+                # value more than one std from the mean (same as the state branch).
                 normalized = normalize_values_meanstd(action[joint_group], params)
             else:
                 normalized = normalize_values_minmax(action[joint_group], params)
 
-            if self.clip_outliers:
-                normalized = np.clip(normalized, -1.0, 1.0)
+                if self.clip_outliers:
+                    normalized = np.clip(normalized, -1.0, 1.0)
 
             normalized_values[joint_group] = normalized
 
