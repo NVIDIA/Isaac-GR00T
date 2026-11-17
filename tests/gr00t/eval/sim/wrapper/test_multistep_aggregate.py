@@ -353,3 +353,46 @@ def test_terminate_on_success_marks_wrapper_boundary_and_dones():
     assert info["n_env_steps"] == 3
     assert info["dones"].tolist() == [False, False, True]
     assert wrapper.done[-1] is True
+
+
+def test_step_after_termination_requires_reset():
+    """A second step after a terminal chunk raises a clear error, not UnboundLocalError."""
+    mod = _import_module()
+    import gymnasium as gym
+
+    class _TerminatingEnv(gym.Env):
+        action_space = gym.spaces.Box(-1.0, 1.0, (1,), np.float32)
+        observation_space = gym.spaces.Dict(
+            {"state.position": gym.spaces.Box(-10.0, 10.0, (1,), np.float32)}
+        )
+
+        def reset(self, *, seed=None, options=None):
+            super().reset(seed=seed)
+            return {"state.position": np.array([0], np.float32)}, {}
+
+        def step(self, action):
+            return {"state.position": np.array([1], np.float32)}, 1.0, True, False, {}
+
+    contract = PolicyHorizonSpec(
+        n_action_steps=2,
+        action_horizon=2,
+        video_delta_indices=(0,),
+        state_delta_indices=(0,),
+    )
+    wrapper = mod.MultiStepWrapper(
+        env=_TerminatingEnv(), contract=contract, max_episode_steps=10
+    )
+    wrapper.reset()
+    action = {"action": np.zeros((2, 1), np.float32)}
+    _, _, terminated, truncated, info = wrapper.step(action)
+    assert terminated is True
+    assert truncated is False
+    assert info["n_env_steps"] == 1
+
+    with pytest.raises(RuntimeError, match=r"episode end; reset\(\) first"):
+        wrapper.step(action)
+
+    # A reset clears the terminal state and makes the next step legal.
+    wrapper.reset()
+    _, _, terminated, _, _ = wrapper.step(action)
+    assert terminated is True
