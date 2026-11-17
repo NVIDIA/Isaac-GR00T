@@ -63,10 +63,10 @@ class MsgSerializer:
         # silently re-enables the arbitrary-code surface that the previous
         # ``np.save(..., allow_pickle=False)`` path explicitly forbade.
         if isinstance(obj, np.ndarray):
-            if obj.dtype.kind == "O":
+            if obj.dtype.hasobject:
                 raise TypeError(
                     f"Refusing to encode object-dtype ndarray (shape={obj.shape}); "
-                    f"msgpack_numpy would invoke pickle. Convert to a concrete "
+                    f"Object references cannot be sent safely. Convert to a concrete "
                     f"numeric dtype before sending."
                 )
         return mnp.encode(obj, chain=chain)
@@ -83,24 +83,42 @@ class MsgSerializer:
                     )
                 return np.load(io.BytesIO(payload), allow_pickle=False)
 
-        # Refuse object-dtype ndarray payloads before mnp.decode would call
-        # ``pickle.loads`` on attacker-controlled bytes. Check both bytes- and
-        # str-encoded keys, and accept any truthy ``nd`` value (not just
-        # boolean ``True``) so a forged ``{nd: 1, kind: 'O', ...}`` payload
-        # can't sidestep the guard via msgpack's int-vs-bool type codes.
-        # msgpack_numpy 0.4.8's own check is ``obj[b'nd'] is True``, so the
-        # described variants don't actually reach pickle.loads today, but
-        # MsgSerializer enforces the contract at this boundary regardless of
-        # mnp's wire / identity-check conventions.
-        if isinstance(obj, dict):
-            nd_val = obj.get(b"nd", obj.get("nd"))
-            kind_val = obj.get(b"kind", obj.get("kind"))
-            if nd_val and kind_val in (b"O", "O"):
-                raise ValueError(
-                    "Refusing to decode object-dtype ndarray payload (pickle-bearing); "
-                    "the allow_pickle=False contract is enforced by MsgSerializer."
-                )
+        # The wire `kind` is untrusted: object pointers can also be hidden in
+        # an omitted-kind dtype or nested structured fields. Validate the actual
+        # dtype before constructing any array/scalar, and use that same dtype
+        # for construction so validation and decoding cannot disagree.
+        if isinstance(obj, dict) and (b"nd" in obj or "nd" in obj):
+            kind = obj.get(b"kind", obj.get("kind"))
+            if kind in (b"O", "O"):
+                raise ValueError("Refusing to decode object-dtype ndarray payload")
+            # Only binary keys trigger msgpack_numpy decoding. Ordinary
+            # string-keyed dictionaries must remain unchanged.
+            if b"nd" not in obj:
+                return mnp.decode(obj, chain=chain)
+            descriptor = obj.get(b"type", obj.get("type"))
+            if descriptor is None:
+                raise ValueError("Malformed numpy payload: 'type' missing")
+            dtype = MsgSerializer._decode_dtype(descriptor)
+            if dtype.hasobject:
+                raise ValueError("Refusing to decode object-dtype numpy payload")
+            if obj[b"nd"] is True:
+                return np.ndarray(buffer=obj[b"data"], dtype=dtype, shape=obj[b"shape"])
+            return np.frombuffer(obj[b"data"], dtype=dtype)[0]
         return mnp.decode(obj, chain=chain)
+
+    @staticmethod
+    def _decode_dtype(descriptor):
+        """Rebuild msgpack's list-based structured dtype without creating arrays."""
+        if isinstance(descriptor, bytes):
+            descriptor = descriptor.decode("ascii")
+        if isinstance(descriptor, (list, tuple)):
+            fields = []
+            for name, field_type, *shape in descriptor:
+                if isinstance(name, bytes):
+                    name = name.decode("utf-8")
+                fields.append((name, MsgSerializer._decode_dtype(field_type), *shape))
+            descriptor = fields
+        return np.dtype(descriptor)
 
     @staticmethod
     def _encode_custom(obj):

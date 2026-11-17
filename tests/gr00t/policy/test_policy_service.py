@@ -188,12 +188,36 @@ class TestPolicyServerAuth:
                     valid_client.kill_server()
                 thread.join(timeout=3)
 
+    @pytest.mark.parametrize("structured", [False, True])
+    def test_rejects_unsafe_dtype_without_token_and_keeps_serving(self, structured):
+        port = _find_free_port()
+        with PolicyServer(MockPolicy(), host="127.0.0.1", port=port, api_token="secret") as server:
+            thread = threading.Thread(target=server.run, daemon=True)
+            thread.start()
+            with PolicyClient(host="127.0.0.1", port=port, timeout_ms=5000) as client:
+                payload = {b"nd": True, b"type": "|O", b"shape": [1], b"data": bytes(8)}
+                if structured:
+                    payload[b"kind"] = b"V"
+                    payload[b"type"] = [("x", "|O")]
+                client.socket.send(msgpack.packb(payload))
+                response = MsgSerializer.from_bytes(client.socket.recv())
+                assert "object-dtype" in response["error"]
+                client.api_token = "secret"
+                assert client.ping()
+                client.kill_server()
+            thread.join(timeout=3)
+            assert not thread.is_alive()
+
 
 class TestMsgSerializer:
     """Test msgpack serialization helpers."""
 
     def test_roundtrip_dict(self):
         data = {"key": "value", "number": 42}
+        assert MsgSerializer.from_bytes(MsgSerializer.to_bytes(data)) == data
+
+    def test_ordinary_string_keyed_nd_dictionary(self):
+        data = {"nd": True, "type": "application metadata"}
         assert MsgSerializer.from_bytes(MsgSerializer.to_bytes(data)) == data
 
     def test_roundtrip_numpy(self):
@@ -288,6 +312,59 @@ class TestMsgSerializer:
         forged = mnp.packb({b"nd": 1, b"kind": b"O", b"type": "|O", b"shape": (1,), b"data": b""})
         with pytest.raises(ValueError, match="object-dtype"):
             MsgSerializer.from_bytes(forged)
+
+    @pytest.mark.parametrize("nd", [True, False, 1])
+    @pytest.mark.parametrize("kind", [None, b"", b"V"])
+    @pytest.mark.parametrize(
+        "descriptor",
+        ["|O", [("x", "|O")], [("nested", [("x", "|O")])], [("x", "|O", (2,))]],
+    )
+    def test_rejects_object_pointers_before_array_construction(
+        self, monkeypatch, nd, kind, descriptor
+    ):
+        # Never construct an unsafe array, even when testing the unfixed code.
+        def forbidden(*args, **kwargs):
+            pytest.fail("Object-bearing payload reached numpy array construction")
+
+        forged = {b"nd": nd, b"type": descriptor, b"shape": [1], b"data": bytes(32)}
+        if kind is not None:
+            forged[b"kind"] = kind
+        message = msgpack.packb({"__ModalityConfig__": True, "as_json": {"delta_indices": forged}})
+        monkeypatch.setattr(np, "ndarray", forbidden)
+        monkeypatch.setattr(np, "frombuffer", forbidden)
+        with pytest.raises(ValueError, match="object-dtype"):
+            MsgSerializer.from_bytes(message)
+
+    def test_encode_rejects_nested_object_fields(self):
+        arr = np.zeros(1, dtype=[("nested", [("value", object)])])
+        with pytest.raises(TypeError, match="object-dtype"):
+            MsgSerializer.to_bytes(arr)
+
+    @pytest.mark.parametrize(
+        "dtype",
+        [
+            np.float32,
+            np.int64,
+            np.bool_,
+            np.complex128,
+            [("x", "f4"), ("nested", [("y", "i4")]), ("vector", "f8", (2,))],
+        ],
+    )
+    def test_numeric_dtype_wire_compatibility(self, dtype):
+        import msgpack_numpy as mnp
+
+        arr = np.zeros(3, dtype=dtype)
+        for message in (mnp.packb(arr), MsgSerializer.to_bytes(arr)):
+            result = MsgSerializer.from_bytes(message)
+            assert result.dtype == arr.dtype
+            np.testing.assert_array_equal(result, arr)
+        np.testing.assert_array_equal(mnp.unpackb(MsgSerializer.to_bytes(arr)), arr)
+
+    @pytest.mark.parametrize("value", [np.float32(1.5), np.int64(2), np.bool_(True)])
+    def test_numeric_scalar_roundtrip(self, value):
+        result = MsgSerializer.from_bytes(MsgSerializer.to_bytes(value))
+        assert type(result) is type(value)
+        assert result == value
 
     def test_decode_raises_on_marker_without_payload(self):
         # A truncated / malformed message that carries the marker but no
