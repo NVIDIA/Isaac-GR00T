@@ -355,8 +355,11 @@ def test_terminate_on_success_marks_wrapper_boundary_and_dones():
     assert wrapper.done[-1] is True
 
 
-def test_step_after_termination_requires_reset():
-    """A second step after a terminal chunk raises a clear error, not UnboundLocalError."""
+@pytest.mark.parametrize(
+    ("expected_terminated", "expected_truncated"), [(True, False), (False, True)]
+)
+def test_step_after_episode_boundary_requires_reset(expected_terminated, expected_truncated):
+    """A second step after either Gymnasium boundary raises a clear error."""
     mod = _import_module()
     import gymnasium as gym
 
@@ -371,7 +374,13 @@ def test_step_after_termination_requires_reset():
             return {"state.position": np.array([0], np.float32)}, {}
 
         def step(self, action):
-            return {"state.position": np.array([1], np.float32)}, 1.0, True, False, {}
+            return (
+                {"state.position": np.array([1], np.float32)},
+                1.0,
+                expected_terminated,
+                expected_truncated,
+                {},
+            )
 
     contract = PolicyHorizonSpec(
         n_action_steps=2,
@@ -385,8 +394,8 @@ def test_step_after_termination_requires_reset():
     wrapper.reset()
     action = {"action": np.zeros((2, 1), np.float32)}
     _, _, terminated, truncated, info = wrapper.step(action)
-    assert terminated is True
-    assert truncated is False
+    assert terminated is expected_terminated
+    assert truncated is expected_truncated
     assert info["n_env_steps"] == 1
 
     with pytest.raises(RuntimeError, match=r"episode end; reset\(\) first"):
@@ -394,5 +403,6 @@ def test_step_after_termination_requires_reset():
 
     # A reset clears the terminal state and makes the next step legal.
     wrapper.reset()
-    _, _, terminated, _, _ = wrapper.step(action)
-    assert terminated is True
+    _, _, terminated, truncated, _ = wrapper.step(action)
+    assert terminated is expected_terminated
+    assert truncated is expected_truncated
