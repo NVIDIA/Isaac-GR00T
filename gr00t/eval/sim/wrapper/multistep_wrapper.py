@@ -298,6 +298,12 @@ class MultiStepWrapper(gym.Wrapper):
         """
         action: dict: key-value pairs where the values are of shape (n_action_steps,) + action_shape
         """
+        # A terminal/truncated macro-step cannot be advanced without reset.
+        # Previously the loop broke before defining env_state and eventually
+        # raised UnboundLocalError while constructing the result info.
+        if self.done and self.done[-1]:
+            raise RuntimeError("MultiStepWrapper.step() called after episode end; reset() first")
+
         states = []
         rewards = []
         dones = []
