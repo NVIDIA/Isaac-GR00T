@@ -249,62 +249,37 @@ def _group_episodes_by_video_file(
     return grouped
 
 
-def _validate_video_paths(src: Path, dst: Path) -> None:
-    """Validate source and destination paths to prevent security issues."""
+def _validate_video_key(video_key: str) -> None:
+    """A dataset feature key must be a single directory component."""
+    if (
+        not isinstance(video_key, str)
+        or not video_key
+        or video_key in {".", ".."}
+        or any(c in video_key for c in "/\\:")
+        or any(ord(c) < 32 or ord(c) == 127 for c in video_key)
+    ):
+        raise ValueError(f"Invalid video feature key: {video_key!r}")
 
-    # Convert to Path objects if they aren't already
-    src = Path(src)
-    dst = Path(dst)
 
-    # Resolve paths to handle symlinks and normalize them
-    try:
-        src_resolved = src.resolve()
-        dst_resolved = dst.resolve()
-    except OSError as exc:
-        raise ValueError(f"Invalid path provided: {exc}") from exc
-
-    # Check that source file exists and is a regular file
-    if not src_resolved.exists():
-        raise FileNotFoundError(f"Source video file does not exist: {src_resolved}")
+def _validate_video_paths(src: Path, dst: Path, *, root: Path, new_root: Path) -> tuple[Path, Path]:
+    """Constrain video reads and writes to the selected dataset directories."""
+    src_resolved = src.resolve()
+    dst_resolved = dst.resolve()
+    for path, boundary, name in (
+        (src_resolved, root.resolve(), "Source"),
+        (dst_resolved, new_root.resolve(), "Destination"),
+    ):
+        if not path.is_relative_to(boundary):
+            raise ValueError(f"{name} video path escapes its root: {path}")
 
     if not src_resolved.is_file():
-        raise ValueError(f"Source path is not a regular file: {src_resolved}")
+        raise FileNotFoundError(f"Source video is not a regular file: {src_resolved}")
 
-    # Validate file extensions for video files
     valid_video_extensions = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
-    if src_resolved.suffix.lower() not in valid_video_extensions:
-        raise ValueError(f"Source file does not have a valid video extension: {src_resolved}")
-
-    if dst_resolved.suffix.lower() not in valid_video_extensions:
-        raise ValueError(f"Destination file does not have a valid video extension: {dst_resolved}")
-
-    # Check for path traversal attempts in the original paths
-    src_str = str(src)
-    dst_str = str(dst)
-
-    # Ensure paths don't contain null bytes or other control characters
-    for path_str, name in [(src_str, "source"), (dst_str, "destination")]:
-        if "\0" in path_str:
-            raise ValueError(f"Path contains null bytes: {name} path")
-        if any(ord(c) < 32 and c not in ["\t", "\n", "\r"] for c in path_str):
-            raise ValueError(f"Path contains invalid control characters: {name} path")
-
-    # Additional check: ensure resolved paths don't point to system directories
-    system_dirs = {"/etc", "/sys", "/proc", "/dev", "/boot", "/root"}
-    for resolved_path, name in [(src_resolved, "source"), (dst_resolved, "destination")]:
-        path_str = str(resolved_path)
-        for sys_dir in system_dirs:
-            if path_str.startswith(sys_dir + "/") or path_str == sys_dir:
-                raise ValueError(f"Path points to system directory: {name} path {resolved_path}")
-
-    # Ensure the destination directory can be created safely
-    try:
-        dst_parent = dst_resolved.parent
-        if not dst_parent.exists():
-            # Check if we can create the parent directory structure
-            dst_parent.resolve()
-    except OSError as exc:
-        raise ValueError(f"Cannot create destination directory: {exc}") from exc
+    for path in (src_resolved, dst_resolved):
+        if path.suffix.lower() not in valid_video_extensions:
+            raise ValueError(f"Path does not have a valid video extension: {path}")
+    return src_resolved, dst_resolved
 
 
 def _extract_video_segment(
@@ -312,9 +287,11 @@ def _extract_video_segment(
     dst: Path,
     start: float,
     end: float,
+    *,
+    root: Path,
+    new_root: Path,
 ) -> None:
-    # Validate paths to prevent security issues
-    _validate_video_paths(src, dst)
+    src, dst = _validate_video_paths(src, dst, root=root, new_root=new_root)
 
     # Validate numeric parameters to prevent injection
     if not (0 <= start <= 86400):  # 24 hours max
@@ -385,6 +362,9 @@ def convert_videos(
         logging.info("No video features detected; skipping video conversion")
         return
 
+    for video_key in video_keys:
+        _validate_video_key(video_key)
+
     logging.info("Converting concatenated MP4 files back to per-episode videos")
 
     for video_key in video_keys:
@@ -420,7 +400,9 @@ def convert_videos(
                     episode_index=episode_index,
                 )
 
-                _extract_video_segment(src_path, dest_path, start=start, end=end)
+                _extract_video_segment(
+                    src_path, dest_path, start=start, end=end, root=root, new_root=new_root
+                )
 
 
 def convert_episodes_metadata(new_root: Path, episode_records: list[dict[str, Any]]) -> None:
@@ -504,6 +486,9 @@ def convert_dataset(
     episode_records = load_episode_records(root)
     info = load_info(root)
     video_keys = [key for key, ft in info["features"].items() if ft.get("dtype") == "video"]
+    # Reject untrusted keys before creating or removing conversion directories.
+    for video_key in video_keys:
+        _validate_video_key(video_key)
     chunks_size = info.get("chunks_size", DEFAULT_CHUNK_SIZE)
 
     backup_root = root.parent / f"{root.name}_{V30}"
