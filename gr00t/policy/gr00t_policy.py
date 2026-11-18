@@ -105,8 +105,9 @@ class Gr00tPolicy(BasePolicy):
             embodiment_tag = EmbodimentTag.resolve(embodiment_tag)
         model_dir = Path(model_path)
 
-        # Load the pretrained model and move to target device with bfloat16 precision
-        model = AutoModel.from_pretrained(model_dir)
+        # Load the pretrained model and move to target device with bfloat16 precision.
+        # torch_dtype avoids materializing the bf16 checkpoint in fp32 first.
+        model = AutoModel.from_pretrained(model_dir, torch_dtype=torch.bfloat16)
         model.eval()  # Set model to evaluation mode
         model.to(device=device, dtype=torch.bfloat16)
         self.model = model
