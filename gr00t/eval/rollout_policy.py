@@ -278,6 +278,10 @@ def _macro_step_env_steps(env_infos: dict, env_idx: int) -> int:
     return 0
 
 
+# An env that keeps returning invalid episodes would never meet its episode quota.
+_MAX_CONSECUTIVE_INVALID_EPISODES = 100
+
+
 def _collect_rollout_episodes(
     env,
     policy: BasePolicy,
@@ -298,6 +302,14 @@ def _collect_rollout_episodes(
     current_successes = [False] * n_envs
     episode_successes = []
     episode_infos = defaultdict(list)
+    # Fix how many episodes each env contributes before the run starts. Counting
+    # the first ``n_episodes`` to finish across auto-resetting envs over-samples
+    # short episodes (with ``terminate_on_success``, the successes), because the
+    # long ones are still running at the cutoff and are dropped. Env ``i`` counts
+    # its first ``quotas[i]`` valid episodes and ignores any it finishes after that.
+    quotas = [n_episodes // n_envs + (1 if i < n_episodes % n_envs else 0) for i in range(n_envs)]
+    counted_per_env = [0] * n_envs
+    consecutive_invalid = [0] * n_envs
 
     # Initial reset; if a seed is provided, give each sub-env a distinct but
     # deterministic seed so that parallel workers don't all start from the
@@ -351,6 +363,12 @@ def _collect_rollout_episodes(
 
                 # If episode ended, store results
                 if terminations[env_idx] or truncations[env_idx]:
+                    if counted_per_env[env_idx] >= quotas[env_idx]:
+                        # This env has already contributed its share of episodes.
+                        current_successes[env_idx] = False
+                        current_rewards[env_idx] = 0.0
+                        current_lengths[env_idx] = 0
+                        continue
                     if "final_info" in env_infos:
                         current_successes[env_idx] |= any(
                             env_infos["final_info"][env_idx]["success"]
@@ -375,10 +393,21 @@ def _collect_rollout_episodes(
                     # only update completed_episodes if valid
                     if "valid" in episode_infos:
                         if episode_infos["valid"][-1]:
+                            consecutive_invalid[env_idx] = 0
+                            counted_per_env[env_idx] += 1
                             completed_episodes += 1
                             pbar.update(1)
+                        else:
+                            consecutive_invalid[env_idx] += 1
+                            if consecutive_invalid[env_idx] >= _MAX_CONSECUTIVE_INVALID_EPISODES:
+                                raise RuntimeError(
+                                    f"Env {env_idx} returned {consecutive_invalid[env_idx]} invalid "
+                                    f"episodes in a row and cannot reach its quota of "
+                                    f"{quotas[env_idx]} valid episodes."
+                                )
                     else:
                         # envs don't return valid
+                        counted_per_env[env_idx] += 1
                         completed_episodes += 1
                         pbar.update(1)
                     # Reset with `0.0` to match the `[0.0] * n_envs` init and the
