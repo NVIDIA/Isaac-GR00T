@@ -59,15 +59,23 @@ EMBODIMENT_TAG = "libero_sim"
 MODEL_REPO_ID = "nvidia/GR00T-N1.7-3B"
 
 
+# Snapshot the visible-GPU count at import, before any test body runs.
+# ``torch.cuda.device_count()`` caches its result once a CUDA context exists, so
+# ``test_experiment_run_single_gpu`` — which pins ``CUDA_VISIBLE_DEVICES=0`` and then
+# initializes CUDA in-process — leaves the cached count at 1 for the rest of the
+# worker. monkeypatch restoring the env does not undo that, so reading the count from
+# the fixture below made the multigpu test skip with "got 1" on every full-file run.
+_VISIBLE_GPU_COUNT = torch.cuda.device_count()
+
+
 @pytest.fixture(scope="session")
 def _visible_multigpu_count() -> int:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
 
-    num_gpus = torch.cuda.device_count()
-    if num_gpus < 2:
-        pytest.skip(f"Need at least 2 visible GPUs for multigpu test, got {num_gpus}")
-    return num_gpus
+    if _VISIBLE_GPU_COUNT < 2:
+        pytest.skip(f"Need at least 2 visible GPUs for multigpu test, got {_VISIBLE_GPU_COUNT}")
+    return _VISIBLE_GPU_COUNT
 
 
 @pytest.mark.gpu
