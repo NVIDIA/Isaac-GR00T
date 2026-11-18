@@ -147,7 +147,7 @@ def _test_egl():
 def check_vulkan_installation():
     if not Path("/usr/share/vulkan/icd.d/nvidia_icd.json").exists():
         print("Creating /usr/share/vulkan/icd.d/nvidia_icd.json ...")
-        subprocess.run(CREATE_NVIDIA_ICD_JSON, shell=True)
+        subprocess.run(CREATE_NVIDIA_ICD_JSON, shell=True, check=True)
     print("✓ Vulkan installation is OK")
 
 
