@@ -166,6 +166,13 @@ class So100Adapter:
 
         full = np.concatenate([single_arm, gripper], axis=0)  # (6,)
 
+        # Fail closed: never forward NaN/Inf joint targets to the robot driver.
+        if not np.isfinite(full).all():
+            raise ValueError(
+                f"Policy produced non-finite action at timestep {t}: "
+                f"{dict(zip(self.robot_state_keys, full.tolist()))}"
+            )
+
         return {joint_name: float(full[i]) for i, joint_name in enumerate(self.robot_state_keys)}
 
     def get_action(self, obs: Dict) -> List[Dict[str, float]]:
