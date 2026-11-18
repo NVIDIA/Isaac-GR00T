@@ -1,7 +1,7 @@
 # Default platform pyproject.toml (x86, GB200, and any non-Jetson GPU)
 
 [build-system]
-requires = ["setuptools>=67", "wheel", "pip"]
+requires = ["setuptools>=83.0.0", "wheel", "pip"]
 build-backend = "setuptools.build_meta"
 
 [project]
