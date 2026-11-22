@@ -116,12 +116,16 @@ the N1.6 model package and runtime behavior.
 - Model package changed from `gr00t_n1d6` to `gr00t_n1d7`, so codepaths and processor metadata move to the N1.7 namespace.
 - VLM backbone changed from vendored Eagle, `nvidia/Eagle-Block2A-2B-v2`, to `nvidia/Cosmos-Reason2-2B` via Qwen3-VL.
 - Transformers changed from `4.51.3` to `4.57.3` to support the newer Qwen3-VL stack.
-- Model defaults changed: `select_layer` `16` to `12`, `tune_top_llm_layers` `4` to `0`, and `load_bf16` `true` to `false`.
+- Model configuration defaults in code changed: `select_layer` `16` to `12`, `tune_top_llm_layers` `4` to `0`, and `load_bf16` `true` to `false`.
 - State and action dimensions expanded from `29` to `132`, and `action_horizon` expanded from `16` to `40`.
-- Action head remains flow-matching DiT, but changes from `32` to `16` diffusion layers and adds newer N1.7 behavior options.
+- The action head remains a flow-matching DiT. The default number of diffusion layers in code changed from `32` to `16`, and N1.7 adds new behavior options.
 - Dataset input handling now supports multiple dataset paths and `ds_weights_alpha` for dataset mixtures.
 - The rollout CLI flag was renamed from `--action-horizon` to `--execution-horizon` to clarify how many predicted actions are executed per policy call.
 - Server/client transport has stronger object-dtype ndarray serialization and cleaner socket timeout behavior.
+
+When fine-tuning from the published [GR00T-N1.7-3B checkpoint](https://huggingface.co/nvidia/GR00T-N1.7-3B/blob/main/config.json),
+the model loads `select_layer=16` and `diffusion_model_cfg.num_layers=32` from the checkpoint configuration.
+To verify the model configuration used for your run, see `<output-dir>/experiment_cfg/final_model_config.json`.
 
 </details>
 
