@@ -298,12 +298,12 @@ def main(args: ArgsConfig):
             logging.warning(f"Could not find checkpoint-<step> pattern in path: {local_model_path}")
 
     if local_model_path is not None:
-        import torch
+        from gr00t.utils.device import get_default_device
 
         policy = Gr00tPolicy(
             embodiment_tag=args.embodiment_tag,
             model_path=local_model_path,
-            device="cuda" if torch.cuda.is_available() else "cpu",
+            device=get_default_device(),
         )
         # Apply --denoising-steps: the action head reads num_inference_timesteps
         # at sampling time.

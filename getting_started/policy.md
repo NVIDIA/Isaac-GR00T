@@ -14,7 +14,7 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 policy = Gr00tPolicy(
     model_path="/path/to/your/checkpoint",
     embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,  # or other embodiment tags
-    device="cuda:0",  # or "cpu", or device index like 0
+    device="cuda:0",  # or "xpu", "cpu", or device index like 0
     strict=True  # Enable input/output validation (recommended during development)
 )
 ```
@@ -25,7 +25,7 @@ policy = Gr00tPolicy(
 |-----------|------|---------|-------------|
 | `embodiment_tag` | `EmbodimentTag \| str` | *(required)* | Robot type; accepts enum or case-insensitive string (e.g., `"NEW_EMBODIMENT"`) |
 | `model_path` | `str` | *(required)* | Path to model checkpoint directory (local path or HuggingFace model ID) |
-| `device` | `str \| int` | *(required)* | Inference device: `"cuda:0"`, `0`, or `"cpu"` |
+| `device` | `str \| int` | *(required)* | Inference device: `"cuda:0"`, `"xpu"`, `"cpu"`, or a device index like `0` |
 | `strict` | `bool` | `True` | Validates observation shapes and dtypes at runtime. Recommended during development; disable in production for speed |
 
 ## Inference Parameter Guide
@@ -304,7 +304,7 @@ uv run python gr00t/eval/run_gr00t_server.py \
 **Parameters:**
 - `--embodiment-tag`: The embodiment tag for your robot (e.g., `NEW_EMBODIMENT`)
 - `--model-path`: Path to your trained model checkpoint directory
-- `--device`: Device to run inference on (`cuda:0`, `cuda:1`, `cpu`, etc.)
+- `--device`: Device to run inference on (`cuda:0`, `cuda:1`, `xpu`, `cpu`, etc.). Omit to auto-select: CUDA if available, else XPU, else CPU
 - `--host`: Host address (`127.0.0.1` for local only, `0.0.0.0` to accept external connections)
 - `--port`: Port number (default: 5555)
 - `--strict` / `--no-strict`: Enable or disable input/output validation (default: True)

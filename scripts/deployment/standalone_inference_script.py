@@ -39,6 +39,7 @@ from gr00t.deployment.vl_padding import assert_plain_dit_sees_no_vl_padding
 from gr00t.eval._horizon_contract import migrate_deprecated_action_horizon_argv
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 from gr00t.policy.policy import BasePolicy
+from gr00t.utils.device import get_default_device
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
@@ -651,6 +652,9 @@ class ArgsConfig:
     seed: int = 42
     """Seed to use for reproducibility."""
 
+    device: str | None = None
+    """Device for the PyTorch model (e.g. 'cuda:0', 'xpu'). Defaults to CUDA if available, else XPU."""
+
 
 def main(args: ArgsConfig):
     # Set up logging
@@ -671,9 +675,13 @@ def main(args: ArgsConfig):
     set_seed(args.seed)
     logging.info("=" * 80)
 
-    if not torch.cuda.is_available():
-        logging.error("CUDA is not available. This script requires a GPU. Exiting.")
+    device = args.device if args.device is not None else get_default_device()
+    if device == "cpu" and args.device is None:
+        logging.error(
+            "No GPU (CUDA or Intel XPU) is available. This script requires a GPU. Exiting."
+        )
         sys.exit(1)
+    logging.info(f"Device: {device}")
 
     # Download model checkpoint
     local_model_path = args.model_path
@@ -703,7 +711,7 @@ def main(args: ArgsConfig):
     policy = Gr00tPolicy(
         embodiment_tag=args.embodiment_tag,
         model_path=local_model_path,
-        device="cuda" if torch.cuda.is_available() else "cpu",
+        device=device,
     )
     # Apply --denoising-steps: the action head reads num_inference_timesteps at
     # sampling time (honored by the PyTorch and TensorRT denoising loops alike).

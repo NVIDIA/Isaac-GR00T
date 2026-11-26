@@ -30,6 +30,7 @@ from gr00t.eval.sim.env_utils import get_embodiment_tag_from_env_name
 from gr00t.eval.sim.wrapper.multistep_wrapper import MultiStepWrapper
 from gr00t.policy import BasePolicy
 from gr00t.utils.determinism import seed_everything
+from gr00t.utils.device import get_default_device
 import gymnasium as gym
 import numpy as np
 from tqdm import tqdm
@@ -516,7 +517,7 @@ def create_gr00t_sim_policy(
         gr00t_policy = Gr00tPolicy(
             embodiment_tag=embodiment_tag,
             model_path=model_path,
-            device=0,
+            device=get_default_device(),
         )
         if trt_engine_path:
             deploy_dir = str(Path(__file__).resolve().parents[2] / "scripts" / "deployment")

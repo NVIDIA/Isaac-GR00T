@@ -1,0 +1,31 @@
+# Inference dependencies for Intel GPUs (XPU), see "Run on Intel GPU (XPU)" in README.md.
+# This is the dependency list of pyproject.toml without the packages that need CUDA or are
+# only used for training and export: torch, torchvision and torchcodec (installed from the
+# PyTorch XPU index instead), flash-attn, tensorrt, onnx, onnxscript, deepspeed, triton, wandb.
+# pyarrow is not a direct dependency; it is pinned to match uv.lock.
+albumentations==1.4.18
+huggingface-hub[cli]
+opencv-python-headless>=4.5,<4.13
+diffusers==0.35.1
+dm-tree
+lmdb==1.7.5
+msgpack==1.1.0
+msgpack-numpy==0.4.8
+pandas==2.2.3
+peft==0.17.1
+termcolor==3.2.0
+transformers==4.57.3
+tyro==0.9.17
+click==8.1.8
+datasets==3.6.0
+cryptography>=46.0.7
+einops==0.8.1
+gitpython==3.1.50
+jsonlines==4.0.0
+gymnasium==1.2.2
+matplotlib==3.10.1
+numpy==1.26.4
+omegaconf==2.3.0
+scipy==1.15.3
+pyzmq==27.0.1
+pyarrow==23.0.1
