@@ -25,6 +25,7 @@ from gr00t.data.types import ModalityConfig
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 from gr00t.policy.replay_policy import ReplayPolicy
 from gr00t.policy.server_client import PolicyServer
+from gr00t.utils.device import get_default_device
 import tyro
 
 
@@ -61,8 +62,8 @@ class ServerConfig:
     embodiment_tag: str = "new_embodiment"
     """Embodiment tag (name or value, case-insensitive). Run with --help to see known tags."""
 
-    device: str = "cuda"
-    """Device to run the model on"""
+    device: str | None = None
+    """Device to run the model on (default: CUDA if available, else XPU, else CPU)"""
 
     # Replay policy configs
     dataset_path: str | None = None
@@ -90,6 +91,8 @@ class ServerConfig:
 
 def main(config: ServerConfig):
     config.embodiment_tag = EmbodimentTag.resolve(config.embodiment_tag)
+    if config.device is None:
+        config.device = get_default_device()
     print("Starting GR00T inference server...")
     print(f"  Embodiment tag: {config.embodiment_tag}")
     print(f"  Model path: {config.model_path}")

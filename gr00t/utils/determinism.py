@@ -80,6 +80,8 @@ def seed_everything(seed: int | None = None, *, warn_only: bool = True) -> int |
 
     random.seed(seed)
     np.random.seed(seed)
+
+    # Also seeds every accelerator (CUDA, XPU).
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.use_deterministic_algorithms(True, warn_only=warn_only)

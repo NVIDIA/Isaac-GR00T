@@ -81,7 +81,7 @@ def _build_observation(policy, batch_size=1, seed=42):
 
 @pytest.fixture(scope="module")
 def policy(request):
-    """Shared Gr00tPolicy on ``cuda:0`` reused across all tests in this module."""
+    """Shared Gr00tPolicy on the default GPU (CUDA, else XPU) reused across this module."""
     if not request.node.nodeid.endswith("::test_warmup_model_load"):
         print(
             f"[gpu_policy] WARNING: model load triggered by {request.node.nodeid!r}, "
@@ -91,12 +91,13 @@ def policy(request):
         )
 
     from gr00t.policy.gr00t_policy import Gr00tPolicy
+    from gr00t.utils.device import get_default_device
 
     t0 = time.perf_counter()
     p = Gr00tPolicy(
         embodiment_tag=EMBODIMENT_TAG,
         model_path=MODEL_REPO_ID,
-        device="cuda:0",
+        device=get_default_device(),
     )
     # This CI test skips trained weights, so the model can emit dummy rot6d
     # action components that are finite but not valid rotations. Keep the
@@ -114,7 +115,7 @@ def test_warmup_model_load(policy):
     assert policy.model is not None
     assert policy.processor is not None
     device = next(policy.model.parameters()).device
-    assert device.type == "cuda"
+    assert device.type in ("cuda", "xpu")
 
 
 @pytest.mark.gpu

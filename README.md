@@ -279,6 +279,39 @@ See the [Orin setup guide](scripts/deployment/README.md#jetson-orin-setup) for D
 
 For a containerized setup that avoids system-level dependency conflicts, see our [Docker Setup Guide](docker/README.md). The recommended container workflow is to start the image first, then clone or pull the repo inside the running container so your checkout uses the image's prebuilt dependency environment.
 
+### Run on Intel GPU (XPU)
+
+PyTorch inference also runs on Intel GPUs (Arc discrete GPUs and Core Ultra integrated graphics) through the PyTorch XPU backend. Install FFmpeg (required by `torchcodec`) as shown in the installation section above, then the XPU related packages and GR00T dependencies:
+```sh
+python3.12 -m venv .venv-xpu && source .venv-xpu/bin/activate
+pip install torch==2.9.0+xpu torchvision==0.24.0+xpu --index-url https://download.pytorch.org/whl/xpu
+pip install torchcodec==0.8.0
+pip install -e . --no-deps
+pip install -r requirements-xpu.txt
+python -c "import torch; print(torch.__version__, torch.xpu.is_available())"
+```
+
+The inference scripts use CUDA when it is available and the Intel GPU otherwise; `--device xpu` selects it explicitly:
+```sh
+python scripts/deployment/standalone_inference_script.py \
+    --model-path nvidia/GR00T-N1.7-3B \
+    --dataset-path demo_data/droid_sample \
+    --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
+    --traj-ids 0 1 \
+    --inference-mode pytorch \
+    --execution-horizon 8 \
+    --device xpu
+```
+`gr00t/eval/run_gr00t_server.py` (also with `--device xpu`), `gr00t/eval/open_loop_eval.py` and `gr00t/eval/rollout_policy.py` pick the device the same way. The Hugging Face access to `nvidia/Cosmos-Reason2-2B` described above is needed here too. flash-attn (the backbone uses PyTorch SDPA attention instead), TensorRT and ONNX export, training, and the timing/benchmark scripts stay CUDA-only.
+
+For the LIBERO simulation rollout, `gr00t/eval/sim/LIBERO/setup_libero.sh` installs the CUDA build of PyTorch. After the setup, replace it with the XPU build:
+```sh
+uv pip install --python gr00t/eval/sim/LIBERO/libero_uv/.venv/bin/python \
+    --index-url https://download.pytorch.org/whl/xpu \
+    torch==2.9.0+xpu torchvision==0.24.0+xpu
+```
+If the simulator does not render on the Intel GPU, set `MUJOCO_EGL_DEVICE_ID` to the EGL device index of the GPU.
+
 ---
 
 ## LeRobot Integration

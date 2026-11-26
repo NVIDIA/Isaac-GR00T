@@ -43,6 +43,7 @@ from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.eval.open_loop_eval import evaluate_single_trajectory
 from gr00t.policy.gr00t_policy import Gr00tPolicy
+from gr00t.utils.device import get_default_device
 import pytest
 from test_support.runtime import get_root, resolve_demo_dataset, resolve_model_checkpoint_path
 import torch
@@ -170,7 +171,7 @@ def loaded_variant(request, load_hf_model_weights):
     model_path = _model_path(variant)
     dataset_path = _dataset_path(variant)
     embodiment_tag = EmbodimentTag.resolve(variant.embodiment_tag)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = get_default_device()
 
     with load_hf_model_weights():
         policy = Gr00tPolicy(

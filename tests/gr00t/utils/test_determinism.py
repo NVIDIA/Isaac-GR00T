@@ -85,3 +85,11 @@ def test_cudnn_flags_flipped_when_seeded():
     assert torch.backends.cudnn.deterministic is True
     assert torch.backends.cudnn.benchmark is False
     assert torch.are_deterministic_algorithms_enabled() is True
+
+
+@pytest.mark.skipif(not torch.xpu.is_available(), reason="requires an XPU")
+def test_seed_is_reproducible_on_xpu():
+    seed_everything(0)
+    first = torch.rand(4, device="xpu").cpu()
+    seed_everything(0)
+    assert torch.equal(torch.rand(4, device="xpu").cpu(), first)
