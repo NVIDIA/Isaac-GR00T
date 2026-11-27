@@ -74,6 +74,24 @@ class CategorySpecificLinear(nn.Module):
         Returns:
             [B, T, hidden_dim] output tensor
         """
+        # Fast path for a single active embodiment in the batch (the common
+        # single-embodiment fine-tune, where every ``cat_ids`` entry is equal).
+        # The general path gathers B rows with ``self.W[cat_ids]`` and, in the
+        # backward, scatter-adds B gradients back into the selected rows via
+        # ``indexing_backward_kernel``. When all ids are identical those scatters
+        # target one row -> serialized atomic contention, which profiles as one of
+        # the top training-time kernels. Selecting the single weight and using a
+        # plain matmul turns the weight-grad into a GEMM reduction (no atomics).
+        # Math-equivalent to the general path (differs only by floating-point
+        # reduction order). Skipped under ``torch.compile`` (the data-dependent
+        # check would graph-break) and for mixed-embodiment batches.
+        if (
+            cat_ids.numel() > 0
+            and not torch.compiler.is_compiling()
+            and bool((cat_ids == cat_ids[0]).all())
+        ):
+            e = cat_ids[0]
+            return torch.matmul(x, self.W[e]) + self.b[e]
         selected_W = self.W[cat_ids]
         selected_b = self.b[cat_ids]
         return torch.bmm(x, selected_W) + selected_b.unsqueeze(1)
